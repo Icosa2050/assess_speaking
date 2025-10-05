@@ -21,7 +21,7 @@ python -m pip install -r requirements.txt
 
 ## 2) Testaudio ohne Mikrofon
 ```bash
-say -v "Alice" -o sample.aiff --data-format=LEF32@16000 "Buongiorno. Oggi parlo della riqualificazione energetica degli edifici."
+say -v "Alice" -o sample.aiff "Buongiorno. Oggi parlo della riqualificazione energetica degli edifici."
 ffmpeg -y -i sample.aiff -ac 1 -ar 16000 sample.wav
 ```
 
