@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-import argparse, json, math, subprocess, re, sys
+import argparse, csv, json, math, re, subprocess, sys
+from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 try:
     from faster_whisper import WhisperModel  # type: ignore
@@ -19,6 +21,37 @@ COHESION = {
     "inoltre","per quanto riguarda","tuttavia","ciò nonostante","in definitiva",
     "da un lato","dall’altro","a mio avviso","tenuto conto di","a quanto pare",
     "presumibilmente","parrebbe che","pertanto","quindi","invece","comunque"
+}
+
+# Heuristic CEFR baselines derived from the Council of Europe's global scale and
+# EF SET can-do descriptions, with speaking-rate expectations anchored to the
+# average conversational speed (120-150 wpm) reported by VirtualSpeech.
+# Sources:
+# - Council of Europe, CEFR global scale (https://www.coe.int/...global-scale)
+# - EF SET CEFR guides for B1/B2/C1 (https://www.efset.org/cefr/<level>/)
+# - VirtualSpeech, average speaking rate (https://virtualspeech.com/...words-per-minute)
+CEFR_BASELINES = {
+    "B1": {
+        "wpm_min": 80,
+        "wpm_max": 130,
+        "fillers_max": 6,
+        "cohesion_min": 0,
+        "complexity_min": 0,
+        "notes": "Produce testo connesso su esperienze personali; ritmo ancora in sviluppo ma comprensibile."},
+    "B2": {
+        "wpm_min": 100,
+        "wpm_max": 150,
+        "fillers_max": 4,
+        "cohesion_min": 1,
+        "complexity_min": 1,
+        "notes": "Interazione fluida e spontanea con idee articolate su temi conosciuti."},
+    "C1": {
+        "wpm_min": 110,
+        "wpm_max": 160,
+        "fillers_max": 3,
+        "cohesion_min": 2,
+        "complexity_min": 2,
+        "notes": "Discorso ben strutturato e preciso, con uso flessibile del linguaggio."},
 }
 
 def load_audio_features(wav_path: Path):
@@ -75,7 +108,8 @@ def metrics_from(words, audio_feats):
     text = " " + re.sub(r"\s+", " ", " ".join(t for t in tokens)) + " "
     cohesion_hits = 0
     for m in COHESION:
-        pat = r"\b" + re.escape(m).replace(" ", r"\\s+") + r"\b"
+        parts = [re.escape(part) for part in m.split()]
+        pat = r"\b" + r"\s+".join(parts) + r"\b"
         cohesion_hits += len(re.findall(pat, text, flags=re.IGNORECASE))
     rel_markers = len(re.findall(r"\bche\b|\bcui\b|\bnella quale\b|\bnei quali\b", text))
     cond_markers = len(re.findall(r"\bse\b|\bqualora\b", text))
@@ -137,6 +171,90 @@ def selftest(model="llama3.1"):
     prompt = "Valuta brevemente (JSON) un testo fittizio: 'Oggi parlo dell'efficienza energetica nelle case.' Dai punteggi CEFR 1–5 per fluency, cohesion, accuracy, range e un commento."
     return call_ollama(model, prompt)
 
+def extract_rubric_json(payload: str) -> Optional[dict]:
+    if not payload:
+        return None
+    match = re.search(r"```json\s*(\{.*?\})\s*```", payload, flags=re.DOTALL)
+    candidate = match.group(1) if match else None
+    if not candidate:
+        start = payload.find("{")
+        end = payload.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            candidate = payload[start:end+1]
+    if not candidate:
+        return None
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        return None
+
+
+def build_report_path(log_dir: Path, audio: Path, label: Optional[str], when: datetime) -> Path:
+    timestamp = when.strftime("%Y%m%dT%H%M%S")
+    slug_parts = [audio.stem.replace(" ", "_") or "audio"]
+    if label:
+        slug_parts.append(re.sub(r"[^a-zA-Z0-9_-]", "_", label.strip()) or "label")
+    slug = "-".join(slug_parts)
+    return log_dir / f"{timestamp}_{slug}.json"
+
+
+def append_history(history_path: Path, row: dict):
+    history_path.parent.mkdir(parents=True, exist_ok=True)
+    exists = history_path.exists()
+    fieldnames = [
+        "timestamp","audio","whisper","llm","label","duration_sec",
+        "wpm","word_count","overall","report_path"
+    ]
+    with history_path.open("a", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+        if not exists:
+            writer.writeheader()
+        writer.writerow({k: row.get(k, "") for k in fieldnames})
+
+
+def evaluate_baseline(level: Optional[str], metrics: dict) -> Optional[dict]:
+    if not level:
+        return None
+    cfg = CEFR_BASELINES.get(level.upper())
+    if not cfg:
+        return None
+
+    def within_range(value: Optional[float], low: float, high: float) -> bool:
+        if value is None:
+            return False
+        return low <= value <= high
+
+    targets = {
+        "wpm": {
+            "expected": f"{cfg['wpm_min']}–{cfg['wpm_max']}",
+            "actual": metrics.get("wpm"),
+            "ok": within_range(metrics.get("wpm"), cfg['wpm_min'], cfg['wpm_max']),
+        },
+        "fillers": {
+            "expected": f"≤{cfg['fillers_max']}",
+            "actual": metrics.get("fillers"),
+            "ok": metrics.get("fillers", 0) <= cfg['fillers_max'],
+        },
+        "cohesion_markers": {
+            "expected": f"≥{cfg['cohesion_min']}",
+            "actual": metrics.get("cohesion_markers"),
+            "ok": metrics.get("cohesion_markers", 0) >= cfg['cohesion_min'],
+        },
+        "complexity_index": {
+            "expected": f"≥{cfg['complexity_min']}",
+            "actual": metrics.get("complexity_index"),
+            "ok": metrics.get("complexity_index", 0) >= cfg['complexity_min'],
+        },
+    }
+    passed = all(item["ok"] for item in targets.values())
+    return {
+        "level": level.upper(),
+        "passed": passed,
+        "targets": targets,
+        "comment": cfg["notes"],
+    }
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("audio", nargs="?", type=Path, help="Pfad zu WAV/MP3/M4A/...")
@@ -144,6 +262,11 @@ def main():
     ap.add_argument("--llm", default="llama3.1", help="Ollama-Modell (z. B. llama3.1, llama3.2:3b, qwen2.5:14b)")
     ap.add_argument("--list-ollama", action="store_true", help="verfügbare Ollama-Modelle anzeigen")
     ap.add_argument("--selftest", action="store_true", help="Mini-Test gegen Ollama (ohne Audio) ausführen")
+    ap.add_argument("--log-dir", default="reports", help="Pfad zum Speichern der Ergebnisse (Default: reports)")
+    ap.add_argument("--no-log", action="store_true", help="Speichern der Ergebnisse deaktivieren")
+    ap.add_argument("--label", help="Optionales Label für die Auswertung (z. B. Lerner, Aufgabe)")
+    ap.add_argument("--notes", help="Freitextnotiz, wird nur im gespeicherten Bericht abgelegt")
+    ap.add_argument("--target-cefr", choices=sorted(CEFR_BASELINES), help="Optionales CEFR-Ziel zur Baseline-Bewertung")
     args = ap.parse_args()
 
     if args.list_ollama:
@@ -173,8 +296,57 @@ def main():
     prompt = rubric_prompt_it(asr["text"], metr)
     llm_json = call_ollama(args.llm, prompt)
 
-    out = {"metrics": metr, "transcript_preview": asr["text"][:400], "llm_rubric": llm_json}
+    run_dt = datetime.now()
+    meta = {
+        "timestamp": run_dt.isoformat(timespec="seconds"),
+        "audio_path": str(args.audio.resolve()),
+        "whisper_model": args.whisper,
+        "llm_model": args.llm,
+    }
+    if args.label:
+        meta["label"] = args.label
+
+    baseline = evaluate_baseline(args.target_cefr, metr) if args.target_cefr else None
+    out = {
+        "meta": meta,
+        "metrics": metr,
+        "transcript_preview": asr["text"][:400],
+        "llm_rubric": llm_json,
+    }
+    if baseline:
+        out["baseline_comparison"] = baseline
     print(json.dumps(out, ensure_ascii=False, indent=2))
+
+    if not args.no_log:
+        log_dir = Path(args.log_dir)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        report_path = build_report_path(log_dir, args.audio, args.label, run_dt)
+        saved_payload = {
+            **out,
+            "transcript_full": asr["text"],
+            "notes": args.notes or "",
+            "report_path": str(report_path.resolve()),
+        }
+        with report_path.open("w", encoding="utf-8") as fh:
+            json.dump(saved_payload, fh, ensure_ascii=False, indent=2)
+
+        rubric_obj = extract_rubric_json(llm_json) if isinstance(llm_json, str) else None
+        append_history(
+            log_dir / "history.csv",
+            {
+                "timestamp": meta["timestamp"],
+                "audio": args.audio.name,
+                "whisper": args.whisper,
+                "llm": args.llm,
+                "label": args.label or "",
+                "duration_sec": metr.get("duration_sec", ""),
+                "wpm": metr.get("wpm", ""),
+                "word_count": metr.get("word_count", ""),
+                "overall": (rubric_obj or {}).get("overall", ""),
+                "report_path": str(report_path.resolve()),
+            },
+        )
+        print(f"Ergebnis gespeichert in {report_path}", file=sys.stderr)
 
     if tmp_wav.name.endswith(".tmp.wav"):
         try: tmp_wav.unlink()

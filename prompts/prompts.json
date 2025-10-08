@@ -1,0 +1,38 @@
+[
+  {
+    "id": "b1_travel_story",
+    "title": "B1 – Racconto di viaggio",
+    "cefr_target": "B1",
+    "audio": "prompts/b1_prompt.wav",
+    "prompt_text": "Racconta una breve esperienza di viaggio che hai fatto di recente.",
+    "response_seconds": 60,
+    "max_playbacks": 1
+  },
+  {
+    "id": "b2_remote_work",
+    "title": "B2 – Lavoro da casa",
+    "cefr_target": "B2",
+    "audio": "prompts/b2_prompt.wav",
+    "prompt_text": "Discuti i pro e i contro di lavorare da casa rispetto all'ufficio tradizionale.",
+    "response_seconds": 90,
+    "max_playbacks": 1
+  },
+  {
+    "id": "c1_tech_innovation",
+    "title": "C1 – Innovazione tecnologica",
+    "cefr_target": "C1",
+    "audio": "prompts/c1_prompt.wav",
+    "prompt_text": "Esponi un'analisi critica di come l'innovazione tecnologica stia cambiando il mercato del lavoro.",
+    "response_seconds": 120,
+    "max_playbacks": 1
+  },
+  {
+    "id": "b1_short_timer",
+    "title": "B1 – Timer breve (test)",
+    "cefr_target": "B1",
+    "audio": "prompts/b1_prompt.wav",
+    "prompt_text": "Parla di un'attività che ti piace fare nel tempo libero.",
+    "response_seconds": 3,
+    "max_playbacks": 1
+  }
+]

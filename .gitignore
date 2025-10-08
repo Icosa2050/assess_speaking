@@ -4,4 +4,8 @@ __pycache__/
 sample.aiff
 sample.wav
 report.json
+reports/
+playwright-report/
+test-results/
+traces/
 .DS_Store
