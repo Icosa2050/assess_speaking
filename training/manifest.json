@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "resources": [
+    {
+      "id": "filler-drill",
+      "title": "Filler reduction exercises",
+      "url": "https://example.com/filler.pdf",
+      "metrics": ["fillers"]
+    },
+    {
+      "id": "pace-drill",
+      "title": "Pacing practice",
+      "url": "https://example.com/pace.html",
+      "metrics": ["wpm"]
+    },
+    {
+      "id": "cohesion-drill",
+      "title": "Cohesion linking phrases",
+      "url": "https://example.com/cohesion.md",
+      "metrics": ["cohesion"]
+    },
+    {
+      "id": "complexity-drill",
+      "title": "Complex sentence construction",
+      "url": "https://example.com/complexity.pdf",
+      "metrics": ["complexity"]
+    }
+  ]
+}
+

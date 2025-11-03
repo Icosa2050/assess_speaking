@@ -104,3 +104,30 @@ accumulate in `reports/`.
 
 ## License
 MIT
+
+## LMS‑Integration (beta)
+Optional can now upload the generated report to a Learning Management
+System such as **Canvas** or **Moodle**.
+Pass the following flags to provide credentials and context:
+
+| Flag | Description |
+|------|-------------|
+| `--lms-type` | `canvas` or `moodle` – provider name |
+| `--lms-url` | Base URL of the LMS instance (e.g. `https://canvas.example.edu`) |
+| `--lms-token` | Bearer/secret token for API access |
+| `--lms-assign-id` | Assignment ID where the report should be posted |
+| `--lms-score` | Optional numeric score to include in the submission |
+
+Example usage:
+
+```bash
+python assess_speaking.py sample.wav \
+  --lms-type canvas \
+  --lms-url https://canvas.example.edu \
+  --lms-token $CANVAS_TOKEN \
+  --lms-assign-id 42 \
+  --lms-score 75
+```
+
+**Note** – The Canvas client in :pyfile:`lms.py` contains a placeholder
+for the course ID. Adjust the endpoint accordingly for your environment.

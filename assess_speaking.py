@@ -3,6 +3,8 @@ import argparse, csv, json, math, re, subprocess, sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from feedback import generate_feedback
+from lms import upload_to_canvas, upload_to_moodle
 
 try:
     from faster_whisper import WhisperModel  # type: ignore
@@ -260,6 +262,15 @@ def main():
     ap.add_argument("audio", nargs="?", type=Path, help="Pfad zu WAV/MP3/M4A/...")
     ap.add_argument("--whisper", default="large-v3", help="faster-whisper Modell")
     ap.add_argument("--llm", default="llama3.1", help="Ollama-Modell (z. B. llama3.1, llama3.2:3b, qwen2.5:14b)")
+    # New optional flags for training‑material feedback
+    ap.add_argument("--feedback", action="store_true", help="Generate training‑material suggestions based on metrics")
+    ap.add_argument("--train-dir", type=Path, default=Path("training"), help="Directory containing manifest.json with training resources")
+    # --- LMS integration flags ---------------------------------------
+    ap.add_argument("--lms-type", choices=["canvas", "moodle"], help="LMS provider to upload results to")
+    ap.add_argument("--lms-url", help="Base URL of the LMS API (e.g. https://canvas.example.edu)")
+    ap.add_argument("--lms-token", help="Access token for LMS authentication")
+    ap.add_argument("--lms-assign-id", type=int, help="Assignment id to submit the report to")
+    ap.add_argument("--lms-score", type=float, help="Optional score to include in the submission")
     ap.add_argument("--list-ollama", action="store_true", help="verfügbare Ollama-Modelle anzeigen")
     ap.add_argument("--selftest", action="store_true", help="Mini-Test gegen Ollama (ohne Audio) ausführen")
     ap.add_argument("--log-dir", default="reports", help="Pfad zum Speichern der Ergebnisse (Default: reports)")
@@ -315,7 +326,50 @@ def main():
     }
     if baseline:
         out["baseline_comparison"] = baseline
-    print(json.dumps(out, ensure_ascii=False, indent=2))
+    # Optionally generate training‑material suggestions based on the metrics.
+    if args.feedback:
+        try:
+            suggestions = generate_feedback(metr, args.train_dir)
+            if suggestions:
+                out["suggested_training"] = suggestions
+        except RuntimeError as e:
+            # Feedback generation failures should not block the main assessment.
+            print(f"[feedback] Warning: {e}", file=sys.stderr)
+    stdout_json = json.dumps(out, ensure_ascii=False, indent=2)
+    print(stdout_json)
+
+    # ------------------------------------------------------------------
+    # Optional LMS upload – we create a small report file for the attachment.
+    if args.lms_type and args.lms_url and args.lms_token and args.lms_assign_id:
+        attachment_path = Path("report.json")
+        attachment_path.write_text(stdout_json, encoding="utf-8")
+        try:
+            if args.lms_type == "canvas":
+                upload_to_canvas(
+                    base_url=args.lms_url,
+                    token=args.lms_token,
+                    assignment_id=args.lms_assign_id,
+                    score=args.lms_score or 0,
+                    attachment_path=attachment_path,
+                    resources=out.get("suggested_training"),
+                )
+            elif args.lms_type == "moodle":
+                upload_to_moodle(
+                    base_url=args.lms_url,
+                    token=args.lms_token,
+                    assignment_id=args.lms_assign_id,
+                    score=args.lms_score or 0,
+                    attachment_path=attachment_path,
+                    resources=out.get("suggested_training"),
+                )
+            print("[lms] Report uploaded successfully.")
+        except RuntimeError as e:
+            print(f"[lms] Failed to upload: {e}", file=sys.stderr)
+        finally:
+            try:
+                attachment_path.unlink()
+            except Exception:
+                pass
 
     if not args.no_log:
         log_dir = Path(args.log_dir)
