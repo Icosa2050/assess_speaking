@@ -16,5 +16,6 @@ requests==2.32.3
 fastapi==0.115.2
 uvicorn==0.30.6
 httpx==0.28.1
+redis==5.2.1
 # Optional: LMStudio Python library (install only if you plan to use the Python client)
 #lmstudio==0.1.1

@@ -93,17 +93,23 @@ export TELEGRAM_BOT_TOKEN="<bot-token>"
 export TELEGRAM_WEBHOOK_SECRET="<optional-shared-secret>"
 export ASSESS_WHISPER_MODEL="large-v3"    # optional
 export ASSESS_LLM_MODEL="llama3.1"        # optional
+# Optional durable queue + persistent status:
+# export SERVICE_REDIS_URL="redis://localhost:6379/0"
+# export SERVICE_REDIS_PREFIX="assess_speaking"
+# export SERVICE_MAX_WORKERS="2"
 uvicorn service.app:app --host 0.0.0.0 --port 8000
 ```
 
 Endpoints:
 - `GET /health` health and config status
 - `POST /webhooks/telegram` Telegram update receiver
-- `GET /jobs/{job_id}` in-memory job status
+- `GET /jobs/{job_id}` job status (in-memory or Redis-backed)
 
 The service downloads the Telegram audio file, runs the same assessment
 pipeline used by the CLI, sends a summary back to chat, and uploads the JSON
 report as a Telegram document.
+If `SERVICE_REDIS_URL` is set, webhook jobs are queued in Redis and job status
+is stored in Redis hashes (survives process restarts).
 
 ### Tests & CI
 - **Unit tests**: `python -m unittest discover -s tests`

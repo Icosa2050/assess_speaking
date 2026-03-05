@@ -25,6 +25,9 @@ class ServiceConfig:
     report_dir: Path
     temp_dir: Path
     max_workers: int
+    redis_url: Optional[str]
+    redis_key_prefix: str
+    job_ttl_sec: int
 
     @classmethod
     def from_env(cls, *, strict: bool = True) -> "ServiceConfig":
@@ -35,6 +38,8 @@ class ServiceConfig:
         webhook_secret = webhook_secret.strip() if webhook_secret else None
         target_cefr = os.getenv("ASSESS_TARGET_CEFR")
         target_cefr = target_cefr.strip().upper() if target_cefr else None
+        redis_url = os.getenv("SERVICE_REDIS_URL")
+        redis_url = redis_url.strip() if redis_url else None
 
         return cls(
             telegram_bot_token=token,
@@ -47,5 +52,7 @@ class ServiceConfig:
             report_dir=Path(os.getenv("SERVICE_REPORT_DIR", "reports/service")),
             temp_dir=Path(os.getenv("SERVICE_TEMP_DIR", "tmp/service")),
             max_workers=max(1, int(os.getenv("SERVICE_MAX_WORKERS", "2"))),
+            redis_url=redis_url,
+            redis_key_prefix=os.getenv("SERVICE_REDIS_PREFIX", "assess_speaking"),
+            job_ttl_sec=max(60, int(os.getenv("SERVICE_JOB_TTL_SEC", "604800"))),
         )
-

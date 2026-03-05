@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -11,7 +12,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 
 from assess_speaking import extract_rubric_json, run_assessment
 from service.config import ServiceConfig
-from service.jobs import InMemoryJobStore
+from service.jobs import InMemoryJobStore, JobStore, RedisJobStore
 from service.telegram_client import TelegramClient
 
 
@@ -69,7 +70,7 @@ def build_result_message(assessment: dict[str, Any]) -> str:
 
 def _run_telegram_job(app: FastAPI, job_id: str, chat_id: int, message_id: int, file_id: str) -> None:
     cfg: ServiceConfig = app.state.config
-    jobs: InMemoryJobStore = app.state.jobs
+    jobs: JobStore = app.state.jobs
     telegram: TelegramClient = app.state.telegram
     jobs.update(job_id, status="processing")
     try:
@@ -121,20 +122,71 @@ def _run_telegram_job(app: FastAPI, job_id: str, chat_id: int, message_id: int, 
             pass
 
 
+def _redis_worker_loop(app: FastAPI, stop_event: threading.Event) -> None:
+    jobs: JobStore = app.state.jobs
+    while not stop_event.is_set():
+        payload = jobs.dequeue_telegram(timeout_sec=1)
+        if not payload:
+            continue
+        job_id = str(payload.get("job_id", ""))
+        if not job_id:
+            continue
+        try:
+            chat_id = int(payload["chat_id"])
+            message_id = int(payload["message_id"])
+            file_id = str(payload["file_id"])
+        except (KeyError, TypeError, ValueError):
+            jobs.update(job_id, status="failed", error="Invalid payload in Redis queue.")
+            continue
+        _run_telegram_job(app, job_id, chat_id, message_id, file_id)
+
+
 def create_app(config: Optional[ServiceConfig] = None) -> FastAPI:
     cfg = config or ServiceConfig.from_env(strict=False)
     cfg.report_dir.mkdir(parents=True, exist_ok=True)
     cfg.temp_dir.mkdir(parents=True, exist_ok=True)
 
+    if cfg.redis_url:
+        jobs: JobStore = RedisJobStore(
+            cfg.redis_url,
+            key_prefix=cfg.redis_key_prefix,
+            job_ttl_sec=cfg.job_ttl_sec,
+        )
+        queue_backend = "redis"
+        executor: Optional[ThreadPoolExecutor] = None
+    else:
+        jobs = InMemoryJobStore()
+        queue_backend = "in_memory"
+        executor = ThreadPoolExecutor(max_workers=cfg.max_workers)
+
     @asynccontextmanager
     async def lifespan(app_obj: FastAPI):
+        if app_obj.state.queue_backend == "redis":
+            workers = []
+            for idx in range(cfg.max_workers):
+                worker = threading.Thread(
+                    target=_redis_worker_loop,
+                    args=(app_obj, app_obj.state.stop_event),
+                    daemon=True,
+                    name=f"redis-worker-{idx+1}",
+                )
+                worker.start()
+                workers.append(worker)
+            app_obj.state.worker_threads = workers
         yield
-        app_obj.state.executor.shutdown(wait=False)
+        app_obj.state.stop_event.set()
+        for worker in app_obj.state.worker_threads:
+            worker.join(timeout=2.0)
+        if app_obj.state.executor:
+            app_obj.state.executor.shutdown(wait=False)
 
     app = FastAPI(title="assess_speaking service", version="0.1.0", lifespan=lifespan)
     app.state.config = cfg
-    app.state.jobs = InMemoryJobStore()
-    app.state.executor = ThreadPoolExecutor(max_workers=cfg.max_workers)
+    app.state.jobs = jobs
+    app.state.executor = executor
+    app.state.queue_backend = queue_backend
+    app.state.stop_event = threading.Event()
+    app.state.worker_threads = []
     app.state.telegram = TelegramClient(cfg.telegram_bot_token) if cfg.telegram_bot_token else None
 
     @app.get("/health")
@@ -143,6 +195,7 @@ def create_app(config: Optional[ServiceConfig] = None) -> FastAPI:
             "status": "ok",
             "telegram_configured": bool(app.state.telegram),
             "max_workers": cfg.max_workers,
+            "queue_backend": app.state.queue_backend,
         }
 
     @app.get("/jobs/{job_id}")
@@ -179,7 +232,15 @@ def create_app(config: Optional[ServiceConfig] = None) -> FastAPI:
             return {"ok": True, "queued": False, "reason": "no_audio"}
 
         record = app.state.jobs.create(chat_id=chat_id, message_id=message_id, file_id=file_id)
-        app.state.executor.submit(_run_telegram_job, app, record.job_id, chat_id, message_id, file_id)
+        if app.state.queue_backend == "redis":
+            app.state.jobs.enqueue_telegram(
+                job_id=record.job_id,
+                chat_id=chat_id,
+                message_id=message_id,
+                file_id=file_id,
+            )
+        else:
+            app.state.executor.submit(_run_telegram_job, app, record.job_id, chat_id, message_id, file_id)
         return {"ok": True, "queued": True, "job_id": record.job_id}
 
     return app

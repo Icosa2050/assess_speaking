@@ -32,6 +32,9 @@ def _config(tmp_path: Path, token: str = "test-token", secret: str | None = None
         report_dir=tmp_path / "reports",
         temp_dir=tmp_path / "tmp",
         max_workers=1,
+        redis_url=None,
+        redis_key_prefix="assess_speaking",
+        job_ttl_sec=3600,
     )
 
 
@@ -58,6 +61,15 @@ class TelegramParsingTests(unittest.TestCase):
 
 
 class TelegramWebhookTests(unittest.TestCase):
+    def test_health_includes_queue_backend(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = _config(Path(td))
+            app = create_app(cfg)
+            with TestClient(app) as client:
+                resp = client.get("/health")
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.json()["queue_backend"], "in_memory")
+
     def test_webhook_rejects_invalid_secret(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = _config(Path(td), secret="expected-secret")
@@ -101,4 +113,3 @@ class TelegramWebhookTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
