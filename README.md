@@ -153,10 +153,11 @@ Pass the following flags to provide credentials and context:
 |------|-------------|
 | `--lms-type` | `canvas` or `moodle` – provider name |
 | `--lms-url` | Base URL of the LMS instance (e.g. `https://canvas.example.edu`) |
-| `--lms-token` | Bearer/secret token for API access |
+| `--lms-token` | Bearer/secret token for API access (optional when `CANVAS_TOKEN` or `MOODLE_TOKEN` is set) |
 | `--lms-course-id` | Canvas course ID (required for `--lms-type canvas`) |
 | `--lms-assign-id` | Assignment ID where the report should be posted |
 | `--lms-score` | Optional numeric score to include in the submission |
+| `--lms-dry-run` | Print the LMS request preview without uploading |
 
 Example usage:
 
@@ -168,4 +169,17 @@ python assess_speaking.py sample.wav \
   --lms-course-id 99 \
   --lms-assign-id 42 \
   --lms-score 75
+```
+
+Or use the provider token from the environment and validate the payload first:
+
+```bash
+export CANVAS_TOKEN=...
+python assess_speaking.py sample.wav \
+  --lms-type canvas \
+  --lms-url https://canvas.example.edu \
+  --lms-course-id 99 \
+  --lms-assign-id 42 \
+  --lms-score 75 \
+  --lms-dry-run
 ```

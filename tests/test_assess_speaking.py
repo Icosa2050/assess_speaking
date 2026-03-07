@@ -1,7 +1,9 @@
 import contextlib
 import io
 import json
+import os
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -280,6 +282,14 @@ class TranscribeTests(unittest.TestCase):
         )
 
 
+class LmsConfigTests(unittest.TestCase):
+    def test_resolve_lms_token_prefers_cli_token(self):
+        with mock.patch.dict("os.environ", {"CANVAS_TOKEN": "env-token"}, clear=False):
+            token, source = assess_speaking.resolve_lms_token("canvas", "cli-token")
+        self.assertEqual(token, "cli-token")
+        self.assertEqual(source, "cli")
+
+
 class MainCliTests(unittest.TestCase):
     def test_main_without_arguments_exits(self):
         buf = io.StringIO()
@@ -330,6 +340,121 @@ class MainCliTests(unittest.TestCase):
 
         mock_upload.assert_not_called()
         self.assertIn("--lms-course-id", str(ctx.exception))
+
+    def test_main_lms_dry_run_uses_env_token_and_skips_upload(self):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        args = [
+            "assess_speaking.py",
+            "sample.wav",
+            "--no-log",
+            "--lms-type",
+            "canvas",
+            "--lms-url",
+            "https://canvas.example.edu",
+            "--lms-course-id",
+            "7",
+            "--lms-assign-id",
+            "42",
+            "--lms-dry-run",
+        ]
+        metrics = {
+            "duration_sec": 5.0,
+            "pause_count": 0,
+            "pause_total_sec": 0.0,
+            "speaking_time_sec": 5.0,
+            "word_count": 4,
+            "wpm": 48.0,
+            "fillers": 0,
+            "cohesion_markers": 1,
+            "complexity_index": 0,
+        }
+
+        with mock.patch("sys.argv", args), mock.patch.dict(
+            "os.environ", {"CANVAS_TOKEN": "env-token"}, clear=False
+        ), mock.patch.object(
+            assess_speaking, "load_audio_features", return_value={"duration_sec": 5.0, "pauses": []}
+        ), mock.patch.object(
+            assess_speaking, "transcribe", return_value={"text": "ciao mondo", "words": [{"text": "ciao"}]}
+        ), mock.patch.object(
+            assess_speaking, "metrics_from", return_value=metrics
+        ), mock.patch.object(
+            assess_speaking, "rubric_prompt_it", return_value="prompt"
+        ), mock.patch.object(
+            assess_speaking, "call_ollama", return_value='{"overall": 4}'
+        ), mock.patch.object(
+            assess_speaking, "upload_to_canvas"
+        ) as mock_upload, contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            assess_speaking.main()
+
+        mock_upload.assert_not_called()
+        self.assertIn('"metrics"', stdout.getvalue())
+        self.assertIn("[lms] Dry run:", stderr.getvalue())
+        self.assertIn('"token_source": "env:CANVAS_TOKEN"', stderr.getvalue())
+        self.assertIn('"course_id": 7', stderr.getvalue())
+        self.assertIn('"dry_run": true', stderr.getvalue())
+
+    def test_main_lms_upload_uses_temp_attachment_file(self):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        args = [
+            "assess_speaking.py",
+            "sample.wav",
+            "--no-log",
+            "--lms-type",
+            "canvas",
+            "--lms-url",
+            "https://canvas.example.edu",
+            "--lms-token",
+            "token",
+            "--lms-course-id",
+            "7",
+            "--lms-assign-id",
+            "42",
+        ]
+        metrics = {
+            "duration_sec": 5.0,
+            "pause_count": 0,
+            "pause_total_sec": 0.0,
+            "speaking_time_sec": 5.0,
+            "word_count": 4,
+            "wpm": 48.0,
+            "fillers": 0,
+            "cohesion_markers": 1,
+            "complexity_index": 0,
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            existing_report = tmp_path / "report.json"
+            existing_report.write_text("keep-me", encoding="utf-8")
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                with mock.patch("sys.argv", args), mock.patch.object(
+                    assess_speaking, "load_audio_features", return_value={"duration_sec": 5.0, "pauses": []}
+                ), mock.patch.object(
+                    assess_speaking, "transcribe", return_value={"text": "ciao mondo", "words": [{"text": "ciao"}]}
+                ), mock.patch.object(
+                    assess_speaking, "metrics_from", return_value=metrics
+                ), mock.patch.object(
+                    assess_speaking, "rubric_prompt_it", return_value="prompt"
+                ), mock.patch.object(
+                    assess_speaking, "call_ollama", return_value='{"overall": 4}'
+                ), mock.patch.object(
+                    assess_speaking, "upload_to_canvas"
+                ) as mock_upload, contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                    assess_speaking.main()
+            finally:
+                os.chdir(old_cwd)
+
+            mock_upload.assert_called_once()
+            uploaded_path = mock_upload.call_args.kwargs["attachment_path"]
+            self.assertNotEqual(uploaded_path.resolve(), existing_report.resolve())
+            self.assertTrue(uploaded_path.name.startswith("assess-speaking-"))
+            self.assertEqual(existing_report.read_text(encoding="utf-8"), "keep-me")
+            self.assertFalse(uploaded_path.exists())
+            self.assertIn("[lms] Report uploaded successfully.", stdout.getvalue())
 
 
 class RunAssessmentTests(unittest.TestCase):

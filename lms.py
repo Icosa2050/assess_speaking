@@ -64,7 +64,13 @@ class _BaseClient:
         try:
             resp.raise_for_status()
         except requests.HTTPError as exc:  # pragma: no cover – exercised via tests
-            raise RuntimeError(f"{self.__class__.__name__} request failed: {resp.text}") from exc
+            body = (resp.text or "").strip()
+            preview = body[:200] or "No response body"
+            if len(body) > 200:
+                preview += "..."
+            raise RuntimeError(
+                f"{self.__class__.__name__} request failed (HTTP {resp.status_code}): {preview}"
+            ) from exc
 
 
 class CanvasClient(_BaseClient):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse, csv, json, math, os, re, subprocess, sys
+import argparse, csv, json, math, os, re, subprocess, sys, tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -505,7 +505,15 @@ def main():
             print("[lms] Dry run:", file=sys.stderr)
             print(json.dumps(preview, ensure_ascii=False, indent=2), file=sys.stderr)
         else:
-            attachment_path.write_text(stdout_json, encoding="utf-8")
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                suffix=".json",
+                prefix="assess-speaking-",
+                delete=False,
+            ) as tmp_attachment:
+                tmp_attachment.write(stdout_json)
+                attachment_path = Path(tmp_attachment.name)
             try:
                 if args.lms_type == "canvas":
                     upload_to_canvas(

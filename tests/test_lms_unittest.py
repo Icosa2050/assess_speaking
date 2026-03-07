@@ -7,6 +7,20 @@ import lms
 
 
 class CanvasClientTests(unittest.TestCase):
+    def test_check_response_sanitizes_error_body(self):
+        client = lms.CanvasClient(base_url="https://canvas.example.edu/", token="token123")
+        mock_response = mock.Mock()
+        mock_response.status_code = 403
+        mock_response.text = "x" * 250
+        mock_response.raise_for_status.side_effect = lms.requests.HTTPError("forbidden")
+
+        with self.assertRaises(RuntimeError) as ctx:
+            client._check_response(mock_response)
+
+        self.assertIn("HTTP 403", str(ctx.exception))
+        self.assertIn("x" * 200, str(ctx.exception))
+        self.assertNotIn("x" * 220, str(ctx.exception))
+
     def test_upload_submission_uses_course_and_assignment_in_url(self):
         requests_module = mock.Mock()
         mock_response = mock.Mock()
