@@ -109,7 +109,8 @@ The service downloads the Telegram audio file, runs the same assessment
 pipeline used by the CLI, sends a summary back to chat, and uploads the JSON
 report as a Telegram document.
 If `SERVICE_REDIS_URL` is set, webhook jobs are queued in Redis and job status
-is stored in Redis hashes (survives process restarts).
+is stored in Redis hashes. In-flight Redis jobs are re-queued on service start
+so a restart does not silently drop work that was already dequeued.
 
 ### Tests & CI
 - **Unit tests**: `python -m unittest discover -s tests`

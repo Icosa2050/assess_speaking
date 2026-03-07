@@ -69,6 +69,7 @@ class TelegramWebhookTests(unittest.TestCase):
                 resp = client.get("/health")
             self.assertEqual(resp.status_code, 200)
             self.assertEqual(resp.json()["queue_backend"], "in_memory")
+            self.assertEqual(resp.json()["recovered_jobs"], 0)
 
     def test_webhook_rejects_invalid_secret(self):
         with tempfile.TemporaryDirectory() as td:

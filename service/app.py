@@ -128,8 +128,11 @@ def _redis_worker_loop(app: FastAPI, stop_event: threading.Event) -> None:
         payload = jobs.dequeue_telegram(timeout_sec=1)
         if not payload:
             continue
+        raw_payload = str(payload.get("_raw_payload", ""))
         job_id = str(payload.get("job_id", ""))
         if not job_id:
+            if raw_payload:
+                jobs.acknowledge_telegram(raw_payload=raw_payload)
             continue
         try:
             chat_id = int(payload["chat_id"])
@@ -137,8 +140,14 @@ def _redis_worker_loop(app: FastAPI, stop_event: threading.Event) -> None:
             file_id = str(payload["file_id"])
         except (KeyError, TypeError, ValueError):
             jobs.update(job_id, status="failed", error="Invalid payload in Redis queue.")
+            if raw_payload:
+                jobs.acknowledge_telegram(raw_payload=raw_payload)
             continue
-        _run_telegram_job(app, job_id, chat_id, message_id, file_id)
+        try:
+            _run_telegram_job(app, job_id, chat_id, message_id, file_id)
+        finally:
+            if raw_payload:
+                jobs.acknowledge_telegram(raw_payload=raw_payload)
 
 
 def create_app(config: Optional[ServiceConfig] = None) -> FastAPI:
@@ -162,6 +171,7 @@ def create_app(config: Optional[ServiceConfig] = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app_obj: FastAPI):
         if app_obj.state.queue_backend == "redis":
+            app_obj.state.recovered_jobs = app_obj.state.jobs.requeue_processing_telegram()
             workers = []
             for idx in range(cfg.max_workers):
                 worker = threading.Thread(
@@ -187,6 +197,7 @@ def create_app(config: Optional[ServiceConfig] = None) -> FastAPI:
     app.state.queue_backend = queue_backend
     app.state.stop_event = threading.Event()
     app.state.worker_threads = []
+    app.state.recovered_jobs = 0
     app.state.telegram = TelegramClient(cfg.telegram_bot_token) if cfg.telegram_bot_token else None
 
     @app.get("/health")
@@ -196,6 +207,7 @@ def create_app(config: Optional[ServiceConfig] = None) -> FastAPI:
             "telegram_configured": bool(app.state.telegram),
             "max_workers": cfg.max_workers,
             "queue_backend": app.state.queue_backend,
+            "recovered_jobs": app.state.recovered_jobs,
         }
 
     @app.get("/jobs/{job_id}")

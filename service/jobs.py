@@ -36,6 +36,8 @@ class JobStore(Protocol):
     def as_dict(self, job_id: str) -> Optional[dict]: ...
     def enqueue_telegram(self, *, job_id: str, chat_id: int, message_id: int, file_id: str) -> None: ...
     def dequeue_telegram(self, timeout_sec: int = 1) -> Optional[dict]: ...
+    def acknowledge_telegram(self, *, raw_payload: str) -> None: ...
+    def requeue_processing_telegram(self) -> int: ...
 
 
 class InMemoryJobStore:
@@ -88,6 +90,12 @@ class InMemoryJobStore:
         _ = timeout_sec
         return None
 
+    def acknowledge_telegram(self, *, raw_payload: str) -> None:
+        _ = raw_payload
+
+    def requeue_processing_telegram(self) -> int:
+        return 0
+
 
 class RedisJobStore:
     def __init__(
@@ -108,8 +116,12 @@ class RedisJobStore:
         return f"{self.key_prefix}:job:{job_id}"
 
     @property
-    def _telegram_queue_key(self) -> str:
-        return f"{self.key_prefix}:queue:telegram"
+    def _telegram_pending_queue_key(self) -> str:
+        return f"{self.key_prefix}:queue:telegram:pending"
+
+    @property
+    def _telegram_processing_queue_key(self) -> str:
+        return f"{self.key_prefix}:queue:telegram:processing"
 
     def _set_job(self, job_id: str, mapping: dict[str, str]) -> None:
         self._client.hset(self._job_key(job_id), mapping=mapping)
@@ -145,11 +157,12 @@ class RedisJobStore:
         return record
 
     def update(self, job_id: str, *, status: str, error: str = "", report_path: str = "") -> None:
-        data = self._client.hgetall(self._job_key(job_id))
-        if not data:
+        if not self._client.exists(self._job_key(job_id)):
             return
-        data["status"] = status
-        data["updated_at"] = _utc_now_iso()
+        data = {
+            "status": status,
+            "updated_at": _utc_now_iso(),
+        }
         if error:
             data["error"] = error
         if report_path:
@@ -179,16 +192,36 @@ class RedisJobStore:
             "message_id": message_id,
             "file_id": file_id,
         }
-        self._client.rpush(self._telegram_queue_key, json.dumps(payload))
+        # LPUSH + BRPOPLPUSH yields FIFO semantics while preserving in-flight items.
+        self._client.lpush(self._telegram_pending_queue_key, json.dumps(payload))
 
     def dequeue_telegram(self, timeout_sec: int = 1) -> Optional[dict]:
-        popped = self._client.blpop(self._telegram_queue_key, timeout=timeout_sec)
-        if not popped:
+        raw = self._client.brpoplpush(
+            self._telegram_pending_queue_key,
+            self._telegram_processing_queue_key,
+            timeout=timeout_sec,
+        )
+        if not raw:
             return None
-        _, raw = popped
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError:
+            self.acknowledge_telegram(raw_payload=raw)
             return None
-        return payload if isinstance(payload, dict) else None
+        if not isinstance(payload, dict):
+            self.acknowledge_telegram(raw_payload=raw)
+            return None
+        payload["_raw_payload"] = raw
+        return payload
 
+    def acknowledge_telegram(self, *, raw_payload: str) -> None:
+        self._client.lrem(self._telegram_processing_queue_key, 1, raw_payload)
+
+    def requeue_processing_telegram(self) -> int:
+        items = self._client.lrange(self._telegram_processing_queue_key, 0, -1)
+        if not items:
+            return 0
+        self._client.delete(self._telegram_processing_queue_key)
+        for raw in items:
+            self._client.rpush(self._telegram_pending_queue_key, raw)
+        return len(items)
