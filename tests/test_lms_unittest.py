@@ -83,6 +83,40 @@ class CanvasClientTests(unittest.TestCase):
             "https://canvas.example.edu/api/v1/files/555",
         )
 
+    def test_upload_submission_accepts_empty_upload_params(self):
+        requests_module = mock.Mock()
+        start_response = mock.Mock()
+        start_response.raise_for_status.return_value = None
+        start_response.json.return_value = {
+            "upload_url": "https://uploads.example.edu/files",
+            "upload_params": {},
+        }
+        upload_response = mock.Mock()
+        upload_response.status_code = 200
+        upload_response.raise_for_status.return_value = None
+        upload_response.json.return_value = {"id": 777}
+        submit_response = mock.Mock()
+        submit_response.raise_for_status.return_value = None
+
+        requests_module.post.side_effect = [start_response, upload_response, submit_response]
+
+        with tempfile.NamedTemporaryFile("wb", delete=False) as fh:
+            fh.write(b"{}")
+            attachment = Path(fh.name)
+        self.addCleanup(lambda: attachment.unlink(missing_ok=True))
+
+        with mock.patch.object(lms, "requests", requests_module):
+            client = lms.CanvasClient(base_url="https://canvas.example.edu/", token="token123")
+            ok = client.upload_submission(
+                course_id=77,
+                assignment_id=42,
+                submission_data={},
+                attachment_path=attachment,
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(requests_module.post.call_args_list[1].kwargs["data"], {})
+
 
 class UploadHelpersTests(unittest.TestCase):
     def test_build_moodle_submission_data_includes_score_and_resources(self):

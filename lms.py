@@ -103,13 +103,13 @@ class CanvasClient(_BaseClient):
         upload_spec = start_resp.json()
         upload_url = upload_spec.get("upload_url")
         upload_params = upload_spec.get("upload_params")
-        if not upload_url or not upload_params:
+        if not upload_url or upload_params is None:
             raise RuntimeError("Canvas upload initiation did not return upload_url/upload_params.")
 
         with attachment_path.open("rb") as fp:
             upload_resp = requests.post(
                 upload_url,
-                data=upload_params,
+                data=upload_params or {},
                 files={"file": fp},
                 allow_redirects=False,
             )

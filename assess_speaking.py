@@ -534,7 +534,7 @@ def main():
                         attachment_path=attachment_path,
                         resources=resources,
                     )
-                print("[lms] Report uploaded successfully.")
+                print("[lms] Report uploaded successfully.", file=sys.stderr)
             except RuntimeError as e:
                 print(f"[lms] Failed to upload: {e}", file=sys.stderr)
             finally:

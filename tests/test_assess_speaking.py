@@ -454,7 +454,8 @@ class MainCliTests(unittest.TestCase):
             self.assertTrue(uploaded_path.name.startswith("assess-speaking-"))
             self.assertEqual(existing_report.read_text(encoding="utf-8"), "keep-me")
             self.assertFalse(uploaded_path.exists())
-            self.assertIn("[lms] Report uploaded successfully.", stdout.getvalue())
+            self.assertEqual(json.loads(stdout.getvalue())["metrics"]["word_count"], 4)
+            self.assertIn("[lms] Report uploaded successfully.", stderr.getvalue())
 
 
 class RunAssessmentTests(unittest.TestCase):
