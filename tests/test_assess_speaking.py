@@ -332,5 +332,53 @@ class MainCliTests(unittest.TestCase):
         self.assertIn("--lms-course-id", str(ctx.exception))
 
 
+class RunAssessmentTests(unittest.TestCase):
+    @mock.patch.object(assess_speaking, "generate_feedback", return_value=[{"id": "res"}])
+    @mock.patch.object(assess_speaking, "evaluate_baseline", return_value={"level": "B1", "passed": True})
+    @mock.patch.object(assess_speaking, "call_ollama", return_value='{"overall": 4}')
+    @mock.patch.object(assess_speaking, "rubric_prompt_it", return_value="prompt")
+    @mock.patch.object(
+        assess_speaking,
+        "metrics_from",
+        return_value={
+            "duration_sec": 12.0,
+            "pause_count": 1,
+            "pause_total_sec": 1.0,
+            "speaking_time_sec": 11.0,
+            "word_count": 20,
+            "wpm": 109.1,
+            "fillers": 1,
+            "cohesion_markers": 1,
+            "complexity_index": 1,
+        },
+    )
+    @mock.patch.object(
+        assess_speaking,
+        "transcribe",
+        return_value={"text": "ciao mondo", "words": [{"text": "ciao"}, {"text": "mondo"}]},
+    )
+    @mock.patch.object(assess_speaking, "load_audio_features", return_value={"duration_sec": 12.0, "pauses": []})
+    def test_run_assessment_returns_expected_payload(
+        self,
+        _mock_audio,
+        _mock_transcribe,
+        _mock_metrics,
+        _mock_prompt,
+        _mock_call,
+        _mock_baseline,
+        _mock_feedback,
+    ):
+        result = assess_speaking.run_assessment(
+            Path("sample.wav"),
+            feedback_enabled=True,
+            target_cefr="B1",
+        )
+        self.assertIn("metrics", result)
+        self.assertEqual(result["transcript_preview"], "ciao mondo")
+        self.assertEqual(result["transcript_full"], "ciao mondo")
+        self.assertIn("baseline_comparison", result)
+        self.assertIn("suggested_training", result)
+
+
 if __name__ == "__main__":
     unittest.main()

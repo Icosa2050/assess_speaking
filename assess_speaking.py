@@ -282,6 +282,64 @@ def evaluate_baseline(level: Optional[str], metrics: dict) -> Optional[dict]:
         "comment": cfg["notes"],
     }
 
+def run_assessment(
+    audio: Path,
+    whisper_model: str = "large-v3",
+    llm_model: str = "llama3.1",
+    *,
+    feedback_enabled: bool = False,
+    train_dir: Path = Path("training"),
+    target_cefr: Optional[str] = None,
+) -> dict:
+    tmp_wav = audio
+    created_tmp = False
+    if audio.suffix.lower() not in [".wav"]:
+        tmp_wav = audio.with_suffix(".tmp.wav")
+        created_tmp = True
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", str(audio), "-ac", "1", "-ar", "16000", str(tmp_wav)],
+                check=True,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                "ffmpeg is required for non-WAV input. Please install it via Homebrew: `brew install ffmpeg`."
+            ) from exc
+
+    try:
+        audio_feats = load_audio_features(tmp_wav)
+        asr = transcribe(tmp_wav, whisper_model)
+        metr = metrics_from(asr["words"], audio_feats)
+        prompt = rubric_prompt_it(asr["text"], metr)
+        llm_json = call_ollama(llm_model, prompt)
+
+        out = {
+            "metrics": metr,
+            "transcript_full": asr["text"],
+            "transcript_preview": asr["text"][:400],
+            "llm_rubric": llm_json,
+        }
+        baseline = evaluate_baseline(target_cefr, metr) if target_cefr else None
+        if baseline:
+            out["baseline_comparison"] = baseline
+
+        if feedback_enabled:
+            try:
+                suggestions = generate_feedback(metr, train_dir)
+                if suggestions:
+                    out["suggested_training"] = suggestions
+            except RuntimeError as e:
+                # Feedback generation failures should not block the main assessment.
+                print(f"[feedback] Warning: {e}", file=sys.stderr)
+
+        return out
+    finally:
+        if created_tmp and tmp_wav.name.endswith(".tmp.wav"):
+            try:
+                tmp_wav.unlink()
+            except Exception:
+                pass
+
 
 def lms_config_requested(args) -> bool:
     return any(
@@ -396,22 +454,16 @@ def main():
     lms_token, lms_token_source = resolve_lms_token(args.lms_type, args.lms_token)
     validate_lms_config(args, lms_token)
 
-    tmp_wav = args.audio
-    if args.audio.suffix.lower() not in [".wav"]:
-        tmp_wav = args.audio.with_suffix(".tmp.wav")
-        try:
-            subprocess.run(
-                ["ffmpeg","-y","-i",str(args.audio),"-ac","1","-ar","16000",str(tmp_wav)],
-                check=True,
-            )
-        except FileNotFoundError as exc:
-            raise RuntimeError("ffmpeg is required for non-WAV input. Please install it via Homebrew: `brew install ffmpeg`.") from exc
-
-    audio_feats = load_audio_features(tmp_wav)
-    asr = transcribe(tmp_wav, args.whisper)
-    metr = metrics_from(asr["words"], audio_feats)
-    prompt = rubric_prompt_it(asr["text"], metr)
-    llm_json = call_ollama(args.llm, prompt)
+    assessment = run_assessment(
+        args.audio,
+        args.whisper,
+        args.llm,
+        feedback_enabled=args.feedback,
+        train_dir=args.train_dir,
+        target_cefr=args.target_cefr,
+    )
+    metr = assessment["metrics"]
+    llm_json = assessment["llm_rubric"]
 
     run_dt = datetime.now()
     meta = {
@@ -423,24 +475,16 @@ def main():
     if args.label:
         meta["label"] = args.label
 
-    baseline = evaluate_baseline(args.target_cefr, metr) if args.target_cefr else None
     out = {
         "meta": meta,
         "metrics": metr,
-        "transcript_preview": asr["text"][:400],
+        "transcript_preview": assessment["transcript_preview"],
         "llm_rubric": llm_json,
     }
-    if baseline:
-        out["baseline_comparison"] = baseline
-    # Optionally generate training‑material suggestions based on the metrics.
-    if args.feedback:
-        try:
-            suggestions = generate_feedback(metr, args.train_dir)
-            if suggestions:
-                out["suggested_training"] = suggestions
-        except RuntimeError as e:
-            # Feedback generation failures should not block the main assessment.
-            print(f"[feedback] Warning: {e}", file=sys.stderr)
+    if "baseline_comparison" in assessment:
+        out["baseline_comparison"] = assessment["baseline_comparison"]
+    if "suggested_training" in assessment:
+        out["suggested_training"] = assessment["suggested_training"]
     stdout_json = json.dumps(out, ensure_ascii=False, indent=2)
     print(stdout_json)
 
@@ -497,7 +541,7 @@ def main():
         report_path = build_report_path(log_dir, args.audio, args.label, run_dt)
         saved_payload = {
             **out,
-            "transcript_full": asr["text"],
+            "transcript_full": assessment["transcript_full"],
             "notes": args.notes or "",
             "report_path": str(report_path.resolve()),
         }
@@ -521,10 +565,6 @@ def main():
             },
         )
         print(f"Ergebnis gespeichert in {report_path}", file=sys.stderr)
-
-    if tmp_wav.name.endswith(".tmp.wav"):
-        try: tmp_wav.unlink()
-        except Exception: pass
 
 if __name__ == "__main__":
     try:

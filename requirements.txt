@@ -14,5 +14,9 @@ pytest-playwright==0.7.1
 playwright==1.55.0
 requests==2.32.3
 socksio>=1.0.0
+fastapi==0.115.2
+uvicorn==0.30.6
+httpx==0.28.1
+redis==5.2.1
 # Optional: LMStudio Python library (install only if you plan to use the Python client)
 #lmstudio==0.1.1
