@@ -87,6 +87,8 @@ accumulate in `reports/`.
 
 ### Tests & CI
 - **Unit tests**: `python -m unittest discover -s tests`
+- **Optional sample-audio integration test (no microphone required)**:
+  `RUN_AUDIO_INTEGRATION=1 WHISPER_MODEL=tiny python -m unittest tests.test_sample_integration`
 - **End-to-end tests (Playwright + pytest)**: `pytest tests/e2e`
   * Traces, videos, and screenshots are saved automatically on failure in
     `test-results/` and `playwright-report/` (see
@@ -94,6 +96,16 @@ accumulate in `reports/`.
     [pytest-playwright](https://playwright.dev/python/docs/intro)).
 - GitHub Actions workflow (`.github/workflows/ci.yml`) runs both suites and
   installs the Chromium browser via `playwright install --with-deps chromium`.
+
+### Troubleshooting
+- If Whisper model download fails behind a SOCKS proxy with an error mentioning
+  `socksio`, reinstall dependencies from `requirements.txt` or run
+  `python -m pip install socksio`.
+- If Whisper cannot download models because the proxy or network blocks
+  Hugging Face access, rerun once network access is available or pre-download
+  the requested faster-whisper model locally.
+- The sample-audio integration test is intentionally opt-in and may skip when
+  ASR runtime prerequisites or model downloads are unavailable.
 
 ## Notes
 - Default LLM is **llama3.1** (without `:instruct`).
@@ -115,6 +127,7 @@ Pass the following flags to provide credentials and context:
 | `--lms-type` | `canvas` or `moodle` – provider name |
 | `--lms-url` | Base URL of the LMS instance (e.g. `https://canvas.example.edu`) |
 | `--lms-token` | Bearer/secret token for API access |
+| `--lms-course-id` | Canvas course ID (required for `--lms-type canvas`) |
 | `--lms-assign-id` | Assignment ID where the report should be posted |
 | `--lms-score` | Optional numeric score to include in the submission |
 
@@ -125,9 +138,7 @@ python assess_speaking.py sample.wav \
   --lms-type canvas \
   --lms-url https://canvas.example.edu \
   --lms-token $CANVAS_TOKEN \
+  --lms-course-id 99 \
   --lms-assign-id 42 \
   --lms-score 75
 ```
-
-**Note** – The Canvas client in :pyfile:`lms.py` contains a placeholder
-for the course ID. Adjust the endpoint accordingly for your environment.

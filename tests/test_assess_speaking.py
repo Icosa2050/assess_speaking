@@ -213,6 +213,36 @@ class TranscribeTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 assess_speaking.transcribe(Path("sample.wav"))
 
+    def test_transcribe_rewords_missing_socksio(self):
+        class BrokenModel:
+            def __init__(self, *args, **kwargs):
+                raise ImportError(
+                    "Using SOCKS proxy, but the 'socksio' package is not installed. "
+                    "Make sure to install httpx using `pip install httpx[socks]`."
+                )
+
+        with mock.patch.object(assess_speaking, "WhisperModel", BrokenModel):
+            with self.assertRaises(RuntimeError) as ctx:
+                assess_speaking.transcribe(Path("sample.wav"))
+
+        self.assertIn("SOCKS proxy detected", str(ctx.exception))
+        self.assertIn("socksio", str(ctx.exception))
+
+    def test_transcribe_rewords_proxy_download_failure(self):
+        class ProxyError(Exception):
+            __module__ = "httpx"
+
+        class BrokenModel:
+            def __init__(self, *args, **kwargs):
+                raise ProxyError("403 Forbidden")
+
+        with mock.patch.object(assess_speaking, "WhisperModel", BrokenModel):
+            with self.assertRaises(RuntimeError) as ctx:
+                assess_speaking.transcribe(Path("sample.wav"))
+
+        self.assertIn("Whisper model download failed", str(ctx.exception))
+        self.assertIn("Hugging Face", str(ctx.exception))
+
     def test_transcribe_collects_segments(self):
         class DummyWord:
             def __init__(self, word, start, end):
@@ -278,6 +308,28 @@ class MainCliTests(unittest.TestCase):
         ), contextlib.redirect_stdout(buf):
             assess_speaking.main()
         self.assertEqual(buf.getvalue().strip(), "ok")
+
+    def test_main_canvas_upload_requires_course_id(self):
+        args = [
+            "assess_speaking.py",
+            "sample.wav",
+            "--no-log",
+            "--lms-type",
+            "canvas",
+            "--lms-url",
+            "https://canvas.example.edu",
+            "--lms-token",
+            "token",
+            "--lms-assign-id",
+            "42",
+        ]
+
+        with mock.patch("sys.argv", args), mock.patch.object(assess_speaking, "upload_to_canvas") as mock_upload:
+            with self.assertRaises(RuntimeError) as ctx:
+                assess_speaking.main()
+
+        mock_upload.assert_not_called()
+        self.assertIn("--lms-course-id", str(ctx.exception))
 
 
 if __name__ == "__main__":

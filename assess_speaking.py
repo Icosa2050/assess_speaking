@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-import argparse, csv, json, math, re, subprocess, sys
+import argparse, csv, json, math, os, re, subprocess, sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from feedback import generate_feedback
-from lms import upload_to_canvas, upload_to_moodle
+from lms import (
+    build_canvas_submission_data,
+    build_moodle_submission_data,
+    upload_to_canvas,
+    upload_to_moodle,
+)
 
 try:
     from faster_whisper import WhisperModel  # type: ignore
@@ -56,6 +61,11 @@ CEFR_BASELINES = {
         "notes": "Discorso ben strutturato e preciso, con uso flessibile del linguaggio."},
 }
 
+LMS_TOKEN_ENVS = {
+    "canvas": "CANVAS_TOKEN",
+    "moodle": "MOODLE_TOKEN",
+}
+
 def load_audio_features(wav_path: Path):
     if parselmouth is None or call is None:
         raise RuntimeError(
@@ -87,7 +97,23 @@ def transcribe(path: Path, model_size="large-v3"):
         raise RuntimeError(
             "faster-whisper is not available. Install dependencies via `python -m pip install -r requirements.txt`."
         )
-    model = WhisperModel(model_size, compute_type="int8_float32")
+    try:
+        model = WhisperModel(model_size, compute_type="int8_float32")
+    except ImportError as exc:
+        if "socksio" in str(exc).lower():
+            raise RuntimeError(
+                "SOCKS proxy detected but 'socksio' is missing. "
+                "Install dependencies via `python -m pip install -r requirements.txt` "
+                "or `python -m pip install socksio`."
+            ) from exc
+        raise
+    except Exception as exc:
+        if exc.__class__.__module__.startswith(("httpx", "httpcore", "huggingface_hub")):
+            raise RuntimeError(
+                "Whisper model download failed while initializing faster-whisper. "
+                "Check proxy/network access to Hugging Face or pre-download the model."
+            ) from exc
+        raise
     segments, info = model.transcribe(str(path), vad_filter=True, word_timestamps=True, language="it")
     words = []; full_text=[]
     for seg in segments:
@@ -257,6 +283,81 @@ def evaluate_baseline(level: Optional[str], metrics: dict) -> Optional[dict]:
     }
 
 
+def lms_config_requested(args) -> bool:
+    return any(
+        [
+            args.lms_type,
+            args.lms_url,
+            args.lms_token,
+            args.lms_course_id is not None,
+            args.lms_assign_id is not None,
+            args.lms_score is not None,
+            args.lms_dry_run,
+        ]
+    )
+
+
+def resolve_lms_token(lms_type: Optional[str], cli_token: Optional[str]):
+    if cli_token:
+        return cli_token, "cli"
+    if not lms_type:
+        return None, None
+    env_name = LMS_TOKEN_ENVS.get(lms_type)
+    if env_name and os.getenv(env_name):
+        return os.getenv(env_name), f"env:{env_name}"
+    return None, None
+
+
+def validate_lms_config(args, resolved_token: Optional[str]) -> None:
+    if not lms_config_requested(args):
+        return
+    if not args.lms_type:
+        raise RuntimeError("Incomplete LMS configuration: missing --lms-type.")
+
+    missing = []
+    if not args.lms_url:
+        missing.append("--lms-url")
+    if not resolved_token:
+        env_name = LMS_TOKEN_ENVS.get(args.lms_type, "provider token env var")
+        missing.append(f"--lms-token or {env_name}")
+    if args.lms_assign_id is None:
+        missing.append("--lms-assign-id")
+    if args.lms_type == "canvas" and args.lms_course_id is None:
+        missing.append("--lms-course-id")
+
+    if missing:
+        raise RuntimeError(f"Incomplete LMS configuration: missing {', '.join(missing)}.")
+
+
+def build_lms_dry_run_preview(
+    args,
+    *,
+    token_source: str,
+    attachment_path: Path,
+    attachment_size_bytes: int,
+    resources: list | None,
+):
+    score = args.lms_score or 0
+    if args.lms_type == "canvas":
+        submission_data = build_canvas_submission_data(score=score, resources=resources)
+    else:
+        submission_data = build_moodle_submission_data(score=score, resources=resources)
+
+    preview = {
+        "dry_run": True,
+        "provider": args.lms_type,
+        "base_url": args.lms_url,
+        "assignment_id": args.lms_assign_id,
+        "token_source": token_source,
+        "attachment_path": str(attachment_path.resolve()),
+        "attachment_size_bytes": attachment_size_bytes,
+        "submission_data": submission_data,
+    }
+    if args.lms_type == "canvas":
+        preview["course_id"] = args.lms_course_id
+    return preview
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("audio", nargs="?", type=Path, help="Pfad zu WAV/MP3/M4A/...")
@@ -269,8 +370,10 @@ def main():
     ap.add_argument("--lms-type", choices=["canvas", "moodle"], help="LMS provider to upload results to")
     ap.add_argument("--lms-url", help="Base URL of the LMS API (e.g. https://canvas.example.edu)")
     ap.add_argument("--lms-token", help="Access token for LMS authentication")
+    ap.add_argument("--lms-course-id", type=int, help="Canvas course id (required when --lms-type=canvas)")
     ap.add_argument("--lms-assign-id", type=int, help="Assignment id to submit the report to")
     ap.add_argument("--lms-score", type=float, help="Optional score to include in the submission")
+    ap.add_argument("--lms-dry-run", action="store_true", help="Show LMS submission details without uploading")
     ap.add_argument("--list-ollama", action="store_true", help="verfügbare Ollama-Modelle anzeigen")
     ap.add_argument("--selftest", action="store_true", help="Mini-Test gegen Ollama (ohne Audio) ausführen")
     ap.add_argument("--log-dir", default="reports", help="Pfad zum Speichern der Ergebnisse (Default: reports)")
@@ -289,6 +392,9 @@ def main():
     if not args.audio:
         print("Bitte Audio-Datei angeben oder --selftest bzw. --list-ollama nutzen.", file=sys.stderr)
         sys.exit(2)
+
+    lms_token, lms_token_source = resolve_lms_token(args.lms_type, args.lms_token)
+    validate_lms_config(args, lms_token)
 
     tmp_wav = args.audio
     if args.audio.suffix.lower() not in [".wav"]:
@@ -340,36 +446,50 @@ def main():
 
     # ------------------------------------------------------------------
     # Optional LMS upload – we create a small report file for the attachment.
-    if args.lms_type and args.lms_url and args.lms_token and args.lms_assign_id:
+    if lms_config_requested(args):
         attachment_path = Path("report.json")
-        attachment_path.write_text(stdout_json, encoding="utf-8")
-        try:
-            if args.lms_type == "canvas":
-                upload_to_canvas(
-                    base_url=args.lms_url,
-                    token=args.lms_token,
-                    assignment_id=args.lms_assign_id,
-                    score=args.lms_score or 0,
-                    attachment_path=attachment_path,
-                    resources=out.get("suggested_training"),
-                )
-            elif args.lms_type == "moodle":
-                upload_to_moodle(
-                    base_url=args.lms_url,
-                    token=args.lms_token,
-                    assignment_id=args.lms_assign_id,
-                    score=args.lms_score or 0,
-                    attachment_path=attachment_path,
-                    resources=out.get("suggested_training"),
-                )
-            print("[lms] Report uploaded successfully.")
-        except RuntimeError as e:
-            print(f"[lms] Failed to upload: {e}", file=sys.stderr)
-        finally:
+        score = args.lms_score or 0
+        resources = out.get("suggested_training")
+        if args.lms_dry_run:
+            preview = build_lms_dry_run_preview(
+                args,
+                token_source=lms_token_source or "unknown",
+                attachment_path=attachment_path,
+                attachment_size_bytes=len(stdout_json.encode("utf-8")),
+                resources=resources,
+            )
+            print("[lms] Dry run:", file=sys.stderr)
+            print(json.dumps(preview, ensure_ascii=False, indent=2), file=sys.stderr)
+        else:
+            attachment_path.write_text(stdout_json, encoding="utf-8")
             try:
-                attachment_path.unlink()
-            except Exception:
-                pass
+                if args.lms_type == "canvas":
+                    upload_to_canvas(
+                        base_url=args.lms_url,
+                        token=lms_token,
+                        course_id=args.lms_course_id,
+                        assignment_id=args.lms_assign_id,
+                        score=score,
+                        attachment_path=attachment_path,
+                        resources=resources,
+                    )
+                elif args.lms_type == "moodle":
+                    upload_to_moodle(
+                        base_url=args.lms_url,
+                        token=lms_token,
+                        assignment_id=args.lms_assign_id,
+                        score=score,
+                        attachment_path=attachment_path,
+                        resources=resources,
+                    )
+                print("[lms] Report uploaded successfully.")
+            except RuntimeError as e:
+                print(f"[lms] Failed to upload: {e}", file=sys.stderr)
+            finally:
+                try:
+                    attachment_path.unlink()
+                except Exception:
+                    pass
 
     if not args.no_log:
         log_dir = Path(args.log_dir)

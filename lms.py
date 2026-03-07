@@ -20,7 +20,7 @@ Usage example (Canvas):
 
 >>> from lms import CanvasClient
 >>> client = CanvasClient(base_url="https://canvas.example.edu", token="abc123")
->>> client.upload_submission(assignment_id=42, submission_data={"score": 85}, attachment_path="report.json")
+>>> client.upload_submission(course_id=7, assignment_id=42, submission_data={"score": 85}, attachment_path="report.json")
 True
 
 The tool can be extended with more LMS providers by following the same
@@ -28,8 +28,6 @@ pattern.
 """
 
 from __future__ import annotations
-
-import json
 from pathlib import Path
 from typing import Any, Dict
 
@@ -38,7 +36,14 @@ try:
 except ImportError:  # pragma: no cover – handled in functions
     requests = None  # type: ignore
 
-__all__ = ["CanvasClient", "MoodleClient", "upload_to_canvas", "upload_to_moodle"]
+__all__ = [
+    "CanvasClient",
+    "MoodleClient",
+    "build_canvas_submission_data",
+    "build_moodle_submission_data",
+    "upload_to_canvas",
+    "upload_to_moodle",
+]
 
 
 class _BaseClient:
@@ -71,17 +76,18 @@ class CanvasClient(_BaseClient):
     def upload_submission(
         self,
         *,
+        course_id: int,
         assignment_id: int,
         submission_data: Dict[str, Any],
         attachment_path: Path,
     ) -> bool:
         if requests is None:
             raise RuntimeError("The 'requests' library is required for LMS uploads but is not installed.")
-        url = f"{self.base_url}/api/v1/courses/COURSE_ID/assignments/{assignment_id}/submissions"
-        # NOTE: In a real integration COURSE_ID would be passed or derived.
+        url = f"{self.base_url}/api/v1/courses/{course_id}/assignments/{assignment_id}/submissions"
         data = {"submission": {**submission_data}}
-        files = {"submission[attachment]": attachment_path.open("rb")}
-        resp = requests.post(url, headers=self._auth_headers(), data=data, files=files)
+        with attachment_path.open("rb") as fp:
+            files = {"submission[attachment]": fp}
+            resp = requests.post(url, headers=self._auth_headers(), data=data, files=files)
         self._check_response(resp)
         return True
 
@@ -127,31 +133,45 @@ class MoodleClient(_BaseClient):  # pragma: no cover – simple wrapper
         return True
 
 
+def _format_resources_comment(*, prefix_lines: list[str], resources: list | None) -> str:
+    lines = list(prefix_lines)
+    if resources:
+        lines.append("Suggested training resources:")
+        for resource in resources:
+            title = resource.get("title", "Resource")
+            url = resource.get("url", "")
+            lines.append(f"- {title}: {url}")
+    return "\n".join(line for line in lines if line)
+
+
+def build_canvas_submission_data(*, score: float, resources: list | None = None) -> Dict[str, Any]:
+    submission_data: Dict[str, Any] = {"score": score}
+    comment = _format_resources_comment(prefix_lines=[], resources=resources)
+    if comment:
+        submission_data["comment"] = comment
+    return submission_data
+
+
+def build_moodle_submission_data(*, score: float, resources: list | None = None) -> Dict[str, Any]:
+    comment = _format_resources_comment(prefix_lines=[f"Score {score}"], resources=resources)
+    return {"attachments": [], "comment": comment}
+
+
 def upload_to_canvas(
     *,
     base_url: str,
     token: str,
+    course_id: int,
     assignment_id: int,
-    score: int,
+    score: float,
     attachment_path: Path,
     resources: list | None = None,
 ):
     client = CanvasClient(base_url, token)
-    # Build a comment that lists resource URLs when provided.
-    comment = ""
-    if resources:
-        lines = ["Suggested training resources:"]
-        for r in resources:
-            title = r.get("title", "Resource")
-            url = r.get("url", "")
-            lines.append(f"- {title}: {url}")
-        comment = "\n".join(lines)
-    submission_data = {"score": score}
-    if comment:
-        submission_data["comment"] = comment
     return client.upload_submission(
+        course_id=course_id,
         assignment_id=assignment_id,
-        submission_data=submission_data,
+        submission_data=build_canvas_submission_data(score=score, resources=resources),
         attachment_path=attachment_path,
     )
 
@@ -161,21 +181,13 @@ def upload_to_moodle(
     base_url: str,
     token: str,
     assignment_id: int,
-    score: int,
+    score: float,
     attachment_path: Path,
     resources: list | None = None,
 ):
     client = MoodleClient(base_url, token)
-    comment = f"Score {score}"
-    if resources:
-        lines = [comment, "Suggested training resources:"]
-        for r in resources:
-            title = r.get("title", "Resource")
-            url = r.get("url", "")
-            lines.append(f"- {title}: {url}")
-        comment = "\n".join(lines)
     return client.upload_submission(
         assignment_id=assignment_id,
-        submission_data={"attachments": [], "comment": comment},
+        submission_data=build_moodle_submission_data(score=score, resources=resources),
         attachment_path=attachment_path,
     )
