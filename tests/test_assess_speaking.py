@@ -503,6 +503,32 @@ class MainCliTests(unittest.TestCase):
         self.assertEqual(buf.getvalue().strip(), '{"ok": true}')
 
     @mock.patch("assess_speaking.run_assessment")
+    def test_main_normalizes_none_as_disabled_asr_fallback(self, mock_run_assessment):
+        mock_run_assessment.return_value = {
+            "metrics": _sample_report()["metrics"],
+            "transcript_full": "ciao mondo",
+            "transcript_preview": "ciao mondo",
+            "llm_rubric": json.dumps(_sample_report()["rubric"]),
+            "report": _sample_report(),
+        }
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        args = [
+            "assess_speaking.py",
+            "sample.wav",
+            "--no-log",
+            "--asr-fallback-compute-type",
+            "none",
+        ]
+        with (
+            mock.patch("sys.argv", args),
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
+            assess_speaking.main()
+        self.assertIsNone(mock_run_assessment.call_args.kwargs["asr_fallback_compute_type"])
+
+    @mock.patch("assess_speaking.run_assessment")
     def test_main_lms_dry_run_uses_env_token_and_skips_upload(self, mock_run_assessment):
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -574,20 +600,46 @@ class MainCliTests(unittest.TestCase):
 
 
 class ConvertToWavTests(unittest.TestCase):
+    class _NamedTempFileStub:
+        def __init__(self, path: Path):
+            self.name = str(path)
+            self._path = path
+
+        def __enter__(self):
+            self._path.touch()
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
     @mock.patch("assess_speaking.subprocess.run", side_effect=FileNotFoundError("ffmpeg"))
     def test_convert_to_wav_requires_ffmpeg(self, _mock_run):
-        with self.assertRaises(RuntimeError) as ctx:
-            assess_speaking._convert_to_wav(Path("in.mp3"))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_wav = Path(tmpdir) / "in-conversion.wav"
+            with mock.patch(
+                "assess_speaking.tempfile.NamedTemporaryFile",
+                return_value=self._NamedTempFileStub(tmp_wav),
+            ):
+                with self.assertRaises(RuntimeError) as ctx:
+                    assess_speaking._convert_to_wav(Path("in.mp3"))
         self.assertIn("ffmpeg is required", str(ctx.exception))
+        self.assertFalse(tmp_wav.exists())
 
     @mock.patch(
         "assess_speaking.subprocess.run",
         side_effect=subprocess.CalledProcessError(1, "ffmpeg", stderr=b"bad input"),
     )
     def test_convert_to_wav_handles_ffmpeg_failure(self, _mock_run):
-        with self.assertRaises(RuntimeError) as ctx:
-            assess_speaking._convert_to_wav(Path("broken.mp3"))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_wav = Path(tmpdir) / "broken-conversion.wav"
+            with mock.patch(
+                "assess_speaking.tempfile.NamedTemporaryFile",
+                return_value=self._NamedTempFileStub(tmp_wav),
+            ):
+                with self.assertRaises(RuntimeError) as ctx:
+                    assess_speaking._convert_to_wav(Path("broken.mp3"))
         self.assertIn("Audio conversion failed", str(ctx.exception))
+        self.assertFalse(tmp_wav.exists())
 
 
 if __name__ == "__main__":

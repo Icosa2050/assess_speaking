@@ -18,10 +18,14 @@ def _require_keys(data: dict, required: set[str], scope: str) -> None:
 
 
 def _score_value(raw: Any, key: str) -> int:
-    try:
+    if isinstance(raw, bool):
+        raise SchemaValidationError(f"{key}: must be integer 1..5")
+    if isinstance(raw, int):
+        value = raw
+    elif isinstance(raw, float) and raw.is_integer():
         value = int(raw)
-    except (TypeError, ValueError) as exc:
-        raise SchemaValidationError(f"{key}: must be integer 1..5") from exc
+    else:
+        raise SchemaValidationError(f"{key}: must be integer 1..5")
     if value < 1 or value > 5:
         raise SchemaValidationError(f"{key}: out of range 1..5")
     return value

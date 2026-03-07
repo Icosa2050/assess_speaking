@@ -50,9 +50,27 @@ class RubricSchemaTests(unittest.TestCase):
         rubric = RubricResult.from_dict(_rubric_data())
         self.assertEqual(rubric.overall, 4)
 
+    def test_from_dict_accepts_integer_valued_float_scores(self):
+        data = _rubric_data()
+        data["overall"] = 4.0
+        rubric = RubricResult.from_dict(data)
+        self.assertEqual(rubric.overall, 4)
+
     def test_from_dict_rejects_missing_key(self):
         data = _rubric_data()
         del data["on_topic"]
+        with self.assertRaises(SchemaValidationError):
+            RubricResult.from_dict(data)
+
+    def test_from_dict_rejects_fractional_scores(self):
+        data = _rubric_data()
+        data["fluency"] = 3.9
+        with self.assertRaises(SchemaValidationError):
+            RubricResult.from_dict(data)
+
+    def test_from_dict_rejects_boolean_scores(self):
+        data = _rubric_data()
+        data["fluency"] = True
         with self.assertRaises(SchemaValidationError):
             RubricResult.from_dict(data)
 

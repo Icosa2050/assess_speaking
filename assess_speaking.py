@@ -20,7 +20,12 @@ from asr import transcribe as _transcribe
 from assessment_prompts import PROMPT_VERSION, rubric_prompt_it as _rubric_prompt_it, selftest_prompt_it
 from audio_features import load_audio_features as _load_audio_features
 from feedback import generate_feedback
-from llm_client import LLMClientError, generate_rubric, list_ollama_models as _list_ollama_models
+from llm_client import (
+    LLMClientError,
+    extract_json_object as _extract_json_object,
+    generate_rubric,
+    list_ollama_models as _list_ollama_models,
+)
 from lms import (
     build_canvas_submission_data,
     build_moodle_submission_data,
@@ -66,6 +71,8 @@ LMS_TOKEN_ENVS = {
     "canvas": "CANVAS_TOKEN",
     "moodle": "MOODLE_TOKEN",
 }
+
+NONE_SENTINELS = {"", "none", "null"}
 
 
 def load_audio_features(wav_path: Path, threshold_offset_db: float = -10.0) -> dict:
@@ -132,62 +139,19 @@ def list_ollama_models() -> str:
         return json.dumps({"error": "ollama_tags_failed", "detail": exc.stderr})
 
 
-def _balanced_json_object(payload: str) -> Optional[dict]:
-    if not payload:
-        return None
-    payload = payload.strip()
-    if payload.startswith("```"):
-        lines = payload.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].startswith("```"):
-            lines = lines[:-1]
-        payload = "\n".join(lines).strip()
-    try:
-        parsed = json.loads(payload)
-        if isinstance(parsed, dict):
-            return parsed
-    except json.JSONDecodeError:
-        pass
-
-    start = None
-    depth = 0
-    in_string = False
-    escape = False
-    for index, char in enumerate(payload):
-        if in_string:
-            if escape:
-                escape = False
-            elif char == "\\":
-                escape = True
-            elif char == '"':
-                in_string = False
-            continue
-        if char == '"':
-            in_string = True
-            continue
-        if char == "{":
-            if depth == 0:
-                start = index
-            depth += 1
-            continue
-        if char == "}" and depth > 0:
-            depth -= 1
-            if depth == 0 and start is not None:
-                candidate = payload[start : index + 1]
-                try:
-                    parsed = json.loads(candidate)
-                except json.JSONDecodeError:
-                    start = None
-                    continue
-                if isinstance(parsed, dict):
-                    return parsed
-                start = None
-    return None
-
-
 def extract_rubric_json(payload: str) -> Optional[dict]:
-    return _balanced_json_object(payload)
+    try:
+        return _extract_json_object(payload)
+    except SchemaValidationError:
+        return None
+
+
+def _normalize_optional_string(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    if value.strip().lower() in NONE_SENTINELS:
+        return None
+    return value
 
 
 def build_report_path(log_dir: Path, audio: Path, label: Optional[str], when: datetime) -> Path:
@@ -317,6 +281,7 @@ def selftest(
 
 
 def _convert_to_wav(audio_path: Path) -> Path:
+    tmp_wav: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
             delete=False,
@@ -331,10 +296,14 @@ def _convert_to_wav(audio_path: Path) -> Path:
         )
         return tmp_wav
     except FileNotFoundError as exc:
+        if tmp_wav and tmp_wav.exists():
+            tmp_wav.unlink()
         raise RuntimeError(
             "ffmpeg is required for non-WAV input. Please install it via Homebrew: `brew install ffmpeg`."
         ) from exc
     except subprocess.CalledProcessError as exc:
+        if tmp_wav and tmp_wav.exists():
+            tmp_wav.unlink()
         stderr = (exc.stderr or b"").decode("utf-8", errors="replace").strip()
         detail = stderr or str(exc)
         raise RuntimeError(f"Audio conversion failed: {detail}") from exc
@@ -646,7 +615,12 @@ def main() -> None:
     ap.add_argument("--min-word-count", type=int, default=settings.min_word_count, help="Minimale Wortzahl für LLM-Bewertung")
     ap.add_argument("--llm-timeout", type=float, default=settings.llm_timeout_sec, help="LLM timeout in Sekunden")
     ap.add_argument("--asr-compute-type", default=settings.asr_compute_type, help="faster-whisper compute type")
-    ap.add_argument("--asr-fallback-compute-type", default=settings.asr_fallback_compute_type, help="Fallback compute type")
+    ap.add_argument(
+        "--asr-fallback-compute-type",
+        type=_normalize_optional_string,
+        default=settings.asr_fallback_compute_type,
+        help="Fallback compute type",
+    )
     ap.add_argument("--pause-threshold-offset-db", type=float, default=settings.pause_threshold_offset_db, help="Pause threshold offset in dB")
     ap.add_argument("--feedback", action="store_true", help="Generate training-material suggestions based on metrics")
     ap.add_argument("--train-dir", type=Path, default=Path("training"), help="Directory containing manifest.json with training resources")
