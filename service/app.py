@@ -50,7 +50,15 @@ def extract_telegram_media(update: dict[str, Any]) -> tuple[Optional[int], Optio
 
 def build_result_message(assessment: dict[str, Any]) -> str:
     metrics = assessment.get("metrics", {})
+    report = assessment.get("report") or {}
     overall = ""
+    final_score = ""
+    requires_human_review = False
+    if isinstance(report, dict):
+        scores = report.get("scores") or {}
+        if isinstance(scores, dict) and scores.get("final") is not None:
+            final_score = str(scores["final"])
+        requires_human_review = bool(report.get("requires_human_review", False))
     llm_rubric = assessment.get("llm_rubric")
     if isinstance(llm_rubric, str):
         rubric = extract_rubric_json(llm_rubric) or {}
@@ -63,8 +71,13 @@ def build_result_message(assessment: dict[str, Any]) -> str:
         f"Parole: {metrics.get('word_count', 'n/a')}",
         f"Pause (totale s): {metrics.get('pause_total_sec', 'n/a')}",
     ]
+    if final_score:
+        lines.insert(1, f"Punteggio finale: {final_score}")
     if overall:
-        lines.insert(1, f"Punteggio complessivo (LLM): {overall}")
+        insert_at = 2 if final_score else 1
+        lines.insert(insert_at, f"Punteggio complessivo (LLM): {overall}")
+    if requires_human_review:
+        lines.append("Revisione umana consigliata.")
     return "\n".join(lines)
 
 
