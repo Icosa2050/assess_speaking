@@ -395,7 +395,7 @@ def build_lms_dry_run_preview(
     attachment_size_bytes: int,
     resources: list | None,
 ):
-    score = args.lms_score or 0
+    score = args.lms_score
     if args.lms_type == "canvas":
         submission_data = build_canvas_submission_data(score=score, resources=resources)
     else:
@@ -492,7 +492,7 @@ def main():
     # Optional LMS upload – we create a small report file for the attachment.
     if lms_config_requested(args):
         attachment_path = Path("report.json")
-        score = args.lms_score or 0
+        score = args.lms_score
         resources = out.get("suggested_training")
         if args.lms_dry_run:
             preview = build_lms_dry_run_preview(

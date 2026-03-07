@@ -12,10 +12,12 @@ class CanvasClientTests(unittest.TestCase):
         mock_response = mock.Mock()
         mock_response.status_code = 403
         mock_response.text = "x" * 250
-        mock_response.raise_for_status.side_effect = lms.requests.HTTPError("forbidden")
+        http_error = type("HTTPError", (Exception,), {})
+        mock_response.raise_for_status.side_effect = http_error("forbidden")
 
-        with self.assertRaises(RuntimeError) as ctx:
-            client._check_response(mock_response)
+        with mock.patch.object(lms, "requests", mock.Mock(HTTPError=http_error)):
+            with self.assertRaises(RuntimeError) as ctx:
+                client._check_response(mock_response)
 
         self.assertIn("HTTP 403", str(ctx.exception))
         self.assertIn("x" * 200, str(ctx.exception))
@@ -23,9 +25,23 @@ class CanvasClientTests(unittest.TestCase):
 
     def test_upload_submission_uses_course_and_assignment_in_url(self):
         requests_module = mock.Mock()
-        mock_response = mock.Mock()
-        mock_response.raise_for_status.return_value = None
-        requests_module.post.return_value = mock_response
+        start_response = mock.Mock()
+        start_response.raise_for_status.return_value = None
+        start_response.json.return_value = {
+            "upload_url": "https://uploads.example.edu/files",
+            "upload_params": {"key": "value"},
+        }
+        upload_response = mock.Mock()
+        upload_response.status_code = 201
+        upload_response.headers = {"Location": "https://canvas.example.edu/api/v1/files/555"}
+        finalize_response = mock.Mock()
+        finalize_response.raise_for_status.return_value = None
+        finalize_response.json.return_value = {"id": 555}
+        submit_response = mock.Mock()
+        submit_response.raise_for_status.return_value = None
+
+        requests_module.post.side_effect = [start_response, upload_response, submit_response]
+        requests_module.get.return_value = finalize_response
 
         with tempfile.NamedTemporaryFile("wb", delete=False) as fh:
             fh.write(b"{}")
@@ -37,18 +53,35 @@ class CanvasClientTests(unittest.TestCase):
             ok = client.upload_submission(
                 course_id=77,
                 assignment_id=42,
-                submission_data={"score": 93.5},
+                submission_data={"comment": "Suggested score: 93.5"},
                 attachment_path=attachment,
             )
 
         self.assertTrue(ok)
         self.assertEqual(
-            requests_module.post.call_args.args[0],
+            requests_module.post.call_args_list[0].args[0],
+            "https://canvas.example.edu/api/v1/courses/77/assignments/42/submissions/self/files",
+        )
+        self.assertEqual(
+            requests_module.post.call_args_list[2].args[0],
             "https://canvas.example.edu/api/v1/courses/77/assignments/42/submissions",
         )
-        self.assertEqual(requests_module.post.call_args.kwargs["headers"], {"Authorization": "Bearer token123"})
-        self.assertEqual(requests_module.post.call_args.kwargs["data"], {"submission": {"score": 93.5}})
-        self.assertIn("submission[attachment]", requests_module.post.call_args.kwargs["files"])
+        self.assertEqual(
+            requests_module.post.call_args_list[2].kwargs["headers"],
+            {"Authorization": "Bearer token123"},
+        )
+        self.assertEqual(
+            requests_module.post.call_args_list[2].kwargs["data"],
+            [
+                ("submission[submission_type]", "online_upload"),
+                ("submission[file_ids][]", "555"),
+                ("comment[text_comment]", "Suggested score: 93.5"),
+            ],
+        )
+        self.assertEqual(
+            requests_module.get.call_args.args[0],
+            "https://canvas.example.edu/api/v1/files/555",
+        )
 
 
 class UploadHelpersTests(unittest.TestCase):
@@ -62,7 +95,7 @@ class UploadHelpersTests(unittest.TestCase):
         )
 
         self.assertEqual(payload["attachments"], [])
-        self.assertIn("Score 81.5", payload["comment"])
+        self.assertIn("Suggested score: 81.5", payload["comment"])
         self.assertIn("Suggested training resources:", payload["comment"])
         self.assertIn("- Listening Drill: https://example.org/listening", payload["comment"])
         self.assertIn("- Resource: https://example.org/fluency", payload["comment"])
@@ -95,6 +128,7 @@ class UploadHelpersTests(unittest.TestCase):
         self.assertEqual(kwargs["assignment_id"], 34)
         self.assertEqual(kwargs["submission_data"]["score"], 88.0)
         comment = kwargs["submission_data"]["comment"]
+        self.assertIn("Suggested score: 88.0", comment)
         self.assertIn("Suggested training resources:", comment)
         self.assertIn("- Grammar Drill: https://example.org/grammar", comment)
         self.assertIn("- Resource: https://example.org/vocab", comment)
@@ -111,13 +145,13 @@ class UploadHelpersTests(unittest.TestCase):
             token="abc",
             course_id=7,
             assignment_id=9,
-            score=75.0,
+            score=None,
             attachment_path=attachment,
             resources=None,
         )
 
         submission_data = mock_upload.call_args.kwargs["submission_data"]
-        self.assertEqual(submission_data["score"], 75.0)
+        self.assertEqual(submission_data, {})
         self.assertNotIn("comment", submission_data)
 
 

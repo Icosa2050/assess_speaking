@@ -16,6 +16,10 @@ the ``submission`` field for Canvas and as part of ``file_submission`` for
 Moodle.  The functions raise :class:`RuntimeError` if the HTTP request
 fails.
 
+The optional score is treated as submission metadata, not as an authoritative
+gradebook writeback. It is included in the comment payload so instructors can
+see the suggested score alongside the uploaded report.
+
 Usage example (Canvas):
 
 >>> from lms import CanvasClient
@@ -89,11 +93,54 @@ class CanvasClient(_BaseClient):
     ) -> bool:
         if requests is None:
             raise RuntimeError("The 'requests' library is required for LMS uploads but is not installed.")
-        url = f"{self.base_url}/api/v1/courses/{course_id}/assignments/{assignment_id}/submissions"
-        data = {"submission": {**submission_data}}
+        start_url = f"{self.base_url}/api/v1/courses/{course_id}/assignments/{assignment_id}/submissions/self/files"
+        start_resp = requests.post(
+            start_url,
+            headers=self._auth_headers(),
+            data={"name": attachment_path.name, "size": attachment_path.stat().st_size},
+        )
+        self._check_response(start_resp)
+        upload_spec = start_resp.json()
+        upload_url = upload_spec.get("upload_url")
+        upload_params = upload_spec.get("upload_params")
+        if not upload_url or not upload_params:
+            raise RuntimeError("Canvas upload initiation did not return upload_url/upload_params.")
+
         with attachment_path.open("rb") as fp:
-            files = {"submission[attachment]": fp}
-            resp = requests.post(url, headers=self._auth_headers(), data=data, files=files)
+            upload_resp = requests.post(
+                upload_url,
+                data=upload_params,
+                files={"file": fp},
+                allow_redirects=False,
+            )
+
+        if 300 <= upload_resp.status_code < 400:
+            location = upload_resp.headers.get("Location")
+            if not location:
+                raise RuntimeError("Canvas upload did not return a completion URL.")
+            finalize_resp = requests.get(location, headers=self._auth_headers())
+            self._check_response(finalize_resp)
+            file_payload = finalize_resp.json()
+        elif upload_resp.status_code == 201 and upload_resp.headers.get("Location"):
+            finalize_resp = requests.get(upload_resp.headers["Location"], headers=self._auth_headers())
+            self._check_response(finalize_resp)
+            file_payload = finalize_resp.json()
+        else:
+            self._check_response(upload_resp)
+            file_payload = upload_resp.json()
+
+        file_id = file_payload.get("id")
+        if file_id is None:
+            raise RuntimeError("Canvas upload completed without a file id.")
+
+        submit_url = f"{self.base_url}/api/v1/courses/{course_id}/assignments/{assignment_id}/submissions"
+        submit_data = [
+            ("submission[submission_type]", "online_upload"),
+            ("submission[file_ids][]", str(file_id)),
+        ]
+        if submission_data.get("comment"):
+            submit_data.append(("comment[text_comment]", submission_data["comment"]))
+        resp = requests.post(submit_url, headers=self._auth_headers(), data=submit_data)
         self._check_response(resp)
         return True
 
@@ -150,16 +197,20 @@ def _format_resources_comment(*, prefix_lines: list[str], resources: list | None
     return "\n".join(line for line in lines if line)
 
 
-def build_canvas_submission_data(*, score: float, resources: list | None = None) -> Dict[str, Any]:
-    submission_data: Dict[str, Any] = {"score": score}
-    comment = _format_resources_comment(prefix_lines=[], resources=resources)
+def build_canvas_submission_data(*, score: float | None, resources: list | None = None) -> Dict[str, Any]:
+    submission_data: Dict[str, Any] = {}
+    if score is not None:
+        submission_data["score"] = score
+    prefix_lines = [f"Suggested score: {score}"] if score is not None else []
+    comment = _format_resources_comment(prefix_lines=prefix_lines, resources=resources)
     if comment:
         submission_data["comment"] = comment
     return submission_data
 
 
-def build_moodle_submission_data(*, score: float, resources: list | None = None) -> Dict[str, Any]:
-    comment = _format_resources_comment(prefix_lines=[f"Score {score}"], resources=resources)
+def build_moodle_submission_data(*, score: float | None, resources: list | None = None) -> Dict[str, Any]:
+    prefix_lines = [f"Suggested score: {score}"] if score is not None else []
+    comment = _format_resources_comment(prefix_lines=prefix_lines, resources=resources)
     return {"attachments": [], "comment": comment}
 
 
@@ -169,7 +220,7 @@ def upload_to_canvas(
     token: str,
     course_id: int,
     assignment_id: int,
-    score: float,
+    score: float | None,
     attachment_path: Path,
     resources: list | None = None,
 ):
@@ -187,7 +238,7 @@ def upload_to_moodle(
     base_url: str,
     token: str,
     assignment_id: int,
-    score: float,
+    score: float | None,
     attachment_path: Path,
     resources: list | None = None,
 ):
