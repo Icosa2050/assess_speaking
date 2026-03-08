@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import queue
 import subprocess
 import sys
@@ -149,6 +150,8 @@ def run_assessment(audio_path: Path, log_dir: Path, whisper: str, llm: str, labe
         cmd.extend(["--notes", notes])
     if target_cefr:
         cmd.extend(["--target-cefr", target_cefr])
+    if os.getenv("ASSESS_SPEAKING_DRY_RUN") == "1":
+        cmd.append("--dry-run")
 
     return subprocess.run(cmd, capture_output=True, text=True)
 

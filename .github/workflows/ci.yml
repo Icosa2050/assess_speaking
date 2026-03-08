@@ -19,7 +19,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgl1 libglib2.0-0
+        run: sudo apt-get update && sudo apt-get install -y libgl1 libglib2.0-0 ffmpeg
 
       - name: Install project dependencies
         run: |
@@ -28,7 +28,9 @@ jobs:
           python -m pip install pytest pytest-playwright playwright
 
       - name: Install Playwright browser
-        run: python -m playwright install chromium
+        run: |
+          python -m playwright install chromium
+          python -m playwright install-deps chromium
 
       - name: Run unit tests
         run: python -m unittest discover -s tests
@@ -37,6 +39,7 @@ jobs:
         run: pytest tests/e2e
         env:
           STREAMLIT_HEADLESS: 'true'
+          ASSESS_SPEAKING_DRY_RUN: '1'
 
       - name: Upload Playwright report
         if: always()

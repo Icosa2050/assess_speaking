@@ -472,6 +472,19 @@ class RunAssessmentTests(unittest.TestCase):
         self.assertEqual(result["report"]["scores"]["mode"], "hybrid")
         self.assertIn("llm_rubric", result)
 
+    def test_run_assessment_dry_run_returns_stubbed_payload(self):
+        result = assess_speaking.run_assessment(
+            Path("sample.wav"),
+            llm_model="llama3.1",
+            target_cefr="B2",
+            dry_run=True,
+        )
+        self.assertEqual(result["report"]["warnings"], ["dry_run"])
+        self.assertTrue(result["report"]["requires_human_review"])
+        self.assertEqual(result["report"]["input"]["whisper_model"], "large-v3")
+        self.assertEqual(result["report"]["scores"]["mode"], "deterministic_only")
+        self.assertIn("baseline_comparison", result)
+
 
 class MainCliTests(unittest.TestCase):
     def test_main_without_arguments_exits(self):

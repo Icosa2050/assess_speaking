@@ -1,11 +1,13 @@
 import json
 import os
+import subprocess
 import wave
 import tempfile
 from pathlib import Path
 
 import numpy as np
 import unittest
+from unittest import mock
 
 from scripts import interactive_dashboard as dashboard
 
@@ -80,6 +82,21 @@ class PromptHelperTests(unittest.TestCase):
             loaded = dashboard.load_prompts(prompts_path)
             self.assertEqual(len(loaded), 1)
             self.assertTrue(loaded[0]["audio_path"].endswith("relative.wav"))
+
+    @mock.patch("scripts.interactive_dashboard.subprocess.run")
+    def test_run_assessment_appends_dry_run_flag_when_env_set(self, mock_run):
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="{}", stderr="")
+        with mock.patch.dict(os.environ, {"ASSESS_SPEAKING_DRY_RUN": "1"}, clear=False):
+            dashboard.run_assessment(
+                Path("sample.wav"),
+                Path("reports"),
+                "large-v3",
+                "llama3.1",
+                "label",
+                "notes",
+            )
+        command = mock_run.call_args.args[0]
+        self.assertIn("--dry-run", command)
 
 
 if __name__ == "__main__":

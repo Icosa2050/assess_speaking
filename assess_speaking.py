@@ -334,6 +334,85 @@ def _validate_rubric_payload(payload: Optional[dict]) -> RubricResult | None:
         return None
 
 
+def _dry_run_assessment(
+    *,
+    audio: Path,
+    whisper_model: str,
+    llm_model: str,
+    provider: str,
+    expected_language: str,
+    theme: str,
+    target_duration_sec: float,
+    target_cefr: Optional[str],
+    settings: Settings,
+) -> dict:
+    metrics = {
+        "duration_sec": 65.0,
+        "pause_count": 2,
+        "pause_total_sec": 5.0,
+        "speaking_time_sec": 60.0,
+        "word_count": 120,
+        "wpm": 120.0,
+        "fillers": 1,
+        "cohesion_markers": 2,
+        "complexity_index": 2,
+    }
+    transcript = "Questa e una valutazione di prova generata in modalita dry run."
+    checks = compute_checks(
+        metrics=metrics,
+        rubric=None,
+        target_duration_sec=target_duration_sec,
+        min_word_count=settings.min_word_count,
+        duration_pass_ratio=settings.duration_pass_ratio,
+        language_pass=True,
+    )
+    checks["asr_speaking_time_sec"] = metrics["speaking_time_sec"]
+    checks["speaking_time_delta_sec"] = 0.0
+    checks["asr_pause_consistent"] = True
+    scores = final_scores(
+        deterministic=deterministic_score(metrics),
+        llm=None,
+        topic_pass=checks["topic_pass"],
+        topic_fail_cap_score=settings.topic_fail_cap_score,
+    )
+    report = {
+        "timestamp_utc": AssessmentReport.now_timestamp(),
+        "input": {
+            "provider": provider,
+            "llm_model": llm_model,
+            "whisper_model": whisper_model,
+            "expected_language": expected_language,
+            "detected_language": expected_language,
+            "detected_language_probability": 1.0,
+            "theme": theme,
+            "target_duration_sec": target_duration_sec,
+            "prompt_version": PROMPT_VERSION,
+            "dry_run": True,
+            "audio_path": str(audio),
+        },
+        "metrics": metrics,
+        "checks": checks,
+        "scores": scores,
+        "requires_human_review": True,
+        "transcript_preview": transcript[:400],
+        "warnings": ["dry_run"],
+        "errors": [],
+        "rubric": None,
+        "timings_ms": {"audio_features": 0.0, "asr": 0.0, "llm": 0.0},
+    }
+    out = {
+        "metrics": metrics,
+        "transcript_full": transcript,
+        "transcript_preview": transcript[:400],
+        "llm_rubric": json.dumps({"error": "llm_skipped_dry_run"}),
+        "report": AssessmentReport.from_dict(report).to_dict(),
+    }
+    baseline = evaluate_baseline(target_cefr, metrics) if target_cefr else None
+    if baseline:
+        out["baseline_comparison"] = baseline
+    return out
+
+
 def run_assessment(
     audio: Path,
     whisper_model: str = "large-v3",
@@ -351,6 +430,7 @@ def run_assessment(
     asr_compute_type: Optional[str] = None,
     asr_fallback_compute_type: Optional[str] = None,
     pause_threshold_offset_db: Optional[float] = None,
+    dry_run: bool = False,
 ) -> dict:
     settings = Settings.from_env()
     chosen_provider = _infer_provider(provider, llm_model, None, settings)
@@ -369,6 +449,19 @@ def run_assessment(
         if pause_threshold_offset_db is None
         else pause_threshold_offset_db
     )
+
+    if dry_run:
+        return _dry_run_assessment(
+            audio=audio,
+            whisper_model=whisper_model,
+            llm_model=chosen_model,
+            provider=chosen_provider,
+            expected_language=chosen_language,
+            theme=theme,
+            target_duration_sec=target_duration_sec,
+            target_cefr=target_cefr,
+            settings=settings,
+        )
 
     tmp_wav = audio
     created_tmp = False
@@ -633,6 +726,7 @@ def main() -> None:
     ap.add_argument("--lms-dry-run", action="store_true", help="Show LMS submission details without uploading")
     ap.add_argument("--list-ollama", action="store_true", help="verfügbare Ollama-Modelle anzeigen")
     ap.add_argument("--selftest", action="store_true", help="Mini-Test gegen das LLM (ohne Audio) ausführen")
+    ap.add_argument("--dry-run", action="store_true", help="Erzeuge einen Stub-Bericht ohne ASR/LLM (für E2E-Tests)")
     ap.add_argument("--log-dir", default="reports", help="Pfad zum Speichern der Ergebnisse (Default: reports)")
     ap.add_argument("--no-log", action="store_true", help="Speichern der Ergebnisse deaktivieren")
     ap.add_argument("--label", help="Optionales Label für die Auswertung (z. B. Lerner, Aufgabe)")
@@ -674,6 +768,7 @@ def main() -> None:
         asr_compute_type=args.asr_compute_type,
         asr_fallback_compute_type=args.asr_fallback_compute_type,
         pause_threshold_offset_db=args.pause_threshold_offset_db,
+        dry_run=args.dry_run,
     )
     metrics = assessment["metrics"]
     llm_json = assessment["llm_rubric"]

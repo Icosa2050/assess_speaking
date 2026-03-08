@@ -29,6 +29,7 @@ def prepare_reports(project_root: Path):
 def streamlit_server(project_root: Path):
     env = os.environ.copy()
     env.setdefault("PYTHONPATH", str(project_root))
+    env.setdefault("ASSESS_SPEAKING_DRY_RUN", "1")
     streamlit_cmd = [sys.executable,
                      "-m",
                      "streamlit",
