@@ -169,6 +169,14 @@ so a restart does not silently drop work that was already dequeued.
   `RUN_OPENROUTER_INTEGRATION=1 python -m unittest tests.test_integration_openrouter -v`
 - **Optional sample-audio integration test (no microphone required)**:
   `RUN_AUDIO_INTEGRATION=1 WHISPER_MODEL=tiny python -m unittest tests.test_sample_integration`
+- **Self-hosted real-ASR lane**:
+  `.github/workflows/real-asr-selfhosted.yml` runs the sample-audio integration on a
+  self-hosted Apple Silicon runner with labels `self-hosted`, `macOS`, `ARM64`,
+  `icosa-apple-ci`, `assess-speaking`. It warms the `faster-whisper` model cache first so the runner
+  keeps a persistent local model between jobs. The runner still needs either
+  Hugging Face access on first use or a preloaded Whisper model in its local cache.
+  The workflow is manual (`workflow_dispatch`) by design so the real-ASR lane stays
+  opt-in and does not slow down or destabilize the default hosted PR checks.
 - **End-to-end tests (Playwright + pytest)**: `pytest tests/e2e`
   * Traces, videos, and screenshots are saved automatically on failure in
     `test-results/` and `playwright-report/` (see
