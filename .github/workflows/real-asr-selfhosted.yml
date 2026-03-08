@@ -20,6 +20,7 @@ jobs:
     env:
       PYTHONUNBUFFERED: "1"
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PYTHON_BIN: /opt/homebrew/bin/python3.12
       WHISPER_MODEL: ${{ inputs.whisper_model || 'tiny' }}
       ASR_COMPUTE_TYPE: default
       ASR_FALLBACK_COMPUTE_TYPE: int8
@@ -29,11 +30,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: "pip"
+      - name: Prepare runner-local Python
+        run: |
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+          "$PYTHON_BIN" -V
+          "$PYTHON_BIN" -m venv "$RUNNER_TEMP/assess-speaking-venv"
+          echo "$RUNNER_TEMP/assess-speaking-venv/bin" >> "$GITHUB_PATH"
 
       - name: Configure persistent model cache
         run: |
