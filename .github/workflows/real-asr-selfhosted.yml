@@ -39,9 +39,10 @@ jobs:
 
       - name: Configure persistent model cache
         run: |
+          echo "ARTIFACT_DIR=$RUNNER_TEMP/real-asr-artifacts" >> "$GITHUB_ENV"
           echo "XDG_CACHE_HOME=$HOME/.cache/assess-speaking" >> "$GITHUB_ENV"
           echo "HF_HOME=$HOME/.cache/assess-speaking/huggingface" >> "$GITHUB_ENV"
-          mkdir -p "$HOME/.cache/assess-speaking/huggingface"
+          mkdir -p "$HOME/.cache/assess-speaking/huggingface" "$RUNNER_TEMP/real-asr-artifacts/reports"
 
       - name: Install dependencies
         run: |
@@ -71,4 +72,47 @@ jobs:
           PY
 
       - name: Run sample-audio integration
-        run: python -m unittest tests.test_sample_integration -v
+        run: |
+          set -o pipefail
+          python -m unittest tests.test_sample_integration -v 2>&1 | tee "$ARTIFACT_DIR/sample-audio-integration.log"
+
+      - name: Generate sample assessment report
+        run: |
+          set -o pipefail
+          python assess_speaking.py \
+            samples/italian_demo.wav \
+            --whisper "$WHISPER_MODEL" \
+            --theme "parla della tua giornata in italiano" \
+            --target-duration-sec 60 \
+            --log-dir "$ARTIFACT_DIR/reports" \
+            --label "self-hosted-${WHISPER_MODEL}" \
+            2>&1 | tee "$ARTIFACT_DIR/assessment-cli.log"
+
+      - name: Capture runner metadata
+        if: always()
+        run: |
+          {
+            echo "python=$(python -V 2>&1)"
+            echo "python_path=$(command -v python)"
+            echo "whisper_model=$WHISPER_MODEL"
+            echo "xdg_cache_home=$XDG_CACHE_HOME"
+            echo "hf_home=$HF_HOME"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+          } > "$ARTIFACT_DIR/metadata.txt"
+          find "$HF_HOME/hub" -maxdepth 2 -type d 2>/dev/null | sort > "$ARTIFACT_DIR/hf-cache-tree.txt" || true
+          find "$ARTIFACT_DIR/reports" -maxdepth 2 -type f | sort > "$ARTIFACT_DIR/report-files.txt" || true
+
+      - name: Upload self-hosted ASR artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-asr-${{ inputs.whisper_model || 'tiny' }}-${{ github.run_id }}
+          path: |
+            ${{ env.ARTIFACT_DIR }}/sample-audio-integration.log
+            ${{ env.ARTIFACT_DIR }}/assessment-cli.log
+            ${{ env.ARTIFACT_DIR }}/metadata.txt
+            ${{ env.ARTIFACT_DIR }}/hf-cache-tree.txt
+            ${{ env.ARTIFACT_DIR }}/report-files.txt
+            ${{ env.ARTIFACT_DIR }}/reports
+          if-no-files-found: error

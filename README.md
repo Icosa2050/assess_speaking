@@ -177,6 +177,8 @@ so a restart does not silently drop work that was already dequeued.
   Hugging Face access on first use or a preloaded Whisper model in its local cache.
   The workflow is manual (`workflow_dispatch`) by design so the real-ASR lane stays
   opt-in and does not slow down or destabilize the default hosted PR checks.
+  Each run uploads an artifact bundle with the sample integration log, CLI output,
+  saved report JSON/history, and a cache/runner metadata snapshot.
 - **End-to-end tests (Playwright + pytest)**: `pytest tests/e2e`
   * Traces, videos, and screenshots are saved automatically on failure in
     `test-results/` and `playwright-report/` (see
