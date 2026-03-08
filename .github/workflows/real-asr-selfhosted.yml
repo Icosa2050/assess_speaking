@@ -1,0 +1,72 @@
+name: Real ASR (Self-hosted M4)
+
+on:
+  workflow_dispatch:
+    inputs:
+      whisper_model:
+        description: "faster-whisper model to preload and test"
+        required: false
+        default: "tiny"
+
+concurrency:
+  group: real-asr-selfhosted-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sample-audio-integration:
+    name: Sample Audio Integration (faster-whisper)
+    runs-on: [self-hosted, macOS, ARM64, icosa-apple-ci, assess-speaking]
+    timeout-minutes: 30
+    env:
+      PYTHONUNBUFFERED: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      WHISPER_MODEL: ${{ inputs.whisper_model || 'tiny' }}
+      ASR_COMPUTE_TYPE: default
+      ASR_FALLBACK_COMPUTE_TYPE: int8
+      RUN_AUDIO_INTEGRATION: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Configure persistent model cache
+        run: |
+          echo "XDG_CACHE_HOME=$HOME/.cache/assess-speaking" >> "$GITHUB_ENV"
+          echo "HF_HOME=$HOME/.cache/assess-speaking/huggingface" >> "$GITHUB_ENV"
+          mkdir -p "$HOME/.cache/assess-speaking/huggingface"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Warm faster-whisper model cache
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from asr import transcribe
+
+          result = transcribe(
+              Path("samples/italian_demo.wav"),
+              model_size=os.environ["WHISPER_MODEL"],
+              compute_type=os.environ["ASR_COMPUTE_TYPE"],
+              fallback_compute_type=os.environ["ASR_FALLBACK_COMPUTE_TYPE"],
+          )
+          print(
+              {
+                  "detected_language": result.get("detected_language"),
+                  "compute_type_used": result.get("compute_type_used"),
+                  "fallback_used": result.get("compute_fallback_used"),
+              }
+          )
+          PY
+
+      - name: Run sample-audio integration
+        run: python -m unittest tests.test_sample_integration -v

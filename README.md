@@ -1,12 +1,40 @@
-# assess_speaking (local, Mac-optimized) – v2
+# assess_speaking – OpenRouter-first assessment core
 
-Local pipeline: **Transcription (faster-whisper)** → **Metrics** → **CEFR rubric** via **Ollama**. Updated model tags (no `:instruct`) + built-in **self-test**.
+Pipeline: **Transcription (faster-whisper)** -> **Deterministic metrics** -> **schema-validated CEFR-style rubric** via **OpenRouter** (default) or **Ollama** (legacy/local compatibility).
+
+This branch keeps the old CLI/service shape working while adding a stronger core:
+
+1. OpenRouter as the default remote scoring path.
+2. Legacy Ollama support through `--llm` or `--provider ollama`.
+3. Structured nested `report` output with validated:
+   - `input`
+   - `metrics`
+   - `checks`
+   - `scores`
+   - `rubric`
+   - `requires_human_review`
+4. Goal-oriented gates for:
+   - language match
+   - topic relevance
+   - speaking duration
+   - minimum word count
 
 ## 0) Prerequisites
 ```bash
-brew install ffmpeg ollama
-ollama pull llama3.1              # alternatives: llama3.2:3b / qwen2.5:14b
+brew install ffmpeg
+```
+
+Optional local LLM mode:
+```bash
+brew install ollama
+ollama pull llama3.1
 ollama list
+```
+
+Remote LLM mode (default):
+```bash
+export OPENROUTER_API_KEY="..."
+export OPENROUTER_MODEL="google/gemini-3.1-pro-preview"
 ```
 
 ## 1) Virtual environment (Python ≥ 3.11)
@@ -34,12 +62,23 @@ Optional flags `-v/--voice`, `-t/--text`, `-o/--output`, e.g.
 ## 3) Check models & self-test
 ```bash
 python assess_speaking.py --list-ollama
+python assess_speaking.py --selftest --provider openrouter --llm-model google/gemini-3.1-pro-preview
 python assess_speaking.py --selftest --llm llama3.1
 ```
 
 ## 4) Run an assessment
 ```bash
-python assess_speaking.py sample.wav --whisper large-v3 --llm llama3.1 > report.json
+python assess_speaking.py sample.wav \
+  --provider openrouter \
+  --llm-model google/gemini-3.1-pro-preview \
+  --theme "la mia città" \
+  --target-duration-sec 120 \
+  --llm-timeout 30 > report.json
+```
+
+Legacy/local mode:
+```bash
+python assess_speaking.py sample.wav --llm llama3.1 > report.json
 cat report.json
 ```
 
@@ -47,6 +86,18 @@ Every run is also stored in `reports/` (structured JSON + `history.csv`). Use
 `--label "B1-test"` or `--notes "Morning session"` to tag a run. With
 `--log-dir path/to/reports` you control the destination, `--no-log` disables the
 persistence layer.
+
+Top-level CLI output remains backward-compatible for existing scripts:
+
+1. `metrics`
+2. `transcript_preview`
+3. `llm_rubric`
+4. optional `baseline_comparison`
+5. optional `suggested_training`
+
+New code should read the nested `report` object. It contains the validated
+assessment contract, including `checks`, `scores`, `rubric`, and
+`requires_human_review`.
 
 ### Dashboard / history view
 ```bash
@@ -114,8 +165,18 @@ so a restart does not silently drop work that was already dequeued.
 
 ### Tests & CI
 - **Unit tests**: `python -m unittest discover -s tests`
+- **OpenRouter integration (opt-in)**:
+  `RUN_OPENROUTER_INTEGRATION=1 python -m unittest tests.test_integration_openrouter -v`
 - **Optional sample-audio integration test (no microphone required)**:
   `RUN_AUDIO_INTEGRATION=1 WHISPER_MODEL=tiny python -m unittest tests.test_sample_integration`
+- **Self-hosted real-ASR lane**:
+  `.github/workflows/real-asr-selfhosted.yml` runs the sample-audio integration on a
+  self-hosted Apple Silicon runner with labels `self-hosted`, `macOS`, `ARM64`,
+  `icosa-apple-ci`, `assess-speaking`. It warms the `faster-whisper` model cache first so the runner
+  keeps a persistent local model between jobs. The runner still needs either
+  Hugging Face access on first use or a preloaded Whisper model in its local cache.
+  The workflow is manual (`workflow_dispatch`) by design so the real-ASR lane stays
+  opt-in and does not slow down or destabilize the default hosted PR checks.
 - **End-to-end tests (Playwright + pytest)**: `pytest tests/e2e`
   * Traces, videos, and screenshots are saved automatically on failure in
     `test-results/` and `playwright-report/` (see
@@ -135,11 +196,16 @@ so a restart does not silently drop work that was already dequeued.
   ASR runtime prerequisites or model downloads are unavailable.
 
 ## Notes
-- Default LLM is **llama3.1** (without `:instruct`).
-- Other options: `llama3.2:3b` (fast), `qwen2.5:14b` (stronger); pick according
+- Default provider is **OpenRouter**.
+- Use `--llm-timeout` or `LLM_TIMEOUT_SEC` to bound remote rubric requests.
+- Legacy/local compatibility remains available via **Ollama**.
+- Other local options: `llama3.2:3b` (fast), `qwen2.5:14b` (stronger); pick according
   to RAM and speed requirements.
 - Objective metrics include **WPM**, pauses (≥300 ms), filler count, cohesion
   markers, and a heuristic complexity index (relative clauses / conditionals).
+- If the rubric path degrades or the detected language does not match the
+  expected language, the structured report is marked with
+  `requires_human_review: true`.
 
 ## License
 MIT

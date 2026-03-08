@@ -1,42 +1,45 @@
 #!/usr/bin/env python3
-import argparse, csv, json, math, os, re, subprocess, sys, tempfile
+"""CLI entrypoint and compatibility layer for speaking assessment."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+from asr import transcribe as _transcribe
+from assessment_prompts import PROMPT_VERSION, rubric_prompt_it as _rubric_prompt_it, selftest_prompt_it
+from audio_features import load_audio_features as _load_audio_features
 from feedback import generate_feedback
+from llm_client import (
+    LLMClientError,
+    extract_json_object as _extract_json_object,
+    generate_rubric,
+    list_ollama_models as _list_ollama_models,
+)
 from lms import (
     build_canvas_submission_data,
     build_moodle_submission_data,
     upload_to_canvas,
     upload_to_moodle,
 )
-
-try:
-    from faster_whisper import WhisperModel  # type: ignore
-except ImportError:  # pragma: no cover - handled at runtime for CLI ergonomics
-    WhisperModel = None  # type: ignore
-
-try:
-    import parselmouth  # type: ignore
-    from parselmouth.praat import call  # type: ignore
-except ImportError:  # pragma: no cover - handled at runtime for CLI ergonomics
-    parselmouth = None  # type: ignore
-    call = None  # type: ignore
-
-FILLERS = {"eh","ehm","mmm","cioè","allora","dunque","tipo","insomma"}
-COHESION = {
-    "inoltre","per quanto riguarda","tuttavia","ciò nonostante","in definitiva",
-    "da un lato","dall’altro","a mio avviso","tenuto conto di","a quanto pare",
-    "presumibilmente","parrebbe che","pertanto","quindi","invece","comunque"
-}
+from metrics import metrics_from as _metrics_from
+from schemas import AssessmentReport, RubricResult, SchemaValidationError
+from scoring import compute_checks, deterministic_score, final_scores, rubric_score
+from settings import Settings
 
 # Heuristic CEFR baselines derived from the Council of Europe's global scale and
 # EF SET can-do descriptions, with speaking-rate expectations anchored to the
 # average conversational speed (120-150 wpm) reported by VirtualSpeech.
-# Sources:
-# - Council of Europe, CEFR global scale (https://www.coe.int/...global-scale)
-# - EF SET CEFR guides for B1/B2/C1 (https://www.efset.org/cefr/<level>/)
-# - VirtualSpeech, average speaking rate (https://virtualspeech.com/...words-per-minute)
 CEFR_BASELINES = {
     "B1": {
         "wpm_min": 80,
@@ -44,21 +47,24 @@ CEFR_BASELINES = {
         "fillers_max": 6,
         "cohesion_min": 0,
         "complexity_min": 0,
-        "notes": "Produce testo connesso su esperienze personali; ritmo ancora in sviluppo ma comprensibile."},
+        "notes": "Produce testo connesso su esperienze personali; ritmo ancora in sviluppo ma comprensibile.",
+    },
     "B2": {
         "wpm_min": 100,
         "wpm_max": 150,
         "fillers_max": 4,
         "cohesion_min": 1,
         "complexity_min": 1,
-        "notes": "Interazione fluida e spontanea con idee articolate su temi conosciuti."},
+        "notes": "Interazione fluida e spontanea con idee articolate su temi conosciuti.",
+    },
     "C1": {
         "wpm_min": 110,
         "wpm_max": 160,
         "fillers_max": 3,
         "cohesion_min": 2,
         "complexity_min": 2,
-        "notes": "Discorso ben strutturato e preciso, con uso flessibile del linguaggio."},
+        "notes": "Discorso ben strutturato e preciso, con uso flessibile del linguaggio.",
+    },
 }
 
 LMS_TOKEN_ENVS = {
@@ -66,155 +72,86 @@ LMS_TOKEN_ENVS = {
     "moodle": "MOODLE_TOKEN",
 }
 
-def load_audio_features(wav_path: Path):
-    if parselmouth is None or call is None:
-        raise RuntimeError(
-            "praat-parselmouth is not available. Install dependencies via `python -m pip install -r requirements.txt`."
-        )
-    snd = parselmouth.Sound(str(wav_path))
-    intensity = snd.to_intensity()
-    thr = call(intensity, "Get mean", 0, 0) - 10
-    step = 0.01; t = 0.0; pauses = []; in_pause=False; p_start=0.0
-    dur_total = snd.get_total_duration()
-    while t < dur_total:
-        val = call(intensity, "Get value at time", t, "Cubic")
-        if (math.isnan(val) or val < thr):
-            if not in_pause:
-                in_pause=True; p_start=t
-        else:
-            if in_pause:
-                dur = t - p_start
-                if dur >= 0.3: pauses.append((p_start, t, dur))
-                in_pause=False
-        t += step
-    if in_pause:
-        dur = dur_total-p_start
-        if dur >= 0.3: pauses.append((p_start, dur_total, dur))
-    return {"duration_sec": dur_total, "pauses": pauses}
+NONE_SENTINELS = {"", "none", "null"}
 
-def transcribe(path: Path, model_size="large-v3"):
-    if WhisperModel is None:
-        raise RuntimeError(
-            "faster-whisper is not available. Install dependencies via `python -m pip install -r requirements.txt`."
-        )
-    try:
-        model = WhisperModel(model_size, compute_type="int8_float32")
-    except ImportError as exc:
-        if "socksio" in str(exc).lower():
-            raise RuntimeError(
-                "SOCKS proxy detected but 'socksio' is missing. "
-                "Install dependencies via `python -m pip install -r requirements.txt` "
-                "or `python -m pip install socksio`."
-            ) from exc
-        raise
-    except Exception as exc:
-        if exc.__class__.__module__.startswith(("httpx", "httpcore", "huggingface_hub")):
-            raise RuntimeError(
-                "Whisper model download failed while initializing faster-whisper. "
-                "Check proxy/network access to Hugging Face or pre-download the model."
-            ) from exc
-        raise
-    segments, info = model.transcribe(str(path), vad_filter=True, word_timestamps=True, language="it")
-    words = []; full_text=[]
-    for seg in segments:
-        full_text.append(seg.text.strip())
-        if seg.words:
-            for w in seg.words:
-                token = w.word.strip().lower()
-                if token: words.append({"t0": w.start, "t1": w.end, "text": token})
-    return {"text":" ".join(full_text).strip(), "words":words}
 
-def metrics_from(words, audio_feats):
-    duration = audio_feats["duration_sec"]
-    pause_total = sum(p[2] for p in audio_feats["pauses"])
-    speaking_time = max(0.001, duration - pause_total)
-    tokens = [re.sub(r"[^a-zà-ù’']", "", w["text"]) for w in words]
-    tokens = [t for t in tokens if t]
-    word_count = len(tokens)
-    wpm = word_count / (speaking_time/60.0)
-    fillers = sum(1 for t in tokens if t in FILLERS)
-    text = " " + re.sub(r"\s+", " ", " ".join(t for t in tokens)) + " "
-    cohesion_hits = 0
-    for m in COHESION:
-        parts = [re.escape(part) for part in m.split()]
-        pat = r"\b" + r"\s+".join(parts) + r"\b"
-        cohesion_hits += len(re.findall(pat, text, flags=re.IGNORECASE))
-    rel_markers = len(re.findall(r"\bche\b|\bcui\b|\bnella quale\b|\bnei quali\b", text))
-    cond_markers = len(re.findall(r"\bse\b|\bqualora\b", text))
-    complexity = rel_markers + cond_markers
-    return {
-        "duration_sec": round(duration,2),
-        "pause_count": len(audio_feats["pauses"]),
-        "pause_total_sec": round(pause_total,2),
-        "speaking_time_sec": round(speaking_time,2),
-        "word_count": word_count,
-        "wpm": round(wpm,1),
-        "fillers": fillers,
-        "cohesion_markers": cohesion_hits,
-        "complexity_index": complexity
-    }
+def load_audio_features(wav_path: Path, threshold_offset_db: float = -10.0) -> dict:
+    return _load_audio_features(wav_path, threshold_offset_db=threshold_offset_db)
 
-def rubric_prompt_it(transcript, metr):
-    return f"""
-Sei un esaminatore CEFR per italiano. Valuta SOLO la competenza orale in base al trascritto (potrebbero esserci errori ASR).
-Assegna punteggi 1–5 per: 1) Fluidità, 2) Coerenza/Cohesione, 3) Correttezza grammaticale, 4) Ampiezza lessicale.
-Dai anche 2 esempi concreti da migliorare per ciascun criterio e un voto complessivo (media).
 
-METRICHE OGGETTIVE:
-- Durata: {metr['duration_sec']} s; Tempo di parola: {metr['speaking_time_sec']} s; Pausa totale: {metr['pause_total_sec']} s; Pausenanzahl: {metr['pause_count']}
-- Parole: {metr['word_count']} → WPM: {metr['wpm']}
-- Filler: {metr['fillers']} ; Marcatori di coesione rilevati: {metr['cohesion_markers']}
-- Indice di complessità (relativi/periodi ipotetici, euristico): {metr['complexity_index']}
+def transcribe(
+    path: Path,
+    model_size: str = "large-v3",
+    language: str | None = None,
+    compute_type: str = "default",
+    fallback_compute_type: str | None = "int8",
+) -> dict:
+    return _transcribe(
+        path,
+        model_size=model_size,
+        language=language,
+        compute_type=compute_type,
+        fallback_compute_type=fallback_compute_type,
+    )
 
-TRASCRITTO:
-\"\"\"{transcript.strip()}\"\"\"
 
-RISPONDI IN JSON con le chiavi:
-fluency, cohesion, accuracy, range, overall, comments_fluency, comments_cohesion, comments_accuracy, comments_range, overall_comment.
-"""
+def metrics_from(words: list[dict], audio_feats: dict) -> dict:
+    return _metrics_from(words, audio_feats)
 
-def call_ollama(model, prompt):
-    # Query Ollama HTTP API; also handle /api/tags for model validation
+
+def rubric_prompt_it(transcript: str, metrics: dict, theme: str = "tema libero") -> str:
+    return _rubric_prompt_it(transcript, metrics, theme)
+
+
+def call_ollama(model: str, prompt: str) -> str:
     try:
         proc = subprocess.run(
-            ["curl","-s","http://localhost:11434/api/generate",
-             "-d", json.dumps({"model": model, "prompt": prompt, "stream": False})],
-            capture_output=True, text=True, check=True)
-        resp = proc.stdout
+            [
+                "curl",
+                "-s",
+                "http://localhost:11434/api/generate",
+                "-d",
+                json.dumps({"model": model, "prompt": prompt, "stream": False}),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        raw = proc.stdout
         try:
-            return json.loads(resp)["response"]
+            return json.loads(raw)["response"]
         except Exception:
-            return resp
-    except subprocess.CalledProcessError as e:
-        return json.dumps({"error":"ollama_not_running_or_model_missing","detail":e.stderr})
+            return raw
+    except subprocess.CalledProcessError as exc:
+        return json.dumps({"error": "ollama_not_running_or_model_missing", "detail": exc.stderr})
 
-def list_ollama_models():
+
+def list_ollama_models() -> str:
     try:
-        p = subprocess.run(["curl","-s","http://localhost:11434/api/tags"], capture_output=True, text=True, check=True)
-        return p.stdout
-    except subprocess.CalledProcessError as e:
-        return json.dumps({"error":"ollama_tags_failed","detail":e.stderr})
+        proc = subprocess.run(
+            ["curl", "-s", "http://localhost:11434/api/tags"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return proc.stdout
+    except subprocess.CalledProcessError as exc:
+        return json.dumps({"error": "ollama_tags_failed", "detail": exc.stderr})
 
-def selftest(model="llama3.1"):
-    prompt = "Valuta brevemente (JSON) un testo fittizio: 'Oggi parlo dell'efficienza energetica nelle case.' Dai punteggi CEFR 1–5 per fluency, cohesion, accuracy, range e un commento."
-    return call_ollama(model, prompt)
 
 def extract_rubric_json(payload: str) -> Optional[dict]:
-    if not payload:
-        return None
-    match = re.search(r"```json\s*(\{.*?\})\s*```", payload, flags=re.DOTALL)
-    candidate = match.group(1) if match else None
-    if not candidate:
-        start = payload.find("{")
-        end = payload.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            candidate = payload[start:end+1]
-    if not candidate:
-        return None
     try:
-        return json.loads(candidate)
-    except json.JSONDecodeError:
+        return _extract_json_object(payload)
+    except SchemaValidationError:
         return None
+
+
+def _normalize_optional_string(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    if value.strip().lower() in NONE_SENTINELS:
+        return None
+    return value
 
 
 def build_report_path(log_dir: Path, audio: Path, label: Optional[str], when: datetime) -> Path:
@@ -226,18 +163,26 @@ def build_report_path(log_dir: Path, audio: Path, label: Optional[str], when: da
     return log_dir / f"{timestamp}_{slug}.json"
 
 
-def append_history(history_path: Path, row: dict):
+def append_history(history_path: Path, row: dict) -> None:
     history_path.parent.mkdir(parents=True, exist_ok=True)
     exists = history_path.exists()
     fieldnames = [
-        "timestamp","audio","whisper","llm","label","duration_sec",
-        "wpm","word_count","overall","report_path"
+        "timestamp",
+        "audio",
+        "whisper",
+        "llm",
+        "label",
+        "duration_sec",
+        "wpm",
+        "word_count",
+        "overall",
+        "report_path",
     ]
-    with history_path.open("a", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+    with history_path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
         if not exists:
             writer.writeheader()
-        writer.writerow({k: row.get(k, "") for k in fieldnames})
+        writer.writerow({key: row.get(key, "") for key in fieldnames})
 
 
 def evaluate_baseline(level: Optional[str], metrics: dict) -> Optional[dict]:
@@ -256,22 +201,22 @@ def evaluate_baseline(level: Optional[str], metrics: dict) -> Optional[dict]:
         "wpm": {
             "expected": f"{cfg['wpm_min']}–{cfg['wpm_max']}",
             "actual": metrics.get("wpm"),
-            "ok": within_range(metrics.get("wpm"), cfg['wpm_min'], cfg['wpm_max']),
+            "ok": within_range(metrics.get("wpm"), cfg["wpm_min"], cfg["wpm_max"]),
         },
         "fillers": {
             "expected": f"≤{cfg['fillers_max']}",
             "actual": metrics.get("fillers"),
-            "ok": metrics.get("fillers", 0) <= cfg['fillers_max'],
+            "ok": metrics.get("fillers", 0) <= cfg["fillers_max"],
         },
         "cohesion_markers": {
             "expected": f"≥{cfg['cohesion_min']}",
             "actual": metrics.get("cohesion_markers"),
-            "ok": metrics.get("cohesion_markers", 0) >= cfg['cohesion_min'],
+            "ok": metrics.get("cohesion_markers", 0) >= cfg["cohesion_min"],
         },
         "complexity_index": {
             "expected": f"≥{cfg['complexity_min']}",
             "actual": metrics.get("complexity_index"),
-            "ok": metrics.get("complexity_index", 0) >= cfg['complexity_min'],
+            "ok": metrics.get("complexity_index", 0) >= cfg["complexity_min"],
         },
     }
     passed = all(item["ok"] for item in targets.values())
@@ -282,59 +227,393 @@ def evaluate_baseline(level: Optional[str], metrics: dict) -> Optional[dict]:
         "comment": cfg["notes"],
     }
 
+
+def _infer_provider(
+    provider: Optional[str],
+    llm_model: Optional[str],
+    llm_legacy: Optional[str],
+    settings: Settings,
+) -> str:
+    if provider:
+        return provider
+    if llm_legacy:
+        return "ollama"
+    if llm_model:
+        return "openrouter" if "/" in llm_model else "ollama"
+    return settings.provider
+
+
+def _resolve_model(provider: str, llm_model: Optional[str], llm_legacy: Optional[str], settings: Settings) -> str:
+    if llm_model:
+        return llm_model
+    if llm_legacy:
+        return llm_legacy
+    if provider == "openrouter":
+        return settings.openrouter_model
+    return settings.ollama_model
+
+
+def selftest(
+    model: str | None = None,
+    provider: str | None = None,
+    timeout_sec: float | None = None,
+) -> str:
+    settings = Settings.from_env()
+    chosen_provider = _infer_provider(provider, model, None, settings)
+    chosen_model = model or _resolve_model(chosen_provider, None, None, settings)
+    prompt = selftest_prompt_it()
+
+    if chosen_provider == "ollama":
+        return call_ollama(chosen_model, prompt)
+
+    try:
+        rubric, _raw = generate_rubric(
+            provider=chosen_provider,
+            model=chosen_model,
+            prompt=prompt,
+            timeout_sec=timeout_sec or settings.llm_timeout_sec,
+            openrouter_api_key=os.getenv("OPENROUTER_API_KEY"),
+            max_validation_retries=1,
+        )
+        return json.dumps(rubric.to_dict(), ensure_ascii=False, indent=2)
+    except LLMClientError as exc:
+        return json.dumps({"error": str(exc)}, ensure_ascii=False)
+
+
+def _convert_to_wav(audio_path: Path) -> Path:
+    tmp_wav: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".wav",
+            prefix=f"{audio_path.stem}-",
+        ) as tmp_handle:
+            tmp_wav = Path(tmp_handle.name)
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", str(audio_path), "-ac", "1", "-ar", "16000", str(tmp_wav)],
+            check=True,
+            capture_output=True,
+        )
+        return tmp_wav
+    except FileNotFoundError as exc:
+        if tmp_wav and tmp_wav.exists():
+            tmp_wav.unlink()
+        raise RuntimeError(
+            "ffmpeg is required for non-WAV input. Please install it via Homebrew: `brew install ffmpeg`."
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        if tmp_wav and tmp_wav.exists():
+            tmp_wav.unlink()
+        stderr = (exc.stderr or b"").decode("utf-8", errors="replace").strip()
+        detail = stderr or str(exc)
+        raise RuntimeError(f"Audio conversion failed: {detail}") from exc
+
+
+def _asr_speaking_time_from_words(words: list[dict]) -> float:
+    spans = [
+        (float(word["t0"]), float(word["t1"]))
+        for word in words
+        if "t0" in word and "t1" in word
+    ]
+    if not spans:
+        return 0.0
+    starts, ends = zip(*spans)
+    return max(0.0, max(ends) - min(starts))
+
+
+def _elapsed_ms(start: float) -> float:
+    return round((time.perf_counter() - start) * 1000.0, 1)
+
+
+def _validate_rubric_payload(payload: Optional[dict]) -> RubricResult | None:
+    if payload is None:
+        return None
+    try:
+        return RubricResult.from_dict(payload)
+    except SchemaValidationError:
+        return None
+
+
+def _dry_run_assessment(
+    *,
+    audio: Path,
+    whisper_model: str,
+    llm_model: str,
+    provider: str,
+    expected_language: str,
+    theme: str,
+    target_duration_sec: float,
+    target_cefr: Optional[str],
+    settings: Settings,
+) -> dict:
+    metrics = {
+        "duration_sec": 65.0,
+        "pause_count": 2,
+        "pause_total_sec": 5.0,
+        "speaking_time_sec": 60.0,
+        "word_count": 120,
+        "wpm": 120.0,
+        "fillers": 1,
+        "cohesion_markers": 2,
+        "complexity_index": 2,
+    }
+    transcript = "Questa e una valutazione di prova generata in modalita dry run."
+    checks = compute_checks(
+        metrics=metrics,
+        rubric=None,
+        target_duration_sec=target_duration_sec,
+        min_word_count=settings.min_word_count,
+        duration_pass_ratio=settings.duration_pass_ratio,
+        language_pass=True,
+    )
+    checks["asr_speaking_time_sec"] = metrics["speaking_time_sec"]
+    checks["speaking_time_delta_sec"] = 0.0
+    checks["asr_pause_consistent"] = True
+    scores = final_scores(
+        deterministic=deterministic_score(metrics),
+        llm=None,
+        topic_pass=checks["topic_pass"],
+        topic_fail_cap_score=settings.topic_fail_cap_score,
+    )
+    report = {
+        "timestamp_utc": AssessmentReport.now_timestamp(),
+        "input": {
+            "provider": provider,
+            "llm_model": llm_model,
+            "whisper_model": whisper_model,
+            "expected_language": expected_language,
+            "detected_language": expected_language,
+            "detected_language_probability": 1.0,
+            "theme": theme,
+            "target_duration_sec": target_duration_sec,
+            "prompt_version": PROMPT_VERSION,
+            "dry_run": True,
+            "audio_path": str(audio),
+        },
+        "metrics": metrics,
+        "checks": checks,
+        "scores": scores,
+        "requires_human_review": True,
+        "transcript_preview": transcript[:400],
+        "warnings": ["dry_run"],
+        "errors": [],
+        "rubric": None,
+        "timings_ms": {"audio_features": 0.0, "asr": 0.0, "llm": 0.0},
+    }
+    out = {
+        "metrics": metrics,
+        "transcript_full": transcript,
+        "transcript_preview": transcript[:400],
+        "llm_rubric": json.dumps({"error": "llm_skipped_dry_run"}),
+        "report": AssessmentReport.from_dict(report).to_dict(),
+    }
+    baseline = evaluate_baseline(target_cefr, metrics) if target_cefr else None
+    if baseline:
+        out["baseline_comparison"] = baseline
+    return out
+
+
 def run_assessment(
     audio: Path,
     whisper_model: str = "large-v3",
-    llm_model: str = "llama3.1",
+    llm_model: Optional[str] = None,
     *,
+    provider: Optional[str] = None,
     feedback_enabled: bool = False,
     train_dir: Path = Path("training"),
     target_cefr: Optional[str] = None,
+    theme: str = "tema libero",
+    target_duration_sec: float = 120.0,
+    expected_language: Optional[str] = None,
+    min_word_count: Optional[int] = None,
+    llm_timeout_sec: Optional[float] = None,
+    asr_compute_type: Optional[str] = None,
+    asr_fallback_compute_type: Optional[str] = None,
+    pause_threshold_offset_db: Optional[float] = None,
+    dry_run: bool = False,
 ) -> dict:
+    settings = Settings.from_env()
+    chosen_provider = _infer_provider(provider, llm_model, None, settings)
+    chosen_model = _resolve_model(chosen_provider, llm_model, None, settings)
+    chosen_language = expected_language or settings.expected_language
+    chosen_min_words = min_word_count if min_word_count is not None else settings.min_word_count
+    chosen_llm_timeout = llm_timeout_sec if llm_timeout_sec is not None else settings.llm_timeout_sec
+    chosen_asr_compute_type = asr_compute_type or settings.asr_compute_type
+    chosen_asr_fallback = (
+        settings.asr_fallback_compute_type
+        if asr_fallback_compute_type is None
+        else asr_fallback_compute_type
+    )
+    chosen_pause_threshold = (
+        settings.pause_threshold_offset_db
+        if pause_threshold_offset_db is None
+        else pause_threshold_offset_db
+    )
+
+    if dry_run:
+        return _dry_run_assessment(
+            audio=audio,
+            whisper_model=whisper_model,
+            llm_model=chosen_model,
+            provider=chosen_provider,
+            expected_language=chosen_language,
+            theme=theme,
+            target_duration_sec=target_duration_sec,
+            target_cefr=target_cefr,
+            settings=settings,
+        )
+
     tmp_wav = audio
     created_tmp = False
-    if audio.suffix.lower() not in [".wav"]:
-        tmp_wav = audio.with_suffix(".tmp.wav")
+    if audio.suffix.lower() != ".wav":
+        tmp_wav = _convert_to_wav(audio)
         created_tmp = True
-        try:
-            subprocess.run(
-                ["ffmpeg", "-y", "-i", str(audio), "-ac", "1", "-ar", "16000", str(tmp_wav)],
-                check=True,
-            )
-        except FileNotFoundError as exc:
-            raise RuntimeError(
-                "ffmpeg is required for non-WAV input. Please install it via Homebrew: `brew install ffmpeg`."
-            ) from exc
 
     try:
-        audio_feats = load_audio_features(tmp_wav)
-        asr = transcribe(tmp_wav, whisper_model)
-        metr = metrics_from(asr["words"], audio_feats)
-        prompt = rubric_prompt_it(asr["text"], metr)
-        llm_json = call_ollama(llm_model, prompt)
+        timings_ms: dict[str, float] = {}
+        warnings: list[str] = []
+        errors: list[str] = []
+        rubric_obj: RubricResult | None = None
+        llm_raw = ""
 
-        out = {
-            "metrics": metr,
-            "transcript_full": asr["text"],
-            "transcript_preview": asr["text"][:400],
-            "llm_rubric": llm_json,
+        stage_start = time.perf_counter()
+        audio_feats = load_audio_features(tmp_wav, threshold_offset_db=chosen_pause_threshold)
+        timings_ms["audio_features"] = _elapsed_ms(stage_start)
+
+        stage_start = time.perf_counter()
+        asr_result = transcribe(
+            tmp_wav,
+            whisper_model,
+            language=None,
+            compute_type=chosen_asr_compute_type,
+            fallback_compute_type=chosen_asr_fallback,
+        )
+        timings_ms["asr"] = _elapsed_ms(stage_start)
+
+        metrics = metrics_from(asr_result["words"], audio_feats)
+        baseline = evaluate_baseline(target_cefr, metrics) if target_cefr else None
+        transcript = asr_result["text"]
+        detected_language = str(asr_result.get("detected_language") or chosen_language)
+        language_probability = asr_result.get("language_probability")
+        language_pass = detected_language.lower() == chosen_language.lower()
+        if not language_pass:
+            warnings.extend(["language_mismatch", "llm_skipped_language_mismatch"])
+            errors.append(
+                f"Detected language '{detected_language}' does not match expected '{chosen_language}'."
+            )
+            timings_ms["llm"] = 0.0
+        elif metrics["word_count"] < chosen_min_words:
+            warnings.append("llm_skipped_low_word_count")
+            timings_ms["llm"] = 0.0
+        else:
+            prompt = rubric_prompt_it(transcript, metrics, theme)
+            stage_start = time.perf_counter()
+            try:
+                if chosen_provider == "ollama":
+                    llm_raw = call_ollama(chosen_model, prompt)
+                    rubric_obj = _validate_rubric_payload(extract_rubric_json(llm_raw))
+                    if rubric_obj is None:
+                        warnings.append("llm_invalid_schema")
+                        errors.append("LLM response did not match rubric schema.")
+                else:
+                    rubric_obj, llm_raw = generate_rubric(
+                        provider=chosen_provider,
+                        model=chosen_model,
+                        prompt=prompt,
+                        timeout_sec=chosen_llm_timeout,
+                        openrouter_api_key=os.getenv("OPENROUTER_API_KEY"),
+                        max_validation_retries=1,
+                    )
+            except LLMClientError as exc:
+                warnings.append("llm_unavailable")
+                errors.append(str(exc))
+                llm_raw = json.dumps({"error": "llm_unavailable", "detail": str(exc)})
+            timings_ms["llm"] = _elapsed_ms(stage_start)
+
+        if not llm_raw and not rubric_obj:
+            llm_raw = json.dumps({"error": "llm_skipped"})
+
+        det_score = deterministic_score(metrics)
+        llm_score = rubric_score(rubric_obj)
+        checks = compute_checks(
+            metrics=metrics,
+            rubric=rubric_obj,
+            target_duration_sec=target_duration_sec,
+            min_word_count=chosen_min_words,
+            duration_pass_ratio=settings.duration_pass_ratio,
+            language_pass=language_pass,
+        )
+        asr_speaking_time_sec = round(_asr_speaking_time_from_words(asr_result["words"]), 2)
+        speaking_time_delta_sec = round(abs(float(metrics["speaking_time_sec"]) - asr_speaking_time_sec), 2)
+        asr_pause_consistent = speaking_time_delta_sec <= max(3.0, float(metrics["duration_sec"]) * 0.25)
+        if not asr_pause_consistent:
+            warnings.append("asr_pause_mismatch")
+        checks["asr_speaking_time_sec"] = asr_speaking_time_sec
+        checks["speaking_time_delta_sec"] = speaking_time_delta_sec
+        checks["asr_pause_consistent"] = asr_pause_consistent
+        scores = final_scores(
+            deterministic=det_score,
+            llm=llm_score,
+            topic_pass=checks["topic_pass"],
+            topic_fail_cap_score=settings.topic_fail_cap_score,
+        )
+        requires_human_review = llm_score is None or not language_pass
+
+        report = {
+            "timestamp_utc": AssessmentReport.now_timestamp(),
+            "input": {
+                "provider": chosen_provider,
+                "llm_model": chosen_model,
+                "whisper_model": whisper_model,
+                "expected_language": chosen_language,
+                "detected_language": detected_language,
+                "detected_language_probability": language_probability,
+                "theme": theme,
+                "target_duration_sec": target_duration_sec,
+                "prompt_version": PROMPT_VERSION,
+                "asr_compute_type": chosen_asr_compute_type,
+                "asr_fallback_compute_type": chosen_asr_fallback,
+                "asr_compute_type_used": asr_result.get("compute_type_used", chosen_asr_compute_type),
+                "asr_compute_fallback_used": bool(asr_result.get("compute_fallback_used", False)),
+                "pause_threshold_offset_db": chosen_pause_threshold,
+            },
+            "metrics": metrics,
+            "checks": checks,
+            "scores": scores,
+            "requires_human_review": requires_human_review,
+            "transcript_preview": transcript[:400],
+            "warnings": warnings,
+            "errors": errors,
+            "rubric": rubric_obj.to_dict() if rubric_obj else None,
+            "timings_ms": timings_ms,
         }
-        baseline = evaluate_baseline(target_cefr, metr) if target_cefr else None
-        if baseline:
-            out["baseline_comparison"] = baseline
 
+        suggestions = None
         if feedback_enabled:
             try:
-                suggestions = generate_feedback(metr, train_dir)
+                suggestions = generate_feedback(metrics, train_dir)
                 if suggestions:
-                    out["suggested_training"] = suggestions
-            except RuntimeError as e:
-                # Feedback generation failures should not block the main assessment.
-                print(f"[feedback] Warning: {e}", file=sys.stderr)
+                    report["suggested_training"] = suggestions
+            except RuntimeError as exc:
+                report["warnings"].append("feedback_generation_failed")
+                report["errors"].append(str(exc))
 
+        validated_report = AssessmentReport.from_dict(report).to_dict()
+
+        out = {
+            "metrics": metrics,
+            "transcript_full": transcript,
+            "transcript_preview": transcript[:400],
+            "llm_rubric": llm_raw,
+            "report": validated_report,
+        }
+        if baseline:
+            out["baseline_comparison"] = baseline
+        if suggestions:
+            out["suggested_training"] = suggestions
         return out
     finally:
-        if created_tmp and tmp_wav.name.endswith(".tmp.wav"):
+        if created_tmp:
             try:
                 tmp_wav.unlink()
             except Exception:
@@ -395,11 +674,10 @@ def build_lms_dry_run_preview(
     attachment_size_bytes: int,
     resources: list | None,
 ):
-    score = args.lms_score
     if args.lms_type == "canvas":
-        submission_data = build_canvas_submission_data(score=score, resources=resources)
+        submission_data = build_canvas_submission_data(score=args.lms_score, resources=resources)
     else:
-        submission_data = build_moodle_submission_data(score=score, resources=resources)
+        submission_data = build_moodle_submission_data(score=args.lms_score, resources=resources)
 
     preview = {
         "dry_run": True,
@@ -416,15 +694,29 @@ def build_lms_dry_run_preview(
     return preview
 
 
-def main():
+def main() -> None:
+    settings = Settings.from_env()
     ap = argparse.ArgumentParser()
     ap.add_argument("audio", nargs="?", type=Path, help="Pfad zu WAV/MP3/M4A/...")
     ap.add_argument("--whisper", default="large-v3", help="faster-whisper Modell")
-    ap.add_argument("--llm", default="llama3.1", help="Ollama-Modell (z. B. llama3.1, llama3.2:3b, qwen2.5:14b)")
-    # New optional flags for training‑material feedback
-    ap.add_argument("--feedback", action="store_true", help="Generate training‑material suggestions based on metrics")
+    ap.add_argument("--provider", choices=["openrouter", "ollama"], help="LLM provider")
+    ap.add_argument("--llm-model", help="LLM model name for the selected provider")
+    ap.add_argument("--llm", help="Legacy alias for local Ollama model selection")
+    ap.add_argument("--expected-language", default=settings.expected_language, help="Erwarteter Sprachcode")
+    ap.add_argument("--theme", default="tema libero", help="Thema der Sprechaufgabe")
+    ap.add_argument("--target-duration-sec", type=float, default=120.0, help="Zielsprechdauer in Sekunden")
+    ap.add_argument("--min-word-count", type=int, default=settings.min_word_count, help="Minimale Wortzahl für LLM-Bewertung")
+    ap.add_argument("--llm-timeout", type=float, default=settings.llm_timeout_sec, help="LLM timeout in Sekunden")
+    ap.add_argument("--asr-compute-type", default=settings.asr_compute_type, help="faster-whisper compute type")
+    ap.add_argument(
+        "--asr-fallback-compute-type",
+        type=_normalize_optional_string,
+        default=settings.asr_fallback_compute_type,
+        help="Fallback compute type",
+    )
+    ap.add_argument("--pause-threshold-offset-db", type=float, default=settings.pause_threshold_offset_db, help="Pause threshold offset in dB")
+    ap.add_argument("--feedback", action="store_true", help="Generate training-material suggestions based on metrics")
     ap.add_argument("--train-dir", type=Path, default=Path("training"), help="Directory containing manifest.json with training resources")
-    # --- LMS integration flags ---------------------------------------
     ap.add_argument("--lms-type", choices=["canvas", "moodle"], help="LMS provider to upload results to")
     ap.add_argument("--lms-url", help="Base URL of the LMS API (e.g. https://canvas.example.edu)")
     ap.add_argument("--lms-token", help="Access token for LMS authentication")
@@ -433,7 +725,8 @@ def main():
     ap.add_argument("--lms-score", type=float, help="Optional score to include in the submission")
     ap.add_argument("--lms-dry-run", action="store_true", help="Show LMS submission details without uploading")
     ap.add_argument("--list-ollama", action="store_true", help="verfügbare Ollama-Modelle anzeigen")
-    ap.add_argument("--selftest", action="store_true", help="Mini-Test gegen Ollama (ohne Audio) ausführen")
+    ap.add_argument("--selftest", action="store_true", help="Mini-Test gegen das LLM (ohne Audio) ausführen")
+    ap.add_argument("--dry-run", action="store_true", help="Erzeuge einen Stub-Bericht ohne ASR/LLM (für E2E-Tests)")
     ap.add_argument("--log-dir", default="reports", help="Pfad zum Speichern der Ergebnisse (Default: reports)")
     ap.add_argument("--no-log", action="store_true", help="Speichern der Ergebnisse deaktivieren")
     ap.add_argument("--label", help="Optionales Label für die Auswertung (z. B. Lerner, Aufgabe)")
@@ -441,11 +734,16 @@ def main():
     ap.add_argument("--target-cefr", choices=sorted(CEFR_BASELINES), help="Optionales CEFR-Ziel zur Baseline-Bewertung")
     args = ap.parse_args()
 
+    chosen_provider = _infer_provider(args.provider, args.llm_model, args.llm, settings)
+    chosen_model = _resolve_model(chosen_provider, args.llm_model, args.llm, settings)
+
     if args.list_ollama:
-        print(list_ollama_models()); return
+        print(list_ollama_models())
+        return
 
     if args.selftest:
-        print(selftest(args.llm)); return
+        print(selftest(model=chosen_model, provider=chosen_provider, timeout_sec=args.llm_timeout))
+        return
 
     if not args.audio:
         print("Bitte Audio-Datei angeben oder --selftest bzw. --list-ollama nutzen.", file=sys.stderr)
@@ -457,42 +755,55 @@ def main():
     assessment = run_assessment(
         args.audio,
         args.whisper,
-        args.llm,
+        chosen_model,
+        provider=chosen_provider,
         feedback_enabled=args.feedback,
         train_dir=args.train_dir,
         target_cefr=args.target_cefr,
+        theme=args.theme,
+        target_duration_sec=args.target_duration_sec,
+        expected_language=args.expected_language,
+        min_word_count=args.min_word_count,
+        llm_timeout_sec=args.llm_timeout,
+        asr_compute_type=args.asr_compute_type,
+        asr_fallback_compute_type=args.asr_fallback_compute_type,
+        pause_threshold_offset_db=args.pause_threshold_offset_db,
+        dry_run=args.dry_run,
     )
-    metr = assessment["metrics"]
+    metrics = assessment["metrics"]
     llm_json = assessment["llm_rubric"]
+    report = assessment["report"]
 
     run_dt = datetime.now()
     meta = {
         "timestamp": run_dt.isoformat(timespec="seconds"),
         "audio_path": str(args.audio.resolve()),
         "whisper_model": args.whisper,
-        "llm_model": args.llm,
+        "llm_model": chosen_model,
+        "provider": chosen_provider,
+        "theme": args.theme,
+        "target_duration_sec": args.target_duration_sec,
     }
     if args.label:
         meta["label"] = args.label
 
     out = {
         "meta": meta,
-        "metrics": metr,
+        "metrics": metrics,
         "transcript_preview": assessment["transcript_preview"],
         "llm_rubric": llm_json,
+        "report": report,
     }
     if "baseline_comparison" in assessment:
         out["baseline_comparison"] = assessment["baseline_comparison"]
     if "suggested_training" in assessment:
         out["suggested_training"] = assessment["suggested_training"]
+
     stdout_json = json.dumps(out, ensure_ascii=False, indent=2)
     print(stdout_json)
 
-    # ------------------------------------------------------------------
-    # Optional LMS upload – we create a small report file for the attachment.
     if lms_config_requested(args):
         attachment_path = Path("report.json")
-        score = args.lms_score
         resources = out.get("suggested_training")
         if args.lms_dry_run:
             preview = build_lms_dry_run_preview(
@@ -521,7 +832,7 @@ def main():
                         token=lms_token,
                         course_id=args.lms_course_id,
                         assignment_id=args.lms_assign_id,
-                        score=score,
+                        score=args.lms_score,
                         attachment_path=attachment_path,
                         resources=resources,
                     )
@@ -530,13 +841,13 @@ def main():
                         base_url=args.lms_url,
                         token=lms_token,
                         assignment_id=args.lms_assign_id,
-                        score=score,
+                        score=args.lms_score,
                         attachment_path=attachment_path,
                         resources=resources,
                     )
                 print("[lms] Report uploaded successfully.", file=sys.stderr)
-            except RuntimeError as e:
-                print(f"[lms] Failed to upload: {e}", file=sys.stderr)
+            except RuntimeError as exc:
+                print(f"[lms] Failed to upload: {exc}", file=sys.stderr)
             finally:
                 try:
                     attachment_path.unlink()
@@ -553,30 +864,33 @@ def main():
             "notes": args.notes or "",
             "report_path": str(report_path.resolve()),
         }
-        with report_path.open("w", encoding="utf-8") as fh:
-            json.dump(saved_payload, fh, ensure_ascii=False, indent=2)
+        with report_path.open("w", encoding="utf-8") as handle:
+            json.dump(saved_payload, handle, ensure_ascii=False, indent=2)
 
-        rubric_obj = extract_rubric_json(llm_json) if isinstance(llm_json, str) else None
+        rubric_obj = report.get("rubric")
+        if rubric_obj is None and isinstance(llm_json, str):
+            rubric_obj = extract_rubric_json(llm_json)
         append_history(
             log_dir / "history.csv",
             {
                 "timestamp": meta["timestamp"],
                 "audio": args.audio.name,
                 "whisper": args.whisper,
-                "llm": args.llm,
+                "llm": chosen_model,
                 "label": args.label or "",
-                "duration_sec": metr.get("duration_sec", ""),
-                "wpm": metr.get("wpm", ""),
-                "word_count": metr.get("word_count", ""),
+                "duration_sec": metrics.get("duration_sec", ""),
+                "wpm": metrics.get("wpm", ""),
+                "word_count": metrics.get("word_count", ""),
                 "overall": (rubric_obj or {}).get("overall", ""),
                 "report_path": str(report_path.resolve()),
             },
         )
         print(f"Ergebnis gespeichert in {report_path}", file=sys.stderr)
 
+
 if __name__ == "__main__":
     try:
         main()
-    except RuntimeError as exc:
+    except (RuntimeError, SchemaValidationError) as exc:
         print(f"Fehler: {exc}", file=sys.stderr)
         sys.exit(1)
