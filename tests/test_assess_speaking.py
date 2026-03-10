@@ -168,6 +168,28 @@ class MetricsAndPromptTests(unittest.TestCase):
         self.assertNotIn('"""ciao"""', prompt)
         self.assertIn("'''ciao'''", prompt)
 
+    def test_coaching_prompt_serializes_rubric_as_json(self):
+        metrics = {
+            "speaking_time_sec": 10,
+            "pause_total_sec": 2,
+            "pause_count": 3,
+            "word_count": 120,
+            "wpm": 72.5,
+            "fillers": 1,
+            "cohesion_markers": 2,
+            "complexity_index": 4,
+        }
+        rubric = {
+            "on_topic": True,
+            "language_ok": True,
+            "overall_comment": 'Ha detto "ciao"',
+            "optional_note": None,
+        }
+        prompt = assess_speaking.coaching_prompt_it(metrics, rubric, "la mia città", 180.0)
+        self.assertIn('"on_topic": true', prompt)
+        self.assertIn('"optional_note": null', prompt)
+        self.assertIn('\\"ciao\\"', prompt)
+
 
 class ParsingAndBaselineTests(unittest.TestCase):
     def test_extract_rubric_json_from_code_block(self):

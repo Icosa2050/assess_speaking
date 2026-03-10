@@ -288,10 +288,10 @@ Deliverables:
 3. document prompt versions for rubric and coaching
 
 Files:
-1. [schemas.py](/Users/bernhard/Development/assess_speaking-codex-v3/schemas.py)
-2. [assessment_prompts.py](/Users/bernhard/Development/assess_speaking-codex-v3/assessment_prompts.py)
-3. new file: [coaching_taxonomy.py](/Users/bernhard/Development/assess_speaking-codex-v3/coaching_taxonomy.py)
-4. [docs/IMPLEMENTATION_PLAN.md](/Users/bernhard/Development/assess_speaking-codex-v3/docs/IMPLEMENTATION_PLAN.md)
+1. [schemas.py](../schemas.py)
+2. [assessment_prompts.py](../assessment_prompts.py)
+3. new file: [coaching_taxonomy.py](../coaching_taxonomy.py)
+4. [docs/IMPLEMENTATION_PLAN.md](../docs/IMPLEMENTATION_PLAN.md)
 
 Changes:
 1. add typed schema objects for rubric issues and coaching summary
@@ -302,8 +302,8 @@ Changes:
    - `coaching_it_v1`
 
 Tests:
-1. [tests/test_schemas.py](/Users/bernhard/Development/assess_speaking-codex-v3/tests/test_schemas.py)
-2. [tests/test_assess_speaking.py](/Users/bernhard/Development/assess_speaking-codex-v3/tests/test_assess_speaking.py)
+1. [tests/test_schemas.py](../tests/test_schemas.py)
+2. [tests/test_assess_speaking.py](../tests/test_assess_speaking.py)
 
 Acceptance:
 1. invalid taxonomy category fails validation
@@ -320,9 +320,9 @@ Deliverables:
 3. model pinning policy for the rubric call
 
 Files:
-1. [assessment_prompts.py](/Users/bernhard/Development/assess_speaking-codex-v3/assessment_prompts.py)
-2. [llm_client.py](/Users/bernhard/Development/assess_speaking-codex-v3/llm_client.py)
-3. [assess_speaking.py](/Users/bernhard/Development/assess_speaking-codex-v3/assess_speaking.py)
+1. [assessment_prompts.py](../assessment_prompts.py)
+2. [llm_client.py](../llm_client.py)
+3. [assess_speaking.py](../assess_speaking.py)
 
 Changes:
 1. update rubric prompt to request taxonomy-constrained issues
@@ -335,9 +335,9 @@ Changes:
    - set `requires_human_review`
 
 Tests:
-1. [tests/test_llm_client.py](/Users/bernhard/Development/assess_speaking-codex-v3/tests/test_llm_client.py)
-2. [tests/test_integration_openrouter.py](/Users/bernhard/Development/assess_speaking-codex-v3/tests/test_integration_openrouter.py)
-3. [tests/test_assess_speaking.py](/Users/bernhard/Development/assess_speaking-codex-v3/tests/test_assess_speaking.py)
+1. [tests/test_llm_client.py](../tests/test_llm_client.py)
+2. [tests/test_integration_openrouter.py](../tests/test_integration_openrouter.py)
+3. [tests/test_assess_speaking.py](../tests/test_assess_speaking.py)
 
 Acceptance:
 1. rubric payload is schema-valid
@@ -354,10 +354,10 @@ Deliverables:
 2. coaching data embedded into the report
 
 Files:
-1. [assessment_prompts.py](/Users/bernhard/Development/assess_speaking-codex-v3/assessment_prompts.py)
-2. [llm_client.py](/Users/bernhard/Development/assess_speaking-codex-v3/llm_client.py)
-3. [assess_speaking.py](/Users/bernhard/Development/assess_speaking-codex-v3/assess_speaking.py)
-4. [feedback.py](/Users/bernhard/Development/assess_speaking-codex-v3/feedback.py)
+1. [assessment_prompts.py](../assessment_prompts.py)
+2. [llm_client.py](../llm_client.py)
+3. [assess_speaking.py](../assess_speaking.py)
+4. [feedback.py](../feedback.py)
 
 Changes:
 1. add `coaching_prompt_it(...)`
@@ -367,8 +367,8 @@ Changes:
 5. add `strengths`, `top_3_priorities`, `next_focus`, `next_exercise`, `coach_summary`
 
 Tests:
-1. new file: [tests/test_coaching_summary.py](/Users/bernhard/Development/assess_speaking-codex-v3/tests/test_coaching_summary.py)
-2. [tests/test_assess_speaking.py](/Users/bernhard/Development/assess_speaking-codex-v3/tests/test_assess_speaking.py)
+1. new file: [tests/test_coaching_summary.py](../tests/test_coaching_summary.py)
+2. [tests/test_assess_speaking.py](../tests/test_assess_speaking.py)
 
 Acceptance:
 1. coaching output is generated only from validated rubric data
@@ -384,9 +384,9 @@ Deliverables:
 2. optional JSONL session log
 
 Files:
-1. [assess_speaking.py](/Users/bernhard/Development/assess_speaking-codex-v3/assess_speaking.py)
-2. [scripts/progress_dashboard.py](/Users/bernhard/Development/assess_speaking-codex-v3/scripts/progress_dashboard.py)
-3. [README.md](/Users/bernhard/Development/assess_speaking-codex-v3/README.md)
+1. [assess_speaking.py](../assess_speaking.py)
+2. [scripts/progress_dashboard.py](../scripts/progress_dashboard.py)
+3. [README.md](../README.md)
 
 Changes:
 1. extend `append_history(...)`
@@ -395,8 +395,8 @@ Changes:
 4. optionally append a full row to `reports/sessions.jsonl`
 
 Tests:
-1. [tests/test_assess_speaking.py](/Users/bernhard/Development/assess_speaking-codex-v3/tests/test_assess_speaking.py)
-2. [tests/test_progress_dashboard.py](/Users/bernhard/Development/assess_speaking-codex-v3/tests/test_progress_dashboard.py)
+1. [tests/test_assess_speaking.py](../tests/test_assess_speaking.py)
+2. [tests/test_progress_dashboard.py](../tests/test_progress_dashboard.py)
 
 Acceptance:
 1. history rows are backward-readable
@@ -412,8 +412,8 @@ Deliverables:
 2. repeated-issue detection from saved taxonomy categories
 
 Files:
-1. [scripts/progress_dashboard.py](/Users/bernhard/Development/assess_speaking-codex-v3/scripts/progress_dashboard.py)
-2. new file: [progress_analysis.py](/Users/bernhard/Development/assess_speaking-codex-v3/progress_analysis.py)
+1. [scripts/progress_dashboard.py](../scripts/progress_dashboard.py)
+2. new file: [progress_analysis.py](../progress_analysis.py)
 
 Changes:
 1. add same-task-family filtering
@@ -421,8 +421,8 @@ Changes:
 3. show latest priorities vs previous priorities
 
 Tests:
-1. new file: [tests/test_progress_analysis.py](/Users/bernhard/Development/assess_speaking-codex-v3/tests/test_progress_analysis.py)
-2. [tests/test_progress_dashboard.py](/Users/bernhard/Development/assess_speaking-codex-v3/tests/test_progress_dashboard.py)
+1. new file: [tests/test_progress_analysis.py](../tests/test_progress_analysis.py)
+2. [tests/test_progress_dashboard.py](../tests/test_progress_dashboard.py)
 
 Acceptance:
 1. repeated issue counts are stable

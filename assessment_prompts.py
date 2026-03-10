@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from coaching_taxonomy import (
     COACHING_CONFIDENCE_LEVELS,
     COHERENCE_ISSUE_CATEGORIES,
@@ -116,7 +118,7 @@ def coaching_prompt_it(
     theme: str,
     target_duration_sec: float,
 ) -> str:
-    rubric_json = str(rubric).replace("'", '"')
+    rubric_json = json.dumps(rubric, ensure_ascii=False, indent=2)
     return f"""
 Sei un coach di italiano L2. Usa SOLO le metriche e il rubric già validato per dare consigli pratici.
 Il compito era parlare in italiano per {target_duration_sec:.0f} secondi sul tema "{theme}".
