@@ -96,18 +96,21 @@ Top-level CLI output remains backward-compatible for existing scripts:
 5. optional `suggested_training`
 
 New code should read the nested `report` object. It contains the validated
-assessment contract, including `checks`, `scores`, `rubric`, and
-`requires_human_review`.
+assessment contract, including `checks`, `scores`, `rubric`,
+`requires_human_review`, and `progress_delta` when an earlier run exists for
+the same speaker and task family.
 
 ### Dashboard / history view
 ```bash
 python scripts/progress_dashboard.py --log-dir reports
 python scripts/progress_dashboard.py --log-dir reports --export-html reports/dashboard.html
+python scripts/progress_dashboard.py --log-dir reports --speaker-id bern --task-family travel_narrative
 open reports/dashboard.html  # macOS preview
 ```
 
 The CLI dashboard renders the history table (via `rich`) and can export an HTML
-snapshot.
+snapshot. It also supports speaker and task-family filters so progress on
+`travel_narrative` is not mixed with unrelated speaking tasks.
 
 ### Interactive analysis (Streamlit)
 Launch the Streamlit app for uploads, re-runs, and charts:
@@ -116,8 +119,10 @@ streamlit run scripts/interactive_dashboard.py -- --log-dir reports
 ```
 
 In the browser you can upload new audio or reuse existing files, add labels,
-trigger assessments, and inspect metrics/rubrics over time. Results continue to
-accumulate in `reports/`.
+trigger assessments, and inspect metrics/rubrics over time. The trend tab now
+supports speaker/task-family filtering plus recurring-issue charts, so
+`travel_narrative` progress can be reviewed independently from other task
+families. Results continue to accumulate in `reports/`.
 
 ### Prompt trainer with CEFR baselines
 - `prompts/prompts.json` contains sample prompts (B1/B2/C1) plus matching audio

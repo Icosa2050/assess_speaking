@@ -30,17 +30,25 @@ def _sample_report(*, overall: int = 4) -> dict:
         "on_topic": True,
     }
     return {
+        "schema_version": 2,
+        "session_id": "sess-123",
         "timestamp_utc": "2026-03-07T10:00:00+00:00",
         "input": {
             "provider": "openrouter",
             "llm_model": "google/gemini-3.1-pro-preview",
             "whisper_model": "large-v3",
             "expected_language": "it",
+            "speaker_id": "bern",
+            "task_family": "travel_narrative",
             "detected_language": "it",
             "detected_language_probability": 0.99,
             "theme": "la mia città",
             "target_duration_sec": 60.0,
-            "prompt_version": "rubric_it_v1",
+            "prompt_version": "rubric_it_v2",
+            "rubric_prompt_version": "rubric_it_v2",
+            "coaching_prompt_version": "coaching_it_v1",
+            "transcription_basis": "automatic_asr",
+            "transcription_caveat": "Assessment is based on automatic transcription and may contain ASR errors.",
             "asr_compute_type": "default",
             "asr_fallback_compute_type": "int8",
             "asr_compute_type_used": "default",
@@ -78,7 +86,23 @@ def _sample_report(*, overall: int = 4) -> dict:
         "transcript_preview": "ciao mondo",
         "warnings": [],
         "errors": [],
-        "rubric": rubric,
+        "rubric": {
+            **rubric,
+            "topic_relevance_score": overall,
+            "language_ok": True,
+            "recurring_grammar_errors": [],
+            "coherence_issues": [],
+            "lexical_gaps": [],
+            "evidence_quotes": ["ciao mondo"],
+            "confidence": "medium",
+        },
+        "coaching": {
+            "strengths": ["Resti sul tema."],
+            "top_3_priorities": ["Più connettivi", "Meno filler", "Passato più stabile"],
+            "next_focus": "Ordina meglio gli eventi",
+            "next_exercise": "Racconta di nuovo il viaggio usando prima/poi/alla fine.",
+            "coach_summary": "Buona base, ma la sequenza narrativa va resa più chiara.",
+        },
         "timings_ms": {"audio_features": 10.0, "asr": 20.0, "llm": 30.0},
     }
 
@@ -124,6 +148,8 @@ class MetricsAndPromptTests(unittest.TestCase):
         prompt = assess_speaking.rubric_prompt_it("Trascritto", metrics, "la mia città")
         self.assertIn("la mia città", prompt)
         self.assertIn("on_topic", prompt)
+        self.assertIn("topic_relevance_score", prompt)
+        self.assertIn("recurring_grammar_errors", prompt)
         self.assertIn("Rispondi SOLO con JSON valido", prompt)
 
     def test_rubric_prompt_sanitizes_triple_quotes(self):
@@ -313,6 +339,24 @@ class LmsConfigTests(unittest.TestCase):
 
 
 class RunAssessmentTests(unittest.TestCase):
+    @mock.patch.object(
+        assess_speaking,
+        "generate_coaching_summary",
+        return_value=(
+            mock.Mock(
+                to_dict=mock.Mock(
+                    return_value={
+                        "strengths": ["Resti sul tema."],
+                        "top_3_priorities": ["Più connettivi", "Meno filler", "Passato più stabile"],
+                        "next_focus": "Ordina meglio gli eventi",
+                        "next_exercise": "Racconta di nuovo il viaggio usando prima/poi/alla fine.",
+                        "coach_summary": "Buona base, ma la sequenza narrativa va resa più chiara.",
+                    }
+                )
+            ),
+            '{"coach_summary":"ok"}',
+        ),
+    )
     @mock.patch.object(assess_speaking, "generate_feedback", return_value=[{"id": "res"}])
     @mock.patch.object(assess_speaking, "evaluate_baseline", return_value={"level": "B1", "passed": True})
     @mock.patch.object(
@@ -361,6 +405,7 @@ class RunAssessmentTests(unittest.TestCase):
         _mock_generate_rubric,
         _mock_baseline,
         _mock_feedback,
+        _mock_generate_coaching,
     ):
         result = assess_speaking.run_assessment(
             Path("sample.wav"),
@@ -378,7 +423,18 @@ class RunAssessmentTests(unittest.TestCase):
         self.assertIn("report", result)
         self.assertEqual(result["report"]["input"]["provider"], "openrouter")
         self.assertEqual(result["report"]["scores"]["mode"], "hybrid")
+        self.assertEqual(result["report"]["input"]["transcription_basis"], "automatic_asr")
+        self.assertIn("automatic transcription", result["report"]["input"]["transcription_caveat"])
+        self.assertIsNotNone(result["report"]["coaching"])
+        self.assertEqual(len(result["report"]["coaching"]["top_3_priorities"]), 3)
         self.assertFalse(result["report"]["requires_human_review"])
+
+    def test_resolve_model_uses_pinned_openrouter_rubric_model(self):
+        settings = assess_speaking.Settings(openrouter_rubric_model="anthropic/claude-sonnet-4.5")
+        self.assertEqual(
+            assess_speaking._resolve_model("openrouter", None, None, settings),
+            "anthropic/claude-sonnet-4.5",
+        )
 
     @mock.patch.object(assess_speaking, "generate_rubric")
     @mock.patch.object(assess_speaking, "load_audio_features", return_value={"duration_sec": 20.0, "pauses": []})
@@ -410,7 +466,66 @@ class RunAssessmentTests(unittest.TestCase):
         self.assertTrue(result["report"]["requires_human_review"])
         self.assertIn("language_mismatch", result["report"]["warnings"])
         self.assertIsNone(result["report"]["rubric"])
+        self.assertEqual(len(result["report"]["coaching"]["top_3_priorities"]), 3)
         mock_generate.assert_not_called()
+
+    @mock.patch.object(assess_speaking, "generate_coaching_summary", side_effect=LLMClientError("coach timeout"))
+    @mock.patch.object(assess_speaking, "load_audio_features", return_value={"duration_sec": 50.0, "pauses": []})
+    @mock.patch.object(
+        assess_speaking,
+        "transcribe",
+        return_value={
+            "text": "parlo della mia città e dei trasporti pubblici",
+            "detected_language": "it",
+            "language_probability": 0.99,
+            "compute_type_used": "default",
+            "compute_fallback_used": False,
+            "words": [
+                {"t0": 0.0, "t1": 10.0, "text": "parlo"},
+                {"t0": 10.0, "t1": 20.0, "text": "della"},
+                {"t0": 20.0, "t1": 30.0, "text": "mia"},
+                {"t0": 30.0, "t1": 40.0, "text": "città"},
+                {"t0": 40.0, "t1": 49.0, "text": "trasporti"},
+            ],
+        },
+    )
+    @mock.patch.object(
+        assess_speaking,
+        "generate_rubric",
+        return_value=(
+            RubricResult(
+                fluency=4,
+                cohesion=4,
+                accuracy=3,
+                range=4,
+                overall=4,
+                comments_fluency="ok",
+                comments_cohesion="ok",
+                comments_accuracy="ok",
+                comments_range="ok",
+                overall_comment="ok",
+                on_topic=True,
+            ),
+            '{"overall":4}',
+        ),
+    )
+    def test_run_assessment_uses_fallback_when_coaching_call_fails(
+        self,
+        _mock_generate_rubric,
+        _mock_transcribe,
+        _mock_audio,
+        _mock_generate_coaching,
+    ):
+        result = assess_speaking.run_assessment(
+            Path("sample.wav"),
+            llm_model="google/gemini-3.1-pro-preview",
+            provider="openrouter",
+            llm_timeout_sec=3.0,
+        )
+        self.assertIn("coaching_unavailable", result["report"]["warnings"])
+        self.assertIn("coach timeout", " ".join(result["report"]["errors"]))
+        self.assertEqual(len(result["report"]["coaching"]["top_3_priorities"]), 3)
+        self.assertEqual(result["report"]["scores"]["mode"], "hybrid")
 
     @mock.patch.object(assess_speaking, "load_audio_features", return_value={"duration_sec": 50.0, "pauses": []})
     @mock.patch.object(
@@ -443,7 +558,26 @@ class RunAssessmentTests(unittest.TestCase):
         self.assertIn("timed out", " ".join(result["report"]["errors"]))
         self.assertTrue(result["report"]["requires_human_review"])
         self.assertEqual(result["report"]["scores"]["mode"], "deterministic_only")
+        self.assertEqual(len(result["report"]["coaching"]["top_3_priorities"]), 3)
 
+    @mock.patch.object(
+        assess_speaking,
+        "generate_coaching_summary",
+        return_value=(
+            mock.Mock(
+                to_dict=mock.Mock(
+                    return_value={
+                        "strengths": ["Tema rispettato."],
+                        "top_3_priorities": ["Più dettagli", "Più connettivi", "Meno filler"],
+                        "next_focus": "Più dettagli",
+                        "next_exercise": "Ripeti il tema con più dettagli concreti.",
+                        "coach_summary": "Buona base.",
+                    }
+                )
+            ),
+            '{"coach_summary":"ok"}',
+        ),
+    )
     @mock.patch.object(assess_speaking, "call_ollama", return_value=json.dumps(_sample_report()["rubric"]))
     @mock.patch.object(assess_speaking, "load_audio_features", return_value={"duration_sec": 40.0, "pauses": [(1.0, 2.0, 1.0)]})
     @mock.patch.object(
@@ -466,10 +600,17 @@ class RunAssessmentTests(unittest.TestCase):
             ],
         },
     )
-    def test_run_assessment_legacy_ollama_path_still_builds_report(self, _mock_transcribe, _mock_audio, _mock_call):
+    def test_run_assessment_legacy_ollama_path_still_builds_report(
+        self,
+        _mock_transcribe,
+        _mock_audio,
+        _mock_call,
+        _mock_generate_coaching,
+    ):
         result = assess_speaking.run_assessment(Path("sample.wav"), llm_model="llama3.1")
         self.assertEqual(result["report"]["input"]["provider"], "ollama")
         self.assertEqual(result["report"]["scores"]["mode"], "hybrid")
+        self.assertIsNotNone(result["report"]["coaching"])
         self.assertIn("llm_rubric", result)
 
     def test_run_assessment_dry_run_returns_stubbed_payload(self):
@@ -483,6 +624,7 @@ class RunAssessmentTests(unittest.TestCase):
         self.assertTrue(result["report"]["requires_human_review"])
         self.assertEqual(result["report"]["input"]["whisper_model"], "large-v3")
         self.assertEqual(result["report"]["scores"]["mode"], "deterministic_only")
+        self.assertEqual(len(result["report"]["coaching"]["top_3_priorities"]), 3)
         self.assertIn("baseline_comparison", result)
 
 
@@ -608,8 +750,112 @@ class MainCliTests(unittest.TestCase):
             payload = json.loads(stdout.getvalue())
             self.assertIn("report", payload)
             history = Path(tmpdir) / "history.csv"
+            sessions = Path(tmpdir) / "sessions.jsonl"
             self.assertTrue(history.exists())
+            self.assertTrue(sessions.exists())
+            history_body = history.read_text(encoding="utf-8")
+            self.assertIn("session_id", history_body)
+            self.assertIn("speaker_id", history_body)
+            self.assertIn("task_family", history_body)
+            self.assertIn("top_priority_1", history_body)
+            session_lines = [line for line in sessions.read_text(encoding="utf-8").splitlines() if line.strip()]
+            self.assertEqual(len(session_lines), 1)
+            session_payload = json.loads(session_lines[0])
+            self.assertEqual(session_payload["session_id"], "sess-123")
             self.assertIn("Ergebnis gespeichert", stderr.getvalue())
+
+    @mock.patch("assess_speaking.run_assessment")
+    def test_main_adds_progress_delta_for_same_task_family(self, mock_run_assessment):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            history = Path(tmpdir) / "history.csv"
+            history.write_text(
+                "timestamp,session_id,schema_version,speaker_id,task_family,theme,audio,whisper,llm,label,target_duration_sec,duration_sec,wpm,word_count,duration_pass,topic_pass,language_pass,fluency,cohesion,accuracy,range,overall,final_score,band,requires_human_review,top_priority_1,top_priority_2,top_priority_3,grammar_error_categories,coherence_issue_categories,report_path\n"
+                "2026-03-01T10:00:00,sess-122,2,bern,travel_narrative,trip,old.wav,large-v3,gemini,week1,180,50,90,75,true,true,true,3,3,3,3,3.0,3.1,3,false,Più connettivi,Meno filler,Più dettagli,preposition_choice,missing_sequence_markers,/tmp/old.json\n",
+                encoding="utf-8",
+            )
+            report = _sample_report()
+            report["rubric"]["recurring_grammar_errors"] = [
+                {
+                    "category": "preposition_choice",
+                    "explanation": "Confusione con in/a.",
+                    "examples": ["sono andato a Spagna"],
+                }
+            ]
+            mock_run_assessment.return_value = {
+                "metrics": report["metrics"],
+                "transcript_full": "ciao mondo",
+                "transcript_preview": "ciao mondo",
+                "llm_rubric": json.dumps(report["rubric"]),
+                "report": report,
+            }
+            stdout = io.StringIO()
+            args = [
+                "assess_speaking.py",
+                "sample.wav",
+                "--log-dir",
+                tmpdir,
+                "--speaker-id",
+                "bern",
+                "--task-family",
+                "travel_narrative",
+            ]
+            with mock.patch("sys.argv", args), contextlib.redirect_stdout(stdout):
+                assess_speaking.main()
+            payload = json.loads(stdout.getvalue())
+            delta = payload["report"]["progress_delta"]
+            self.assertEqual(delta["previous_session_id"], "sess-122")
+            self.assertEqual(delta["comparison_scope"]["task_family"], "travel_narrative")
+            self.assertIn("Passato più stabile", delta["new_priorities"])
+            self.assertIn("Più dettagli", delta["resolved_priorities"])
+            self.assertIn("preposition_choice", delta["repeating_grammar_categories"])
+
+    def test_append_history_upgrades_legacy_header(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            history = Path(tmpdir) / "history.csv"
+            history.write_text(
+                "timestamp,audio,whisper,llm,label,duration_sec,wpm,word_count,overall,report_path\n"
+                "2025-10-06T14:58:01,demo.m4a,large-v3,llama3.1,baseline,43.09,95.9,54,3.5,/path/to/1.json\n",
+                encoding="utf-8",
+            )
+            assess_speaking.append_history(
+                history,
+                {
+                    "timestamp": "2026-03-07T10:00:00",
+                    "session_id": "sess-123",
+                    "schema_version": 2,
+                    "speaker_id": "bern",
+                    "task_family": "travel_narrative",
+                    "theme": "trip",
+                    "audio": "new.wav",
+                    "whisper": "large-v3",
+                    "llm": "google/gemini-3.1-pro-preview",
+                    "label": "week2",
+                    "target_duration_sec": 180,
+                    "duration_sec": 60,
+                    "wpm": 100,
+                    "word_count": 100,
+                    "duration_pass": True,
+                    "topic_pass": True,
+                    "language_pass": True,
+                    "fluency": 4,
+                    "cohesion": 4,
+                    "accuracy": 4,
+                    "range": 4,
+                    "overall": 4,
+                    "final_score": 4.1,
+                    "band": 4,
+                    "requires_human_review": False,
+                    "top_priority_1": "Più connettivi",
+                    "top_priority_2": "Meno filler",
+                    "top_priority_3": "Più dettagli",
+                    "grammar_error_categories": "preposition_choice",
+                    "coherence_issue_categories": "missing_sequence_markers",
+                    "report_path": "/path/to/2.json",
+                },
+            )
+            body = history.read_text(encoding="utf-8")
+            self.assertIn("session_id", body.splitlines()[0])
+            self.assertEqual(len(body.splitlines()), 3)
 
 
 class ConvertToWavTests(unittest.TestCase):

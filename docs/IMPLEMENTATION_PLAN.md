@@ -92,3 +92,4 @@ Current status:
 1. calibrate pause heuristics against real Italian recordings
 2. persist richer longitudinal progress summaries
 3. add prompt packs and training loops on top of the new `report` contract
+4. implement the coaching roadmap in [docs/COACHING_BACKLOG.md](/Users/bernhard/Development/assess_speaking-codex-v3/docs/COACHING_BACKLOG.md)

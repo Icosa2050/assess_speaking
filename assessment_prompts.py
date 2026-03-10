@@ -2,11 +2,24 @@
 
 from __future__ import annotations
 
-PROMPT_VERSION = "rubric_it_v1"
+from coaching_taxonomy import (
+    COACHING_CONFIDENCE_LEVELS,
+    COHERENCE_ISSUE_CATEGORIES,
+    GRAMMAR_ERROR_CATEGORIES,
+    LEXICAL_GAP_CATEGORIES,
+)
+
+RUBRIC_PROMPT_VERSION = "rubric_it_v2"
+COACHING_PROMPT_VERSION = "coaching_it_v1"
+PROMPT_VERSION = RUBRIC_PROMPT_VERSION
 
 
 def rubric_prompt_it(transcript: str, metrics: dict, theme: str = "tema libero") -> str:
     safe_transcript = transcript.replace('"""', "'''").strip()
+    grammar_categories = ", ".join(GRAMMAR_ERROR_CATEGORIES)
+    coherence_categories = ", ".join(COHERENCE_ISSUE_CATEGORIES)
+    lexical_categories = ", ".join(LEXICAL_GAP_CATEGORIES)
+    confidence_levels = ", ".join(COACHING_CONFIDENCE_LEVELS)
     return f"""
 Sei un esaminatore CEFR di italiano L2. Valuta solo la produzione orale basata su trascrizione e metriche.
 Il tema richiesto è: "{theme}".
@@ -15,6 +28,9 @@ Regole:
 - Rispondi SOLO con JSON valido (nessun testo prima/dopo).
 - I punteggi sono interi da 1 a 5.
 - `on_topic` deve essere true solo se la risposta è chiaramente sul tema.
+- `topic_relevance_score` deve essere un intero da 1 a 5.
+- `language_ok` deve essere true solo se il parlato è chiaramente in italiano.
+- Per gli errori ricorrenti usa SOLO le categorie ammesse.
 
 METRICHE OGGETTIVE:
 - Durata: {metrics['duration_sec']} s
@@ -30,6 +46,9 @@ METRICHE OGGETTIVE:
 TRASCRITTO:
 \"\"\"{safe_transcript}\"\"\"
 
+Nota:
+- Il trascritto proviene da ASR automatico e può contenere errori di trascrizione.
+
 Schema JSON richiesto:
 {{
   "fluency": 1-5,
@@ -42,7 +61,32 @@ Schema JSON richiesto:
   "comments_accuracy": "stringa",
   "comments_range": "stringa",
   "overall_comment": "stringa",
-  "on_topic": true/false
+  "on_topic": true/false,
+  "topic_relevance_score": 1-5,
+  "language_ok": true/false,
+  "recurring_grammar_errors": [
+    {{
+      "category": "una di: {grammar_categories}",
+      "explanation": "stringa",
+      "examples": ["stringa"]
+    }}
+  ],
+  "coherence_issues": [
+    {{
+      "category": "una di: {coherence_categories}",
+      "explanation": "stringa",
+      "examples": ["stringa"]
+    }}
+  ],
+  "lexical_gaps": [
+    {{
+      "category": "una di: {lexical_categories}",
+      "explanation": "stringa",
+      "examples": ["stringa"]
+    }}
+  ],
+  "evidence_quotes": ["stringa"],
+  "confidence": "una di: {confidence_levels}"
 }}
 """
 
@@ -64,3 +108,44 @@ def selftest_prompt_it() -> str:
         "tuttavia i costi sono ancora alti e molte persone preferiscono l'auto."
     )
     return rubric_prompt_it(transcript, fake_metrics, "la mia città")
+
+
+def coaching_prompt_it(
+    metrics: dict,
+    rubric: dict,
+    theme: str,
+    target_duration_sec: float,
+) -> str:
+    rubric_json = str(rubric).replace("'", '"')
+    return f"""
+Sei un coach di italiano L2. Usa SOLO le metriche e il rubric già validato per dare consigli pratici.
+Il compito era parlare in italiano per {target_duration_sec:.0f} secondi sul tema "{theme}".
+
+Regole:
+- Rispondi SOLO con JSON valido.
+- `top_3_priorities` deve contenere ESATTAMENTE 3 elementi.
+- `next_exercise` deve essere un'attività pratica concreta, non un id interno o un link inventato.
+- Non cambiare i fatti del rubric già validato.
+
+METRICHE:
+- Tempo di parola: {metrics['speaking_time_sec']} s
+- Pausa totale: {metrics['pause_total_sec']} s
+- Numero pause: {metrics['pause_count']}
+- Parole: {metrics['word_count']}
+- WPM: {metrics['wpm']}
+- Filler: {metrics['fillers']}
+- Marcatori di coesione: {metrics['cohesion_markers']}
+- Indice complessità: {metrics['complexity_index']}
+
+RUBRIC VALIDATO:
+{rubric_json}
+
+Schema JSON richiesto:
+{{
+  "strengths": ["stringa"],
+  "top_3_priorities": ["stringa", "stringa", "stringa"],
+  "next_focus": "stringa",
+  "next_exercise": "stringa",
+  "coach_summary": "stringa"
+}}
+"""

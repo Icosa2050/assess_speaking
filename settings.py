@@ -9,9 +9,11 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class Settings:
     provider: str = "openrouter"
-    openrouter_model: str = "google/gemini-3.1-pro-preview"
+    openrouter_rubric_model: str = "google/gemini-3.1-pro-preview"
     ollama_model: str = "llama3.1"
     expected_language: str = "it"
+    speaker_id: str | None = None
+    task_family: str = "generic"
     asr_compute_type: str = "default"
     asr_fallback_compute_type: str | None = "int8"
     pause_threshold_offset_db: float = -10.0
@@ -51,9 +53,14 @@ class Settings:
 
         return cls(
             provider=os.getenv("ASSESS_PROVIDER", cls.provider),
-            openrouter_model=os.getenv("OPENROUTER_MODEL", cls.openrouter_model),
+            openrouter_rubric_model=os.getenv(
+                "OPENROUTER_RUBRIC_MODEL",
+                os.getenv("OPENROUTER_MODEL", cls.openrouter_rubric_model),
+            ),
             ollama_model=os.getenv("OLLAMA_MODEL", cls.ollama_model),
             expected_language=os.getenv("EXPECTED_LANGUAGE", cls.expected_language),
+            speaker_id=os.getenv("SPEAKER_ID") or cls.speaker_id,
+            task_family=os.getenv("TASK_FAMILY", cls.task_family),
             asr_compute_type=os.getenv("ASR_COMPUTE_TYPE", cls.asr_compute_type),
             asr_fallback_compute_type=fallback_compute_type,
             pause_threshold_offset_db=pause_threshold_offset_db,

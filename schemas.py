@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any
+
+from coaching_taxonomy import (
+    COACHING_CONFIDENCE_LEVELS,
+    COHERENCE_ISSUE_CATEGORIES,
+    GRAMMAR_ERROR_CATEGORIES,
+    LEXICAL_GAP_CATEGORIES,
+)
+
+REPORT_SCHEMA_VERSION = 2
 
 
 class SchemaValidationError(ValueError):
@@ -43,6 +52,101 @@ def _str_value(raw: Any, key: str) -> str:
     raise SchemaValidationError(f"{key}: must be string")
 
 
+def _int_value(raw: Any, key: str, *, minimum: int | None = None) -> int:
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise SchemaValidationError(f"{key}: must be integer")
+    if minimum is not None and raw < minimum:
+        raise SchemaValidationError(f"{key}: must be >= {minimum}")
+    return raw
+
+
+def _str_list(raw: Any, key: str) -> list[str]:
+    if not isinstance(raw, list):
+        raise SchemaValidationError(f"{key}: must be list")
+    values: list[str] = []
+    for idx, item in enumerate(raw):
+        if not isinstance(item, str):
+            raise SchemaValidationError(f"{key}[{idx}]: must be string")
+        values.append(item)
+    return values
+
+
+def _enum_str(raw: Any, key: str, allowed: tuple[str, ...]) -> str:
+    value = _str_value(raw, key)
+    if value not in allowed:
+        raise SchemaValidationError(f"{key}: invalid value '{value}'")
+    return value
+
+
+@dataclass(frozen=True)
+class CategorizedIssue:
+    category: str
+    explanation: str
+    examples: list[str]
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: dict[str, Any],
+        *,
+        key: str,
+        allowed_categories: tuple[str, ...],
+    ) -> "CategorizedIssue":
+        _require_keys(data, {"category", "explanation", "examples"}, key)
+        category = _enum_str(data["category"], f"{key}.category", allowed_categories)
+        explanation = _str_value(data["explanation"], f"{key}.explanation")
+        examples = _str_list(data["examples"], f"{key}.examples")
+        return cls(category=category, explanation=explanation, examples=examples)
+
+
+def _issue_list(raw: Any, key: str, allowed_categories: tuple[str, ...]) -> list[CategorizedIssue]:
+    if not isinstance(raw, list):
+        raise SchemaValidationError(f"{key}: must be list")
+    issues: list[CategorizedIssue] = []
+    for idx, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise SchemaValidationError(f"{key}[{idx}]: must be object")
+        issues.append(
+            CategorizedIssue.from_dict(
+                item,
+                key=f"{key}[{idx}]",
+                allowed_categories=allowed_categories,
+            )
+        )
+    return issues
+
+
+@dataclass(frozen=True)
+class CoachingSummary:
+    strengths: list[str]
+    top_3_priorities: list[str]
+    next_focus: str
+    next_exercise: str
+    coach_summary: str
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CoachingSummary":
+        _require_keys(
+            data,
+            {"strengths", "top_3_priorities", "next_focus", "next_exercise", "coach_summary"},
+            "CoachingSummary",
+        )
+        strengths = _str_list(data["strengths"], "strengths")
+        priorities = _str_list(data["top_3_priorities"], "top_3_priorities")
+        if len(priorities) != 3:
+            raise SchemaValidationError("top_3_priorities: must contain exactly 3 items")
+        return cls(
+            strengths=strengths,
+            top_3_priorities=priorities,
+            next_focus=_str_value(data["next_focus"], "next_focus"),
+            next_exercise=_str_value(data["next_exercise"], "next_exercise"),
+            coach_summary=_str_value(data["coach_summary"], "coach_summary"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 @dataclass(frozen=True)
 class RubricResult:
     fluency: int
@@ -56,6 +160,13 @@ class RubricResult:
     comments_range: str
     overall_comment: str
     on_topic: bool
+    topic_relevance_score: int = 3
+    language_ok: bool = True
+    recurring_grammar_errors: list[CategorizedIssue] = field(default_factory=list)
+    coherence_issues: list[CategorizedIssue] = field(default_factory=list)
+    lexical_gaps: list[CategorizedIssue] = field(default_factory=list)
+    evidence_quotes: list[str] = field(default_factory=list)
+    confidence: str = "medium"
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "RubricResult":
@@ -71,6 +182,13 @@ class RubricResult:
             "comments_range",
             "overall_comment",
             "on_topic",
+            "topic_relevance_score",
+            "language_ok",
+            "recurring_grammar_errors",
+            "coherence_issues",
+            "lexical_gaps",
+            "evidence_quotes",
+            "confidence",
         }
         _require_keys(data, required, "RubricResult")
         return cls(
@@ -85,6 +203,25 @@ class RubricResult:
             comments_range=_str_value(data["comments_range"], "comments_range"),
             overall_comment=_str_value(data["overall_comment"], "overall_comment"),
             on_topic=_bool_value(data["on_topic"], "on_topic"),
+            topic_relevance_score=_score_value(data["topic_relevance_score"], "topic_relevance_score"),
+            language_ok=_bool_value(data["language_ok"], "language_ok"),
+            recurring_grammar_errors=_issue_list(
+                data["recurring_grammar_errors"],
+                "recurring_grammar_errors",
+                GRAMMAR_ERROR_CATEGORIES,
+            ),
+            coherence_issues=_issue_list(
+                data["coherence_issues"],
+                "coherence_issues",
+                COHERENCE_ISSUE_CATEGORIES,
+            ),
+            lexical_gaps=_issue_list(
+                data["lexical_gaps"],
+                "lexical_gaps",
+                LEXICAL_GAP_CATEGORIES,
+            ),
+            evidence_quotes=_str_list(data["evidence_quotes"], "evidence_quotes"),
+            confidence=_enum_str(data["confidence"], "confidence", COACHING_CONFIDENCE_LEVELS),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -93,6 +230,8 @@ class RubricResult:
 
 @dataclass(frozen=True)
 class AssessmentReport:
+    schema_version: int
+    session_id: str
     timestamp_utc: str
     input: dict[str, Any]
     metrics: dict[str, Any]
@@ -103,6 +242,8 @@ class AssessmentReport:
     warnings: list[str]
     errors: list[str]
     rubric: dict[str, Any] | None = None
+    coaching: dict[str, Any] | None = None
+    progress_delta: dict[str, Any] | None = None
     suggested_training: list[dict[str, Any]] | None = None
     timings_ms: dict[str, Any] | None = None
 
@@ -113,6 +254,8 @@ class AssessmentReport:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AssessmentReport":
         required = {
+            "schema_version",
+            "session_id",
             "timestamp_utc",
             "input",
             "metrics",
@@ -124,6 +267,10 @@ class AssessmentReport:
             "errors",
         }
         _require_keys(data, required, "AssessmentReport")
+        schema_version = _int_value(data["schema_version"], "schema_version", minimum=1)
+        session_id = _str_value(data["session_id"], "session_id")
+        if not session_id.strip():
+            raise SchemaValidationError("session_id: must be non-empty string")
         if not isinstance(data["input"], dict):
             raise SchemaValidationError("input: must be object")
         if not isinstance(data["metrics"], dict):
@@ -165,11 +312,21 @@ class AssessmentReport:
         suggestions = data.get("suggested_training")
         if suggestions is not None and not isinstance(suggestions, list):
             raise SchemaValidationError("suggested_training: must be list when present")
+        coaching = data.get("coaching")
+        if coaching is not None:
+            if not isinstance(coaching, dict):
+                raise SchemaValidationError("coaching: must be object when present")
+            CoachingSummary.from_dict(coaching)
+        progress_delta = data.get("progress_delta")
+        if progress_delta is not None and not isinstance(progress_delta, dict):
+            raise SchemaValidationError("progress_delta: must be object when present")
         timings_ms = data.get("timings_ms")
         if timings_ms is not None and not isinstance(timings_ms, dict):
             raise SchemaValidationError("timings_ms: must be object when present")
 
         return cls(
+            schema_version=schema_version,
+            session_id=session_id,
             timestamp_utc=data["timestamp_utc"],
             input=data["input"],
             metrics=data["metrics"],
@@ -180,6 +337,8 @@ class AssessmentReport:
             warnings=[str(value) for value in data["warnings"]],
             errors=[str(value) for value in data["errors"]],
             rubric=rubric_dict,
+            coaching=coaching,
+            progress_delta=progress_delta,
             suggested_training=suggestions,
             timings_ms=timings_ms,
         )

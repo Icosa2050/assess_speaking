@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import csv
 import json
 import os
@@ -15,14 +16,23 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from uuid import uuid4
 
 from asr import transcribe as _transcribe
-from assessment_prompts import PROMPT_VERSION, rubric_prompt_it as _rubric_prompt_it, selftest_prompt_it
+from assessment_prompts import (
+    COACHING_PROMPT_VERSION,
+    PROMPT_VERSION,
+    RUBRIC_PROMPT_VERSION,
+    coaching_prompt_it,
+    rubric_prompt_it as _rubric_prompt_it,
+    selftest_prompt_it,
+)
 from audio_features import load_audio_features as _load_audio_features
-from feedback import generate_feedback
+from feedback import build_fallback_coaching, generate_feedback
 from llm_client import (
     LLMClientError,
     extract_json_object as _extract_json_object,
+    generate_coaching_summary,
     generate_rubric,
     list_ollama_models as _list_ollama_models,
 )
@@ -33,7 +43,7 @@ from lms import (
     upload_to_moodle,
 )
 from metrics import metrics_from as _metrics_from
-from schemas import AssessmentReport, RubricResult, SchemaValidationError
+from schemas import AssessmentReport, REPORT_SCHEMA_VERSION, RubricResult, SchemaValidationError
 from scoring import compute_checks, deterministic_score, final_scores, rubric_score
 from settings import Settings
 
@@ -73,6 +83,41 @@ LMS_TOKEN_ENVS = {
 }
 
 NONE_SENTINELS = {"", "none", "null"}
+TRANSCRIPTION_BASIS = "automatic_asr"
+TRANSCRIPTION_CAVEAT = "Assessment is based on automatic transcription and may contain ASR errors."
+HISTORY_FIELDNAMES = [
+    "timestamp",
+    "session_id",
+    "schema_version",
+    "speaker_id",
+    "task_family",
+    "theme",
+    "audio",
+    "whisper",
+    "llm",
+    "label",
+    "target_duration_sec",
+    "duration_sec",
+    "wpm",
+    "word_count",
+    "duration_pass",
+    "topic_pass",
+    "language_pass",
+    "fluency",
+    "cohesion",
+    "accuracy",
+    "range",
+    "overall",
+    "final_score",
+    "band",
+    "requires_human_review",
+    "top_priority_1",
+    "top_priority_2",
+    "top_priority_3",
+    "grammar_error_categories",
+    "coherence_issue_categories",
+    "report_path",
+]
 
 
 def load_audio_features(wav_path: Path, threshold_offset_db: float = -10.0) -> dict:
@@ -165,24 +210,156 @@ def build_report_path(log_dir: Path, audio: Path, label: Optional[str], when: da
 
 def append_history(history_path: Path, row: dict) -> None:
     history_path.parent.mkdir(parents=True, exist_ok=True)
+    if history_path.exists():
+        with history_path.open(newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            existing_fieldnames = reader.fieldnames or []
+            existing_rows = list(reader)
+        if existing_fieldnames != HISTORY_FIELDNAMES:
+            with history_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=HISTORY_FIELDNAMES)
+                writer.writeheader()
+                for existing_row in existing_rows:
+                    writer.writerow({key: existing_row.get(key, "") for key in HISTORY_FIELDNAMES})
+
     exists = history_path.exists()
-    fieldnames = [
-        "timestamp",
-        "audio",
-        "whisper",
-        "llm",
-        "label",
-        "duration_sec",
-        "wpm",
-        "word_count",
-        "overall",
-        "report_path",
-    ]
     with history_path.open("a", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer = csv.DictWriter(handle, fieldnames=HISTORY_FIELDNAMES)
         if not exists:
             writer.writeheader()
-        writer.writerow({key: row.get(key, "") for key in fieldnames})
+        writer.writerow({key: row.get(key, "") for key in HISTORY_FIELDNAMES})
+
+
+def append_session_jsonl(sessions_path: Path, payload: dict) -> None:
+    sessions_path.parent.mkdir(parents=True, exist_ok=True)
+    with sessions_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+
+def _extract_issue_categories(rubric: dict | None, field: str) -> str:
+    if not isinstance(rubric, dict):
+        return ""
+    issues = rubric.get(field)
+    if not isinstance(issues, list):
+        return ""
+    categories = [item.get("category", "") for item in issues if isinstance(item, dict) and item.get("category")]
+    return "|".join(categories)
+
+
+def _parse_history_bool(value: str) -> Optional[bool]:
+    lowered = str(value).strip().lower()
+    if not lowered:
+        return None
+    if lowered in {"true", "1", "yes"}:
+        return True
+    if lowered in {"false", "0", "no"}:
+        return False
+    return None
+
+
+def _parse_history_float(value: str) -> Optional[float]:
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _split_pipe_categories(value: str) -> list[str]:
+    return [item.strip() for item in str(value).split("|") if item.strip()]
+
+
+def build_progress_delta(history_path: Path, report: dict) -> Optional[dict]:
+    speaker_id = str(report.get("input", {}).get("speaker_id") or "").strip()
+    task_family = str(report.get("input", {}).get("task_family") or "").strip()
+    if not speaker_id or not task_family or not history_path.exists():
+        return None
+
+    with history_path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        prior_rows = [
+            row
+            for row in reader
+            if row.get("speaker_id", "").strip() == speaker_id
+            and row.get("task_family", "").strip() == task_family
+        ]
+
+    if not prior_rows:
+        return None
+
+    previous = prior_rows[-1]
+    previous_priorities = [
+        previous.get("top_priority_1", "").strip(),
+        previous.get("top_priority_2", "").strip(),
+        previous.get("top_priority_3", "").strip(),
+    ]
+    previous_priorities = [item for item in previous_priorities if item]
+    latest_priorities = [item for item in (report.get("coaching", {}) or {}).get("top_3_priorities", []) if item]
+
+    current_grammar = _split_pipe_categories(
+        _extract_issue_categories(report.get("rubric"), "recurring_grammar_errors")
+    )
+    current_coherence = _split_pipe_categories(
+        _extract_issue_categories(report.get("rubric"), "coherence_issues")
+    )
+
+    grammar_counts = Counter()
+    coherence_counts = Counter()
+    for row in prior_rows:
+        grammar_counts.update(_split_pipe_categories(row.get("grammar_error_categories", "")))
+        coherence_counts.update(_split_pipe_categories(row.get("coherence_issue_categories", "")))
+
+    def _gate_change(key: str) -> str:
+        current_value = bool(report.get("checks", {}).get(key))
+        previous_value = _parse_history_bool(previous.get(key, ""))
+        if previous_value is None:
+            return "unknown"
+        if previous_value == current_value:
+            return "unchanged"
+        return "improved" if current_value else "regressed"
+
+    current_scores = report.get("scores", {})
+    current_metrics = report.get("metrics", {})
+    previous_final = _parse_history_float(previous.get("final_score", ""))
+    previous_overall = _parse_history_float(previous.get("overall", ""))
+    previous_wpm = _parse_history_float(previous.get("wpm", ""))
+
+    def _delta(current_value: object, previous_value: Optional[float]) -> Optional[float]:
+        try:
+            current_float = float(current_value)
+        except (TypeError, ValueError):
+            return None
+        if previous_value is None:
+            return None
+        return round(current_float - previous_value, 2)
+
+    return {
+        "comparison_scope": {
+            "speaker_id": speaker_id,
+            "task_family": task_family,
+        },
+        "previous_session_id": previous.get("session_id", ""),
+        "previous_timestamp": previous.get("timestamp", ""),
+        "same_task_family_sessions_before": len(prior_rows),
+        "score_delta": {
+            "final": _delta(current_scores.get("final"), previous_final),
+            "overall": _delta(current_scores.get("llm"), previous_overall),
+            "wpm": _delta(current_metrics.get("wpm"), previous_wpm),
+        },
+        "gate_delta": {
+            "duration_pass": _gate_change("duration_pass"),
+            "topic_pass": _gate_change("topic_pass"),
+            "language_pass": _gate_change("language_pass"),
+        },
+        "latest_priorities": latest_priorities,
+        "previous_priorities": previous_priorities,
+        "new_priorities": [item for item in latest_priorities if item not in previous_priorities],
+        "resolved_priorities": [item for item in previous_priorities if item not in latest_priorities],
+        "repeating_grammar_categories": [item for item in current_grammar if grammar_counts[item] > 0],
+        "repeating_coherence_categories": [item for item in current_coherence if coherence_counts[item] > 0],
+    }
 
 
 def evaluate_baseline(level: Optional[str], metrics: dict) -> Optional[dict]:
@@ -249,7 +426,7 @@ def _resolve_model(provider: str, llm_model: Optional[str], llm_legacy: Optional
     if llm_legacy:
         return llm_legacy
     if provider == "openrouter":
-        return settings.openrouter_model
+        return settings.openrouter_rubric_model
     return settings.ollama_model
 
 
@@ -342,6 +519,8 @@ def _dry_run_assessment(
     provider: str,
     expected_language: str,
     theme: str,
+    task_family: str,
+    speaker_id: Optional[str],
     target_duration_sec: float,
     target_cefr: Optional[str],
     settings: Settings,
@@ -376,6 +555,8 @@ def _dry_run_assessment(
         topic_fail_cap_score=settings.topic_fail_cap_score,
     )
     report = {
+        "schema_version": REPORT_SCHEMA_VERSION,
+        "session_id": str(uuid4()),
         "timestamp_utc": AssessmentReport.now_timestamp(),
         "input": {
             "provider": provider,
@@ -385,8 +566,14 @@ def _dry_run_assessment(
             "detected_language": expected_language,
             "detected_language_probability": 1.0,
             "theme": theme,
+            "task_family": task_family,
+            "speaker_id": speaker_id,
             "target_duration_sec": target_duration_sec,
             "prompt_version": PROMPT_VERSION,
+            "rubric_prompt_version": RUBRIC_PROMPT_VERSION,
+            "coaching_prompt_version": COACHING_PROMPT_VERSION,
+            "transcription_basis": TRANSCRIPTION_BASIS,
+            "transcription_caveat": TRANSCRIPTION_CAVEAT,
             "dry_run": True,
             "audio_path": str(audio),
         },
@@ -398,6 +585,12 @@ def _dry_run_assessment(
         "warnings": ["dry_run"],
         "errors": [],
         "rubric": None,
+        "coaching": build_fallback_coaching(
+            metrics=metrics,
+            checks=checks,
+            theme=theme,
+            target_duration_sec=target_duration_sec,
+        ),
         "timings_ms": {"audio_features": 0.0, "asr": 0.0, "llm": 0.0},
     }
     out = {
@@ -423,6 +616,8 @@ def run_assessment(
     train_dir: Path = Path("training"),
     target_cefr: Optional[str] = None,
     theme: str = "tema libero",
+    task_family: Optional[str] = None,
+    speaker_id: Optional[str] = None,
     target_duration_sec: float = 120.0,
     expected_language: Optional[str] = None,
     min_word_count: Optional[int] = None,
@@ -436,6 +631,8 @@ def run_assessment(
     chosen_provider = _infer_provider(provider, llm_model, None, settings)
     chosen_model = _resolve_model(chosen_provider, llm_model, None, settings)
     chosen_language = expected_language or settings.expected_language
+    chosen_task_family = task_family or settings.task_family
+    chosen_speaker_id = speaker_id or settings.speaker_id
     chosen_min_words = min_word_count if min_word_count is not None else settings.min_word_count
     chosen_llm_timeout = llm_timeout_sec if llm_timeout_sec is not None else settings.llm_timeout_sec
     chosen_asr_compute_type = asr_compute_type or settings.asr_compute_type
@@ -458,6 +655,8 @@ def run_assessment(
             provider=chosen_provider,
             expected_language=chosen_language,
             theme=theme,
+            task_family=chosen_task_family,
+            speaker_id=chosen_speaker_id,
             target_duration_sec=target_duration_sec,
             target_cefr=target_cefr,
             settings=settings,
@@ -474,6 +673,7 @@ def run_assessment(
         warnings: list[str] = []
         errors: list[str] = []
         rubric_obj: RubricResult | None = None
+        coaching_obj = None
         llm_raw = ""
 
         stage_start = time.perf_counter()
@@ -533,6 +733,31 @@ def run_assessment(
         if not llm_raw and not rubric_obj:
             llm_raw = json.dumps({"error": "llm_skipped"})
 
+        if rubric_obj is not None:
+            coaching_prompt = coaching_prompt_it(
+                metrics=metrics,
+                rubric=rubric_obj.to_dict(),
+                theme=theme,
+                target_duration_sec=target_duration_sec,
+            )
+            stage_start = time.perf_counter()
+            try:
+                coaching_obj, _coaching_raw = generate_coaching_summary(
+                    provider=chosen_provider,
+                    model=chosen_model,
+                    prompt=coaching_prompt,
+                    timeout_sec=chosen_llm_timeout,
+                    openrouter_api_key=os.getenv("OPENROUTER_API_KEY"),
+                    max_validation_retries=1,
+                )
+            except LLMClientError as exc:
+                warnings.append("coaching_unavailable")
+                errors.append(str(exc))
+                coaching_obj = None
+            timings_ms["coaching"] = _elapsed_ms(stage_start)
+        else:
+            timings_ms["coaching"] = 0.0
+
         det_score = deterministic_score(metrics)
         llm_score = rubric_score(rubric_obj)
         checks = compute_checks(
@@ -558,8 +783,17 @@ def run_assessment(
             topic_fail_cap_score=settings.topic_fail_cap_score,
         )
         requires_human_review = llm_score is None or not language_pass
+        if coaching_obj is None:
+            coaching_obj = build_fallback_coaching(
+                metrics=metrics,
+                checks=checks,
+                theme=theme,
+                target_duration_sec=target_duration_sec,
+            )
 
         report = {
+            "schema_version": REPORT_SCHEMA_VERSION,
+            "session_id": str(uuid4()),
             "timestamp_utc": AssessmentReport.now_timestamp(),
             "input": {
                 "provider": chosen_provider,
@@ -569,8 +803,14 @@ def run_assessment(
                 "detected_language": detected_language,
                 "detected_language_probability": language_probability,
                 "theme": theme,
+                "task_family": chosen_task_family,
+                "speaker_id": chosen_speaker_id,
                 "target_duration_sec": target_duration_sec,
                 "prompt_version": PROMPT_VERSION,
+                "rubric_prompt_version": RUBRIC_PROMPT_VERSION,
+                "coaching_prompt_version": COACHING_PROMPT_VERSION,
+                "transcription_basis": TRANSCRIPTION_BASIS,
+                "transcription_caveat": TRANSCRIPTION_CAVEAT,
                 "asr_compute_type": chosen_asr_compute_type,
                 "asr_fallback_compute_type": chosen_asr_fallback,
                 "asr_compute_type_used": asr_result.get("compute_type_used", chosen_asr_compute_type),
@@ -585,6 +825,7 @@ def run_assessment(
             "warnings": warnings,
             "errors": errors,
             "rubric": rubric_obj.to_dict() if rubric_obj else None,
+            "coaching": coaching_obj.to_dict() if hasattr(coaching_obj, "to_dict") else coaching_obj,
             "timings_ms": timings_ms,
         }
 
@@ -704,6 +945,8 @@ def main() -> None:
     ap.add_argument("--llm", help="Legacy alias for local Ollama model selection")
     ap.add_argument("--expected-language", default=settings.expected_language, help="Erwarteter Sprachcode")
     ap.add_argument("--theme", default="tema libero", help="Thema der Sprechaufgabe")
+    ap.add_argument("--task-family", default=settings.task_family, help="Familie der Sprechaufgabe für Verlaufsauswertungen")
+    ap.add_argument("--speaker-id", default=settings.speaker_id, help="Optionale ID der sprechenden Person")
     ap.add_argument("--target-duration-sec", type=float, default=120.0, help="Zielsprechdauer in Sekunden")
     ap.add_argument("--min-word-count", type=int, default=settings.min_word_count, help="Minimale Wortzahl für LLM-Bewertung")
     ap.add_argument("--llm-timeout", type=float, default=settings.llm_timeout_sec, help="LLM timeout in Sekunden")
@@ -761,6 +1004,8 @@ def main() -> None:
         train_dir=args.train_dir,
         target_cefr=args.target_cefr,
         theme=args.theme,
+        task_family=args.task_family,
+        speaker_id=args.speaker_id,
         target_duration_sec=args.target_duration_sec,
         expected_language=args.expected_language,
         min_word_count=args.min_word_count,
@@ -772,7 +1017,13 @@ def main() -> None:
     )
     metrics = assessment["metrics"]
     llm_json = assessment["llm_rubric"]
-    report = assessment["report"]
+    report = dict(assessment["report"])
+    log_dir = Path(args.log_dir)
+    progress_delta = build_progress_delta(log_dir / "history.csv", report)
+    if progress_delta:
+        report["progress_delta"] = progress_delta
+        report = AssessmentReport.from_dict(report).to_dict()
+        assessment["report"] = report
 
     run_dt = datetime.now()
     meta = {
@@ -782,6 +1033,8 @@ def main() -> None:
         "llm_model": chosen_model,
         "provider": chosen_provider,
         "theme": args.theme,
+        "task_family": args.task_family,
+        "speaker_id": args.speaker_id or "",
         "target_duration_sec": args.target_duration_sec,
     }
     if args.label:
@@ -855,7 +1108,6 @@ def main() -> None:
                     pass
 
     if not args.no_log:
-        log_dir = Path(args.log_dir)
         log_dir.mkdir(parents=True, exist_ok=True)
         report_path = build_report_path(log_dir, args.audio, args.label, run_dt)
         saved_payload = {
@@ -868,21 +1120,56 @@ def main() -> None:
             json.dump(saved_payload, handle, ensure_ascii=False, indent=2)
 
         rubric_obj = report.get("rubric")
+        coaching_obj = report.get("coaching") or {}
         if rubric_obj is None and isinstance(llm_json, str):
             rubric_obj = extract_rubric_json(llm_json)
         append_history(
             log_dir / "history.csv",
             {
                 "timestamp": meta["timestamp"],
+                "session_id": report.get("session_id", ""),
+                "schema_version": report.get("schema_version", ""),
+                "speaker_id": report.get("input", {}).get("speaker_id", args.speaker_id or ""),
+                "task_family": report.get("input", {}).get("task_family", args.task_family),
+                "theme": report.get("input", {}).get("theme", args.theme),
                 "audio": args.audio.name,
                 "whisper": args.whisper,
                 "llm": chosen_model,
                 "label": args.label or "",
+                "target_duration_sec": report.get("input", {}).get("target_duration_sec", args.target_duration_sec),
                 "duration_sec": metrics.get("duration_sec", ""),
                 "wpm": metrics.get("wpm", ""),
                 "word_count": metrics.get("word_count", ""),
+                "duration_pass": report.get("checks", {}).get("duration_pass", ""),
+                "topic_pass": report.get("checks", {}).get("topic_pass", ""),
+                "language_pass": report.get("checks", {}).get("language_pass", ""),
+                "fluency": (rubric_obj or {}).get("fluency", ""),
+                "cohesion": (rubric_obj or {}).get("cohesion", ""),
+                "accuracy": (rubric_obj or {}).get("accuracy", ""),
+                "range": (rubric_obj or {}).get("range", ""),
                 "overall": (rubric_obj or {}).get("overall", ""),
+                "final_score": report.get("scores", {}).get("final", ""),
+                "band": report.get("scores", {}).get("band", ""),
+                "requires_human_review": report.get("requires_human_review", ""),
+                "top_priority_1": (coaching_obj.get("top_3_priorities") or ["", "", ""])[0],
+                "top_priority_2": (coaching_obj.get("top_3_priorities") or ["", "", ""])[1],
+                "top_priority_3": (coaching_obj.get("top_3_priorities") or ["", "", ""])[2],
+                "grammar_error_categories": _extract_issue_categories(rubric_obj, "recurring_grammar_errors"),
+                "coherence_issue_categories": _extract_issue_categories(rubric_obj, "coherence_issues"),
                 "report_path": str(report_path.resolve()),
+            },
+        )
+        append_session_jsonl(
+            log_dir / "sessions.jsonl",
+            {
+                "timestamp": meta["timestamp"],
+                "session_id": report.get("session_id", ""),
+                "schema_version": report.get("schema_version", ""),
+                "speaker_id": report.get("input", {}).get("speaker_id", args.speaker_id or ""),
+                "task_family": report.get("input", {}).get("task_family", args.task_family),
+                "theme": report.get("input", {}).get("theme", args.theme),
+                "report_path": str(report_path.resolve()),
+                "report": report,
             },
         )
         print(f"Ergebnis gespeichert in {report_path}", file=sys.stderr)

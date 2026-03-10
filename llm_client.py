@@ -8,7 +8,7 @@ import socket
 from typing import Any
 from urllib import error, request
 
-from schemas import RubricResult, SchemaValidationError
+from schemas import CoachingSummary, RubricResult, SchemaValidationError
 
 
 class LLMClientError(RuntimeError):
@@ -121,7 +121,22 @@ def _chat_completion(
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2,
     }
-    result = _post_json(url, payload, headers, timeout_sec)
+    if provider == "openrouter":
+        payload["response_format"] = {"type": "json_object"}
+    try:
+        result = _post_json(url, payload, headers, timeout_sec)
+    except LLMClientError as exc:
+        if provider != "openrouter":
+            raise
+        message = str(exc).lower()
+        if "response_format" not in message and "json_object" not in message:
+            raise
+        fallback_payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.2,
+        }
+        result = _post_json(url, fallback_payload, headers, timeout_sec)
     try:
         return result["choices"][0]["message"]["content"]
     except Exception as exc:
@@ -153,6 +168,33 @@ def generate_rubric(
                     + f"\nErrore: {exc}\nRispondi SOLO con JSON valido nello schema richiesto."
                 )
     raise LLMClientError(f"Failed to produce valid rubric output: {last_error}")
+
+
+def generate_coaching_summary(
+    provider: str,
+    model: str,
+    prompt: str,
+    timeout_sec: float = 30.0,
+    openrouter_api_key: str | None = None,
+    max_validation_retries: int = 1,
+) -> tuple[CoachingSummary, str]:
+    attempt_prompt = prompt
+    last_error: Exception | None = None
+    for attempt in range(max_validation_retries + 1):
+        raw = _chat_completion(provider, model, attempt_prompt, timeout_sec, openrouter_api_key)
+        try:
+            payload = extract_json_object(raw)
+            coaching = CoachingSummary.from_dict(payload)
+            return coaching, raw
+        except (SchemaValidationError, LLMClientError) as exc:
+            last_error = exc
+            if attempt < max_validation_retries:
+                attempt_prompt = (
+                    prompt
+                    + "\n\nATTENZIONE: la risposta precedente non rispettava lo schema JSON."
+                    + f"\nErrore: {exc}\nRispondi SOLO con JSON valido nello schema richiesto."
+                )
+    raise LLMClientError(f"Failed to produce valid coaching output: {last_error}")
 
 
 def list_ollama_models(timeout_sec: float = 10.0) -> str:

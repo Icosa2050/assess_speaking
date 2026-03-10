@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+import progress_analysis
 from scripts import progress_dashboard
 from streamlit_webrtc import RTCConfiguration, WebRtcMode, webrtc_streamer
 
@@ -34,26 +35,43 @@ RTC_CONFIGURATION = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 
 
 @st.cache_data(show_spinner=False)
+def load_history_records(log_dir: Path):
+    return progress_dashboard.load_history(log_dir / "history.csv")
+
+
+@st.cache_data(show_spinner=False)
 def load_history_df(log_dir: Path) -> pd.DataFrame:
-    records = progress_dashboard.load_history(log_dir / "history.csv")
+    records = load_history_records(log_dir)
     if not records:
         return pd.DataFrame()
     data = {
         "timestamp": [r.timestamp for r in records],
+        "session_id": [r.session_id for r in records],
+        "speaker_id": [r.speaker_id for r in records],
+        "task_family": [r.task_family for r in records],
+        "theme": [r.theme for r in records],
         "label": [r.label for r in records],
         "audio": [r.audio for r in records],
         "whisper": [r.whisper for r in records],
         "llm": [r.llm for r in records],
+        "target_duration_sec": [r.target_duration_sec for r in records],
         "duration_sec": [r.duration_sec for r in records],
         "wpm": [r.wpm for r in records],
         "word_count": [r.word_count for r in records],
         "overall": [r.overall for r in records],
+        "final_score": [r.final_score for r in records],
+        "band": [r.band for r in records],
+        "requires_human_review": [r.requires_human_review for r in records],
+        "top_priorities": [" | ".join(r.top_priorities) for r in records],
+        "grammar_error_categories": [" | ".join(r.grammar_error_categories) for r in records],
+        "coherence_issue_categories": [" | ".join(r.coherence_issue_categories) for r in records],
         "report_path": [r.report_path for r in records],
     }
     return pd.DataFrame(data)
 
 
 def rerun_history(log_dir: Path):
+    load_history_records.clear()
     load_history_df.clear()
     load_history_df(log_dir)
 
@@ -180,6 +198,29 @@ def parse_cli_json(stdout: str) -> dict | None:
     return None
 
 
+def build_trend_chart_df(records: list[object]) -> pd.DataFrame:
+    if not records:
+        return pd.DataFrame()
+    data = pd.DataFrame(
+        {
+            "timestamp": [r.timestamp for r in records],
+            "wpm": [r.wpm for r in records],
+            "overall": [r.overall for r in records],
+            "final_score": [r.final_score for r in records],
+        }
+    )
+    return data.set_index("timestamp").dropna(how="all")
+
+
+def build_issue_count_df(records: list[object], attribute: str) -> pd.DataFrame:
+    counts = progress_analysis.recurring_issue_counts(records, attribute)
+    if not counts:
+        return pd.DataFrame(columns=["category", "count"])
+    return pd.DataFrame(
+        [{"category": category, "count": count} for category, count in counts.most_common()]
+    )
+
+
 def main() -> None:
     st.set_page_config(page_title="Assess Speaking Dashboard", layout="wide")
     st.title("Assess Speaking – Interactive Dashboard")
@@ -198,8 +239,10 @@ def main() -> None:
     """)
 
     history_df = pd.DataFrame()
+    history_records = []
     warning_container = st.empty()
     try:
+        history_records = load_history_records(log_dir)
         history_df = load_history_df(log_dir)
     except FileNotFoundError:
         warning_container.info("Noch keine `history.csv` gefunden – führe zuerst eine Bewertung aus.")
@@ -256,11 +299,11 @@ def main() -> None:
     history_df["date"] = history_df["timestamp"].dt.date
 
     metric_cols = st.columns(4)
-    summary = progress_dashboard.summarise(progress_dashboard.load_history(log_dir / "history.csv"))
+    summary = progress_dashboard.summarise(history_records)
     metric_cols[0].metric("Runs", summary.get("count", 0))
     metric_cols[1].metric("∅ WPM", summary.get("avg_wpm") or "–")
     metric_cols[2].metric("∅ Overall", summary.get("avg_overall") or "–")
-    metric_cols[3].metric("Best Overall", summary.get("best_overall") or "–")
+    metric_cols[3].metric("Best Final", summary.get("best_final") or "–")
 
     trainer_tab, chart_tab, table_tab, detail_tab = st.tabs(["Prompt-Trainer", "Trend", "Tabelle", "Details"])
 
@@ -467,11 +510,69 @@ def main() -> None:
                             st.experimental_rerun()
 
     with chart_tab:
-        chart_data = history_df.set_index("timestamp")[["wpm", "overall"]].dropna(how="all")
+        filter_cols = st.columns(2)
+        speaker_options = ["Alle"] + sorted({record.speaker_id for record in history_records if record.speaker_id})
+        family_options = ["Alle"] + sorted({record.task_family for record in history_records if record.task_family})
+        selected_speaker = filter_cols[0].selectbox("Speaker", options=speaker_options)
+        selected_family = filter_cols[1].selectbox("Task-Family", options=family_options)
+
+        filtered_records = progress_analysis.filter_records(
+            history_records,
+            speaker_id=None if selected_speaker == "Alle" else selected_speaker,
+            task_family=None if selected_family == "Alle" else selected_family,
+        )
+        chart_data = build_trend_chart_df(filtered_records)
         if chart_data.empty:
             st.info("Noch keine numerischen Werte für Chart verfügbar.")
         else:
             st.line_chart(chart_data)
+            family_summary = progress_analysis.task_family_progress(
+                filtered_records if selected_family != "Alle" else history_records,
+                speaker_id=None if selected_speaker == "Alle" else selected_speaker,
+            )
+            if family_summary:
+                st.subheader("Task-Family Vergleich")
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                "task_family": row["task_family"],
+                                "count": row["count"],
+                                "avg_final": row["avg_final"],
+                                "latest_final": row["latest_final"],
+                                "grammar": progress_analysis.format_top_counts(row["grammar_counts"]),
+                                "coherence": progress_analysis.format_top_counts(row["coherence_counts"]),
+                                "latest_priorities": " | ".join(row["latest_priorities"]),
+                            }
+                            for row in family_summary
+                        ]
+                    ),
+                    use_container_width=True,
+                )
+
+            grammar_df = build_issue_count_df(filtered_records, "grammar_error_categories")
+            coherence_df = build_issue_count_df(filtered_records, "coherence_issue_categories")
+            issue_cols = st.columns(2)
+            with issue_cols[0]:
+                st.caption("Wiederkehrende Grammatik-Kategorien")
+                if grammar_df.empty:
+                    st.info("Keine Grammatik-Kategorien im Filter.")
+                else:
+                    st.bar_chart(grammar_df.set_index("category"))
+            with issue_cols[1]:
+                st.caption("Wiederkehrende Kohärenz-Kategorien")
+                if coherence_df.empty:
+                    st.info("Keine Kohärenz-Kategorien im Filter.")
+                else:
+                    st.bar_chart(coherence_df.set_index("category"))
+
+            if selected_family != "Alle":
+                priority_delta = progress_analysis.latest_priorities(filtered_records)
+                st.subheader("Prioritätenvergleich")
+                st.write("Neueste Prioritäten:", ", ".join(priority_delta["latest"]) or "–")
+                st.write("Vorherige Prioritäten:", ", ".join(priority_delta["previous"]) or "–")
+                st.write("Neu hinzugekommen:", ", ".join(priority_delta["new"]) or "–")
+                st.write("Erledigt/entfallen:", ", ".join(priority_delta["resolved"]) or "–")
 
     with table_tab:
         st.dataframe(history_df.drop(columns=["report_path"]), use_container_width=True)
@@ -484,12 +585,15 @@ def main() -> None:
         st.write("**Meta**")
         st.json({
             "timestamp": selected["timestamp"].isoformat(),
+            "speaker_id": selected.get("speaker_id"),
+            "task_family": selected.get("task_family"),
             "audio": selected["audio"],
             "label": selected["label"],
             "whisper": selected["whisper"],
             "llm": selected["llm"],
             "wpm": selected["wpm"],
             "overall": selected["overall"],
+            "final_score": selected.get("final_score"),
         })
         report_path = Path(selected["report_path"])
         if report_path.exists():
