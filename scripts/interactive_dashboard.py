@@ -264,6 +264,12 @@ def build_issue_count_df(records: list[object], attribute: str) -> pd.DataFrame:
     )
 
 
+def dashboard_rerun() -> None:
+    rerun = getattr(st, "rerun", None) or getattr(st, "experimental_rerun", None)
+    if callable(rerun):
+        rerun()
+
+
 def build_result_summary(payload: dict) -> dict:
     report = payload.get("report") if isinstance(payload, dict) else None
     report = report if isinstance(report, dict) else {}
@@ -441,7 +447,7 @@ def render_assessment_feedback(payload: dict, *, key_prefix: str) -> None:
         st.json(payload)
     if st.button("Gleiche Aufgabe erneut versuchen", key=f"{key_prefix}_retry"):
         st.session_state[f"{key_prefix}_payload"] = None
-        st.rerun()
+        dashboard_rerun()
 
 
 def main() -> None:
@@ -634,7 +640,7 @@ def main() -> None:
                 )
                 if st.button("Versuch abbrechen", key=f"cancel_{selected_prompt['id']}"):
                     st.session_state["prompt_attempt"] = None
-                    st.experimental_rerun()
+                    dashboard_rerun()
 
                 webrtc_ctx = webrtc_streamer(
                     key=f"recorder_{selected_prompt['id']}",
@@ -712,7 +718,7 @@ def main() -> None:
                             rerun_history(log_dir)
                             history_df = load_history_df(log_dir)
                         st.session_state["prompt_attempt"] = None
-                        st.experimental_rerun()
+                        dashboard_rerun()
                 plays_left = attempt.get("plays_remaining", 0)
                 if can_play_prompt(attempt):
                     if st.button(
@@ -770,7 +776,7 @@ def main() -> None:
                             rerun_history(log_dir)
                             history_df = load_history_df(log_dir)
                             st.session_state["prompt_attempt"] = None
-                            st.experimental_rerun()
+                            dashboard_rerun()
 
     with chart_tab:
         st.header("My Progress")
