@@ -599,6 +599,10 @@ def main() -> None:
         if report_path.exists():
             try:
                 content = json.loads(report_path.read_text(encoding="utf-8"))
+                progress_delta = (content.get("report") or {}).get("progress_delta")
+                if isinstance(progress_delta, dict):
+                    st.write("**Progress Delta**")
+                    st.json(progress_delta)
                 st.write("**Speicherbericht**")
                 st.json(content)
             except Exception as exc:  # pragma: no cover - defensive

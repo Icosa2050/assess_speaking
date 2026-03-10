@@ -2,6 +2,7 @@
 """Render a lightweight dashboard for logged speaking assessments."""
 import argparse
 import csv
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -146,7 +147,28 @@ def summarise(records: Iterable[Record]) -> dict:
     }
 
 
-def render_terminal(records: List[Record], summary: dict, *, family_rows: Optional[List[dict]] = None) -> None:
+def load_progress_delta(report_path: str) -> Optional[dict]:
+    if not report_path:
+        return None
+    path = Path(report_path)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    report = payload.get("report", payload)
+    progress_delta = report.get("progress_delta")
+    return progress_delta if isinstance(progress_delta, dict) else None
+
+
+def render_terminal(
+    records: List[Record],
+    summary: dict,
+    *,
+    family_rows: Optional[List[dict]] = None,
+    progress_delta: Optional[dict] = None,
+) -> None:
     console = Console()
     if not records:
         console.print("[bold yellow]Keine Einträge in history.csv gefunden.[/bold yellow]")
@@ -223,10 +245,33 @@ def render_terminal(records: List[Record], summary: dict, *, family_rows: Option
         console.print("\n[bold]Prioritätenvergleich[/bold]")
         console.print(f"Neueste Prioritäten: {latest_text}")
         console.print(f"Vorherige Prioritäten: {previous_text}")
+    if progress_delta:
+        score_delta = progress_delta.get("score_delta", {})
+        console.print("\n[bold]Progress Delta[/bold]")
+        console.print(
+            "Letzte Änderung: "
+            f"Final {score_delta.get('final', '–')} | "
+            f"Overall {score_delta.get('overall', '–')} | "
+            f"WPM {score_delta.get('wpm', '–')}"
+        )
+        console.print(
+            "Neue Prioritäten: "
+            + (", ".join(progress_delta.get("new_priorities", [])) or "–")
+        )
+        console.print(
+            "Wiederkehrende Grammatik: "
+            + (", ".join(progress_delta.get("repeating_grammar_categories", [])) or "–")
+        )
     console.print("\nNutze '--export-html pfad.html' für eine statische Übersicht.\n")
 
 
-def render_html(records: List[Record], summary: dict, *, family_rows: Optional[List[dict]] = None) -> str:
+def render_html(
+    records: List[Record],
+    summary: dict,
+    *,
+    family_rows: Optional[List[dict]] = None,
+    progress_delta: Optional[dict] = None,
+) -> str:
     def fmt(value: Optional[float], digits: int = 1) -> str:
         if value is None:
             return "–"
@@ -302,6 +347,32 @@ def render_html(records: List[Record], summary: dict, *, family_rows: Optional[L
 </div>
 """
 
+    progress_delta_html = ""
+    if progress_delta:
+        score_delta = progress_delta.get("score_delta", {})
+        progress_delta_html = f"""
+<h2>Progress Delta</h2>
+<div class="meta">
+<strong>Vorige Session:</strong> {progress_delta.get('previous_session_id') or '–'}
+&nbsp;|&nbsp;
+<strong>Final Δ:</strong> {fmt(score_delta.get('final'), 2) if score_delta.get('final') is not None else '–'}
+&nbsp;|&nbsp;
+<strong>Overall Δ:</strong> {fmt(score_delta.get('overall'), 2) if score_delta.get('overall') is not None else '–'}
+&nbsp;|&nbsp;
+<strong>WPM Δ:</strong> {fmt(score_delta.get('wpm'), 2) if score_delta.get('wpm') is not None else '–'}
+</div>
+<div class="meta">
+<strong>Neue Prioritäten:</strong> {', '.join(progress_delta.get('new_priorities', [])) or '–'}
+&nbsp;|&nbsp;
+<strong>Erledigt/entfallen:</strong> {', '.join(progress_delta.get('resolved_priorities', [])) or '–'}
+</div>
+<div class="meta">
+<strong>Wiederkehrende Grammatik:</strong> {', '.join(progress_delta.get('repeating_grammar_categories', [])) or '–'}
+&nbsp;|&nbsp;
+<strong>Wiederkehrende Kohärenz:</strong> {', '.join(progress_delta.get('repeating_coherence_categories', [])) or '–'}
+</div>
+"""
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -333,6 +404,7 @@ def render_html(records: List[Record], summary: dict, *, family_rows: Optional[L
 </table>
 {family_html}
 {priorities_html}
+{progress_delta_html}
 <div class="footer">Generiert: {datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
 </body>
 </html>"""
@@ -354,11 +426,12 @@ def main() -> None:
     filtered_records = filter_records(records, speaker_id=args.speaker_id, task_family=args.task_family)
     summary = summarise(filtered_records)
     family_rows = task_family_progress(filtered_records if args.task_family else filter_records(records, speaker_id=args.speaker_id))
+    progress_delta = load_progress_delta(filtered_records[-1].report_path) if filtered_records else None
 
-    render_terminal(filtered_records, summary, family_rows=family_rows)
+    render_terminal(filtered_records, summary, family_rows=family_rows, progress_delta=progress_delta)
 
     if args.export_html:
-        html = render_html(filtered_records, summary, family_rows=family_rows)
+        html = render_html(filtered_records, summary, family_rows=family_rows, progress_delta=progress_delta)
         out_path = Path(args.export_html)
         out_path.write_text(html, encoding="utf-8")
         Console().print(f"[green]HTML Dashboard gespeichert unter {out_path}[/green]")

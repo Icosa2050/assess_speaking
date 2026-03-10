@@ -1,4 +1,5 @@
 import tempfile
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -89,6 +90,43 @@ class DashboardTests(unittest.TestCase):
             self.assertIn("Task-Family Analyse", html)
             self.assertIn("preposition_choice (2)", html)
             self.assertIn("Prioritätenvergleich", html)
+
+    def test_render_html_contains_progress_delta(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = Path(tmpdir) / "report.json"
+            report.write_text(
+                json.dumps(
+                    {
+                        "report": {
+                            "progress_delta": {
+                                "previous_session_id": "sess-1",
+                                "score_delta": {"final": 0.5, "overall": 1.0, "wpm": 4.2},
+                                "new_priorities": ["Più dettagli"],
+                                "resolved_priorities": ["Meno filler"],
+                                "repeating_grammar_categories": ["preposition_choice"],
+                                "repeating_coherence_categories": ["missing_sequence_markers"],
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            history = Path(tmpdir) / "history.csv"
+            history.write_text(
+                RICH_CSV.replace("/path/to/2.json", str(report)),
+                encoding="utf-8",
+            )
+            records = progress_dashboard.load_history(history)
+            summary = progress_dashboard.summarise(records)
+            html = progress_dashboard.render_html(
+                records,
+                summary,
+                family_rows=[],
+                progress_delta=progress_dashboard.load_progress_delta(records[-1].report_path),
+            )
+            self.assertIn("Progress Delta", html)
+            self.assertIn("sess-1", html)
+            self.assertIn("preposition_choice", html)
 
 
 if __name__ == "__main__":
