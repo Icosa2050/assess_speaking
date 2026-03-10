@@ -73,7 +73,8 @@ def test_02_prompt_file_upload_generates_baseline(page, base_url, samples_dir, r
     uploaders = page.locator('input[type="file"]')
     uploaders.nth(1).set_input_files(str(samples_dir / "demo.m4a"))
 
-    expect(page.get_by_text("Bewertung abgeschlossen", exact=False)).to_be_visible(timeout=60000)
+    expect(page.get_by_text("Letztes Prompt-Ergebnis", exact=False)).to_be_visible(timeout=60000)
+    expect(page.get_by_text("Nächste Übung", exact=False)).to_be_visible(timeout=60000)
     expect(page.get_by_text("Baseline B2", exact=False)).to_be_visible()
 
     rows = read_history(reports_dir)
