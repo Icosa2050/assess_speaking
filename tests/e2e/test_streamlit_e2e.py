@@ -37,14 +37,22 @@ def test_01_basic_upload_creates_history(page, base_url, samples_dir, reports_di
     page.goto(f"{base_url}/")
     page.wait_for_load_state("networkidle")
     expect(page.get_by_text("Assess Speaking", exact=False)).to_be_visible()
+    expect(page.get_by_label("Speaker ID")).to_be_visible()
+    expect(page.get_by_label("Thema")).to_be_visible()
 
+    page.get_by_label("Speaker ID").fill("playwright-user")
+    page.get_by_label("Thema").fill("Il mio ultimo viaggio all'estero")
     page.locator('input[type="file"]').first.set_input_files(str(samples_dir / "demo.m4a"))
     page.get_by_label("Label").fill("playwright-basic")
     page.get_by_role("button", name="Bewertung starten").click()
+    expect(page.get_by_text("Nächste Übung", exact=False)).to_be_visible(timeout=60000)
 
     rows = read_history(reports_dir)
     assert rows
     assert rows[-1]["label"] == "playwright-basic"
+    assert rows[-1]["speaker_id"] == "playwright-user"
+    assert rows[-1]["task_family"] == "travel_narrative"
+    assert rows[-1]["theme"] == "Il mio ultimo viaggio all'estero"
 
 
 def test_02_prompt_file_upload_generates_baseline(page, base_url, samples_dir, reports_dir, streamlit_server):

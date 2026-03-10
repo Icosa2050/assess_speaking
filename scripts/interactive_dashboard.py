@@ -19,6 +19,7 @@ import pandas as pd
 import streamlit as st
 
 import progress_analysis
+from settings import Settings
 from scripts import progress_dashboard
 from streamlit_webrtc import RTCConfiguration, WebRtcMode, webrtc_streamer
 
@@ -32,6 +33,24 @@ DEFAULT_LOG_DIR = Path(_known_args.log_dir).expanduser().resolve() if _known_arg
 ASSESS_SCRIPT = PROJECT_ROOT / "assess_speaking.py"
 PROMPTS_FILE = PROJECT_ROOT / "prompts" / "prompts.json"
 RTC_CONFIGURATION = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+DEFAULT_SETTINGS = Settings.from_env()
+DEFAULT_PROVIDER = DEFAULT_SETTINGS.provider
+DEFAULT_WHISPER_MODEL = "large-v3"
+DEFAULT_LLM_MODEL = (
+    DEFAULT_SETTINGS.openrouter_rubric_model
+    if DEFAULT_PROVIDER == "openrouter"
+    else DEFAULT_SETTINGS.ollama_model
+)
+DEFAULT_TASK_FAMILY = "travel_narrative" if DEFAULT_SETTINGS.task_family == "generic" else DEFAULT_SETTINGS.task_family
+DEFAULT_THEME = "Il mio ultimo viaggio all'estero"
+DEFAULT_TARGET_DURATION_SEC = 180.0
+PRACTICE_TASK_FAMILIES = [
+    "travel_narrative",
+    "personal_experience",
+    "opinion_monologue",
+    "picture_description",
+    "free_monologue",
+]
 
 
 @st.cache_data(show_spinner=False)
@@ -150,18 +169,42 @@ def write_attempt_audio(attempt: dict, output_path: Path) -> None:
         wf.writeframes(b"".join(chunks))
 
 
-def run_assessment(audio_path: Path, log_dir: Path, whisper: str, llm: str, label: str, notes: str, target_cefr: str | None = None) -> subprocess.CompletedProcess:
+def run_assessment(
+    audio_path: Path,
+    log_dir: Path,
+    whisper: str,
+    llm: str,
+    label: str,
+    notes: str,
+    target_cefr: str | None = None,
+    *,
+    provider: str = DEFAULT_PROVIDER,
+    speaker_id: str = "",
+    task_family: str = DEFAULT_TASK_FAMILY,
+    theme: str = DEFAULT_THEME,
+    target_duration_sec: float = DEFAULT_TARGET_DURATION_SEC,
+) -> subprocess.CompletedProcess:
     cmd = [
         sys.executable,
         str(ASSESS_SCRIPT),
         str(audio_path),
         "--whisper",
         whisper,
-        "--llm",
+        "--provider",
+        provider,
+        "--llm-model",
         llm,
         "--log-dir",
         str(log_dir),
+        "--theme",
+        theme,
+        "--task-family",
+        task_family,
+        "--target-duration-sec",
+        str(float(target_duration_sec)),
     ]
+    if speaker_id:
+        cmd.extend(["--speaker-id", speaker_id])
     if label:
         cmd.extend(["--label", label])
     if notes:
@@ -221,6 +264,186 @@ def build_issue_count_df(records: list[object], attribute: str) -> pd.DataFrame:
     )
 
 
+def build_result_summary(payload: dict) -> dict:
+    report = payload.get("report") if isinstance(payload, dict) else None
+    report = report if isinstance(report, dict) else {}
+    checks = report.get("checks") if isinstance(report.get("checks"), dict) else {}
+    scores = report.get("scores") if isinstance(report.get("scores"), dict) else {}
+    coaching = report.get("coaching") if isinstance(report.get("coaching"), dict) else {}
+    rubric = report.get("rubric") if isinstance(report.get("rubric"), dict) else {}
+    progress_delta = report.get("progress_delta") if isinstance(report.get("progress_delta"), dict) else None
+    warnings = [str(item) for item in report.get("warnings", []) if str(item).strip()]
+    recurring_grammar = [
+        issue.get("type")
+        for issue in rubric.get("recurring_grammar_errors", [])
+        if isinstance(issue, dict) and issue.get("type")
+    ]
+    recurring_coherence = [
+        issue.get("type")
+        for issue in rubric.get("coherence_issues", [])
+        if isinstance(issue, dict) and issue.get("type")
+    ]
+    gates = [
+        ("Sprache", bool(checks.get("language_pass"))),
+        ("Thema", bool(checks.get("topic_pass"))),
+        ("Dauer", bool(checks.get("duration_pass"))),
+        ("Wortmenge", bool(checks.get("min_words_pass"))),
+    ]
+    failed_gates = [label for label, passed in gates if not passed]
+    requires_review = bool(report.get("requires_human_review"))
+    if requires_review:
+        status_level = "warning"
+        status_title = "Manuelle Prüfung empfohlen"
+    elif failed_gates:
+        status_level = "info"
+        status_title = "Aufgabe noch nicht stabil erfüllt"
+    else:
+        status_level = "success"
+        status_title = "Aufgabe erfüllt"
+    return {
+        "status_level": status_level,
+        "status_title": status_title,
+        "requires_review": requires_review,
+        "failed_gates": failed_gates,
+        "gates": [{"label": label, "passed": passed} for label, passed in gates],
+        "final_score": scores.get("final"),
+        "band": scores.get("band"),
+        "mode": scores.get("mode"),
+        "llm_score": scores.get("llm"),
+        "deterministic_score": scores.get("deterministic"),
+        "strengths": [str(item) for item in coaching.get("strengths", []) if str(item).strip()],
+        "priorities": [str(item) for item in coaching.get("top_3_priorities", []) if str(item).strip()],
+        "next_focus": str(coaching.get("next_focus") or ""),
+        "next_exercise": str(coaching.get("next_exercise") or ""),
+        "coach_summary": str(coaching.get("coach_summary") or ""),
+        "warnings": warnings,
+        "progress_delta": progress_delta,
+        "progress_lines": build_progress_delta_lines(progress_delta),
+        "recurring_grammar": recurring_grammar,
+        "recurring_coherence": recurring_coherence,
+        "baseline": payload.get("baseline_comparison") if isinstance(payload, dict) else None,
+    }
+
+
+def build_progress_delta_lines(progress_delta: dict | None) -> list[str]:
+    if not isinstance(progress_delta, dict):
+        return []
+    score_delta = progress_delta.get("score_delta") if isinstance(progress_delta.get("score_delta"), dict) else {}
+    lines: list[str] = []
+    if progress_delta.get("previous_session_id"):
+        lines.append(f"Verglichen mit Session {progress_delta['previous_session_id']}.")
+    final_delta = score_delta.get("final")
+    if isinstance(final_delta, (int, float)) and final_delta != 0:
+        lines.append(f"Final Score: {final_delta:+.2f}.")
+    overall_delta = score_delta.get("overall")
+    if isinstance(overall_delta, (int, float)) and overall_delta != 0:
+        lines.append(f"LLM-Score: {overall_delta:+.2f}.")
+    wpm_delta = score_delta.get("wpm")
+    if isinstance(wpm_delta, (int, float)) and wpm_delta != 0:
+        lines.append(f"Sprechtempo: {wpm_delta:+.2f} WPM.")
+    new_priorities = [item for item in progress_delta.get("new_priorities", []) if item]
+    if new_priorities:
+        lines.append("Neue Prioritäten: " + ", ".join(new_priorities) + ".")
+    repeating_grammar = [item for item in progress_delta.get("repeating_grammar_categories", []) if item]
+    if repeating_grammar:
+        lines.append("Wiederkehrende Grammatik: " + ", ".join(repeating_grammar) + ".")
+    repeating_coherence = [item for item in progress_delta.get("repeating_coherence_categories", []) if item]
+    if repeating_coherence:
+        lines.append("Wiederkehrende Kohärenz: " + ", ".join(repeating_coherence) + ".")
+    return lines
+
+
+def render_assessment_feedback(payload: dict, *, key_prefix: str) -> None:
+    summary = build_result_summary(payload)
+    status_text = summary["status_title"]
+    if summary["failed_gates"]:
+        status_text += " – offen: " + ", ".join(summary["failed_gates"])
+    if summary["status_level"] == "success":
+        st.success(status_text)
+    elif summary["status_level"] == "warning":
+        st.warning(status_text)
+    else:
+        st.info(status_text)
+
+    score_cols = st.columns(4)
+    score_cols[0].metric("Final Score", summary["final_score"] if summary["final_score"] is not None else "–")
+    score_cols[1].metric("Band", summary["band"] if summary["band"] is not None else "–")
+    score_cols[2].metric("LLM", summary["llm_score"] if summary["llm_score"] is not None else "–")
+    score_cols[3].metric("Deterministisch", summary["deterministic_score"] if summary["deterministic_score"] is not None else "–")
+    if summary["mode"]:
+        st.caption(f"Bewertungsmodus: {summary['mode']}")
+
+    gate_cols = st.columns(4)
+    for idx, gate in enumerate(summary["gates"]):
+        gate_cols[idx].metric(gate["label"], "OK" if gate["passed"] else "Offen")
+
+    left, right = st.columns(2)
+    with left:
+        st.subheader("Was schon gut funktioniert")
+        if summary["strengths"]:
+            for item in summary["strengths"]:
+                st.markdown(f"- {item}")
+        else:
+            st.caption("Noch keine Stärken extrahiert.")
+        if summary["coach_summary"]:
+            st.caption(summary["coach_summary"])
+    with right:
+        st.subheader("Nächste Prioritäten")
+        if summary["priorities"]:
+            for idx, item in enumerate(summary["priorities"], start=1):
+                st.markdown(f"{idx}. {item}")
+        else:
+            st.caption("Noch keine Prioritäten vorhanden.")
+        if summary["next_focus"]:
+            st.markdown(f"**Nächster Fokus:** {summary['next_focus']}")
+
+    if summary["next_exercise"]:
+        st.info(f"**Nächste Übung:** {summary['next_exercise']}")
+
+    if summary["progress_lines"]:
+        st.subheader("Seit dem letzten Versuch")
+        for line in summary["progress_lines"]:
+            st.markdown(f"- {line}")
+
+    issue_cols = st.columns(2)
+    with issue_cols[0]:
+        st.caption("Wiederkehrende Grammatik")
+        if summary["recurring_grammar"]:
+            st.write(", ".join(summary["recurring_grammar"]))
+        else:
+            st.write("–")
+    with issue_cols[1]:
+        st.caption("Wiederkehrende Kohärenz")
+        if summary["recurring_coherence"]:
+            st.write(", ".join(summary["recurring_coherence"]))
+        else:
+            st.write("–")
+
+    baseline = summary["baseline"]
+    if isinstance(baseline, dict):
+        st.subheader("CEFR-Baseline")
+        st.markdown(f"**Baseline {baseline['level']}** – {baseline.get('comment', '')}")
+        rows = [
+            {
+                "Metrik": metric,
+                "Soll": entry["expected"],
+                "Ist": entry["actual"],
+                "OK": "✅" if entry["ok"] else "⚠️",
+            }
+            for metric, entry in baseline["targets"].items()
+        ]
+        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+    if summary["warnings"]:
+        st.caption("Warnungen: " + ", ".join(summary["warnings"]))
+
+    with st.expander("Technische Details (JSON)"):
+        st.json(payload)
+    if st.button("Gleiche Aufgabe erneut versuchen", key=f"{key_prefix}_retry"):
+        st.session_state[f"{key_prefix}_payload"] = None
+        st.rerun()
+
+
 def main() -> None:
     st.set_page_config(page_title="Assess Speaking Dashboard", layout="wide")
     st.title("Assess Speaking – Interactive Dashboard")
@@ -230,12 +453,14 @@ def main() -> None:
     prompts = load_prompts(PROMPTS_FILE)
     if "prompt_attempt" not in st.session_state:
         st.session_state["prompt_attempt"] = None
+    st.session_state.setdefault("manual_payload", None)
+    st.session_state.setdefault("prompt_payload", None)
     st.sidebar.markdown("""
     **Workflow**
-    1. Audio hochladen oder vorhandene Datei wählen
-    2. Label/Notiz setzen, Whisper & LLM Modell bestimmen
-    3. Bewertung starten → Ergebnisse landen in `history.csv`
-    4. Verlauf & Analyse unten prüfen
+    1. Aufgabe definieren: Speaker, Task-Family, Thema, Zieldauer
+    2. Audio hochladen oder vorhandene Datei wählen
+    3. Bewertung starten → Bericht und `history.csv` werden gespeichert
+    4. Coaching lesen und direkt erneut versuchen
     """)
 
     history_df = pd.DataFrame()
@@ -249,16 +474,55 @@ def main() -> None:
     except ValueError as exc:  # pragma: no cover - defensive
         warning_container.error(f"Konnte history.csv nicht lesen: {exc}")
 
-    st.header("Neue Bewertung starten")
+    st.header("Practice")
+    st.caption("Lege zuerst die Sprechaufgabe fest. Die technische Konfiguration bleibt unter Advanced.")
+    context_cols = st.columns([1, 1])
+    with context_cols[0]:
+        speaker_id = st.text_input(
+            "Speaker ID",
+            value=st.session_state.get("speaker_id", DEFAULT_SETTINGS.speaker_id or ""),
+            help="Für Timeline und Vergleich gleicher Sprecher.",
+        )
+        task_family = st.selectbox(
+            "Task-Family",
+            options=PRACTICE_TASK_FAMILIES,
+            index=PRACTICE_TASK_FAMILIES.index(DEFAULT_TASK_FAMILY)
+            if DEFAULT_TASK_FAMILY in PRACTICE_TASK_FAMILIES
+            else 0,
+            help="Vergleiche werden innerhalb derselben Task-Family gemacht.",
+        )
+    with context_cols[1]:
+        theme = st.text_area(
+            "Thema",
+            value=st.session_state.get("theme", DEFAULT_THEME),
+            help="Beispiel: Il mio ultimo viaggio all'estero",
+        )
+        target_duration_sec = st.number_input(
+            "Zielsprechdauer (Sekunden)",
+            min_value=30.0,
+            max_value=600.0,
+            step=30.0,
+            value=float(st.session_state.get("target_duration_sec", DEFAULT_TARGET_DURATION_SEC)),
+        )
+    st.session_state["speaker_id"] = speaker_id
+    st.session_state["theme"] = theme
+    st.session_state["target_duration_sec"] = target_duration_sec
+    st.caption("Sprache: Italienisch. Die Gates prüfen Sprache, Thema, Dauer und Wortmenge.")
+
     col_left, col_right = st.columns([2, 1])
 
     with col_left:
         uploaded = st.file_uploader("Audio-Datei hinzufügen", type=["wav", "mp3", "m4a", "flac", "ogg"])
         label = st.text_input("Label", "")
-        notes = st.text_input("Notiz", "")
+        notes = st.text_area("Notiz", "", height=100)
     with col_right:
-        whisper_model = st.text_input("Whisper-Modell", value="large-v3")
-        llm_model = st.text_input("Ollama-Modell", value="llama3.1")
+        with st.expander("Advanced", expanded=False):
+            provider = st.selectbox("LLM-Anbieter", options=["openrouter", "ollama"], index=0 if DEFAULT_PROVIDER == "openrouter" else 1)
+            whisper_model = st.text_input("Whisper-Modell", value=DEFAULT_WHISPER_MODEL)
+            llm_default = DEFAULT_LLM_MODEL if provider == DEFAULT_PROVIDER else (
+                DEFAULT_SETTINGS.openrouter_rubric_model if provider == "openrouter" else DEFAULT_SETTINGS.ollama_model
+            )
+            llm_model = st.text_input("LLM-Modell", value=llm_default)
         existing_path = st.text_input("Oder vorhandenen Pfad nutzen", "")
         run_button = st.button("Bewertung starten", type="primary")
 
@@ -280,34 +544,42 @@ def main() -> None:
 
         if audio_path:
             with st.spinner("Bewertung läuft..."):
-                result = run_assessment(audio_path, log_dir, whisper_model, llm_model, label, notes)
+                result = run_assessment(
+                    audio_path,
+                    log_dir,
+                    whisper_model,
+                    llm_model,
+                    label,
+                    notes,
+                    provider=provider,
+                    speaker_id=speaker_id,
+                    task_family=task_family,
+                    theme=theme,
+                    target_duration_sec=target_duration_sec,
+                )
             if result.returncode != 0:
                 st.error("Bewertung fehlgeschlagen. Siehe Log unten.")
                 st.code(result.stderr or result.stdout)
             else:
+                payload = parse_cli_json(result.stdout)
+                if payload:
+                    st.session_state["manual_payload"] = payload
                 st.success("Bewertung abgeschlossen – Verlauf aktualisiert.")
-                st.code(result.stdout.strip(), language="json")
                 rerun_history(log_dir)
                 history_df = load_history_df(log_dir)
+        else:
+            st.session_state["manual_payload"] = None
 
-    st.header("Verlauf & Analyse")
-    if history_df.empty:
-        st.info("Noch keine Bewertungen verfügbar.")
-        return
-
-    history_df = history_df.sort_values("timestamp")
-    history_df["date"] = history_df["timestamp"].dt.date
-
-    metric_cols = st.columns(4)
-    summary = progress_dashboard.summarise(history_records)
-    metric_cols[0].metric("Runs", summary.get("count", 0))
-    metric_cols[1].metric("∅ WPM", summary.get("avg_wpm") or "–")
-    metric_cols[2].metric("∅ Overall", summary.get("avg_overall") or "–")
-    metric_cols[3].metric("Best Final", summary.get("best_final") or "–")
+    if st.session_state.get("manual_payload"):
+        render_assessment_feedback(st.session_state["manual_payload"], key_prefix="manual")
 
     trainer_tab, chart_tab, table_tab, detail_tab = st.tabs(["Prompt-Trainer", "Trend", "Tabelle", "Details"])
 
     with trainer_tab:
+        existing_prompt_payload = st.session_state.get("prompt_payload")
+        if isinstance(existing_prompt_payload, dict):
+            st.subheader("Letztes Prompt-Ergebnis")
+            render_assessment_feedback(existing_prompt_payload, key_prefix="prompt")
         if not prompts:
             st.info("Keine Übungsprompts gefunden (`prompts/prompts.json`).")
         else:
@@ -321,13 +593,24 @@ def main() -> None:
             )
             st.write(selected_prompt["prompt_text"])
 
-            col_models = st.columns(2)
-            prompt_whisper = col_models[0].text_input(
-                "Whisper-Modell (Prompt)", value=whisper_model, key="prompt_whisper_model"
-            )
-            prompt_llm = col_models[1].text_input(
-                "Ollama-Modell (Prompt)", value=llm_model, key="prompt_llm_model"
-            )
+            with st.expander("Advanced Prompt-Einstellungen", expanded=False):
+                prompt_provider = st.selectbox(
+                    "LLM-Anbieter (Prompt)",
+                    options=["openrouter", "ollama"],
+                    index=0 if provider == "openrouter" else 1,
+                    key="prompt_provider",
+                )
+                prompt_whisper = st.text_input(
+                    "Whisper-Modell (Prompt)", value=whisper_model, key="prompt_whisper_model"
+                )
+                prompt_llm_default = (
+                    DEFAULT_SETTINGS.openrouter_rubric_model
+                    if prompt_provider == "openrouter"
+                    else DEFAULT_SETTINGS.ollama_model
+                )
+                prompt_llm = st.text_input(
+                    "LLM-Modell (Prompt)", value=prompt_llm_default, key="prompt_llm_model"
+                )
             prompt_notes = st.text_input("Notiz (optional)", key="prompt_notes")
 
             attempt = st.session_state.get("prompt_attempt")
@@ -409,6 +692,11 @@ def main() -> None:
                                 attempt["label"],
                                 prompt_notes,
                                 target_cefr=attempt.get("cefr"),
+                                provider=prompt_provider,
+                                speaker_id=speaker_id,
+                                task_family="prompt_trainer",
+                                theme=selected_prompt["title"],
+                                target_duration_sec=float(selected_prompt["response_seconds"]),
                             )
                         if result.returncode != 0:
                             st.error("Bewertung fehlgeschlagen. Siehe Log unten.")
@@ -417,23 +705,8 @@ def main() -> None:
                             payload = parse_cli_json(result.stdout)
                             st.success("Bewertung abgeschlossen.")
                             if payload:
-                                st.subheader("Ergebnis")
-                                st.json(payload)
-                                baseline = payload.get("baseline_comparison")
-                                if baseline:
-                                    st.markdown(
-                                        f"**Baseline {baseline['level']}** – {baseline.get('comment', '')}"
-                                    )
-                                    rows = [
-                                        {
-                                            "Metrik": metric,
-                                            "Soll": entry["expected"],
-                                            "Ist": entry["actual"],
-                                            "OK": "✅" if entry["ok"] else "⚠️",
-                                        }
-                                        for metric, entry in baseline["targets"].items()
-                                    ]
-                                    st.dataframe(pd.DataFrame(rows))
+                                st.session_state["prompt_payload"] = payload
+                                render_assessment_feedback(payload, key_prefix="prompt")
                             else:
                                 st.code(result.stdout.strip(), language="json")
                             rerun_history(log_dir)
@@ -477,6 +750,11 @@ def main() -> None:
                                 attempt["label"],
                                 prompt_notes,
                                 target_cefr=attempt["cefr"],
+                                provider=prompt_provider,
+                                speaker_id=speaker_id,
+                                task_family="prompt_trainer",
+                                theme=selected_prompt["title"],
+                                target_duration_sec=float(selected_prompt["response_seconds"]),
                             )
                         if result.returncode != 0:
                             st.error("Bewertung fehlgeschlagen. Siehe Log unten.")
@@ -485,23 +763,8 @@ def main() -> None:
                             payload = parse_cli_json(result.stdout)
                             st.success("Bewertung abgeschlossen.")
                             if payload:
-                                st.subheader("Ergebnis")
-                                st.json(payload)
-                                baseline = payload.get("baseline_comparison")
-                                if baseline:
-                                    st.markdown(
-                                        f"**Baseline {baseline['level']}** – {baseline.get('comment', '')}"
-                                    )
-                                    rows = [
-                                        {
-                                            "Metrik": metric,
-                                            "Soll": entry["expected"],
-                                            "Ist": entry["actual"],
-                                            "OK": "✅" if entry["ok"] else "⚠️",
-                                        }
-                                        for metric, entry in baseline["targets"].items()
-                                    ]
-                                    st.dataframe(pd.DataFrame(rows))
+                                st.session_state["prompt_payload"] = payload
+                                render_assessment_feedback(payload, key_prefix="prompt")
                             else:
                                 st.code(result.stdout.strip(), language="json")
                             rerun_history(log_dir)
@@ -510,105 +773,123 @@ def main() -> None:
                             st.experimental_rerun()
 
     with chart_tab:
-        filter_cols = st.columns(2)
-        speaker_options = ["Alle"] + sorted({record.speaker_id for record in history_records if record.speaker_id})
-        family_options = ["Alle"] + sorted({record.task_family for record in history_records if record.task_family})
-        selected_speaker = filter_cols[0].selectbox("Speaker", options=speaker_options)
-        selected_family = filter_cols[1].selectbox("Task-Family", options=family_options)
-
-        filtered_records = progress_analysis.filter_records(
-            history_records,
-            speaker_id=None if selected_speaker == "Alle" else selected_speaker,
-            task_family=None if selected_family == "Alle" else selected_family,
-        )
-        chart_data = build_trend_chart_df(filtered_records)
-        if chart_data.empty:
-            st.info("Noch keine numerischen Werte für Chart verfügbar.")
+        st.header("My Progress")
+        if history_df.empty:
+            st.info("Noch keine Bewertungen verfügbar.")
         else:
-            st.line_chart(chart_data)
-            family_summary = progress_analysis.task_family_progress(
-                filtered_records if selected_family != "Alle" else history_records,
+            history_df = history_df.sort_values("timestamp")
+            history_df["date"] = history_df["timestamp"].dt.date
+            metric_cols = st.columns(4)
+            summary = progress_dashboard.summarise(history_records)
+            metric_cols[0].metric("Runs", summary.get("count", 0))
+            metric_cols[1].metric("∅ WPM", summary.get("avg_wpm") or "–")
+            metric_cols[2].metric("∅ Overall", summary.get("avg_overall") or "–")
+            metric_cols[3].metric("Best Final", summary.get("best_final") or "–")
+            filter_cols = st.columns(2)
+            speaker_options = ["Alle"] + sorted({record.speaker_id for record in history_records if record.speaker_id})
+            family_options = ["Alle"] + sorted({record.task_family for record in history_records if record.task_family})
+            selected_speaker = filter_cols[0].selectbox("Speaker", options=speaker_options)
+            selected_family = filter_cols[1].selectbox("Task-Family", options=family_options)
+
+            filtered_records = progress_analysis.filter_records(
+                history_records,
                 speaker_id=None if selected_speaker == "Alle" else selected_speaker,
+                task_family=None if selected_family == "Alle" else selected_family,
             )
-            if family_summary:
-                st.subheader("Task-Family Vergleich")
-                st.dataframe(
-                    pd.DataFrame(
-                        [
-                            {
-                                "task_family": row["task_family"],
-                                "count": row["count"],
-                                "avg_final": row["avg_final"],
-                                "latest_final": row["latest_final"],
-                                "grammar": progress_analysis.format_top_counts(row["grammar_counts"]),
-                                "coherence": progress_analysis.format_top_counts(row["coherence_counts"]),
-                                "latest_priorities": " | ".join(row["latest_priorities"]),
-                            }
-                            for row in family_summary
-                        ]
-                    ),
-                    use_container_width=True,
+            chart_data = build_trend_chart_df(filtered_records)
+            if chart_data.empty:
+                st.info("Noch keine numerischen Werte für Chart verfügbar.")
+            else:
+                st.line_chart(chart_data)
+                family_summary = progress_analysis.task_family_progress(
+                    filtered_records if selected_family != "Alle" else history_records,
+                    speaker_id=None if selected_speaker == "Alle" else selected_speaker,
                 )
+                if family_summary:
+                    st.subheader("Task-Family Vergleich")
+                    st.dataframe(
+                        pd.DataFrame(
+                            [
+                                {
+                                    "task_family": row["task_family"],
+                                    "count": row["count"],
+                                    "avg_final": row["avg_final"],
+                                    "latest_final": row["latest_final"],
+                                    "grammar": progress_analysis.format_top_counts(row["grammar_counts"]),
+                                    "coherence": progress_analysis.format_top_counts(row["coherence_counts"]),
+                                    "latest_priorities": " | ".join(row["latest_priorities"]),
+                                }
+                                for row in family_summary
+                            ]
+                        ),
+                        use_container_width=True,
+                    )
 
-            grammar_df = build_issue_count_df(filtered_records, "grammar_error_categories")
-            coherence_df = build_issue_count_df(filtered_records, "coherence_issue_categories")
-            issue_cols = st.columns(2)
-            with issue_cols[0]:
-                st.caption("Wiederkehrende Grammatik-Kategorien")
-                if grammar_df.empty:
-                    st.info("Keine Grammatik-Kategorien im Filter.")
-                else:
-                    st.bar_chart(grammar_df.set_index("category"))
-            with issue_cols[1]:
-                st.caption("Wiederkehrende Kohärenz-Kategorien")
-                if coherence_df.empty:
-                    st.info("Keine Kohärenz-Kategorien im Filter.")
-                else:
-                    st.bar_chart(coherence_df.set_index("category"))
+                grammar_df = build_issue_count_df(filtered_records, "grammar_error_categories")
+                coherence_df = build_issue_count_df(filtered_records, "coherence_issue_categories")
+                issue_cols = st.columns(2)
+                with issue_cols[0]:
+                    st.caption("Wiederkehrende Grammatik-Kategorien")
+                    if grammar_df.empty:
+                        st.info("Keine Grammatik-Kategorien im Filter.")
+                    else:
+                        st.bar_chart(grammar_df.set_index("category"))
+                with issue_cols[1]:
+                    st.caption("Wiederkehrende Kohärenz-Kategorien")
+                    if coherence_df.empty:
+                        st.info("Keine Kohärenz-Kategorien im Filter.")
+                    else:
+                        st.bar_chart(coherence_df.set_index("category"))
 
-            if selected_family != "Alle":
-                priority_delta = progress_analysis.latest_priorities(filtered_records)
-                st.subheader("Prioritätenvergleich")
-                st.write("Neueste Prioritäten:", ", ".join(priority_delta["latest"]) or "–")
-                st.write("Vorherige Prioritäten:", ", ".join(priority_delta["previous"]) or "–")
-                st.write("Neu hinzugekommen:", ", ".join(priority_delta["new"]) or "–")
-                st.write("Erledigt/entfallen:", ", ".join(priority_delta["resolved"]) or "–")
+                if selected_family != "Alle":
+                    priority_delta = progress_analysis.latest_priorities(filtered_records)
+                    st.subheader("Prioritätenvergleich")
+                    st.write("Neueste Prioritäten:", ", ".join(priority_delta["latest"]) or "–")
+                    st.write("Vorherige Prioritäten:", ", ".join(priority_delta["previous"]) or "–")
+                    st.write("Neu hinzugekommen:", ", ".join(priority_delta["new"]) or "–")
+                    st.write("Erledigt/entfallen:", ", ".join(priority_delta["resolved"]) or "–")
 
     with table_tab:
-        st.dataframe(history_df.drop(columns=["report_path"]), use_container_width=True)
+        if history_df.empty:
+            st.info("Noch keine Bewertungen verfügbar.")
+        else:
+            st.dataframe(history_df.drop(columns=["report_path"]), use_container_width=True)
 
     with detail_tab:
-        labels = history_df.apply(lambda r: f"{r['timestamp'].strftime('%Y-%m-%d %H:%M')} – {r['label'] or r['audio']}", axis=1)
-        selection = st.selectbox("Bewertung auswählen", options=list(labels))
-        selected_idx = labels.index[labels == selection][0]
-        selected = history_df.loc[selected_idx]
-        st.write("**Meta**")
-        st.json({
-            "timestamp": selected["timestamp"].isoformat(),
-            "speaker_id": selected.get("speaker_id"),
-            "task_family": selected.get("task_family"),
-            "audio": selected["audio"],
-            "label": selected["label"],
-            "whisper": selected["whisper"],
-            "llm": selected["llm"],
-            "wpm": selected["wpm"],
-            "overall": selected["overall"],
-            "final_score": selected.get("final_score"),
-        })
-        report_path = Path(selected["report_path"])
-        if report_path.exists():
-            try:
-                content = json.loads(report_path.read_text(encoding="utf-8"))
-                progress_delta = (content.get("report") or {}).get("progress_delta")
-                if isinstance(progress_delta, dict):
-                    st.write("**Progress Delta**")
-                    st.json(progress_delta)
-                st.write("**Speicherbericht**")
-                st.json(content)
-            except Exception as exc:  # pragma: no cover - defensive
-                st.error(f"Konnte JSON nicht laden: {exc}")
+        if history_df.empty:
+            st.info("Noch keine Bewertungen verfügbar.")
         else:
-            st.warning(f"Report-Datei nicht gefunden: {report_path}")
+            labels = history_df.apply(lambda r: f"{r['timestamp'].strftime('%Y-%m-%d %H:%M')} – {r['label'] or r['audio']}", axis=1)
+            selection = st.selectbox("Bewertung auswählen", options=list(labels))
+            selected_idx = labels.index[labels == selection][0]
+            selected = history_df.loc[selected_idx]
+            st.write("**Meta**")
+            st.json({
+                "timestamp": selected["timestamp"].isoformat(),
+                "speaker_id": selected.get("speaker_id"),
+                "task_family": selected.get("task_family"),
+                "audio": selected["audio"],
+                "label": selected["label"],
+                "whisper": selected["whisper"],
+                "llm": selected["llm"],
+                "wpm": selected["wpm"],
+                "overall": selected["overall"],
+                "final_score": selected.get("final_score"),
+            })
+            report_path = Path(selected["report_path"])
+            if report_path.exists():
+                try:
+                    content = json.loads(report_path.read_text(encoding="utf-8"))
+                    progress_delta = (content.get("report") or {}).get("progress_delta")
+                    if isinstance(progress_delta, dict):
+                        st.write("**Progress Delta**")
+                        st.json(progress_delta)
+                    st.write("**Speicherbericht**")
+                    st.json(content)
+                except Exception as exc:  # pragma: no cover - defensive
+                    st.error(f"Konnte JSON nicht laden: {exc}")
+            else:
+                st.warning(f"Report-Datei nicht gefunden: {report_path}")
 
 
 if __name__ == "__main__":

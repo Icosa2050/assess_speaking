@@ -101,7 +101,35 @@ class PromptHelperTests(unittest.TestCase):
                 "notes",
             )
         command = mock_run.call_args.args[0]
+        self.assertIn("--provider", command)
+        self.assertIn("--llm-model", command)
         self.assertIn("--dry-run", command)
+
+    @mock.patch("scripts.interactive_dashboard.subprocess.run")
+    def test_run_assessment_passes_learning_context_flags(self, mock_run):
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="{}", stderr="")
+        dashboard.run_assessment(
+            Path("sample.wav"),
+            Path("reports"),
+            "large-v3",
+            "google/gemini-3.1-pro-preview",
+            "trip-attempt",
+            "notes",
+            provider="openrouter",
+            speaker_id="bern",
+            task_family="travel_narrative",
+            theme="Il mio ultimo viaggio all'estero",
+            target_duration_sec=180,
+        )
+        command = mock_run.call_args.args[0]
+        self.assertIn("--speaker-id", command)
+        self.assertIn("bern", command)
+        self.assertIn("--task-family", command)
+        self.assertIn("travel_narrative", command)
+        self.assertIn("--theme", command)
+        self.assertIn("Il mio ultimo viaggio all'estero", command)
+        self.assertIn("--target-duration-sec", command)
+        self.assertIn("180.0", command)
 
     def test_load_history_df_exposes_extended_columns(self):
         dashboard.load_history_records.clear()
@@ -126,6 +154,55 @@ class PromptHelperTests(unittest.TestCase):
             frame = dashboard.build_issue_count_df(records, "coherence_issue_categories")
             self.assertEqual(frame.iloc[0]["category"], "missing_sequence_markers")
             self.assertEqual(int(frame.iloc[0]["count"]), 2)
+
+    def test_build_result_summary_prefers_learner_fields(self):
+        payload = {
+            "report": {
+                "checks": {
+                    "language_pass": True,
+                    "topic_pass": False,
+                    "duration_pass": True,
+                    "min_words_pass": True,
+                },
+                "scores": {
+                    "final": 3.8,
+                    "band": 4,
+                    "llm": 4.0,
+                    "deterministic": 3.2,
+                    "mode": "hybrid",
+                },
+                "requires_human_review": False,
+                "warnings": ["coaching_unavailable"],
+                "rubric": {
+                    "recurring_grammar_errors": [{"type": "preposition_choice"}],
+                    "coherence_issues": [{"type": "missing_sequence_markers"}],
+                },
+                "coaching": {
+                    "strengths": ["Resti sul tema."],
+                    "top_3_priorities": ["Più dettagli", "Meno filler", "Più connettivi"],
+                    "next_focus": "Ordina meglio gli eventi",
+                    "next_exercise": "Racconta di nuovo il viaggio.",
+                    "coach_summary": "Buona base.",
+                },
+                "progress_delta": {
+                    "previous_session_id": "sess-1",
+                    "score_delta": {"final": 0.4, "overall": 0.2, "wpm": 5.0},
+                    "new_priorities": ["Più dettagli"],
+                    "repeating_grammar_categories": ["preposition_choice"],
+                    "repeating_coherence_categories": ["missing_sequence_markers"],
+                },
+            }
+        }
+        summary = dashboard.build_result_summary(payload)
+        self.assertEqual(summary["status_level"], "info")
+        self.assertEqual(summary["failed_gates"], ["Thema"])
+        self.assertEqual(summary["priorities"][0], "Più dettagli")
+        self.assertEqual(summary["recurring_grammar"], ["preposition_choice"])
+        self.assertTrue(summary["progress_lines"])
+
+    def test_build_progress_delta_lines_handles_empty_input(self):
+        self.assertEqual(dashboard.build_progress_delta_lines(None), [])
+        self.assertEqual(dashboard.build_progress_delta_lines({}), [])
 
 
 if __name__ == "__main__":
