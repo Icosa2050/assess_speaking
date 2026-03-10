@@ -53,7 +53,7 @@ PRACTICE_TASK_FAMILIES = [
 ]
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_resource(show_spinner=False)
 def load_history_records(log_dir: Path):
     return progress_dashboard.load_history(log_dir / "history.csv")
 
