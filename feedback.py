@@ -130,3 +130,59 @@ def generate_feedback(metrics: Dict[str, Any], train_dir: Path) -> List[Dict[str
             )
     return suggestions
 
+
+def build_fallback_coaching(
+    *,
+    metrics: Dict[str, Any],
+    checks: Dict[str, Any],
+    theme: str,
+    target_duration_sec: float,
+) -> Dict[str, Any]:
+    strengths: List[str] = []
+    priorities: List[str] = []
+
+    if checks.get("language_pass"):
+        strengths.append("Hai parlato nella lingua richiesta.")
+    if checks.get("topic_pass"):
+        strengths.append("Sei rimasto sul tema richiesto.")
+    if checks.get("duration_pass"):
+        strengths.append("Hai sostenuto una durata vicina all'obiettivo.")
+    if metrics.get("fillers", 0) <= 2:
+        strengths.append("L'uso di filler è contenuto.")
+    if metrics.get("cohesion_markers", 0) >= 2:
+        strengths.append("Ci sono segnali di collegamento tra le idee.")
+    if not strengths:
+        strengths.append("Hai completato una registrazione utile per il confronto nel tempo.")
+
+    if not checks.get("duration_pass"):
+        priorities.append(f"Parla in modo più continuo fino a circa {int(target_duration_sec)} secondi.")
+    if not checks.get("topic_pass"):
+        priorities.append(f"Resta più vicino al tema '{theme}'.")
+    word_count = max(1, int(metrics.get("word_count", 0)))
+    if metrics.get("fillers", 0) / word_count > MAX_FILLER_RATIO:
+        priorities.append("Riduci filler come 'eh' o 'allora' e sostituiscili con pause silenziose.")
+    if metrics.get("cohesion_markers", 0) < MIN_COHESION_MARKERS:
+        priorities.append("Usa più connettivi per ordinare meglio il racconto.")
+    if metrics.get("wpm", 0) < TARGET_WPM:
+        priorities.append("Aumenta leggermente il ritmo senza sacrificare la chiarezza.")
+    if metrics.get("complexity_index", 0) < 1:
+        priorities.append("Aggiungi almeno una frase più articolata per collegare causa o tempo.")
+
+    if not priorities:
+        priorities.append("Mantieni la stessa struttura ma aggiungi più dettagli concreti.")
+    while len(priorities) < 3:
+        priorities.append("Ripeti lo stesso compito puntando a una narrazione più chiara e lineare.")
+    priorities = priorities[:3]
+
+    primary = priorities[0]
+    next_exercise = f"Registra di nuovo il tema '{theme}' e concentrati su: {primary.lower()}"
+    return {
+        "strengths": strengths[:3],
+        "top_3_priorities": priorities,
+        "next_focus": primary,
+        "next_exercise": next_exercise,
+        "coach_summary": (
+            f"Punto di partenza utile. Nel prossimo tentativo concentrati soprattutto su: "
+            f"{priorities[0]} Poi lavora su: {priorities[1]} e {priorities[2]}"
+        ),
+    }
