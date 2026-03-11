@@ -118,6 +118,17 @@ Launch the Streamlit app for uploads, re-runs, and charts:
 streamlit run scripts/interactive_dashboard.py -- --log-dir reports
 ```
 
+Simpler launcher from the current worktree:
+```bash
+./scripts/run_dashboard.sh
+./scripts/run_dashboard.sh --dry-run
+./scripts/run_dashboard.sh --port 8504 --log-dir /tmp/assess-speaking-reports
+```
+
+The launcher sets `PYTHONPATH` to the current worktree automatically, so it is
+the easiest way to run the dashboard from a feature worktree or a terminal
+opened by Codex.app.
+
 In the browser you can upload new audio or reuse existing files, add labels,
 trigger assessments, and inspect metrics/rubrics over time. The trend tab now
 supports speaker/task-family filtering plus recurring-issue charts, so
