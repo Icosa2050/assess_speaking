@@ -117,6 +117,29 @@ class CanvasClientTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(requests_module.post.call_args_list[1].kwargs["data"], {})
 
+    @unittest.skipIf(lms.requests is None, "requests is required for LMS tests")
+    def test_upload_submission_wraps_timeout(self):
+        client = lms.CanvasClient(
+            base_url="https://canvas.example.edu/",
+            token="token123",
+            timeout_sec=5.0,
+        )
+        with tempfile.NamedTemporaryFile("wb", delete=False) as fh:
+            fh.write(b"{}")
+            attachment = Path(fh.name)
+        self.addCleanup(lambda: attachment.unlink(missing_ok=True))
+
+        with mock.patch.object(lms.requests, "post", side_effect=lms.requests.Timeout("slow")):
+            with self.assertRaises(RuntimeError) as ctx:
+                client.upload_submission(
+                    course_id=77,
+                    assignment_id=42,
+                    submission_data={},
+                    attachment_path=attachment,
+                )
+
+        self.assertIn("timed out after 5.0s", str(ctx.exception))
+
 
 class UploadHelpersTests(unittest.TestCase):
     def test_build_moodle_submission_data_includes_score_and_resources(self):

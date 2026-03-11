@@ -56,10 +56,11 @@ class _BaseClient:
     Sub‑classes are expected to implement :meth:`_build_url`.
     """
 
-    def __init__(self, base_url: str, token: str):
+    def __init__(self, base_url: str, token: str, timeout_sec: float = 20.0):
         # Normalise base URL – drop trailing slash to simplify joins.
         self.base_url = base_url.rstrip("/")
         self.token = token
+        self.timeout_sec = float(timeout_sec)
 
     def _auth_headers(self) -> Dict[str, str]:
         return {"Authorization": f"Bearer {self.token}"}
@@ -75,6 +76,18 @@ class _BaseClient:
             raise RuntimeError(
                 f"{self.__class__.__name__} request failed (HTTP {resp.status_code}): {preview}"
             ) from exc
+
+    def _post(self, url: str, **kwargs):
+        try:
+            return requests.post(url, timeout=self.timeout_sec, **kwargs)
+        except requests.Timeout as exc:  # pragma: no cover - exercised via tests
+            raise RuntimeError(f"{self.__class__.__name__} request timed out after {self.timeout_sec:.1f}s") from exc
+
+    def _get(self, url: str, **kwargs):
+        try:
+            return requests.get(url, timeout=self.timeout_sec, **kwargs)
+        except requests.Timeout as exc:  # pragma: no cover - exercised via tests
+            raise RuntimeError(f"{self.__class__.__name__} request timed out after {self.timeout_sec:.1f}s") from exc
 
 
 class CanvasClient(_BaseClient):
@@ -94,7 +107,7 @@ class CanvasClient(_BaseClient):
         if requests is None:
             raise RuntimeError("The 'requests' library is required for LMS uploads but is not installed.")
         start_url = f"{self.base_url}/api/v1/courses/{course_id}/assignments/{assignment_id}/submissions/self/files"
-        start_resp = requests.post(
+        start_resp = self._post(
             start_url,
             headers=self._auth_headers(),
             data={"name": attachment_path.name, "size": attachment_path.stat().st_size},
@@ -107,7 +120,7 @@ class CanvasClient(_BaseClient):
             raise RuntimeError("Canvas upload initiation did not return upload_url/upload_params.")
 
         with attachment_path.open("rb") as fp:
-            upload_resp = requests.post(
+            upload_resp = self._post(
                 upload_url,
                 data=upload_params or {},
                 files={"file": fp},
@@ -118,11 +131,11 @@ class CanvasClient(_BaseClient):
             location = upload_resp.headers.get("Location")
             if not location:
                 raise RuntimeError("Canvas upload did not return a completion URL.")
-            finalize_resp = requests.get(location, headers=self._auth_headers())
+            finalize_resp = self._get(location, headers=self._auth_headers())
             self._check_response(finalize_resp)
             file_payload = finalize_resp.json()
         elif upload_resp.status_code == 201 and upload_resp.headers.get("Location"):
-            finalize_resp = requests.get(upload_resp.headers["Location"], headers=self._auth_headers())
+            finalize_resp = self._get(upload_resp.headers["Location"], headers=self._auth_headers())
             self._check_response(finalize_resp)
             file_payload = finalize_resp.json()
         else:
@@ -140,7 +153,7 @@ class CanvasClient(_BaseClient):
         ]
         if submission_data.get("comment"):
             submit_data.append(("comment[text_comment]", submission_data["comment"]))
-        resp = requests.post(submit_url, headers=self._auth_headers(), data=submit_data)
+        resp = self._post(submit_url, headers=self._auth_headers(), data=submit_data)
         self._check_response(resp)
         return True
 
@@ -164,7 +177,7 @@ class MoodleClient(_BaseClient):  # pragma: no cover – simple wrapper
         with attachment_path.open("rb") as fp:
             files = {"file": fp}
             params = {"token": self.token, "wstoken": self.token}
-            upload_resp = requests.post(upload_url, files=files, data=params)
+            upload_resp = self._post(upload_url, files=files, data=params)
             self._check_response(upload_resp)
             upload_json = upload_resp.json()
             file_id = upload_json[0].get("fileid")
@@ -181,7 +194,7 @@ class MoodleClient(_BaseClient):  # pragma: no cover – simple wrapper
                 "comment": submission_data.get("comment", ""),
             },
         }
-        resp = requests.post(service_url, data=data)
+        resp = self._post(service_url, data=data)
         self._check_response(resp)
         return True
 
@@ -223,8 +236,9 @@ def upload_to_canvas(
     score: float | None,
     attachment_path: Path,
     resources: list | None = None,
+    timeout_sec: float = 20.0,
 ):
-    client = CanvasClient(base_url, token)
+    client = CanvasClient(base_url, token, timeout_sec=timeout_sec)
     return client.upload_submission(
         course_id=course_id,
         assignment_id=assignment_id,
@@ -241,8 +255,9 @@ def upload_to_moodle(
     score: float | None,
     attachment_path: Path,
     resources: list | None = None,
+    timeout_sec: float = 20.0,
 ):
-    client = MoodleClient(base_url, token)
+    client = MoodleClient(base_url, token, timeout_sec=timeout_sec)
     return client.upload_submission(
         assignment_id=assignment_id,
         submission_data=build_moodle_submission_data(score=score, resources=resources),
