@@ -37,18 +37,18 @@ def test_01_basic_upload_creates_history(page, base_url, samples_dir, reports_di
     page.goto(f"{base_url}/")
     page.wait_for_load_state("networkidle")
     expect(page.get_by_text("Assess Speaking", exact=False)).to_be_visible()
-    expect(page.get_by_text("Sprechauftrag", exact=False)).to_be_visible()
+    expect(page.get_by_text("Dein Sprechauftrag", exact=False)).to_be_visible()
     expect(page.get_by_role("button", name="Neue Aufgabenfassung")).to_be_visible()
     expect(page.get_by_label("Speaker ID")).to_be_visible()
     expect(page.get_by_label("Thema")).to_be_visible()
 
     page.get_by_label("Speaker ID").fill("playwright-user")
     page.get_by_label("Thema").fill("Il mio ultimo viaggio all'estero")
-    page.get_by_text("Datei hochladen", exact=True).click()
+    page.get_by_text("Audiodatei hochladen", exact=True).click()
     page.locator('input[type="file"]').first.set_input_files(str(samples_dir / "demo.m4a"))
     page.get_by_label("Label").fill("playwright-basic")
     page.get_by_role("button", name="Bewertung starten").click()
-    expect(page.get_by_text("Nächste Übung", exact=False)).to_be_visible(timeout=60000)
+    expect(page.get_by_text("Nächste Übung für dich", exact=False)).to_be_visible(timeout=60000)
 
     rows = read_history(reports_dir)
     assert rows
@@ -78,7 +78,7 @@ def test_02_prompt_file_upload_generates_baseline(page, base_url, samples_dir, r
     )
 
     expect(page.get_by_text("Letztes Prompt-Ergebnis", exact=False)).to_be_visible(timeout=60000)
-    expect(page.get_by_text("Nächste Übung", exact=False)).to_be_visible(timeout=60000)
+    expect(page.get_by_text("Nächste Übung für dich", exact=False)).to_be_visible(timeout=60000)
     expect(page.get_by_text("Baseline B2", exact=False)).to_be_visible()
 
     rows = read_history(reports_dir)

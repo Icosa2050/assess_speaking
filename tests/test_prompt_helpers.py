@@ -152,7 +152,7 @@ class PromptHelperTests(unittest.TestCase):
             history.write_text(RICH_HISTORY_CSV, encoding="utf-8")
             records = dashboard.load_history_records(Path(tmpdir))
             frame = dashboard.build_issue_count_df(records, "coherence_issue_categories")
-            self.assertEqual(frame.iloc[0]["category"], "missing_sequence_markers")
+            self.assertEqual(frame.iloc[0]["category"], "Fehlende Reihenfolge-Marker")
             self.assertEqual(int(frame.iloc[0]["count"]), 2)
 
     def test_build_result_summary_prefers_learner_fields(self):
@@ -197,8 +197,11 @@ class PromptHelperTests(unittest.TestCase):
         self.assertEqual(summary["status_level"], "info")
         self.assertEqual(summary["failed_gates"], ["Thema"])
         self.assertEqual(summary["priorities"][0], "Più dettagli")
-        self.assertEqual(summary["recurring_grammar"], ["preposition_choice"])
+        self.assertEqual(summary["recurring_grammar"], ["Präpositionen"])
+        self.assertEqual(summary["mode_label"], "Vollbewertung")
         self.assertTrue(summary["progress_lines"])
+        self.assertIn("Gesamtwert: +0.40.", summary["progress_lines"])
+        self.assertIn("Wiederkehrende Grammatik: Präpositionen.", summary["progress_lines"])
 
     def test_build_progress_delta_lines_handles_empty_input(self):
         self.assertEqual(dashboard.build_progress_delta_lines(None), [])

@@ -51,7 +51,37 @@ PRACTICE_TASK_FAMILIES = [
     "picture_description",
     "free_monologue",
 ]
-PRACTICE_MODES = ["Im Browser aufnehmen", "Datei hochladen", "Datei-Pfad nutzen"]
+PRACTICE_MODES = ["Direkt im Browser aufnehmen", "Audiodatei hochladen", "Lokale Datei verwenden"]
+
+MODE_LABELS = {
+    "hybrid": "Vollbewertung",
+    "deterministic_only": "Basisbewertung",
+}
+
+ISSUE_LABELS = {
+    "gender_agreement": "Genus und Angleichung",
+    "number_agreement": "Singular und Plural",
+    "article_usage": "Artikelgebrauch",
+    "preposition_choice": "Präpositionen",
+    "verb_conjugation_present": "Verbformen im Präsens",
+    "verb_conjugation_past": "Verbformen in der Vergangenheit",
+    "auxiliary_choice": "Hilfsverbwahl",
+    "tense_consistency": "Zeitformen konsistent halten",
+    "mood_selection": "Moduswahl",
+    "word_order": "Wortstellung",
+    "pronoun_usage": "Pronomen",
+    "clitic_placement": "Pronomenstellung",
+    "subject_omission_or_redundancy": "Subjekt fehlt oder wird doppelt gesetzt",
+    "lexical_repetition": "Wortwiederholungen",
+    "false_friend_or_wrong_word_choice": "Unpassende Wortwahl",
+    "missing_sequence_markers": "Fehlende Reihenfolge-Marker",
+    "weak_narrative_order": "Unklare Erzählreihenfolge",
+    "abrupt_topic_shift": "Sprunghafter Themenwechsel",
+    "insufficient_linking": "Zu wenig Verknüpfungen",
+    "underdeveloped_detail": "Zu wenig konkrete Details",
+    "repetition_without_progress": "Wiederholung ohne neue Information",
+    "unclear_reference": "Unklare Bezüge",
+}
 
 
 @st.cache_resource(show_spinner=False)
@@ -270,7 +300,7 @@ def build_issue_count_df(records: list[object], attribute: str) -> pd.DataFrame:
     if not counts:
         return pd.DataFrame(columns=["category", "count"])
     return pd.DataFrame(
-        [{"category": category, "count": count} for category, count in counts.most_common()]
+        [{"category": format_issue_label(category), "count": count} for category, count in counts.most_common()]
     )
 
 
@@ -278,6 +308,13 @@ def dashboard_rerun() -> None:
     rerun = getattr(st, "rerun", None) or getattr(st, "experimental_rerun", None)
     if callable(rerun):
         rerun()
+
+
+def format_issue_label(issue: str) -> str:
+    issue = str(issue or "").strip()
+    if not issue:
+        return "–"
+    return ISSUE_LABELS.get(issue, issue.replace("_", " ").capitalize())
 
 
 def generate_practice_brief(task_family: str, theme: str, target_duration_sec: float, variant_index: int = 0) -> dict:
@@ -349,18 +386,21 @@ def generate_practice_brief(task_family: str, theme: str, target_duration_sec: f
 def render_practice_brief(brief: dict) -> None:
     card_cols = st.columns([1.4, 1, 1])
     with card_cols[0]:
-        st.markdown("### Sprechauftrag")
+        st.markdown("### Dein Sprechauftrag")
         st.markdown(f"**{brief['title']}**")
         st.write(brief["prompt"])
+        st.caption("Ziel: ruhig sprechen, einen roten Faden halten und sauber abschließen.")
     with card_cols[1]:
-        st.markdown("### Was du abdecken solltest")
+        st.markdown("### Darüber solltest du sprechen")
         for item in brief["cover_points"]:
             st.markdown(f"- {item}")
     with card_cols[2]:
-        st.markdown("### Formulierungen zum Einstieg")
+        st.markdown("### Hilfreiche Satzanfänge")
         for item in brief["starter_phrases"]:
             st.markdown(f"- {item}")
-        st.caption("Erfolgsfokus: " + " ".join(brief["success_focus"]))
+        st.markdown("### Worauf du heute achten solltest")
+        for item in brief["success_focus"]:
+            st.markdown(f"- {item}")
 
 
 def build_result_summary(payload: dict) -> dict:
@@ -408,6 +448,7 @@ def build_result_summary(payload: dict) -> dict:
         "final_score": scores.get("final"),
         "band": scores.get("band"),
         "mode": scores.get("mode"),
+        "mode_label": MODE_LABELS.get(scores.get("mode"), "Unbekannt"),
         "llm_score": scores.get("llm"),
         "deterministic_score": scores.get("deterministic"),
         "strengths": [str(item) for item in coaching.get("strengths", []) if str(item).strip()],
@@ -418,8 +459,8 @@ def build_result_summary(payload: dict) -> dict:
         "warnings": warnings,
         "progress_delta": progress_delta,
         "progress_lines": build_progress_delta_lines(progress_delta),
-        "recurring_grammar": recurring_grammar,
-        "recurring_coherence": recurring_coherence,
+        "recurring_grammar": [format_issue_label(issue) for issue in recurring_grammar],
+        "recurring_coherence": [format_issue_label(issue) for issue in recurring_coherence],
         "baseline": payload.get("baseline_comparison") if isinstance(payload, dict) else None,
     }
 
@@ -430,25 +471,35 @@ def build_progress_delta_lines(progress_delta: dict | None) -> list[str]:
     score_delta = progress_delta.get("score_delta") if isinstance(progress_delta.get("score_delta"), dict) else {}
     lines: list[str] = []
     if progress_delta.get("previous_session_id"):
-        lines.append(f"Verglichen mit Session {progress_delta['previous_session_id']}.")
+        lines.append(
+            f"Verglichen mit deinem letzten gespeicherten Versuch ({progress_delta['previous_session_id']})."
+        )
     final_delta = score_delta.get("final")
     if isinstance(final_delta, (int, float)) and final_delta != 0:
-        lines.append(f"Final Score: {final_delta:+.2f}.")
+        lines.append(f"Gesamtwert: {final_delta:+.2f}.")
     overall_delta = score_delta.get("overall")
     if isinstance(overall_delta, (int, float)) and overall_delta != 0:
-        lines.append(f"LLM-Score: {overall_delta:+.2f}.")
+        lines.append(f"Gesamteindruck: {overall_delta:+.2f}.")
     wpm_delta = score_delta.get("wpm")
     if isinstance(wpm_delta, (int, float)) and wpm_delta != 0:
         lines.append(f"Sprechtempo: {wpm_delta:+.2f} WPM.")
     new_priorities = [item for item in progress_delta.get("new_priorities", []) if item]
     if new_priorities:
-        lines.append("Neue Prioritäten: " + ", ".join(new_priorities) + ".")
+        lines.append("Neue Schwerpunkte: " + ", ".join(new_priorities) + ".")
     repeating_grammar = [item for item in progress_delta.get("repeating_grammar_categories", []) if item]
     if repeating_grammar:
-        lines.append("Wiederkehrende Grammatik: " + ", ".join(repeating_grammar) + ".")
+        lines.append(
+            "Wiederkehrende Grammatik: "
+            + ", ".join(format_issue_label(item) for item in repeating_grammar)
+            + "."
+        )
     repeating_coherence = [item for item in progress_delta.get("repeating_coherence_categories", []) if item]
     if repeating_coherence:
-        lines.append("Wiederkehrende Kohärenz: " + ", ".join(repeating_coherence) + ".")
+        lines.append(
+            "Wiederkehrende Strukturprobleme: "
+            + ", ".join(format_issue_label(item) for item in repeating_coherence)
+            + "."
+        )
     return lines
 
 
@@ -464,13 +515,12 @@ def render_assessment_feedback(payload: dict, *, key_prefix: str) -> None:
     else:
         st.info(status_text)
 
-    score_cols = st.columns(4)
-    score_cols[0].metric("Final Score", summary["final_score"] if summary["final_score"] is not None else "–")
-    score_cols[1].metric("Band", summary["band"] if summary["band"] is not None else "–")
-    score_cols[2].metric("LLM", summary["llm_score"] if summary["llm_score"] is not None else "–")
-    score_cols[3].metric("Deterministisch", summary["deterministic_score"] if summary["deterministic_score"] is not None else "–")
-    if summary["mode"]:
-        st.caption(f"Bewertungsmodus: {summary['mode']}")
+    st.markdown("### Deine Rückmeldung")
+    score_cols = st.columns(2)
+    score_cols[0].metric("Gesamtwert", summary["final_score"] if summary["final_score"] is not None else "–")
+    score_cols[1].metric("Niveau", summary["band"] if summary["band"] is not None else "–")
+    if summary["coach_summary"]:
+        st.caption(summary["coach_summary"])
 
     gate_cols = st.columns(4)
     for idx, gate in enumerate(summary["gates"]):
@@ -478,45 +528,52 @@ def render_assessment_feedback(payload: dict, *, key_prefix: str) -> None:
 
     left, right = st.columns(2)
     with left:
-        st.subheader("Was schon gut funktioniert")
+        st.subheader("Das gelingt dir schon")
         if summary["strengths"]:
             for item in summary["strengths"]:
                 st.markdown(f"- {item}")
         else:
-            st.caption("Noch keine Stärken extrahiert.")
-        if summary["coach_summary"]:
-            st.caption(summary["coach_summary"])
+            st.caption("Hier erscheinen die Dinge, die bereits stabil wirken.")
     with right:
-        st.subheader("Nächste Prioritäten")
+        st.subheader("Darauf solltest du als Nächstes achten")
         if summary["priorities"]:
             for idx, item in enumerate(summary["priorities"], start=1):
                 st.markdown(f"{idx}. {item}")
         else:
             st.caption("Noch keine Prioritäten vorhanden.")
         if summary["next_focus"]:
-            st.markdown(f"**Nächster Fokus:** {summary['next_focus']}")
+            st.markdown(f"**Konkreter Fokus für den nächsten Versuch:** {summary['next_focus']}")
 
     if summary["next_exercise"]:
-        st.info(f"**Nächste Übung:** {summary['next_exercise']}")
+        st.info(f"**Nächste Übung für dich:** {summary['next_exercise']}")
 
     if summary["progress_lines"]:
-        st.subheader("Seit dem letzten Versuch")
+        st.subheader("Vergleich zum letzten Versuch")
         for line in summary["progress_lines"]:
             st.markdown(f"- {line}")
 
     issue_cols = st.columns(2)
     with issue_cols[0]:
-        st.caption("Wiederkehrende Grammatik")
+        st.caption("Wiederkehrende Grammatikmuster")
         if summary["recurring_grammar"]:
             st.write(", ".join(summary["recurring_grammar"]))
         else:
             st.write("–")
     with issue_cols[1]:
-        st.caption("Wiederkehrende Kohärenz")
+        st.caption("Wiederkehrende Strukturprobleme")
         if summary["recurring_coherence"]:
             st.write(", ".join(summary["recurring_coherence"]))
         else:
             st.write("–")
+
+    with st.expander("So wurde bewertet", expanded=False):
+        detail_cols = st.columns(3)
+        detail_cols[0].metric("Bewertungsart", summary["mode_label"])
+        detail_cols[1].metric("Sprachurteil", summary["llm_score"] if summary["llm_score"] is not None else "–")
+        detail_cols[2].metric(
+            "Messwerte",
+            summary["deterministic_score"] if summary["deterministic_score"] is not None else "–",
+        )
 
     baseline = summary["baseline"]
     if isinstance(baseline, dict):
@@ -536,7 +593,7 @@ def render_assessment_feedback(payload: dict, *, key_prefix: str) -> None:
     if summary["warnings"]:
         st.caption("Warnungen: " + ", ".join(summary["warnings"]))
 
-    with st.expander("Technische Details (JSON)"):
+    with st.expander("Rohdaten und JSON"):
         st.json(payload)
     if st.button("Gleiche Aufgabe erneut versuchen", key=f"{key_prefix}_retry"):
         st.session_state[f"{key_prefix}_payload"] = None
@@ -580,7 +637,7 @@ def main() -> None:
     st.sidebar.markdown("""
     **Workflow**
     1. Aufgabe definieren
-    2. Im Browser aufnehmen oder sekundär Upload nutzen
+    2. Direkt aufnehmen oder bei Bedarf eine Datei nutzen
     3. Bewertung starten → Bericht und `history.csv` werden gespeichert
     4. Coaching lesen und direkt erneut versuchen
     """)
@@ -596,13 +653,13 @@ def main() -> None:
     except ValueError as exc:  # pragma: no cover - defensive
         warning_container.error(f"Konnte history.csv nicht lesen: {exc}")
 
-    st.header("Practice")
+    st.header("Sprechtraining")
     st.markdown(
         """
         <div class="practice-hero">
-          <strong>Sprich zuerst, uploaden nur wenn nötig.</strong>
+          <strong>Sprich zuerst. Aufnahme und Aufgabenfokus stehen im Mittelpunkt.</strong>
           <div class="practice-subtle">
-            Die Hauptansicht ist jetzt auf Aufnahme, Aufgabenfokus und unmittelbares Coaching ausgerichtet.
+            Wähle ein Thema, hole dir einen klaren Sprechauftrag und versuche die Aufgabe direkt noch einmal nach dem Feedback.
           </div>
         </div>
         """,
@@ -643,7 +700,7 @@ def main() -> None:
     control_cols = st.columns([1, 1])
     with control_cols[0]:
         practice_mode = st.radio(
-            "Wie möchtest du üben?",
+            "Wie willst du starten?",
             options=PRACTICE_MODES,
             horizontal=True,
             index=0,
@@ -664,11 +721,11 @@ def main() -> None:
     col_left, col_right = st.columns([2, 1])
 
     with col_left:
-        st.markdown("### Aufnahme")
+        st.markdown("### Aufnahme oder Datei")
         uploaded = None
         existing_path = ""
-        if practice_mode == "Im Browser aufnehmen":
-            st.caption("Nimm direkt im Browser auf und starte die Bewertung danach.")
+        if practice_mode == "Direkt im Browser aufnehmen":
+            st.caption("Sprich direkt hier ein. Sobald Audio vorhanden ist, kannst du die Bewertung starten.")
             practice_attempt = st.session_state.get("practice_attempt") or create_recording_attempt()
             webrtc_ctx = webrtc_streamer(
                 key="practice_recorder",
@@ -705,13 +762,13 @@ def main() -> None:
                 dashboard_rerun()
             record_ready = bool((st.session_state.get("practice_attempt") or {}).get("chunks"))
             if record_ready:
-                st.caption("Audio aufgenommen. Du kannst jetzt bewerten.")
-        elif practice_mode == "Datei hochladen":
-            st.caption("Upload bleibt möglich, ist aber sekundär zum direkten Aufnehmen.")
+                st.caption("Audio aufgenommen. Du kannst jetzt die Auswertung starten.")
+        elif practice_mode == "Audiodatei hochladen":
+            st.caption("Wenn du schon eine Aufnahme hast, kannst du sie hier einreichen.")
             uploaded = st.file_uploader("Audio-Datei hinzufügen", type=["wav", "mp3", "m4a", "flac", "ogg"])
         else:
-            st.caption("Nutze einen lokalen Pfad, wenn die Aufnahme schon außerhalb des Browsers vorliegt.")
-            existing_path = st.text_input("Vorhandenen Pfad nutzen", "")
+            st.caption("Nutze einen lokalen Pfad nur dann, wenn die Datei bereits auf diesem Rechner liegt.")
+            existing_path = st.text_input("Lokalen Pfad verwenden", "")
     with col_right:
         label = st.text_input("Label", "")
         with st.expander("Erweiterte Optionen", expanded=False):
@@ -726,7 +783,7 @@ def main() -> None:
 
     if run_button:
         audio_path: Path | None = None
-        if practice_mode == "Im Browser aufnehmen":
+        if practice_mode == "Direkt im Browser aufnehmen":
             attempt = st.session_state.get("practice_attempt") or {}
             if not attempt.get("chunks"):
                 st.warning("Bitte nimm zuerst Audio im Browser auf.")
@@ -748,7 +805,7 @@ def main() -> None:
             else:
                 st.error(f"Datei nicht gefunden: {potential}")
         else:
-            st.warning("Bitte eine Audio-Datei hochladen oder Pfad angeben.")
+            st.warning("Bitte nimm Audio auf, lade eine Datei hoch oder gib einen lokalen Pfad an.")
 
         if audio_path:
             with st.spinner("Bewertung läuft..."):
@@ -775,7 +832,7 @@ def main() -> None:
                 st.success("Bewertung abgeschlossen – Verlauf aktualisiert.")
                 rerun_history(log_dir)
                 history_df = load_history_df(log_dir)
-                if practice_mode == "Im Browser aufnehmen":
+                if practice_mode == "Direkt im Browser aufnehmen":
                     st.session_state["practice_attempt"] = create_recording_attempt()
         else:
             st.session_state["manual_payload"] = None
@@ -983,7 +1040,7 @@ def main() -> None:
                             dashboard_rerun()
 
     with chart_tab:
-        st.header("My Progress")
+        st.header("Mein Fortschritt")
         if history_df.empty:
             st.info("Noch keine Bewertungen verfügbar.")
         else:
@@ -991,15 +1048,15 @@ def main() -> None:
             history_df["date"] = history_df["timestamp"].dt.date
             metric_cols = st.columns(4)
             summary = progress_dashboard.summarise(history_records)
-            metric_cols[0].metric("Runs", summary.get("count", 0))
+            metric_cols[0].metric("Versuche", summary.get("count", 0))
             metric_cols[1].metric("∅ WPM", summary.get("avg_wpm") or "–")
-            metric_cols[2].metric("∅ Overall", summary.get("avg_overall") or "–")
-            metric_cols[3].metric("Best Final", summary.get("best_final") or "–")
+            metric_cols[2].metric("∅ Gesamteindruck", summary.get("avg_overall") or "–")
+            metric_cols[3].metric("Bester Gesamtwert", summary.get("best_final") or "–")
             filter_cols = st.columns(2)
             speaker_options = ["Alle"] + sorted({record.speaker_id for record in history_records if record.speaker_id})
             family_options = ["Alle"] + sorted({record.task_family for record in history_records if record.task_family})
             selected_speaker = filter_cols[0].selectbox("Speaker", options=speaker_options)
-            selected_family = filter_cols[1].selectbox("Task-Family", options=family_options)
+            selected_family = filter_cols[1].selectbox("Aufgabentyp", options=family_options)
 
             filtered_records = progress_analysis.filter_records(
                 history_records,
@@ -1016,7 +1073,7 @@ def main() -> None:
                     speaker_id=None if selected_speaker == "Alle" else selected_speaker,
                 )
                 if family_summary:
-                    st.subheader("Task-Family Vergleich")
+                    st.subheader("Vergleich nach Aufgabentyp")
                     st.dataframe(
                         pd.DataFrame(
                             [
@@ -1039,23 +1096,23 @@ def main() -> None:
                 coherence_df = build_issue_count_df(filtered_records, "coherence_issue_categories")
                 issue_cols = st.columns(2)
                 with issue_cols[0]:
-                    st.caption("Wiederkehrende Grammatik-Kategorien")
+                    st.caption("Wiederkehrende Grammatikmuster")
                     if grammar_df.empty:
-                        st.info("Keine Grammatik-Kategorien im Filter.")
+                        st.info("Keine Grammatikmuster im aktuellen Filter.")
                     else:
                         st.bar_chart(grammar_df.set_index("category"))
                 with issue_cols[1]:
-                    st.caption("Wiederkehrende Kohärenz-Kategorien")
+                    st.caption("Wiederkehrende Strukturprobleme")
                     if coherence_df.empty:
-                        st.info("Keine Kohärenz-Kategorien im Filter.")
+                        st.info("Keine Strukturprobleme im aktuellen Filter.")
                     else:
                         st.bar_chart(coherence_df.set_index("category"))
 
                 if selected_family != "Alle":
                     priority_delta = progress_analysis.latest_priorities(filtered_records)
-                    st.subheader("Prioritätenvergleich")
-                    st.write("Neueste Prioritäten:", ", ".join(priority_delta["latest"]) or "–")
-                    st.write("Vorherige Prioritäten:", ", ".join(priority_delta["previous"]) or "–")
+                    st.subheader("Vergleich der letzten Schwerpunkte")
+                    st.write("Neueste Schwerpunkte:", ", ".join(priority_delta["latest"]) or "–")
+                    st.write("Vorherige Schwerpunkte:", ", ".join(priority_delta["previous"]) or "–")
                     st.write("Neu hinzugekommen:", ", ".join(priority_delta["new"]) or "–")
                     st.write("Erledigt/entfallen:", ", ".join(priority_delta["resolved"]) or "–")
 

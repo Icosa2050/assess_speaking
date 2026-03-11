@@ -44,7 +44,7 @@ def test_real_upload_returns_feedback(page, base_url, reports_dir, streamlit_rea
     page.get_by_label("Speaker ID").fill("playwright-real-user")
     page.get_by_label("Thema").fill("tema libero")
     page.get_by_label("Zielsprechdauer (Sekunden)").fill("60")
-    page.get_by_text("Datei hochladen", exact=True).click()
+    page.get_by_text("Audiodatei hochladen", exact=True).click()
     page.locator('input[type="file"]').first.set_input_files(str(audio_path))
     page.get_by_label("Label").fill(run_label)
 
@@ -55,8 +55,8 @@ def test_real_upload_returns_feedback(page, base_url, reports_dir, streamlit_rea
 
     page.get_by_role("button", name="Bewertung starten").click()
 
-    expect(page.get_by_text("Nächste Übung", exact=False)).to_be_visible(timeout=180000)
-    expect(page.get_by_text("Nächste Prioritäten", exact=False)).to_be_visible(timeout=180000)
+    expect(page.get_by_text("Nächste Übung für dich", exact=False)).to_be_visible(timeout=180000)
+    expect(page.get_by_text("Darauf solltest du als Nächstes achten", exact=False)).to_be_visible(timeout=180000)
 
     row = wait_for_labeled_history(reports_dir, run_label, timeout=180.0)
     assert row["speaker_id"] == "playwright-real-user"
