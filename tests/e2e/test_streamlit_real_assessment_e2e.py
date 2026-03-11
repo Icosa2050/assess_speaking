@@ -6,14 +6,14 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import expect
 
+DEFAULT_REAL_AUDIO_PATH = Path(__file__).resolve().parents[1] / "audio" / "test1.m4a"
+
 
 def _require_real_audio_path() -> Path:
     if os.getenv("RUN_STREAMLIT_REAL_E2E") != "1":
         pytest.skip("Set RUN_STREAMLIT_REAL_E2E=1 to run the real Streamlit E2E assessment.")
     audio_path = os.getenv("ASSESS_SPEAKING_REAL_AUDIO_PATH")
-    if not audio_path:
-        pytest.skip("Set ASSESS_SPEAKING_REAL_AUDIO_PATH to a real audio file.")
-    path = Path(audio_path).expanduser()
+    path = Path(audio_path).expanduser() if audio_path else DEFAULT_REAL_AUDIO_PATH
     if not path.exists():
         pytest.skip(f"Real audio file not found: {path}")
     if not os.getenv("OPENROUTER_API_KEY"):

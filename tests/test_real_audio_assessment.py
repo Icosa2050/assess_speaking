@@ -8,13 +8,14 @@ from unittest import mock
 import assess_speaking
 
 
+DEFAULT_REAL_AUDIO_PATH = Path(__file__).resolve().parent / "audio" / "test1.m4a"
+
+
 def _require_real_audio_env() -> Path:
     if os.getenv("RUN_REAL_AUDIO_ASSESSMENT") != "1":
         raise unittest.SkipTest("Set RUN_REAL_AUDIO_ASSESSMENT=1 to run the real audio assessment test.")
     audio_path = os.getenv("ASSESS_SPEAKING_REAL_AUDIO_PATH")
-    if not audio_path:
-        raise unittest.SkipTest("Set ASSESS_SPEAKING_REAL_AUDIO_PATH to a real audio file.")
-    path = Path(audio_path).expanduser()
+    path = Path(audio_path).expanduser() if audio_path else DEFAULT_REAL_AUDIO_PATH
     if not path.exists():
         raise unittest.SkipTest(f"Real audio file not found: {path}")
     if not os.getenv("OPENROUTER_API_KEY"):
