@@ -2,10 +2,12 @@
 """Interactive Streamlit dashboard for assess_speaking results."""
 from __future__ import annotations
 
+import asyncio
 import argparse
 import csv
 import io
 import json
+import logging
 import os
 import queue
 import subprocess
@@ -25,6 +27,7 @@ from scripts import progress_dashboard
 from streamlit_webrtc import RTCConfiguration, WebRtcMode, webrtc_streamer
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+LOGGER = logging.getLogger(__name__)
 
 _parser = argparse.ArgumentParser(add_help=False)
 _parser.add_argument("--log-dir")
@@ -73,6 +76,100 @@ def build_rtc_configuration() -> RTCConfiguration:
 
 
 RTC_CONFIGURATION = build_rtc_configuration()
+
+
+def _transport_is_usable(transport) -> bool:
+    if transport is None:
+        return False
+    is_closing = getattr(transport, "is_closing", None)
+    if callable(is_closing) and is_closing():
+        return False
+    sock = getattr(transport, "_sock", object())
+    if sock is None:
+        return False
+    loop = getattr(transport, "_loop", None)
+    if loop is not None and getattr(loop, "is_closed", lambda: False)():
+        return False
+    return True
+
+
+def patch_aioice_closed_transport_bug() -> bool:
+    try:
+        import aioice.ice as aioice_ice
+        import aioice.stun as aioice_stun
+    except Exception:
+        return False
+
+    current_send = aioice_ice.StunProtocol.send_stun
+    if getattr(current_send, "__assess_speaking_patched__", False):
+        return True
+
+    original_send_stun = current_send
+    original_retry = aioice_stun.Transaction._Transaction__retry
+
+    def safe_send_stun(self, message, addr) -> None:
+        transport = getattr(self, "transport", None)
+        if not _transport_is_usable(transport):
+            return
+        try:
+            return original_send_stun(self, message, addr)
+        except AttributeError as exc:
+            if "sendto" in str(exc) or "call_exception_handler" in str(exc):
+                LOGGER.debug("Ignoring aioice send_stun on closed transport: %s", exc)
+                return
+            raise
+        except RuntimeError as exc:
+            if "closed" in str(exc).lower():
+                LOGGER.debug("Ignoring aioice send_stun on closed runtime: %s", exc)
+                return
+            raise
+
+    def safe_retry(self) -> None:
+        future = getattr(self, "_Transaction__future")
+        if future.done():
+            return
+        tries = getattr(self, "_Transaction__tries")
+        tries_max = getattr(self, "_Transaction__tries_max")
+        if tries >= tries_max:
+            future.set_exception(aioice_stun.TransactionTimeout())
+            return
+
+        protocol = getattr(self, "_Transaction__protocol")
+        transport = getattr(protocol, "transport", None)
+        if not _transport_is_usable(transport):
+            future.set_exception(aioice_stun.TransactionTimeout())
+            return
+
+        try:
+            original_send_stun(protocol, getattr(self, "_Transaction__request"), getattr(self, "_Transaction__addr"))
+        except AttributeError as exc:
+            if "sendto" in str(exc) or "call_exception_handler" in str(exc):
+                future.set_exception(aioice_stun.TransactionTimeout())
+                return
+            raise
+        except RuntimeError as exc:
+            if "closed" in str(exc).lower():
+                future.set_exception(aioice_stun.TransactionTimeout())
+                return
+            raise
+
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            future.set_exception(aioice_stun.TransactionTimeout())
+            return
+        timeout_delay = getattr(self, "_Transaction__timeout_delay")
+        setattr(self, "_Transaction__timeout_handle", loop.call_later(timeout_delay, self._Transaction__retry))
+        setattr(self, "_Transaction__timeout_delay", timeout_delay * 2)
+        setattr(self, "_Transaction__tries", tries + 1)
+
+    safe_send_stun.__assess_speaking_patched__ = True
+    safe_retry.__assess_speaking_patched__ = True
+    aioice_ice.StunProtocol.send_stun = safe_send_stun
+    aioice_stun.Transaction._Transaction__retry = safe_retry
+    return True
+
+
+AIOICE_PATCHED = patch_aioice_closed_transport_bug()
 
 MODE_LABELS = {
     "hybrid": "Vollbewertung",
@@ -190,6 +287,7 @@ def create_recording_attempt() -> dict:
         "save_error": "",
         "signalling_started_at": None,
         "connection_requested_at": None,
+        "recording_started_at": None,
         "show_saved_notice": False,
     }
 
@@ -234,6 +332,16 @@ def attempt_duration_sec(attempt: dict) -> float:
     if bytes_per_second <= 0:
         return 0.0
     return round(total_bytes / bytes_per_second, 2)
+
+
+def display_duration_sec(attempt: dict) -> float:
+    measured = attempt_duration_sec(attempt)
+    if attempt.get("status") != "recording":
+        return measured
+    started_at = attempt.get("recording_started_at")
+    if not started_at:
+        return measured
+    return round(max(measured, time.time() - float(started_at)), 2)
 
 
 def format_duration(seconds: float) -> str:
@@ -304,6 +412,8 @@ def sync_recording_state(
     attempt["connection_requested_at"] = connection_requested_at
 
     if is_recording:
+        if not attempt.get("recording_started_at"):
+            attempt["recording_started_at"] = time.time()
         attempt["status"] = "recording"
         attempt["save_error"] = ""
         attempt["show_saved_notice"] = False
@@ -321,10 +431,12 @@ def sync_recording_state(
             attempt["save_error"] = "Es wurde kein Audio aufgezeichnet. Bitte versuche es erneut oder nutze den Upload."
         attempt["signalling_started_at"] = None
         attempt["connection_requested_at"] = None
+        attempt["recording_started_at"] = None
     elif attempt.get("saved_path"):
         attempt["status"] = "ready"
         attempt["signalling_started_at"] = None
         attempt["connection_requested_at"] = None
+        attempt["recording_started_at"] = None
     elif is_signalling:
         waiting_since = attempt.get("connection_requested_at") or time.time()
         if time.time() - waiting_since >= connection_timeout_sec:
@@ -335,6 +447,7 @@ def sync_recording_state(
             )
             attempt["signalling_started_at"] = None
             attempt["connection_requested_at"] = None
+            attempt["recording_started_at"] = None
         else:
             attempt["status"] = "connecting"
     elif connection_requested_at and not attempt.get("saved_path"):
@@ -345,11 +458,13 @@ def sync_recording_state(
             )
             attempt["signalling_started_at"] = None
             attempt["connection_requested_at"] = None
+            attempt["recording_started_at"] = None
         else:
             attempt["status"] = "connecting"
     else:
         attempt["status"] = "idle"
         attempt["show_saved_notice"] = False
+        attempt["recording_started_at"] = None
     return attempt
 
 
@@ -607,7 +722,7 @@ def render_recorder_status(
         return
 
     status = attempt.get("status", "idle")
-    recorded_sec = attempt_duration_sec(attempt)
+    recorded_sec = display_duration_sec(attempt)
     target_sec = float(target_duration_sec)
     remaining_sec = max(0.0, target_sec - recorded_sec)
 

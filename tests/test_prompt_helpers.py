@@ -271,6 +271,37 @@ class PromptHelperTests(unittest.TestCase):
         self.assertEqual(updated["status"], "connecting")
         self.assertIsNotNone(updated["connection_requested_at"])
 
+    def test_display_duration_uses_wall_clock_while_recording(self):
+        attempt = dashboard.create_recording_attempt()
+        attempt["status"] = "recording"
+        attempt["recording_started_at"] = 100.0
+        with mock.patch("scripts.interactive_dashboard.time.time", return_value=103.6):
+            elapsed = dashboard.display_duration_sec(attempt)
+        self.assertGreaterEqual(elapsed, 3.5)
+
+    def test_transport_is_usable_rejects_closed_or_missing_socket(self):
+        class DummyLoop:
+            def __init__(self, closed: bool):
+                self._closed = closed
+
+            def is_closed(self):
+                return self._closed
+
+        class DummyTransport:
+            def __init__(self, *, sock, closing=False, loop_closed=False):
+                self._sock = sock
+                self._closing = closing
+                self._loop = DummyLoop(loop_closed)
+
+            def is_closing(self):
+                return self._closing
+
+        self.assertFalse(dashboard._transport_is_usable(None))
+        self.assertFalse(dashboard._transport_is_usable(DummyTransport(sock=None)))
+        self.assertFalse(dashboard._transport_is_usable(DummyTransport(sock=object(), closing=True)))
+        self.assertFalse(dashboard._transport_is_usable(DummyTransport(sock=object(), loop_closed=True)))
+        self.assertTrue(dashboard._transport_is_usable(DummyTransport(sock=object())))
+
     def test_sync_recording_state_surfaces_connection_timeout(self):
         attempt = dashboard.create_recording_attempt()
         attempt["connection_requested_at"] = time.time() - 9.0
