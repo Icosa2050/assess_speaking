@@ -51,6 +51,7 @@ PRACTICE_TASK_FAMILIES = [
     "picture_description",
     "free_monologue",
 ]
+PRACTICE_MODES = ["Im Browser aufnehmen", "Datei hochladen", "Datei-Pfad nutzen"]
 
 
 @st.cache_resource(show_spinner=False)
@@ -119,6 +120,15 @@ def create_prompt_attempt(prompt: dict, now: float | None = None) -> dict:
         "audio": prompt["audio_path"],
         "cefr": prompt["cefr_target"],
         "label": f"prompt:{prompt['id']}",
+        "chunks": [],
+        "sample_rate": None,
+        "channels": None,
+        "sample_width": 2,
+    }
+
+
+def create_recording_attempt() -> dict:
+    return {
         "chunks": [],
         "sample_rate": None,
         "channels": None,
@@ -268,6 +278,89 @@ def dashboard_rerun() -> None:
     rerun = getattr(st, "rerun", None) or getattr(st, "experimental_rerun", None)
     if callable(rerun):
         rerun()
+
+
+def generate_practice_brief(task_family: str, theme: str, target_duration_sec: float, variant_index: int = 0) -> dict:
+    theme = (theme or DEFAULT_THEME).strip()
+    templates = {
+        "travel_narrative": [
+            {
+                "title": "Racconta il viaggio come una storia chiara",
+                "prompt": f"Parla in italiano del tema '{theme}'. Porta l'ascoltatore dall'inizio alla fine senza saltare passaggi importanti.",
+                "cover_points": ["Dove e con chi eri", "Che cosa è successo prima, poi e alla fine", "Che cosa ti è rimasto del viaggio"],
+                "starter_phrases": ["Prima di partire...", "La cosa più memorabile è stata...", "Alla fine ho capito che..."],
+            },
+            {
+                "title": "Rendi il racconto più concreto",
+                "prompt": f"Parla di '{theme}' aggiungendo dettagli precisi: luogo, persone, imprevisti e sensazioni.",
+                "cover_points": ["Un dettaglio visivo o pratico", "Un piccolo problema o sorpresa", "Una riflessione personale finale"],
+                "starter_phrases": ["Appena sono arrivato...", "A un certo punto...", "Se ci ripenso oggi..."],
+            },
+        ],
+        "personal_experience": [
+            {
+                "title": "Spiega un'esperienza personale con ordine",
+                "prompt": f"Parla del tema '{theme}' come se stessi raccontando un episodio importante a un amico.",
+                "cover_points": ["Contesto iniziale", "Momento decisivo", "Cosa hai imparato"],
+                "starter_phrases": ["All'inizio...", "Il momento chiave è stato...", "Da allora..."],
+            }
+        ],
+        "opinion_monologue": [
+            {
+                "title": "Prendi posizione e sostienila",
+                "prompt": f"Esprimi la tua opinione sul tema '{theme}' con almeno due argomenti chiari e un esempio.",
+                "cover_points": ["La tua posizione", "Due argomenti distinti", "Un esempio concreto"],
+                "starter_phrases": ["Secondo me...", "Il punto principale è...", "Per esempio..."],
+            }
+        ],
+        "picture_description": [
+            {
+                "title": "Descrivi e interpreta",
+                "prompt": f"Usa il tema '{theme}' per descrivere quello che si vede, spiegare il contesto e ipotizzare cosa succede dopo.",
+                "cover_points": ["Che cosa si vede", "Che atmosfera c'è", "Che cosa potrebbe succedere dopo"],
+                "starter_phrases": ["In primo piano...", "Mi sembra che...", "Probabilmente..."],
+            }
+        ],
+        "free_monologue": [
+            {
+                "title": "Parla liberamente, ma con una struttura",
+                "prompt": f"Parla in italiano del tema '{theme}' mantenendo una struttura semplice: apertura, sviluppo, chiusura.",
+                "cover_points": ["Introduzione breve", "Due sviluppi chiari", "Chiusura con opinione o lezione"],
+                "starter_phrases": ["Vorrei parlare di...", "Un aspetto importante è...", "In conclusione..."],
+            }
+        ],
+    }
+    options = templates.get(task_family) or templates["free_monologue"]
+    chosen = options[variant_index % len(options)]
+    target_minutes = round(float(target_duration_sec) / 60.0, 1)
+    return {
+        "title": chosen["title"],
+        "prompt": chosen["prompt"],
+        "cover_points": chosen["cover_points"],
+        "starter_phrases": chosen["starter_phrases"],
+        "success_focus": [
+            f"Punta a parlare per circa {target_minutes} minuti." if target_minutes >= 1 else f"Punta a parlare per circa {int(target_duration_sec)} secondi.",
+            "Usa connettivi per legare gli eventi o le idee.",
+            "Chiudi con una riflessione personale invece di fermarti bruscamente.",
+        ],
+    }
+
+
+def render_practice_brief(brief: dict) -> None:
+    card_cols = st.columns([1.4, 1, 1])
+    with card_cols[0]:
+        st.markdown("### Sprechauftrag")
+        st.markdown(f"**{brief['title']}**")
+        st.write(brief["prompt"])
+    with card_cols[1]:
+        st.markdown("### Was du abdecken solltest")
+        for item in brief["cover_points"]:
+            st.markdown(f"- {item}")
+    with card_cols[2]:
+        st.markdown("### Formulierungen zum Einstieg")
+        for item in brief["starter_phrases"]:
+            st.markdown(f"- {item}")
+        st.caption("Erfolgsfokus: " + " ".join(brief["success_focus"]))
 
 
 def build_result_summary(payload: dict) -> dict:
@@ -453,18 +546,41 @@ def render_assessment_feedback(payload: dict, *, key_prefix: str) -> None:
 def main() -> None:
     st.set_page_config(page_title="Assess Speaking Dashboard", layout="wide")
     st.title("Assess Speaking – Interactive Dashboard")
+    st.markdown(
+        """
+        <style>
+        .practice-hero {
+            border: 1px solid rgba(49, 51, 63, 0.18);
+            border-radius: 18px;
+            padding: 1.2rem 1.2rem 0.9rem 1.2rem;
+            background: linear-gradient(135deg, rgba(227, 240, 255, 0.65), rgba(250, 245, 232, 0.75));
+            margin-bottom: 1rem;
+        }
+        .practice-hero strong {
+            font-size: 1.05rem;
+        }
+        .practice-subtle {
+            color: rgba(49, 51, 63, 0.72);
+            font-size: 0.95rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     log_dir_str = st.sidebar.text_input("Log-Verzeichnis", str(DEFAULT_LOG_DIR))
     log_dir = Path(log_dir_str).expanduser().resolve()
     prompts = load_prompts(PROMPTS_FILE)
     if "prompt_attempt" not in st.session_state:
         st.session_state["prompt_attempt"] = None
+    st.session_state.setdefault("practice_attempt", create_recording_attempt())
     st.session_state.setdefault("manual_payload", None)
     st.session_state.setdefault("prompt_payload", None)
+    st.session_state.setdefault("practice_prompt_variant", 0)
     st.sidebar.markdown("""
     **Workflow**
-    1. Aufgabe definieren: Speaker, Task-Family, Thema, Zieldauer
-    2. Audio hochladen oder vorhandene Datei wählen
+    1. Aufgabe definieren
+    2. Im Browser aufnehmen oder sekundär Upload nutzen
     3. Bewertung starten → Bericht und `history.csv` werden gespeichert
     4. Coaching lesen und direkt erneut versuchen
     """)
@@ -481,7 +597,17 @@ def main() -> None:
         warning_container.error(f"Konnte history.csv nicht lesen: {exc}")
 
     st.header("Practice")
-    st.caption("Lege zuerst die Sprechaufgabe fest. Die technische Konfiguration bleibt unter Advanced.")
+    st.markdown(
+        """
+        <div class="practice-hero">
+          <strong>Sprich zuerst, uploaden nur wenn nötig.</strong>
+          <div class="practice-subtle">
+            Die Hauptansicht ist jetzt auf Aufnahme, Aufgabenfokus und unmittelbares Coaching ausgerichtet.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     context_cols = st.columns([1, 1])
     with context_cols[0]:
         speaker_id = st.text_input(
@@ -514,27 +640,103 @@ def main() -> None:
     st.session_state["theme"] = theme
     st.session_state["target_duration_sec"] = target_duration_sec
     st.caption("Sprache: Italienisch. Die Gates prüfen Sprache, Thema, Dauer und Wortmenge.")
+    control_cols = st.columns([1, 1])
+    with control_cols[0]:
+        practice_mode = st.radio(
+            "Wie möchtest du üben?",
+            options=PRACTICE_MODES,
+            horizontal=True,
+            index=0,
+        )
+    with control_cols[1]:
+        if st.button("Neue Aufgabenfassung", key="rotate_practice_prompt"):
+            st.session_state["practice_prompt_variant"] += 1
+            dashboard_rerun()
+
+    practice_brief = generate_practice_brief(
+        task_family=task_family,
+        theme=theme,
+        target_duration_sec=target_duration_sec,
+        variant_index=st.session_state.get("practice_prompt_variant", 0),
+    )
+    render_practice_brief(practice_brief)
 
     col_left, col_right = st.columns([2, 1])
 
     with col_left:
-        uploaded = st.file_uploader("Audio-Datei hinzufügen", type=["wav", "mp3", "m4a", "flac", "ogg"])
-        label = st.text_input("Label", "")
-        notes = st.text_area("Notiz", "", height=100)
+        st.markdown("### Aufnahme")
+        uploaded = None
+        existing_path = ""
+        if practice_mode == "Im Browser aufnehmen":
+            st.caption("Nimm direkt im Browser auf und starte die Bewertung danach.")
+            practice_attempt = st.session_state.get("practice_attempt") or create_recording_attempt()
+            webrtc_ctx = webrtc_streamer(
+                key="practice_recorder",
+                mode=WebRtcMode.SENDONLY,
+                audio_receiver_size=256,
+                rtc_configuration=RTC_CONFIGURATION,
+                media_stream_constraints={"audio": True, "video": False},
+            )
+            if webrtc_ctx and webrtc_ctx.audio_receiver:
+                try:
+                    audio_frames = webrtc_ctx.audio_receiver.get_frames(timeout=1)
+                except queue.Empty:
+                    audio_frames = []
+                if audio_frames:
+                    for frame in audio_frames:
+                        audio = frame.to_ndarray()
+                        sample_rate = getattr(frame, "sample_rate", 48000)
+                        if audio.ndim == 1:
+                            channels = 1
+                            data = audio
+                        else:
+                            channels = audio.shape[0]
+                            data = audio.T
+                        if data.dtype != np.int16:
+                            data = np.clip(data, -1.0, 1.0)
+                            data = (data * 32767).astype(np.int16)
+                        else:
+                            data = data.astype(np.int16, copy=False)
+                        append_audio_bytes(practice_attempt, data.tobytes(), sample_rate, channels)
+                    st.session_state["practice_attempt"] = practice_attempt
+            record_cols = st.columns(2)
+            if record_cols[0].button("Aufnahme zurücksetzen", key="reset_practice_recording"):
+                st.session_state["practice_attempt"] = create_recording_attempt()
+                dashboard_rerun()
+            record_ready = bool((st.session_state.get("practice_attempt") or {}).get("chunks"))
+            if record_ready:
+                st.caption("Audio aufgenommen. Du kannst jetzt bewerten.")
+        elif practice_mode == "Datei hochladen":
+            st.caption("Upload bleibt möglich, ist aber sekundär zum direkten Aufnehmen.")
+            uploaded = st.file_uploader("Audio-Datei hinzufügen", type=["wav", "mp3", "m4a", "flac", "ogg"])
+        else:
+            st.caption("Nutze einen lokalen Pfad, wenn die Aufnahme schon außerhalb des Browsers vorliegt.")
+            existing_path = st.text_input("Vorhandenen Pfad nutzen", "")
     with col_right:
-        with st.expander("Advanced", expanded=False):
+        label = st.text_input("Label", "")
+        with st.expander("Erweiterte Optionen", expanded=False):
+            notes = st.text_area("Notiz", "", height=100)
             provider = st.selectbox("LLM-Anbieter", options=["openrouter", "ollama"], index=0 if DEFAULT_PROVIDER == "openrouter" else 1)
             whisper_model = st.text_input("Whisper-Modell", value=DEFAULT_WHISPER_MODEL)
             llm_default = DEFAULT_LLM_MODEL if provider == DEFAULT_PROVIDER else (
                 DEFAULT_SETTINGS.openrouter_rubric_model if provider == "openrouter" else DEFAULT_SETTINGS.ollama_model
             )
             llm_model = st.text_input("LLM-Modell", value=llm_default)
-        existing_path = st.text_input("Oder vorhandenen Pfad nutzen", "")
         run_button = st.button("Bewertung starten", type="primary")
 
     if run_button:
         audio_path: Path | None = None
-        if uploaded:
+        if practice_mode == "Im Browser aufnehmen":
+            attempt = st.session_state.get("practice_attempt") or {}
+            if not attempt.get("chunks"):
+                st.warning("Bitte nimm zuerst Audio im Browser auf.")
+            else:
+                response_dir = log_dir / "recordings"
+                response_dir.mkdir(parents=True, exist_ok=True)
+                response_path = response_dir / f"practice_{int(time.time())}.wav"
+                write_attempt_audio(attempt, response_path)
+                audio_path = response_path
+        elif uploaded:
             try:
                 audio_path = store_uploaded_audio(uploaded, uploaded.name, log_dir / "uploads")
             except Exception as exc:  # pragma: no cover - defensive
@@ -573,6 +775,8 @@ def main() -> None:
                 st.success("Bewertung abgeschlossen – Verlauf aktualisiert.")
                 rerun_history(log_dir)
                 history_df = load_history_df(log_dir)
+                if practice_mode == "Im Browser aufnehmen":
+                    st.session_state["practice_attempt"] = create_recording_attempt()
         else:
             st.session_state["manual_payload"] = None
 

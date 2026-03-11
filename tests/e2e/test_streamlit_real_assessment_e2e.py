@@ -44,10 +44,11 @@ def test_real_upload_returns_feedback(page, base_url, reports_dir, streamlit_rea
     page.get_by_label("Speaker ID").fill("playwright-real-user")
     page.get_by_label("Thema").fill("tema libero")
     page.get_by_label("Zielsprechdauer (Sekunden)").fill("60")
+    page.get_by_text("Datei hochladen", exact=True).click()
     page.locator('input[type="file"]').first.set_input_files(str(audio_path))
     page.get_by_label("Label").fill(run_label)
 
-    page.get_by_text("Advanced", exact=True).click()
+    page.get_by_text("Erweiterte Optionen", exact=True).click()
     page.get_by_role("textbox", name="Whisper-Modell", exact=True).fill(
         os.getenv("ASSESS_SPEAKING_REAL_WHISPER_MODEL", "tiny")
     )

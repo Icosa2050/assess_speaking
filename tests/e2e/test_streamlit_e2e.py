@@ -37,11 +37,14 @@ def test_01_basic_upload_creates_history(page, base_url, samples_dir, reports_di
     page.goto(f"{base_url}/")
     page.wait_for_load_state("networkidle")
     expect(page.get_by_text("Assess Speaking", exact=False)).to_be_visible()
+    expect(page.get_by_text("Sprechauftrag", exact=False)).to_be_visible()
+    expect(page.get_by_role("button", name="Neue Aufgabenfassung")).to_be_visible()
     expect(page.get_by_label("Speaker ID")).to_be_visible()
     expect(page.get_by_label("Thema")).to_be_visible()
 
     page.get_by_label("Speaker ID").fill("playwright-user")
     page.get_by_label("Thema").fill("Il mio ultimo viaggio all'estero")
+    page.get_by_text("Datei hochladen", exact=True).click()
     page.locator('input[type="file"]').first.set_input_files(str(samples_dir / "demo.m4a"))
     page.get_by_label("Label").fill("playwright-basic")
     page.get_by_role("button", name="Bewertung starten").click()
@@ -70,8 +73,9 @@ def test_02_prompt_file_upload_generates_baseline(page, base_url, samples_dir, r
     play_button = page.get_by_role("button", name=re.compile(r"^Prompt abspielen"))
     play_button.click()
 
-    uploaders = page.locator('input[type="file"]')
-    uploaders.nth(1).set_input_files(str(samples_dir / "demo.m4a"))
+    page.locator('input[type="file"]').first.set_input_files(
+        str(samples_dir / "demo.m4a")
+    )
 
     expect(page.get_by_text("Letztes Prompt-Ergebnis", exact=False)).to_be_visible(timeout=60000)
     expect(page.get_by_text("Nächste Übung", exact=False)).to_be_visible(timeout=60000)
@@ -112,7 +116,8 @@ def test_04_prompt_timeout_blocks_submission(page, base_url, samples_dir, stream
 
     page.wait_for_timeout(4000)
 
-    uploaders = page.locator('input[type="file"]')
-    uploaders.nth(1).set_input_files(str(samples_dir / "demo.m4a"))
+    page.locator('input[type="file"]').first.set_input_files(
+        str(samples_dir / "demo.m4a")
+    )
 
     expect(page.get_by_text("Zeitlimit überschritten", exact=False)).to_be_visible()

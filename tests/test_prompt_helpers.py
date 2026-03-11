@@ -204,6 +204,30 @@ class PromptHelperTests(unittest.TestCase):
         self.assertEqual(dashboard.build_progress_delta_lines(None), [])
         self.assertEqual(dashboard.build_progress_delta_lines({}), [])
 
+    def test_generate_practice_brief_uses_theme_and_variant(self):
+        first = dashboard.generate_practice_brief(
+            task_family="travel_narrative",
+            theme="Il mio ultimo viaggio all'estero",
+            target_duration_sec=180,
+            variant_index=0,
+        )
+        second = dashboard.generate_practice_brief(
+            task_family="travel_narrative",
+            theme="Il mio ultimo viaggio all'estero",
+            target_duration_sec=180,
+            variant_index=1,
+        )
+        self.assertIn("Il mio ultimo viaggio all'estero", first["prompt"])
+        self.assertNotEqual(first["title"], second["title"])
+        self.assertEqual(len(first["cover_points"]), 3)
+        self.assertTrue(first["starter_phrases"])
+
+    def test_create_recording_attempt_initialises_empty_audio_state(self):
+        attempt = dashboard.create_recording_attempt()
+        self.assertEqual(attempt["chunks"], [])
+        self.assertIsNone(attempt["sample_rate"])
+        self.assertEqual(attempt["sample_width"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()
