@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import io
 import json
 import os
@@ -32,7 +33,6 @@ _known_args, _ = _parser.parse_known_args()
 DEFAULT_LOG_DIR = Path(_known_args.log_dir).expanduser().resolve() if _known_args.log_dir else PROJECT_ROOT / "reports"
 ASSESS_SCRIPT = PROJECT_ROOT / "assess_speaking.py"
 PROMPTS_FILE = PROJECT_ROOT / "prompts" / "prompts.json"
-RTC_CONFIGURATION = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 DEFAULT_SETTINGS = Settings.from_env()
 DEFAULT_PROVIDER = DEFAULT_SETTINGS.provider
 DEFAULT_WHISPER_MODEL = "large-v3"
@@ -52,6 +52,27 @@ PRACTICE_TASK_FAMILIES = [
     "free_monologue",
 ]
 PRACTICE_MODES = ["Direkt im Browser aufnehmen", "Audiodatei hochladen", "Lokale Datei verwenden"]
+PRACTICE_FLOW_STEPS = ("Aufgabe wählen", "Aufnahme", "Auswertung")
+RECORDER_TRANSLATIONS = {
+    "start": "Aufnahme starten",
+    "stop": "Aufnahme beenden",
+    "select_device": "Mikrofon wählen",
+    "media_api_not_available": "Dieser Browser unterstützt die Mikrofonaufnahme nicht.",
+    "device_ask_permission": "Bitte Mikrofonzugriff erlauben.",
+    "device_not_available": "Kein Mikrofon gefunden.",
+    "device_access_denied": "Mikrofonzugriff wurde verweigert.",
+}
+
+
+def build_rtc_configuration() -> RTCConfiguration:
+    stun_urls = [url.strip() for url in os.getenv("ASSESS_SPEAKING_STUN_URLS", "").split(",") if url.strip()]
+    if not stun_urls:
+        # Local browser-to-local Streamlit works with host candidates only and avoids flaky external STUN retries.
+        return RTCConfiguration(iceServers=[])
+    return RTCConfiguration(iceServers=[{"urls": stun_urls}])
+
+
+RTC_CONFIGURATION = build_rtc_configuration()
 
 MODE_LABELS = {
     "hybrid": "Vollbewertung",
@@ -150,10 +171,7 @@ def create_prompt_attempt(prompt: dict, now: float | None = None) -> dict:
         "audio": prompt["audio_path"],
         "cefr": prompt["cefr_target"],
         "label": f"prompt:{prompt['id']}",
-        "chunks": [],
-        "sample_rate": None,
-        "channels": None,
-        "sample_width": 2,
+        **create_recording_attempt(),
     }
 
 
@@ -163,6 +181,16 @@ def create_recording_attempt() -> dict:
         "sample_rate": None,
         "channels": None,
         "sample_width": 2,
+        "is_recording": False,
+        "is_signalling": False,
+        "status": "idle",
+        "saved_path": None,
+        "saved_duration_sec": 0.0,
+        "saved_chunk_count": 0,
+        "save_error": "",
+        "signalling_started_at": None,
+        "connection_requested_at": None,
+        "show_saved_notice": False,
     }
 
 
@@ -194,6 +222,26 @@ def append_audio_bytes(
     attempt["sample_width"] = sample_width
 
 
+def attempt_duration_sec(attempt: dict) -> float:
+    chunks = attempt.get("chunks") or []
+    sample_rate = attempt.get("sample_rate") or 0
+    channels = attempt.get("channels") or 1
+    sample_width = attempt.get("sample_width") or 2
+    if not chunks or sample_rate <= 0:
+        return 0.0
+    total_bytes = sum(len(chunk) for chunk in chunks)
+    bytes_per_second = sample_rate * channels * sample_width
+    if bytes_per_second <= 0:
+        return 0.0
+    return round(total_bytes / bytes_per_second, 2)
+
+
+def format_duration(seconds: float) -> str:
+    total = max(0, int(round(seconds)))
+    minutes, secs = divmod(total, 60)
+    return f"{minutes:02d}:{secs:02d}"
+
+
 def write_attempt_audio(attempt: dict, output_path: Path) -> None:
     chunks = attempt.get("chunks") or []
     if not chunks:
@@ -207,6 +255,115 @@ def write_attempt_audio(attempt: dict, output_path: Path) -> None:
         wf.setsampwidth(sample_width)
         wf.setframerate(sample_rate)
         wf.writeframes(b"".join(chunks))
+
+
+def save_recording_attempt(attempt: dict, target_dir: Path, prefix: str) -> Path:
+    chunks = attempt.get("chunks") or []
+    saved_path = attempt.get("saved_path")
+    saved_chunk_count = int(attempt.get("saved_chunk_count") or 0)
+    if saved_path and saved_chunk_count == len(chunks):
+        path = Path(saved_path)
+        if path.exists():
+            attempt["saved_duration_sec"] = attempt_duration_sec(attempt)
+            return path
+    filename = f"{prefix}_{int(time.time())}.wav"
+    output_path = target_dir / filename
+    write_attempt_audio(attempt, output_path)
+    attempt["saved_path"] = str(output_path)
+    attempt["saved_chunk_count"] = len(chunks)
+    attempt["saved_duration_sec"] = attempt_duration_sec(attempt)
+    attempt["save_error"] = ""
+    return output_path
+
+
+def sync_recording_state(
+    attempt: dict,
+    webrtc_ctx,
+    *,
+    target_dir: Path,
+    prefix: str,
+    connection_timeout_sec: float = 8.0,
+) -> dict:
+    state = getattr(webrtc_ctx, "state", None)
+    is_recording = bool(state and state.playing)
+    is_signalling = bool(state and state.signalling)
+    was_recording = bool(attempt.get("is_recording"))
+    connection_requested_at = attempt.get("connection_requested_at")
+
+    if is_recording and not was_recording and attempt.get("saved_path"):
+        attempt = create_recording_attempt()
+        connection_requested_at = None
+
+    if is_signalling or is_recording:
+        connection_requested_at = connection_requested_at or time.time()
+    if is_signalling and not is_recording:
+        attempt["signalling_started_at"] = attempt.get("signalling_started_at") or time.time()
+
+    attempt["is_recording"] = is_recording
+    attempt["is_signalling"] = is_signalling
+    attempt["connection_requested_at"] = connection_requested_at
+
+    if is_recording:
+        attempt["status"] = "recording"
+        attempt["save_error"] = ""
+        attempt["show_saved_notice"] = False
+    elif was_recording:
+        if attempt.get("chunks"):
+            try:
+                save_recording_attempt(attempt, target_dir, prefix)
+                attempt["status"] = "ready"
+                attempt["show_saved_notice"] = True
+            except Exception as exc:  # pragma: no cover - defensive
+                attempt["status"] = "error"
+                attempt["save_error"] = f"Audio konnte nicht gespeichert werden: {exc}"
+        else:
+            attempt["status"] = "error"
+            attempt["save_error"] = "Es wurde kein Audio aufgezeichnet. Bitte versuche es erneut oder nutze den Upload."
+        attempt["signalling_started_at"] = None
+        attempt["connection_requested_at"] = None
+    elif attempt.get("saved_path"):
+        attempt["status"] = "ready"
+        attempt["signalling_started_at"] = None
+        attempt["connection_requested_at"] = None
+    elif is_signalling:
+        waiting_since = attempt.get("connection_requested_at") or time.time()
+        if time.time() - waiting_since >= connection_timeout_sec:
+            attempt["status"] = "error"
+            attempt["save_error"] = (
+                "Die Mikrofonverbindung konnte nicht stabil aufgebaut werden. "
+                "Bitte prüfe den Browser-Mikrofonzugriff oder nutze den Upload."
+            )
+            attempt["signalling_started_at"] = None
+            attempt["connection_requested_at"] = None
+        else:
+            attempt["status"] = "connecting"
+    elif connection_requested_at and not attempt.get("saved_path"):
+        if time.time() - connection_requested_at >= connection_timeout_sec:
+            attempt["status"] = "error"
+            attempt["save_error"] = (
+                "Die Aufnahme wurde nicht gestartet. Bitte erlaube den Mikrofonzugriff oder wechsle zur Datei-Option."
+            )
+            attempt["signalling_started_at"] = None
+            attempt["connection_requested_at"] = None
+        else:
+            attempt["status"] = "connecting"
+    else:
+        attempt["status"] = "idle"
+        attempt["show_saved_notice"] = False
+    return attempt
+
+
+def mark_recording_connecting(attempt: dict) -> dict:
+    attempt = dict(attempt)
+    attempt["connection_requested_at"] = attempt.get("connection_requested_at") or time.time()
+    if not attempt.get("saved_path"):
+        attempt["status"] = "connecting"
+    return attempt
+
+
+def flag_recording_requested(session_key: str) -> None:
+    attempt = st.session_state.get(session_key) or create_recording_attempt()
+    st.session_state[session_key] = mark_recording_connecting(attempt)
 
 
 def run_assessment(
@@ -278,6 +435,29 @@ def parse_cli_json(stdout: str) -> dict | None:
                 return json.loads(snippet)
             except json.JSONDecodeError:
                 return None
+    return None
+
+
+def load_latest_report_payload(log_dir: Path, *, label: str = "") -> dict | None:
+    history_path = log_dir / "history.csv"
+    if history_path.exists():
+        with history_path.open(newline="", encoding="utf-8") as fh:
+            rows = list(csv.DictReader(fh))
+        for row in reversed(rows):
+            if label and row.get("label") != label:
+                continue
+            report_path = row.get("report_path") or ""
+            if report_path and Path(report_path).exists():
+                try:
+                    return json.loads(Path(report_path).read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    return None
+    report_files = sorted(log_dir.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    for report_path in report_files:
+        try:
+            return json.loads(report_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
     return None
 
 
@@ -401,6 +581,66 @@ def render_practice_brief(brief: dict) -> None:
         st.markdown("### Worauf du heute achten solltest")
         for item in brief["success_focus"]:
             st.markdown(f"- {item}")
+
+
+def render_step_strip(current_step: int) -> None:
+    step_cols = st.columns(len(PRACTICE_FLOW_STEPS))
+    for idx, label in enumerate(PRACTICE_FLOW_STEPS, start=1):
+        text = f"{idx}. {label}"
+        if idx < current_step:
+            step_cols[idx - 1].success(text)
+        elif idx == current_step:
+            step_cols[idx - 1].info(text)
+        else:
+            step_cols[idx - 1].caption(text)
+
+
+def render_recorder_status(
+    attempt: dict,
+    *,
+    target_duration_sec: float,
+    evaluation_running: bool = False,
+    title: str = "Status der Aufnahme",
+) -> None:
+    if evaluation_running:
+        st.info("Auswertung läuft. Das dauert meist 15 bis 30 Sekunden.")
+        return
+
+    status = attempt.get("status", "idle")
+    recorded_sec = attempt_duration_sec(attempt)
+    target_sec = float(target_duration_sec)
+    remaining_sec = max(0.0, target_sec - recorded_sec)
+
+    st.markdown(f"### {title}")
+    metrics = st.columns(3)
+    metrics[0].metric("Gesprochen", format_duration(recorded_sec))
+    metrics[1].metric("Ziel", format_duration(target_sec))
+    metrics[2].metric("Rest", format_duration(remaining_sec))
+    progress = 0.0 if target_sec <= 0 else min(recorded_sec / target_sec, 1.0)
+    st.progress(progress)
+
+    if status == "idle":
+        st.info("Bereit. Klicke auf 'Aufnahme starten'. Nach dem Stoppen wird die Datei automatisch gespeichert.")
+    elif status == "connecting":
+        st.info("Mikrofon wird verbunden. Wenn nach einigen Sekunden nichts passiert, prüfe den Browser-Mikrofonzugriff oder nutze den Upload darunter.")
+    elif status == "recording":
+        st.success("Aufnahme läuft. Wenn du fertig bist, beende die Aufnahme direkt im Recorder.")
+        if recorded_sec >= target_sec and target_sec > 0:
+            st.caption("Zielzeit erreicht. Du kannst jetzt ruhig abschließen.")
+    elif status == "ready":
+        st.success(f"Audio erfolgreich gespeichert ({format_duration(attempt.get('saved_duration_sec') or recorded_sec)}).")
+        st.markdown("1. Kurz anhören\n2. Aufnahme auswerten\n3. Bei Bedarf neu aufnehmen")
+    elif status == "error":
+        st.error(attempt.get("save_error") or "Mit der Aufnahme ist ein Fehler aufgetreten.")
+
+
+def current_practice_step(attempt: dict, *, evaluation_running: bool = False) -> int:
+    if evaluation_running:
+        return 3
+    status = attempt.get("status")
+    if status in {"recording", "connecting", "ready", "error"}:
+        return 2
+    return 1
 
 
 def build_result_summary(payload: dict) -> dict:
@@ -632,13 +872,16 @@ def main() -> None:
         st.session_state["prompt_attempt"] = None
     st.session_state.setdefault("practice_attempt", create_recording_attempt())
     st.session_state.setdefault("manual_payload", None)
+    st.session_state.setdefault("manual_assessment_running", False)
     st.session_state.setdefault("prompt_payload", None)
+    st.session_state.setdefault("prompt_assessment_running", False)
     st.session_state.setdefault("practice_prompt_variant", 0)
+    st.session_state.setdefault("practice_mode", "Direkt im Browser aufnehmen")
     st.sidebar.markdown("""
     **Workflow**
     1. Aufgabe definieren
-    2. Direkt aufnehmen oder bei Bedarf eine Datei nutzen
-    3. Bewertung starten → Bericht und `history.csv` werden gespeichert
+    2. Direkt im Browser sprechen
+    3. Aufnahme prüfen und auswerten
     4. Coaching lesen und direkt erneut versuchen
     """)
 
@@ -698,17 +941,19 @@ def main() -> None:
     st.session_state["target_duration_sec"] = target_duration_sec
     st.caption("Sprache: Italienisch. Die Gates prüfen Sprache, Thema, Dauer und Wortmenge.")
     control_cols = st.columns([1, 1])
-    with control_cols[0]:
-        practice_mode = st.radio(
-            "Wie willst du starten?",
-            options=PRACTICE_MODES,
-            horizontal=True,
-            index=0,
-        )
     with control_cols[1]:
         if st.button("Neue Aufgabenfassung", key="rotate_practice_prompt"):
             st.session_state["practice_prompt_variant"] += 1
             dashboard_rerun()
+    practice_mode = st.session_state.get("practice_mode", "Direkt im Browser aufnehmen")
+    with control_cols[0]:
+        if practice_mode == "Direkt im Browser aufnehmen":
+            st.info("Primärer Weg: direkt sprechen. Upload und lokaler Dateipfad sind nur Ausweichwege.")
+        else:
+            st.warning("Du nutzt gerade eine vorhandene Aufnahme. Für echtes Sprechtraining ist die Browseraufnahme der bevorzugte Weg.")
+            if st.button("Zur Direktaufnahme zurückkehren", key="switch_back_to_capture"):
+                st.session_state["practice_mode"] = "Direkt im Browser aufnehmen"
+                dashboard_rerun()
 
     practice_brief = generate_practice_brief(
         task_family=task_family,
@@ -717,22 +962,61 @@ def main() -> None:
         variant_index=st.session_state.get("practice_prompt_variant", 0),
     )
     render_practice_brief(practice_brief)
+    practice_attempt = st.session_state.get("practice_attempt") or create_recording_attempt()
 
     col_left, col_right = st.columns([2, 1])
 
     with col_left:
-        st.markdown("### Aufnahme oder Datei")
         uploaded = None
         existing_path = ""
+        render_step_strip(
+            2
+            if practice_mode != "Direkt im Browser aufnehmen"
+            else current_practice_step(
+                practice_attempt,
+                evaluation_running=st.session_state.get("manual_assessment_running", False),
+            )
+        )
+        st.markdown("### Jetzt sprechen")
+        st.caption("Die Aufnahme wird nach dem Stoppen automatisch gespeichert. Erst danach ist die Auswertung aktiv.")
+        if practice_mode != "Direkt im Browser aufnehmen":
+            with st.expander("Alternative: vorhandene Aufnahme nutzen", expanded=True):
+                alternative_mode = st.radio(
+                    "Alternative wählen",
+                    options=["Audiodatei hochladen", "Lokale Datei verwenden"],
+                    index=0 if practice_mode == "Audiodatei hochladen" else 1,
+                    horizontal=True,
+                    key="practice_mode_radio",
+                )
+                st.session_state["practice_mode"] = alternative_mode
+                practice_mode = alternative_mode
+                if practice_mode == "Audiodatei hochladen":
+                    uploaded = st.file_uploader(
+                        "Audio-Datei hinzufügen",
+                        type=["wav", "mp3", "m4a", "flac", "ogg"],
+                    )
+                else:
+                    existing_path = st.text_input("Lokalen Pfad verwenden", "")
+        else:
+            with st.expander("Stattdessen eine vorhandene Aufnahme nutzen", expanded=False):
+                alternative_mode = st.radio(
+                    "Alternative wählen",
+                    options=["Audiodatei hochladen", "Lokale Datei verwenden"],
+                    horizontal=True,
+                    key="practice_mode_radio",
+                )
+                if st.button("Alternative aktivieren", key="activate_alternative_mode"):
+                    st.session_state["practice_mode"] = alternative_mode
+                    dashboard_rerun()
         if practice_mode == "Direkt im Browser aufnehmen":
-            st.caption("Sprich direkt hier ein. Sobald Audio vorhanden ist, kannst du die Bewertung starten.")
-            practice_attempt = st.session_state.get("practice_attempt") or create_recording_attempt()
             webrtc_ctx = webrtc_streamer(
                 key="practice_recorder",
                 mode=WebRtcMode.SENDONLY,
                 audio_receiver_size=256,
                 rtc_configuration=RTC_CONFIGURATION,
                 media_stream_constraints={"audio": True, "video": False},
+                translations=RECORDER_TRANSLATIONS,
+                on_change=lambda: flag_recording_requested("practice_attempt"),
             )
             if webrtc_ctx and webrtc_ctx.audio_receiver:
                 try:
@@ -755,21 +1039,41 @@ def main() -> None:
                         else:
                             data = data.astype(np.int16, copy=False)
                         append_audio_bytes(practice_attempt, data.tobytes(), sample_rate, channels)
-                    st.session_state["practice_attempt"] = practice_attempt
-            record_cols = st.columns(2)
-            if record_cols[0].button("Aufnahme zurücksetzen", key="reset_practice_recording"):
-                st.session_state["practice_attempt"] = create_recording_attempt()
-                dashboard_rerun()
-            record_ready = bool((st.session_state.get("practice_attempt") or {}).get("chunks"))
-            if record_ready:
-                st.caption("Audio aufgenommen. Du kannst jetzt die Auswertung starten.")
+            practice_attempt = sync_recording_state(
+                practice_attempt,
+                webrtc_ctx,
+                target_dir=log_dir / "recordings",
+                prefix="practice",
+            )
+            st.session_state["practice_attempt"] = practice_attempt
+            render_recorder_status(
+                practice_attempt,
+                target_duration_sec=target_duration_sec,
+                evaluation_running=st.session_state.get("manual_assessment_running", False),
+                title="Status deiner Aufnahme",
+            )
+            if practice_attempt.get("saved_path"):
+                saved_path = Path(practice_attempt["saved_path"])
+                if saved_path.exists():
+                    st.audio(saved_path.read_bytes(), format="audio/wav")
+                recorder_actions = st.columns(2)
+                if recorder_actions[0].button("Neue Aufnahme starten", key="reset_practice_recording"):
+                    st.session_state["practice_attempt"] = create_recording_attempt()
+                    st.session_state["manual_payload"] = None
+                    dashboard_rerun()
+                recorder_actions[1].markdown("**Nächster Schritt:** Klicke rechts auf `Aufnahme auswerten`.")
+            elif practice_attempt.get("status") == "error":
+                if st.button("Erneut aufnehmen", key="retry_practice_recording"):
+                    st.session_state["practice_attempt"] = create_recording_attempt()
+                    dashboard_rerun()
         elif practice_mode == "Audiodatei hochladen":
-            st.caption("Wenn du schon eine Aufnahme hast, kannst du sie hier einreichen.")
-            uploaded = st.file_uploader("Audio-Datei hinzufügen", type=["wav", "mp3", "m4a", "flac", "ogg"])
+            st.caption("Sekundärer Weg: eine bereits vorhandene Aufnahme auswerten.")
+            uploaded = uploaded or st.file_uploader("Audio-Datei hinzufügen", type=["wav", "mp3", "m4a", "flac", "ogg"])
         else:
-            st.caption("Nutze einen lokalen Pfad nur dann, wenn die Datei bereits auf diesem Rechner liegt.")
-            existing_path = st.text_input("Lokalen Pfad verwenden", "")
+            st.caption("Sekundärer Weg: nutze einen lokalen Dateipfad nur dann, wenn die Aufnahme schon auf diesem Rechner liegt.")
+            existing_path = existing_path or st.text_input("Lokalen Pfad verwenden", "")
     with col_right:
+        st.markdown("### Danach")
         label = st.text_input("Label", "")
         with st.expander("Erweiterte Optionen", expanded=False):
             notes = st.text_area("Notiz", "", height=100)
@@ -779,20 +1083,22 @@ def main() -> None:
                 DEFAULT_SETTINGS.openrouter_rubric_model if provider == "openrouter" else DEFAULT_SETTINGS.ollama_model
             )
             llm_model = st.text_input("LLM-Modell", value=llm_default)
-        run_button = st.button("Bewertung starten", type="primary")
+            if not RTC_CONFIGURATION.get("iceServers"):
+                st.caption("Recorder läuft lokal ohne externen STUN-Server. Für Fernzugriff kannst du `ASSESS_SPEAKING_STUN_URLS` setzen.")
+        run_label = "Aufnahme auswerten" if practice_mode == "Direkt im Browser aufnehmen" else "Datei auswerten"
+        run_disabled = practice_mode == "Direkt im Browser aufnehmen" and not bool(practice_attempt.get("saved_path"))
+        run_button = st.button(run_label, type="primary", disabled=run_disabled)
+        if run_disabled:
+            st.caption("Die Auswertung wird erst aktiv, wenn die Aufnahme beendet und erfolgreich gespeichert wurde.")
 
     if run_button:
         audio_path: Path | None = None
         if practice_mode == "Direkt im Browser aufnehmen":
             attempt = st.session_state.get("practice_attempt") or {}
-            if not attempt.get("chunks"):
-                st.warning("Bitte nimm zuerst Audio im Browser auf.")
+            if not attempt.get("saved_path"):
+                st.warning("Bitte beende zuerst die Aufnahme. Danach wird sie automatisch gespeichert.")
             else:
-                response_dir = log_dir / "recordings"
-                response_dir.mkdir(parents=True, exist_ok=True)
-                response_path = response_dir / f"practice_{int(time.time())}.wav"
-                write_attempt_audio(attempt, response_path)
-                audio_path = response_path
+                audio_path = Path(attempt["saved_path"])
         elif uploaded:
             try:
                 audio_path = store_uploaded_audio(uploaded, uploaded.name, log_dir / "uploads")
@@ -808,7 +1114,8 @@ def main() -> None:
             st.warning("Bitte nimm Audio auf, lade eine Datei hoch oder gib einen lokalen Pfad an.")
 
         if audio_path:
-            with st.spinner("Bewertung läuft..."):
+            st.session_state["manual_assessment_running"] = True
+            with st.spinner("Auswertung läuft..."):
                 result = run_assessment(
                     audio_path,
                     log_dir,
@@ -822,11 +1129,12 @@ def main() -> None:
                     theme=theme,
                     target_duration_sec=target_duration_sec,
                 )
+            st.session_state["manual_assessment_running"] = False
             if result.returncode != 0:
                 st.error("Bewertung fehlgeschlagen. Siehe Log unten.")
                 st.code(result.stderr or result.stdout)
             else:
-                payload = parse_cli_json(result.stdout)
+                payload = parse_cli_json(result.stdout) or load_latest_report_payload(log_dir, label=label)
                 if payload:
                     st.session_state["manual_payload"] = payload
                 st.success("Bewertung abgeschlossen – Verlauf aktualisiert.")
@@ -835,6 +1143,7 @@ def main() -> None:
                 if practice_mode == "Direkt im Browser aufnehmen":
                     st.session_state["practice_attempt"] = create_recording_attempt()
         else:
+            st.session_state["manual_assessment_running"] = False
             st.session_state["manual_payload"] = None
 
     if st.session_state.get("manual_payload"):
@@ -887,7 +1196,7 @@ def main() -> None:
                     st.session_state["prompt_attempt"] = None
                 st.write("Wähle den ursprünglichen Prompt oder verwerfe den Versuch.")
             elif attempt is None:
-                if st.button("Versuch starten", key=f"start_{selected_prompt['id']}"):
+                if st.button("Übung starten", key=f"start_{selected_prompt['id']}"):
                     st.session_state["prompt_attempt"] = create_prompt_attempt(selected_prompt)
                     attempt = st.session_state["prompt_attempt"]
             else:
@@ -899,7 +1208,7 @@ def main() -> None:
                 st.info(
                     f"Verbleibende Zeit: {max(0, int(remaining))}s von {selected_prompt['response_seconds']}s"
                 )
-                if st.button("Versuch abbrechen", key=f"cancel_{selected_prompt['id']}"):
+                if st.button("Übung abbrechen", key=f"cancel_{selected_prompt['id']}"):
                     st.session_state["prompt_attempt"] = None
                     dashboard_rerun()
 
@@ -909,6 +1218,8 @@ def main() -> None:
                     audio_receiver_size=256,
                     rtc_configuration=RTC_CONFIGURATION,
                     media_stream_constraints={"audio": True, "video": False},
+                    translations=RECORDER_TRANSLATIONS,
+                    on_change=lambda: flag_recording_requested("prompt_attempt"),
                 )
 
                 if attempt.get("chunks") is None:
@@ -935,22 +1246,40 @@ def main() -> None:
                             else:
                                 data = data.astype(np.int16, copy=False)
                             append_audio_bytes(attempt, data.tobytes(), sample_rate, channels)
-                        st.session_state["prompt_attempt"] = attempt
+                attempt = sync_recording_state(
+                    attempt,
+                    webrtc_ctx,
+                    target_dir=log_dir / "prompt_responses",
+                    prefix=f"prompt_{selected_prompt['id']}",
+                )
+                st.session_state["prompt_attempt"] = attempt
+                render_recorder_status(
+                    attempt,
+                    target_duration_sec=float(selected_prompt["response_seconds"]),
+                    evaluation_running=st.session_state.get("prompt_assessment_running", False),
+                    title="Status deiner Antwort",
+                )
+                prompt_actions = st.columns(2)
+                if prompt_actions[0].button("Antwort neu aufnehmen", key=f"reset_record_{selected_prompt['id']}"):
+                    st.session_state["prompt_attempt"] = create_prompt_attempt(selected_prompt)
+                    dashboard_rerun()
+                prompt_run_clicked = prompt_actions[1].button(
+                    "Antwort auswerten",
+                    key=f"finalize_record_{selected_prompt['id']}",
+                    disabled=not bool(attempt.get("saved_path")),
+                )
+                if not attempt.get("saved_path"):
+                    st.caption("Die Auswertung wird aktiv, sobald deine Antwort beendet und gespeichert wurde.")
+                elif Path(attempt["saved_path"]).exists():
+                    st.audio(Path(attempt["saved_path"]).read_bytes(), format="audio/wav")
 
-                cols = st.columns(2)
-                if cols[0].button("Aufnahme zurücksetzen", key=f"reset_record_{selected_prompt['id']}"):
-                    attempt["chunks"] = []
-                    st.session_state["prompt_attempt"] = attempt
-                if cols[1].button("Aufnahme speichern & bewerten", key=f"finalize_record_{selected_prompt['id']}"):
-                    if not attempt.get("chunks"):
-                        st.warning("Keine Audio-Daten aufgenommen.")
+                if prompt_run_clicked:
+                    response_path = Path(attempt["saved_path"]) if attempt.get("saved_path") else None
+                    if response_path is None:
+                        st.warning("Bitte beende zuerst die Aufnahme. Danach wird die Antwort automatisch gespeichert.")
                     else:
-                        response_dir = log_dir / "prompt_responses"
-                        response_dir.mkdir(parents=True, exist_ok=True)
-                        filename = f"{attempt['id']}_{int(time.time())}.wav"
-                        response_path = response_dir / filename
-                        write_attempt_audio(attempt, response_path)
-                        with st.spinner("Bewertung läuft..."):
+                        st.session_state["prompt_assessment_running"] = True
+                        with st.spinner("Auswertung läuft..."):
                             result = run_assessment(
                                 response_path,
                                 log_dir,
@@ -965,11 +1294,15 @@ def main() -> None:
                                 theme=selected_prompt["title"],
                                 target_duration_sec=float(selected_prompt["response_seconds"]),
                             )
+                        st.session_state["prompt_assessment_running"] = False
                         if result.returncode != 0:
                             st.error("Bewertung fehlgeschlagen. Siehe Log unten.")
                             st.code(result.stderr or result.stdout)
                         else:
-                            payload = parse_cli_json(result.stdout)
+                            payload = parse_cli_json(result.stdout) or load_latest_report_payload(
+                                log_dir,
+                                label=attempt["label"],
+                            )
                             st.success("Bewertung abgeschlossen.")
                             if payload:
                                 st.session_state["prompt_payload"] = payload
@@ -994,50 +1327,56 @@ def main() -> None:
                 if attempt.get("last_audio"):
                     st.audio(attempt["audio"])
 
-                response = st.file_uploader(
-                    "Antwort aufnehmen und hier hochladen (wav/mp3/m4a)",
-                    type=["wav", "mp3", "m4a", "ogg", "flac"],
-                    key=f"response_{selected_prompt['id']}",
-                )
-                if response is not None:
-                    if time.time() > attempt["deadline"]:
-                        st.error("Zeitlimit überschritten – lade die Datei nach einem neuen Versuch erneut hoch.")
-                    else:
-                        response_path = store_uploaded_audio(
-                            response,
-                            response.name or "response.wav",
-                            log_dir / "prompt_responses",
-                        )
-                        with st.spinner("Bewertung läuft..."):
-                            result = run_assessment(
-                                response_path,
-                                log_dir,
-                                prompt_whisper,
-                                prompt_llm,
-                                attempt["label"],
-                                prompt_notes,
-                                target_cefr=attempt["cefr"],
-                                provider=prompt_provider,
-                                speaker_id=speaker_id,
-                                task_family="prompt_trainer",
-                                theme=selected_prompt["title"],
-                                target_duration_sec=float(selected_prompt["response_seconds"]),
-                            )
-                        if result.returncode != 0:
-                            st.error("Bewertung fehlgeschlagen. Siehe Log unten.")
-                            st.code(result.stderr or result.stdout)
+                with st.expander("Stattdessen eine fertige Antwort hochladen", expanded=False):
+                    response = st.file_uploader(
+                        "Antwortdatei hochladen (wav/mp3/m4a)",
+                        type=["wav", "mp3", "m4a", "ogg", "flac"],
+                        key=f"response_{selected_prompt['id']}",
+                    )
+                    if response is not None:
+                        if time.time() > attempt["deadline"]:
+                            st.error("Zeitlimit überschritten – lade die Datei nach einem neuen Versuch erneut hoch.")
                         else:
-                            payload = parse_cli_json(result.stdout)
-                            st.success("Bewertung abgeschlossen.")
-                            if payload:
-                                st.session_state["prompt_payload"] = payload
-                                render_assessment_feedback(payload, key_prefix="prompt")
+                            response_path = store_uploaded_audio(
+                                response,
+                                response.name or "response.wav",
+                                log_dir / "prompt_responses",
+                            )
+                            st.session_state["prompt_assessment_running"] = True
+                            with st.spinner("Auswertung läuft..."):
+                                result = run_assessment(
+                                    response_path,
+                                    log_dir,
+                                    prompt_whisper,
+                                    prompt_llm,
+                                    attempt["label"],
+                                    prompt_notes,
+                                    target_cefr=attempt["cefr"],
+                                    provider=prompt_provider,
+                                    speaker_id=speaker_id,
+                                    task_family="prompt_trainer",
+                                    theme=selected_prompt["title"],
+                                    target_duration_sec=float(selected_prompt["response_seconds"]),
+                                )
+                            st.session_state["prompt_assessment_running"] = False
+                            if result.returncode != 0:
+                                st.error("Bewertung fehlgeschlagen. Siehe Log unten.")
+                                st.code(result.stderr or result.stdout)
                             else:
-                                st.code(result.stdout.strip(), language="json")
-                            rerun_history(log_dir)
-                            history_df = load_history_df(log_dir)
-                            st.session_state["prompt_attempt"] = None
-                            dashboard_rerun()
+                                payload = parse_cli_json(result.stdout) or load_latest_report_payload(
+                                    log_dir,
+                                    label=attempt["label"],
+                                )
+                                st.success("Bewertung abgeschlossen.")
+                                if payload:
+                                    st.session_state["prompt_payload"] = payload
+                                    render_assessment_feedback(payload, key_prefix="prompt")
+                                else:
+                                    st.code(result.stdout.strip(), language="json")
+                                rerun_history(log_dir)
+                                history_df = load_history_df(log_dir)
+                                st.session_state["prompt_attempt"] = None
+                                dashboard_rerun()
 
     with chart_tab:
         st.header("Mein Fortschritt")

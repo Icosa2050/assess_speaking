@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 import wave
 from pathlib import Path
 
@@ -79,6 +80,20 @@ class PromptHelperTests(unittest.TestCase):
         self.assertEqual(direct, payload)
         wrapped = dashboard.parse_cli_json("INFO\n" + json_body)
         self.assertEqual(wrapped, payload)
+
+    def test_load_latest_report_payload_uses_history_report_path(self):
+        payload = {"report": {"scores": {"final": 4.2}}}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            report_path = tmp / "latest.json"
+            report_path.write_text(json.dumps(payload), encoding="utf-8")
+            history_path = tmp / "history.csv"
+            history_path.write_text(
+                "timestamp,label,report_path\n2026-03-11T12:00:00,prompt:test,%s\n" % report_path,
+                encoding="utf-8",
+            )
+            loaded = dashboard.load_latest_report_payload(tmp, label="prompt:test")
+        self.assertEqual(loaded, payload)
 
     def test_load_prompts_resolves_relative_audio(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -230,6 +245,48 @@ class PromptHelperTests(unittest.TestCase):
         self.assertEqual(attempt["chunks"], [])
         self.assertIsNone(attempt["sample_rate"])
         self.assertEqual(attempt["sample_width"], 2)
+        self.assertEqual(attempt["status"], "idle")
+        self.assertIsNone(attempt["connection_requested_at"])
+
+    def test_build_rtc_configuration_defaults_to_local_only(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            config = dashboard.build_rtc_configuration()
+        self.assertEqual(config["iceServers"], [])
+
+    def test_build_rtc_configuration_accepts_env_urls(self):
+        with mock.patch.dict(
+            os.environ,
+            {"ASSESS_SPEAKING_STUN_URLS": "stun:stun1.example.org, stun:stun2.example.org"},
+            clear=False,
+        ):
+            config = dashboard.build_rtc_configuration()
+        self.assertEqual(
+            config["iceServers"],
+            [{"urls": ["stun:stun1.example.org", "stun:stun2.example.org"]}],
+        )
+
+    def test_mark_recording_connecting_sets_pending_status(self):
+        attempt = dashboard.create_recording_attempt()
+        updated = dashboard.mark_recording_connecting(attempt)
+        self.assertEqual(updated["status"], "connecting")
+        self.assertIsNotNone(updated["connection_requested_at"])
+
+    def test_sync_recording_state_surfaces_connection_timeout(self):
+        attempt = dashboard.create_recording_attempt()
+        attempt["connection_requested_at"] = time.time() - 9.0
+
+        class DummyContext:
+            state = None
+
+        updated = dashboard.sync_recording_state(
+            attempt,
+            DummyContext(),
+            target_dir=Path("/tmp"),
+            prefix="practice",
+            connection_timeout_sec=8.0,
+        )
+        self.assertEqual(updated["status"], "error")
+        self.assertIn("Aufnahme wurde nicht gestartet", updated["save_error"])
 
 
 if __name__ == "__main__":

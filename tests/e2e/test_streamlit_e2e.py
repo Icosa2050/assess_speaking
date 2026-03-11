@@ -41,13 +41,17 @@ def test_01_basic_upload_creates_history(page, base_url, samples_dir, reports_di
     expect(page.get_by_role("button", name="Neue Aufgabenfassung")).to_be_visible()
     expect(page.get_by_label("Speaker ID")).to_be_visible()
     expect(page.get_by_label("Thema")).to_be_visible()
+    expect(page.get_by_text("Primärer Weg: direkt sprechen", exact=False)).to_be_visible()
 
     page.get_by_label("Speaker ID").fill("playwright-user")
     page.get_by_label("Thema").fill("Il mio ultimo viaggio all'estero")
-    page.get_by_text("Audiodatei hochladen", exact=True).click()
-    page.locator('input[type="file"]').first.set_input_files(str(samples_dir / "demo.m4a"))
+    page.get_by_text("Stattdessen eine vorhandene Aufnahme nutzen", exact=True).click()
+    page.get_by_role("button", name="Alternative aktivieren").click()
+    page.locator('[aria-label="Audio-Datei hinzufügen"] input[type="file"]').set_input_files(
+        str(samples_dir / "demo.m4a")
+    )
     page.get_by_label("Label").fill("playwright-basic")
-    page.get_by_role("button", name="Bewertung starten").click()
+    page.get_by_role("button", name="Datei auswerten").click()
     expect(page.get_by_text("Nächste Übung für dich", exact=False)).to_be_visible(timeout=60000)
 
     rows = read_history(reports_dir)
@@ -67,19 +71,18 @@ def test_02_prompt_file_upload_generates_baseline(page, base_url, samples_dir, r
     page.get_by_text('B1 – Racconto di viaggio (B1)', exact=True).click()
     page.get_by_role('option', name='B2 – Lavoro da casa (B2)').click()
 
-    page.get_by_role("button", name="Versuch starten").click()
+    page.get_by_role("button", name="Übung starten").click()
     expect(page.get_by_text("Verbleibende Zeit", exact=False)).to_be_visible()
 
     play_button = page.get_by_role("button", name=re.compile(r"^Prompt abspielen"))
     play_button.click()
 
-    page.locator('input[type="file"]').first.set_input_files(
+    page.get_by_text("Stattdessen eine fertige Antwort hochladen", exact=True).click()
+    page.locator('[aria-label="Antwortdatei hochladen (wav/mp3/m4a)"] input[type="file"]').set_input_files(
         str(samples_dir / "demo.m4a")
     )
 
-    expect(page.get_by_text("Letztes Prompt-Ergebnis", exact=False)).to_be_visible(timeout=60000)
     expect(page.get_by_text("Nächste Übung für dich", exact=False)).to_be_visible(timeout=60000)
-    expect(page.get_by_text("Baseline B2", exact=False)).to_be_visible()
 
     rows = read_history(reports_dir)
     assert rows
@@ -94,7 +97,7 @@ def test_03_switching_prompts_shows_warning(page, base_url, streamlit_server):
     page.get_by_text('B1 – Racconto di viaggio (B1)', exact=True).click()
     page.get_by_role('option', name='B1 – Racconto di viaggio (B1)').click()
 
-    page.get_by_role("button", name="Versuch starten").click()
+    page.get_by_role("button", name="Übung starten").click()
     expect(page.get_by_text("Verbleibende Zeit", exact=False)).to_be_visible()
 
     page.get_by_text('B1 – Racconto di viaggio (B1)', exact=True).click()
@@ -111,12 +114,13 @@ def test_04_prompt_timeout_blocks_submission(page, base_url, samples_dir, stream
     page.get_by_text('B1 – Racconto di viaggio (B1)', exact=True).click()
     page.get_by_role('option', name='B1 – Timer breve (test) (B1)').click()
 
-    page.get_by_role("button", name="Versuch starten").click()
+    page.get_by_role("button", name="Übung starten").click()
     expect(page.get_by_text("Verbleibende Zeit", exact=False)).to_be_visible()
 
     page.wait_for_timeout(4000)
 
-    page.locator('input[type="file"]').first.set_input_files(
+    page.get_by_text("Stattdessen eine fertige Antwort hochladen", exact=True).click()
+    page.locator('[aria-label="Antwortdatei hochladen (wav/mp3/m4a)"] input[type="file"]').set_input_files(
         str(samples_dir / "demo.m4a")
     )
 

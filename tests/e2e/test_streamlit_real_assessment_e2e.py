@@ -44,8 +44,9 @@ def test_real_upload_returns_feedback(page, base_url, reports_dir, streamlit_rea
     page.get_by_label("Speaker ID").fill("playwright-real-user")
     page.get_by_label("Thema").fill("tema libero")
     page.get_by_label("Zielsprechdauer (Sekunden)").fill("60")
-    page.get_by_text("Audiodatei hochladen", exact=True).click()
-    page.locator('input[type="file"]').first.set_input_files(str(audio_path))
+    page.get_by_text("Stattdessen eine vorhandene Aufnahme nutzen", exact=True).click()
+    page.get_by_role("button", name="Alternative aktivieren").click()
+    page.locator('[aria-label="Audio-Datei hinzufügen"] input[type="file"]').set_input_files(str(audio_path))
     page.get_by_label("Label").fill(run_label)
 
     page.get_by_text("Erweiterte Optionen", exact=True).click()
@@ -53,7 +54,7 @@ def test_real_upload_returns_feedback(page, base_url, reports_dir, streamlit_rea
         os.getenv("ASSESS_SPEAKING_REAL_WHISPER_MODEL", "tiny")
     )
 
-    page.get_by_role("button", name="Bewertung starten").click()
+    page.get_by_role("button", name="Datei auswerten").click()
 
     expect(page.get_by_text("Nächste Übung für dich", exact=False)).to_be_visible(timeout=180000)
     expect(page.get_by_text("Darauf solltest du als Nächstes achten", exact=False)).to_be_visible(timeout=180000)
