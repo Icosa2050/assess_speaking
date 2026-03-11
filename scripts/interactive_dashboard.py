@@ -758,6 +758,79 @@ def current_practice_step(attempt: dict, *, evaluation_running: bool = False) ->
     return 1
 
 
+@st.fragment(run_every=1)
+def render_practice_recorder_fragment(log_dir: Path, target_duration_sec: float) -> None:
+    practice_attempt = st.session_state.get("practice_attempt") or create_recording_attempt()
+    previous_status = practice_attempt.get("status")
+    previous_saved_path = practice_attempt.get("saved_path")
+
+    webrtc_ctx = webrtc_streamer(
+        key="practice_recorder",
+        mode=WebRtcMode.SENDONLY,
+        audio_receiver_size=256,
+        rtc_configuration=RTC_CONFIGURATION,
+        media_stream_constraints={"audio": True, "video": False},
+        translations=RECORDER_TRANSLATIONS,
+        on_change=lambda: flag_recording_requested("practice_attempt"),
+    )
+    if webrtc_ctx and webrtc_ctx.audio_receiver:
+        try:
+            audio_frames = webrtc_ctx.audio_receiver.get_frames(timeout=1)
+        except queue.Empty:
+            audio_frames = []
+        if audio_frames:
+            for frame in audio_frames:
+                audio = frame.to_ndarray()
+                sample_rate = getattr(frame, "sample_rate", 48000)
+                if audio.ndim == 1:
+                    channels = 1
+                    data = audio
+                else:
+                    channels = audio.shape[0]
+                    data = audio.T
+                if data.dtype != np.int16:
+                    data = np.clip(data, -1.0, 1.0)
+                    data = (data * 32767).astype(np.int16)
+                else:
+                    data = data.astype(np.int16, copy=False)
+                append_audio_bytes(practice_attempt, data.tobytes(), sample_rate, channels)
+
+    practice_attempt = sync_recording_state(
+        practice_attempt,
+        webrtc_ctx,
+        target_dir=log_dir / "recordings",
+        prefix="practice",
+    )
+    st.session_state["practice_attempt"] = practice_attempt
+
+    render_recorder_status(
+        practice_attempt,
+        target_duration_sec=target_duration_sec,
+        evaluation_running=st.session_state.get("manual_assessment_running", False),
+        title="Status deiner Aufnahme",
+    )
+    if practice_attempt.get("saved_path"):
+        saved_path = Path(practice_attempt["saved_path"])
+        if saved_path.exists():
+            st.audio(saved_path.read_bytes(), format="audio/wav")
+        recorder_actions = st.columns(2)
+        if recorder_actions[0].button("Neue Aufnahme starten", key="reset_practice_recording"):
+            st.session_state["practice_attempt"] = create_recording_attempt()
+            st.session_state["manual_payload"] = None
+            st.rerun()
+        recorder_actions[1].markdown("**Nächster Schritt:** Klicke rechts auf `Aufnahme auswerten`.")
+    elif practice_attempt.get("status") == "error":
+        if st.button("Erneut aufnehmen", key="retry_practice_recording"):
+            st.session_state["practice_attempt"] = create_recording_attempt()
+            st.rerun()
+
+    if (
+        previous_status != practice_attempt.get("status")
+        or previous_saved_path != practice_attempt.get("saved_path")
+    ):
+        st.rerun()
+
+
 def build_result_summary(payload: dict) -> dict:
     report = payload.get("report") if isinstance(payload, dict) else None
     report = report if isinstance(report, dict) else {}
@@ -1124,63 +1197,8 @@ def main() -> None:
                     st.session_state["practice_mode"] = alternative_mode
                     dashboard_rerun()
         if practice_mode == "Direkt im Browser aufnehmen":
-            webrtc_ctx = webrtc_streamer(
-                key="practice_recorder",
-                mode=WebRtcMode.SENDONLY,
-                audio_receiver_size=256,
-                rtc_configuration=RTC_CONFIGURATION,
-                media_stream_constraints={"audio": True, "video": False},
-                translations=RECORDER_TRANSLATIONS,
-                on_change=lambda: flag_recording_requested("practice_attempt"),
-            )
-            if webrtc_ctx and webrtc_ctx.audio_receiver:
-                try:
-                    audio_frames = webrtc_ctx.audio_receiver.get_frames(timeout=1)
-                except queue.Empty:
-                    audio_frames = []
-                if audio_frames:
-                    for frame in audio_frames:
-                        audio = frame.to_ndarray()
-                        sample_rate = getattr(frame, "sample_rate", 48000)
-                        if audio.ndim == 1:
-                            channels = 1
-                            data = audio
-                        else:
-                            channels = audio.shape[0]
-                            data = audio.T
-                        if data.dtype != np.int16:
-                            data = np.clip(data, -1.0, 1.0)
-                            data = (data * 32767).astype(np.int16)
-                        else:
-                            data = data.astype(np.int16, copy=False)
-                        append_audio_bytes(practice_attempt, data.tobytes(), sample_rate, channels)
-            practice_attempt = sync_recording_state(
-                practice_attempt,
-                webrtc_ctx,
-                target_dir=log_dir / "recordings",
-                prefix="practice",
-            )
-            st.session_state["practice_attempt"] = practice_attempt
-            render_recorder_status(
-                practice_attempt,
-                target_duration_sec=target_duration_sec,
-                evaluation_running=st.session_state.get("manual_assessment_running", False),
-                title="Status deiner Aufnahme",
-            )
-            if practice_attempt.get("saved_path"):
-                saved_path = Path(practice_attempt["saved_path"])
-                if saved_path.exists():
-                    st.audio(saved_path.read_bytes(), format="audio/wav")
-                recorder_actions = st.columns(2)
-                if recorder_actions[0].button("Neue Aufnahme starten", key="reset_practice_recording"):
-                    st.session_state["practice_attempt"] = create_recording_attempt()
-                    st.session_state["manual_payload"] = None
-                    dashboard_rerun()
-                recorder_actions[1].markdown("**Nächster Schritt:** Klicke rechts auf `Aufnahme auswerten`.")
-            elif practice_attempt.get("status") == "error":
-                if st.button("Erneut aufnehmen", key="retry_practice_recording"):
-                    st.session_state["practice_attempt"] = create_recording_attempt()
-                    dashboard_rerun()
+            render_practice_recorder_fragment(log_dir, float(target_duration_sec))
+            practice_attempt = st.session_state.get("practice_attempt") or create_recording_attempt()
         elif practice_mode == "Audiodatei hochladen":
             st.caption("Sekundärer Weg: eine bereits vorhandene Aufnahme auswerten.")
             uploaded = uploaded or st.file_uploader("Audio-Datei hinzufügen", type=["wav", "mp3", "m4a", "flac", "ogg"])
