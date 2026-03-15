@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 import wave
 from pathlib import Path
 
@@ -80,6 +81,20 @@ class PromptHelperTests(unittest.TestCase):
         wrapped = dashboard.parse_cli_json("INFO\n" + json_body)
         self.assertEqual(wrapped, payload)
 
+    def test_load_latest_report_payload_uses_history_report_path(self):
+        payload = {"report": {"scores": {"final": 4.2}}}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            report_path = tmp / "latest.json"
+            report_path.write_text(json.dumps(payload), encoding="utf-8")
+            history_path = tmp / "history.csv"
+            history_path.write_text(
+                "timestamp,label,report_path\n2026-03-11T12:00:00,prompt:test,%s\n" % report_path,
+                encoding="utf-8",
+            )
+            loaded = dashboard.load_latest_report_payload(tmp, label="prompt:test")
+        self.assertEqual(loaded, payload)
+
     def test_load_prompts_resolves_relative_audio(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             prompts_path = Path(tmpdir) / "prompts.json"
@@ -101,7 +116,35 @@ class PromptHelperTests(unittest.TestCase):
                 "notes",
             )
         command = mock_run.call_args.args[0]
+        self.assertIn("--provider", command)
+        self.assertIn("--llm-model", command)
         self.assertIn("--dry-run", command)
+
+    @mock.patch("scripts.interactive_dashboard.subprocess.run")
+    def test_run_assessment_passes_learning_context_flags(self, mock_run):
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="{}", stderr="")
+        dashboard.run_assessment(
+            Path("sample.wav"),
+            Path("reports"),
+            "large-v3",
+            "google/gemini-3.1-pro-preview",
+            "trip-attempt",
+            "notes",
+            provider="openrouter",
+            speaker_id="bern",
+            task_family="travel_narrative",
+            theme="Il mio ultimo viaggio all'estero",
+            target_duration_sec=180,
+        )
+        command = mock_run.call_args.args[0]
+        self.assertIn("--speaker-id", command)
+        self.assertIn("bern", command)
+        self.assertIn("--task-family", command)
+        self.assertIn("travel_narrative", command)
+        self.assertIn("--theme", command)
+        self.assertIn("Il mio ultimo viaggio all'estero", command)
+        self.assertIn("--target-duration-sec", command)
+        self.assertIn("180.0", command)
 
     def test_load_history_df_exposes_extended_columns(self):
         dashboard.load_history_records.clear()
@@ -124,8 +167,157 @@ class PromptHelperTests(unittest.TestCase):
             history.write_text(RICH_HISTORY_CSV, encoding="utf-8")
             records = dashboard.load_history_records(Path(tmpdir))
             frame = dashboard.build_issue_count_df(records, "coherence_issue_categories")
-            self.assertEqual(frame.iloc[0]["category"], "missing_sequence_markers")
+            self.assertEqual(frame.iloc[0]["category"], "Fehlende Reihenfolge-Marker")
             self.assertEqual(int(frame.iloc[0]["count"]), 2)
+
+    def test_build_result_summary_prefers_learner_fields(self):
+        payload = {
+            "report": {
+                "checks": {
+                    "language_pass": True,
+                    "topic_pass": False,
+                    "duration_pass": True,
+                    "min_words_pass": True,
+                },
+                "scores": {
+                    "final": 3.8,
+                    "band": 4,
+                    "llm": 4.0,
+                    "deterministic": 3.2,
+                    "mode": "hybrid",
+                },
+                "requires_human_review": False,
+                "warnings": ["coaching_unavailable"],
+                "rubric": {
+                    "recurring_grammar_errors": [{"type": "preposition_choice"}],
+                    "coherence_issues": [{"type": "missing_sequence_markers"}],
+                },
+                "coaching": {
+                    "strengths": ["Resti sul tema."],
+                    "top_3_priorities": ["Più dettagli", "Meno filler", "Più connettivi"],
+                    "next_focus": "Ordina meglio gli eventi",
+                    "next_exercise": "Racconta di nuovo il viaggio.",
+                    "coach_summary": "Buona base.",
+                },
+                "progress_delta": {
+                    "previous_session_id": "sess-1",
+                    "score_delta": {"final": 0.4, "overall": 0.2, "wpm": 5.0},
+                    "new_priorities": ["Più dettagli"],
+                    "repeating_grammar_categories": ["preposition_choice"],
+                    "repeating_coherence_categories": ["missing_sequence_markers"],
+                },
+            }
+        }
+        summary = dashboard.build_result_summary(payload)
+        self.assertEqual(summary["status_level"], "info")
+        self.assertEqual(summary["failed_gates"], ["Thema"])
+        self.assertEqual(summary["priorities"][0], "Più dettagli")
+        self.assertEqual(summary["recurring_grammar"], ["Präpositionen"])
+        self.assertEqual(summary["mode_label"], "Vollbewertung")
+        self.assertTrue(summary["progress_lines"])
+        self.assertIn("Gesamtwert: +0.40.", summary["progress_lines"])
+        self.assertIn("Wiederkehrende Grammatik: Präpositionen.", summary["progress_lines"])
+
+    def test_build_progress_delta_lines_handles_empty_input(self):
+        self.assertEqual(dashboard.build_progress_delta_lines(None), [])
+        self.assertEqual(dashboard.build_progress_delta_lines({}), [])
+
+    def test_generate_practice_brief_uses_theme_and_variant(self):
+        first = dashboard.generate_practice_brief(
+            task_family="travel_narrative",
+            theme="Il mio ultimo viaggio all'estero",
+            target_duration_sec=180,
+            variant_index=0,
+        )
+        second = dashboard.generate_practice_brief(
+            task_family="travel_narrative",
+            theme="Il mio ultimo viaggio all'estero",
+            target_duration_sec=180,
+            variant_index=1,
+        )
+        self.assertIn("Il mio ultimo viaggio all'estero", first["prompt"])
+        self.assertNotEqual(first["title"], second["title"])
+        self.assertEqual(len(first["cover_points"]), 3)
+        self.assertTrue(first["starter_phrases"])
+
+    def test_create_recording_attempt_initialises_empty_audio_state(self):
+        attempt = dashboard.create_recording_attempt()
+        self.assertEqual(attempt["chunks"], [])
+        self.assertIsNone(attempt["sample_rate"])
+        self.assertEqual(attempt["sample_width"], 2)
+        self.assertEqual(attempt["status"], "idle")
+        self.assertIsNone(attempt["connection_requested_at"])
+
+    def test_build_rtc_configuration_defaults_to_local_only(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            config = dashboard.build_rtc_configuration()
+        self.assertEqual(config["iceServers"], [])
+
+    def test_build_rtc_configuration_accepts_env_urls(self):
+        with mock.patch.dict(
+            os.environ,
+            {"ASSESS_SPEAKING_STUN_URLS": "stun:stun1.example.org, stun:stun2.example.org"},
+            clear=False,
+        ):
+            config = dashboard.build_rtc_configuration()
+        self.assertEqual(
+            config["iceServers"],
+            [{"urls": ["stun:stun1.example.org", "stun:stun2.example.org"]}],
+        )
+
+    def test_mark_recording_connecting_sets_pending_status(self):
+        attempt = dashboard.create_recording_attempt()
+        updated = dashboard.mark_recording_connecting(attempt)
+        self.assertEqual(updated["status"], "connecting")
+        self.assertIsNotNone(updated["connection_requested_at"])
+
+    def test_display_duration_uses_wall_clock_while_recording(self):
+        attempt = dashboard.create_recording_attempt()
+        attempt["status"] = "recording"
+        attempt["recording_started_at"] = 100.0
+        with mock.patch("scripts.interactive_dashboard.time.time", return_value=103.6):
+            elapsed = dashboard.display_duration_sec(attempt)
+        self.assertGreaterEqual(elapsed, 3.5)
+
+    def test_transport_is_usable_rejects_closed_or_missing_socket(self):
+        class DummyLoop:
+            def __init__(self, closed: bool):
+                self._closed = closed
+
+            def is_closed(self):
+                return self._closed
+
+        class DummyTransport:
+            def __init__(self, *, sock, closing=False, loop_closed=False):
+                self._sock = sock
+                self._closing = closing
+                self._loop = DummyLoop(loop_closed)
+
+            def is_closing(self):
+                return self._closing
+
+        self.assertFalse(dashboard._transport_is_usable(None))
+        self.assertFalse(dashboard._transport_is_usable(DummyTransport(sock=None)))
+        self.assertFalse(dashboard._transport_is_usable(DummyTransport(sock=object(), closing=True)))
+        self.assertFalse(dashboard._transport_is_usable(DummyTransport(sock=object(), loop_closed=True)))
+        self.assertTrue(dashboard._transport_is_usable(DummyTransport(sock=object())))
+
+    def test_sync_recording_state_surfaces_connection_timeout(self):
+        attempt = dashboard.create_recording_attempt()
+        attempt["connection_requested_at"] = time.time() - 9.0
+
+        class DummyContext:
+            state = None
+
+        updated = dashboard.sync_recording_state(
+            attempt,
+            DummyContext(),
+            target_dir=Path("/tmp"),
+            prefix="practice",
+            connection_timeout_sec=8.0,
+        )
+        self.assertEqual(updated["status"], "error")
+        self.assertIn("Aufnahme wurde nicht gestartet", updated["save_error"])
 
 
 if __name__ == "__main__":
