@@ -67,6 +67,14 @@ def _resolve_cached_model_path(model_size: str) -> str | None:
 
 def describe_model_availability(model_size: str) -> dict:
     cached_path = _resolve_cached_model_path(model_size)
+    if os.getenv("ASSESS_SPEAKING_DRY_RUN") == "1":
+        # Dry-run skips real transcription, so UI flows should not depend on a pre-downloaded Whisper cache.
+        return {
+            "model": model_size,
+            "repo_id": _model_repo_id(model_size),
+            "cached": True,
+            "cached_path": cached_path,
+        }
     return {
         "model": model_size,
         "repo_id": _model_repo_id(model_size),

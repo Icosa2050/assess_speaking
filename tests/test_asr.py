@@ -115,6 +115,15 @@ class AsrTests(unittest.TestCase):
             recommendation = asr.recommend_model_choice()
         self.assertEqual(recommendation["model"], "medium")
 
+    def test_describe_model_availability_treats_dry_run_as_cached(self):
+        with (
+            mock.patch.dict(asr.os.environ, {"ASSESS_SPEAKING_DRY_RUN": "1"}, clear=False),
+            mock.patch.object(asr, "_resolve_cached_model_path", return_value=None),
+        ):
+            availability = asr.describe_model_availability("tiny")
+        self.assertTrue(availability["cached"])
+        self.assertIsNone(availability["cached_path"])
+
     def test_ensure_model_downloaded_returns_cached_model_without_init(self):
         with (
             mock.patch.object(asr, "WhisperModel", object()),
