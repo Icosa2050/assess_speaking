@@ -1,0 +1,25 @@
+{
+  "browser": {
+    "browserName": "chromium",
+    "userDataDir": ".playwright/profiles/celi",
+    "launchOptions": {
+      "channel": "chrome",
+      "headless": false
+    },
+    "contextOptions": {
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    }
+  },
+  "outputDir": "output/playwright/celi",
+  "outputMode": "file",
+  "console": {
+    "level": "warning"
+  },
+  "timeouts": {
+    "action": 5000,
+    "navigation": 60000
+  }
+}
