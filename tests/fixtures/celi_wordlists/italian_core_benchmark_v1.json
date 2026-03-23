@@ -1,0 +1,42 @@
+{
+  "manifest_id": "italian_celi_core_benchmark_v1",
+  "source_id": "celi",
+  "language_code": "it",
+  "version": "v1",
+  "active": true,
+  "tags": ["italian", "celi", "benchmark", "wordlist"],
+  "notes": "Curated CELI wordlist for quick lexical benchmarks across B1/B2/C1/C2.",
+  "default_levels": ["B1", "B2", "C1", "C2"],
+  "terms": [
+    {
+      "term_id": "home_core",
+      "term": "casa",
+      "tags": ["home", "baseline", "high-frequency"],
+      "notes": "Core everyday noun that appears across narrative and reflective prompts."
+    },
+    {
+      "term_id": "education_core",
+      "term": "scuola",
+      "tags": ["education", "institution"],
+      "notes": "School-related noun useful for comparing everyday and argumentative topics."
+    },
+    {
+      "term_id": "work_core",
+      "term": "lavoro",
+      "tags": ["work", "institution", "high-frequency"],
+      "notes": "Work-related noun that often appears in opinion and personal-history writing."
+    },
+    {
+      "term_id": "family_core",
+      "term": "famiglia",
+      "tags": ["family", "personal"],
+      "notes": "Personal-domain anchor for narrative and descriptive contexts."
+    },
+    {
+      "term_id": "celebration_core",
+      "term": "festa",
+      "tags": ["event", "narrative"],
+      "notes": "Event noun that tends to surface in personal-story and social-event prompts."
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 import os
 import unittest
 
-from assessment_prompts import coaching_prompt_it, rubric_prompt_it
-from llm_client import generate_coaching_summary, generate_rubric
+from assessment_runtime.assessment_prompts import coaching_prompt_it, rubric_prompt_it
+from assessment_runtime.llm_client import generate_coaching_summary, generate_rubric
 
 
 @unittest.skipUnless(

@@ -78,9 +78,9 @@ New nested `report`:
 ## Verification
 
 Executed on this branch:
-1. `python3 -m unittest tests.test_assess_speaking tests.test_schemas tests.test_scoring tests.test_llm_client tests.test_asr -v`
-2. `/Users/bernhard/Development/assess_speaking/.venv/bin/python -m unittest discover -s tests -v`
-3. `RUN_OPENROUTER_INTEGRATION=1 /Users/bernhard/Development/assess_speaking/.venv/bin/python -m unittest tests.test_integration_openrouter -v`
+1. `./scripts/python.sh -m unittest tests.test_assess_speaking tests.test_schemas tests.test_scoring tests.test_llm_client tests.test_asr -v`
+2. `./scripts/run_tests.sh -v`
+3. `RUN_OPENROUTER_INTEGRATION=1 ./scripts/python.sh -m unittest tests.test_integration_openrouter -v`
 
 Current status:
 1. full repo suite passes

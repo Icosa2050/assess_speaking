@@ -1,0 +1,19 @@
+Data esame: 06/12/2001
+Sede: Citta del Messico
+Numero di matricola: 13148C
+Livello: 1
+Trascrittore: Test
+
+
+SE1: quale citta ti piacerebbe visitare (Prova n.1) D
+
+E: quale citta ti piacerebbe visitare
+C: mi piacerebbe visitare Verona
+E: perche
+C: per l'arena e per la musica
+
+
+SE2: Hobby preferito (Prova n.2) M
+
+E: parlami di un hobby
+C: il mio hobby preferito e la musica italiana. mi piace ascoltare concerti, leggere testi e parlare dei cantanti con i miei amici.

@@ -1,0 +1,96 @@
+{
+  "manifest_id": "italian_monologue_seeds_v1",
+  "language_code": "it",
+  "task_family": "opinion_monologue",
+  "version": "seed_manifest_it_v1",
+  "active": true,
+  "tags": ["italian", "monologue", "seed-corpus", "baseline"],
+  "notes": "Italian seed corpus aligned to the Italian benchmark progression anchors.",
+  "render_defaults": {
+    "provider": "macos_say",
+    "voice": "Alice",
+    "rate_wpm": 110,
+    "output_format": "wav",
+    "sample_rate_hz": 16000,
+    "channels": 1,
+    "notes": "Default deterministic render settings for local macOS generation."
+  },
+  "seeds": [
+    {
+      "seed_id": "it_b1_parco_tranquillo",
+      "language_code": "it",
+      "task_family": "opinion_monologue",
+      "target_cefr": "B1",
+      "target_duration_sec": 90,
+      "topic_tag": "places",
+      "benchmark_suite_id": "italian_monologue_cefr_v1",
+      "benchmark_case_id": "it_b1_personal_story",
+      "transcript": "Allora, il mio posto preferito e un piccolo parco vicino a casa. Ci vado spesso la sera oppure la domenica mattina. Ehm, non e famoso, pero per me ha un valore speciale. Entro piano, guardo gli alberi e respiro meglio. Insomma, li tutto sembra piu calmo. Vado spesso con mia sorella, parliamo poco e facciamo due passi. Tipo, porto un libro o una bottiglia d'acqua. Se ho la testa piena, quel posto mi aiuta molto. Ehm, da piccolo andavo li dopo scuola e avevo la stessa sensazione. Comunque, torno sempre volentieri. Allora, per questo motivo scelgo sempre quel parco quando penso a un luogo importante per me.",
+      "render_text": "Allora, il mio posto preferito e un piccolo parco vicino a casa. Ci vado spesso la sera oppure la domenica mattina. [[slnc 1500]] Ehm, non e famoso, pero per me ha un valore speciale. Entro piano, guardo gli alberi e respiro meglio. [[slnc 1500]] Insomma, li tutto sembra piu calmo. Vado spesso con mia sorella, parliamo poco e facciamo due passi. [[slnc 1500]] Tipo, porto un libro o una bottiglia d'acqua. Se ho la testa piena, quel posto mi aiuta molto. [[slnc 1500]] Ehm, da piccolo andavo li dopo scuola e avevo la stessa sensazione. Comunque, torno sempre volentieri. [[slnc 1500]] Allora, per questo motivo scelgo sempre quel parco quando penso a un luogo importante per me. [[slnc 1500]]",
+      "render_overrides": {
+        "rate_wpm": 82
+      },
+      "source_type": "synthetic_seed",
+      "active": true,
+      "tags": ["b1", "places", "baseline"],
+      "notes": "B1 personal-place seed with simple narrative structure and deliberate pauses."
+    },
+    {
+      "seed_id": "it_b2_lavoro_ibrido",
+      "language_code": "it",
+      "task_family": "opinion_monologue",
+      "target_cefr": "B2",
+      "target_duration_sec": 108,
+      "topic_tag": "work",
+      "benchmark_suite_id": "italian_monologue_cefr_v1",
+      "benchmark_case_id": "it_b2_structured_opinion",
+      "transcript": "Ehm, il lavoro da casa puo essere utile, pero non e la soluzione migliore per ogni azienda. A mio avviso un modello misto funziona meglio, perche offre liberta senza perdere il contatto umano. Allora, il primo vantaggio riguarda il tempo. Chi non viaggia ogni giorno arriva al computer con meno stress e piu energia. Molte persone lavorano con piu calma, soprattutto se devono leggere, scrivere o chiudere un compito lungo. C'e anche un lato pratico per chi vive lontano dall'ufficio, motivo per cui il lavoro da casa resta comodo in molti periodi. Tipo, i nuovi colleghi imparano piu lentamente e piccoli problemi restano aperti piu a lungo. Se manca il confronto diretto, alcune decisioni diventano meno chiare. Alcune persone finiscono per lavorare troppo e perdono un confine stabile fra ufficio e vita privata. Insomma, quindi la scelta migliore sembra un equilibrio: alcuni giorni insieme per riunioni e progetti comuni, altri giorni a casa per il lavoro concentrato. In questo modo l'azienda resta flessibile e il gruppo resta unito.",
+      "render_text": "Ehm, il lavoro da casa puo essere utile, pero non e la soluzione migliore per ogni azienda. A mio avviso un modello misto funziona meglio, perche offre liberta senza perdere il contatto umano. [[slnc 2000]] Allora, il primo vantaggio riguarda il tempo. Chi non viaggia ogni giorno arriva al computer con meno stress e piu energia. Molte persone lavorano con piu calma, soprattutto se devono leggere, scrivere o chiudere un compito lungo. [[slnc 2000]] C'e anche un lato pratico per chi vive lontano dall'ufficio, motivo per cui il lavoro da casa resta comodo in molti periodi. Tipo, i nuovi colleghi imparano piu lentamente e piccoli problemi restano aperti piu a lungo. [[slnc 2000]] Se manca il confronto diretto, alcune decisioni diventano meno chiare. Alcune persone finiscono per lavorare troppo e perdono un confine stabile fra ufficio e vita privata. [[slnc 2000]] Insomma, quindi la scelta migliore sembra un equilibrio: alcuni giorni insieme per riunioni e progetti comuni, altri giorni a casa per il lavoro concentrato. In questo modo l'azienda resta flessibile e il gruppo resta unito.",
+      "render_overrides": {
+        "rate_wpm": 99
+      },
+      "source_type": "synthetic_seed",
+      "active": true,
+      "tags": ["b2", "work", "baseline"],
+      "notes": "B2 work-policy seed with trade-offs, explicit opinion, and controlled discourse markers."
+    },
+    {
+      "seed_id": "it_c1_citta_e_quartieri",
+      "language_code": "it",
+      "task_family": "opinion_monologue",
+      "target_cefr": "C1",
+      "target_duration_sec": 130,
+      "topic_tag": "society",
+      "benchmark_suite_id": "italian_monologue_cefr_v1",
+      "benchmark_case_id": "it_c1_social_reflection",
+      "transcript": "Negli ultimi anni la mia citta e cambiata in modo rapido e molto visibile. Le nuove linee del tram, varie piazze rinnovate e alcuni spazi culturali hanno reso la vita quotidiana piu dinamica per studenti, famiglie e lavoratori. Tuttavia questo sviluppo ha avuto anche un costo sociale. Gli affitti salgono, molti negozi storici chiudono e numerose famiglie lasciano i quartieri centrali. A mio avviso proprio questa tensione mostra il vero significato della parola progresso. I benefici immediati sono facili da riconoscere. Un trasporto migliore riduce l'isolamento, strade piu curate invitano le persone a usare gli spazi pubblici e nuove attivita portano lavoro stabile. Per molti giovani la citta appare piu aperta, piu moderna e piu ricca di possibilita concrete. Penso anche al valore dei piccoli bar, delle biblioteche di zona e dei mercati rionali. In quei luoghi nascono abitudini quotidiane, relazioni spontanee e un senso concreto di appartenenza. Il problema emerge nei quartieri nei quali vivevano residenti con redditi normali, botteghe artigiane e associazioni locali. Quando quei punti di riferimento spariscono, la comunita perde continuita, fiducia e memoria. Ehm, non propongo una citta ferma nel tempo, perche gli investimenti servono davvero. Se vogliamo servizi migliori e case sicure, dobbiamo accettare alcuni cambiamenti. Pero lo sviluppo urbano resta credibile solo qualora lasci spazio a gruppi diversi, non soltanto a chi ha redditi alti. In definitiva una citta sana resta ambiziosa, ma protegge legami, case accessibili, scuole di quartiere e attivita locali. Senza questa trama sociale la citta diventa efficiente ma piu fragile.",
+      "render_text": "Negli ultimi anni la mia citta e cambiata in modo rapido e molto visibile. Le nuove linee del tram, varie piazze rinnovate e alcuni spazi culturali hanno reso la vita quotidiana piu dinamica per studenti, famiglie e lavoratori. [[slnc 1000]] Tuttavia questo sviluppo ha avuto anche un costo sociale. Gli affitti salgono, molti negozi storici chiudono e numerose famiglie lasciano i quartieri centrali. A mio avviso proprio questa tensione mostra il vero significato della parola progresso. [[slnc 1000]] I benefici immediati sono facili da riconoscere. Un trasporto migliore riduce l'isolamento, strade piu curate invitano le persone a usare gli spazi pubblici e nuove attivita portano lavoro stabile. Per molti giovani la citta appare piu aperta, piu moderna e piu ricca di possibilita concrete. Penso anche al valore dei piccoli bar, delle biblioteche di zona e dei mercati rionali. In quei luoghi nascono abitudini quotidiane, relazioni spontanee e un senso concreto di appartenenza. [[slnc 1000]] Il problema emerge nei quartieri nei quali vivevano residenti con redditi normali, botteghe artigiane e associazioni locali. Quando quei punti di riferimento spariscono, la comunita perde continuita, fiducia e memoria. Ehm, non propongo una citta ferma nel tempo, perche gli investimenti servono davvero. [[slnc 1000]] Se vogliamo servizi migliori e case sicure, dobbiamo accettare alcuni cambiamenti. Pero lo sviluppo urbano resta credibile solo qualora lasci spazio a gruppi diversi, non soltanto a chi ha redditi alti. In definitiva una citta sana resta ambiziosa, ma protegge legami, case accessibili, scuole di quartiere e attivita locali. Senza questa trama sociale la citta diventa efficiente ma piu fragile.",
+      "render_overrides": {
+        "rate_wpm": 119
+      },
+      "source_type": "synthetic_seed",
+      "active": true,
+      "tags": ["c1", "society", "baseline"],
+      "notes": "C1 urban-change seed with sustained social reflection and balanced argumentation."
+    },
+    {
+      "seed_id": "it_c2_memoria_significato",
+      "language_code": "it",
+      "task_family": "opinion_monologue",
+      "target_cefr": "C2",
+      "target_duration_sec": 145,
+      "topic_tag": "memory",
+      "benchmark_suite_id": "italian_monologue_cefr_v1",
+      "benchmark_case_id": "it_c2_abstract_argument",
+      "transcript": "La memoria mi affascina non per la precisione, ma per la sua capacita di selezionare e trasformare l'esperienza. Un ricordo raramente sopravvive come registrazione neutrale. Piu spesso restano un'atmosfera, un dettaglio sonoro, un odore improvviso o una luce particolare; soltanto dopo nasce una storia capace di dare ordine a quei frammenti. Da un lato questo processo sembra fragile, poiche espone il passato a omissioni, slittamenti e accenti emotivi. Dall'altro lato proprio tale fragilita rende la memoria profondamente umana. Un viaggio d'infanzia, per esempio, puo continuare dentro di noi come il finestrino di un treno, il rumore di una stazione o la mano di una persona amata, ancora oggi associata a una forma di protezione. Cio nonostante non parlerei di inganno. La memoria non funziona come un archivio freddo; assomiglia piuttosto a un laboratorio interiore in cui il vissuto viene ridotto, riordinato e interpretato. Se ogni esperienza restasse immutata, l'identita personale diventerebbe quasi ingestibile, perche mancherebbe una gerarchia affettiva capace di distinguere l'essenziale dal rumore di fondo. Qui interviene l'immaginazione, senza cui il ricordo resterebbe incompleto. L'immaginazione non cancella il passato; lo rende leggibile, collega le lacune e propone connessioni plausibili. Pertanto la verita di un ricordo non coincide sempre con l'esattezza documentaria. Un episodio puo risultare parziale e tuttavia rivelare molto su desideri, paure e valori. Penso soprattutto ai racconti familiari, in cui una stessa scena cambia tono a seconda della voce narrante. In quel passaggio emergono non solo i fatti, ma anche la posizione morale di chi ricorda. Qualora ignorassimo questa dimensione interpretativa, ridurremmo la memoria a un elenco sterile. In definitiva il ricordo vale proprio per la sua forma imperfetta: non ripete il passato, ma lo trasforma in significato condivisibile e duraturo.",
+      "render_text": "La memoria mi affascina non per la precisione, ma per la sua capacita di selezionare e trasformare l'esperienza. Un ricordo raramente sopravvive come registrazione neutrale. Piu spesso restano un'atmosfera, un dettaglio sonoro, un odore improvviso o una luce particolare; soltanto dopo nasce una storia capace di dare ordine a quei frammenti. [[slnc 1000]] Da un lato questo processo sembra fragile, poiche espone il passato a omissioni, slittamenti e accenti emotivi. Dall'altro lato proprio tale fragilita rende la memoria profondamente umana. Un viaggio d'infanzia, per esempio, puo continuare dentro di noi come il finestrino di un treno, il rumore di una stazione o la mano di una persona amata, ancora oggi associata a una forma di protezione. Cio nonostante non parlerei di inganno. La memoria non funziona come un archivio freddo; assomiglia piuttosto a un laboratorio interiore in cui il vissuto viene ridotto, riordinato e interpretato. [[slnc 1000]] Se ogni esperienza restasse immutata, l'identita personale diventerebbe quasi ingestibile, perche mancherebbe una gerarchia affettiva capace di distinguere l'essenziale dal rumore di fondo. Qui interviene l'immaginazione, senza cui il ricordo resterebbe incompleto. L'immaginazione non cancella il passato; lo rende leggibile, collega le lacune e propone connessioni plausibili. Pertanto la verita di un ricordo non coincide sempre con l'esattezza documentaria. Un episodio puo risultare parziale e tuttavia rivelare molto su desideri, paure e valori. Penso soprattutto ai racconti familiari, in cui una stessa scena cambia tono a seconda della voce narrante. In quel passaggio emergono non solo i fatti, ma anche la posizione morale di chi ricorda. Qualora ignorassimo questa dimensione interpretativa, ridurremmo la memoria a un elenco sterile. In definitiva il ricordo vale proprio per la sua forma imperfetta: non ripete il passato, ma lo trasforma in significato condivisibile e duraturo.",
+      "render_overrides": {
+        "rate_wpm": 134
+      },
+      "source_type": "synthetic_seed",
+      "active": true,
+      "tags": ["c2", "memory", "baseline"],
+      "notes": "C2 abstract-reasoning seed with controlled discourse markers and high lexical density."
+    }
+  ]
+}

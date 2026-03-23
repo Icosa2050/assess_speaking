@@ -18,34 +18,40 @@ from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
-from asr import transcribe as _transcribe
-from assessment_prompts import (
+from assess_core.language_profiles import default_language_profile_key, resolve_language_profile
+from assess_core.schemas import AssessmentReport, REPORT_SCHEMA_VERSION, RubricResult, SchemaValidationError
+from assess_core.settings import Settings
+from app_shell.runtime_providers import default_base_url, normalize_provider, resolved_base_url
+from scripts.progress_dashboard import infer_learning_language
+from assessment_runtime.asr import transcribe as _transcribe
+from assessment_runtime.assessment_prompts import (
     COACHING_PROMPT_VERSION,
     PROMPT_VERSION,
     RUBRIC_PROMPT_VERSION,
+    coaching_prompt,
     coaching_prompt_it,
+    rubric_prompt,
     rubric_prompt_it as _rubric_prompt_it,
     selftest_prompt_it,
 )
-from audio_features import load_audio_features as _load_audio_features
-from feedback import build_fallback_coaching, generate_feedback
-from llm_client import (
+from assessment_runtime.audio_features import load_audio_features as _load_audio_features
+from assessment_runtime.dimension_scoring import aggregate_dimension_scores, score_dimensions
+from assessment_runtime.feedback import build_fallback_coaching, generate_feedback
+from assessment_runtime.llm_client import (
     LLMClientError,
     extract_json_object as _extract_json_object,
     generate_coaching_summary,
     generate_rubric,
     list_ollama_models as _list_ollama_models,
 )
-from lms import (
+from assessment_runtime.lms import (
     build_canvas_submission_data,
     build_moodle_submission_data,
     upload_to_canvas,
     upload_to_moodle,
 )
-from metrics import metrics_from as _metrics_from
-from schemas import AssessmentReport, REPORT_SCHEMA_VERSION, RubricResult, SchemaValidationError
-from scoring import compute_checks, deterministic_score, final_scores, rubric_score
-from settings import Settings
+from assessment_runtime.metrics import metrics_from as _metrics_from
+from assessment_runtime.scoring import compute_checks, deterministic_score, final_scores, rubric_score
 
 # Heuristic CEFR baselines derived from the Council of Europe's global scale and
 # EF SET can-do descriptions, with speaking-rate expectations anchored to the
@@ -90,6 +96,7 @@ HISTORY_FIELDNAMES = [
     "session_id",
     "schema_version",
     "speaker_id",
+    "learning_language",
     "task_family",
     "theme",
     "audio",
@@ -140,8 +147,19 @@ def transcribe(
     )
 
 
-def metrics_from(words: list[dict], audio_feats: dict) -> dict:
-    return _metrics_from(words, audio_feats)
+def metrics_from(
+    words: list[dict],
+    audio_feats: dict,
+    *,
+    language_code: str = "it",
+    language_profile_key: str | None = None,
+) -> dict:
+    return _metrics_from(
+        words,
+        audio_feats,
+        language_code=language_code,
+        language_profile_key=language_profile_key,
+    )
 
 
 def rubric_prompt_it(transcript: str, metrics: dict, theme: str = "tema libero") -> str:
@@ -220,7 +238,12 @@ def append_history(history_path: Path, row: dict) -> None:
                 writer = csv.DictWriter(handle, fieldnames=HISTORY_FIELDNAMES)
                 writer.writeheader()
                 for existing_row in existing_rows:
-                    writer.writerow({key: existing_row.get(key, "") for key in HISTORY_FIELDNAMES})
+                    upgraded_row = {key: existing_row.get(key, "") for key in HISTORY_FIELDNAMES}
+                    if not str(upgraded_row.get("learning_language") or "").strip():
+                        upgraded_row["learning_language"] = infer_learning_language(
+                            str(upgraded_row.get("report_path") or "")
+                        )
+                    writer.writerow(upgraded_row)
 
     exists = history_path.exists()
     with history_path.open("a", newline="", encoding="utf-8") as handle:
@@ -273,6 +296,7 @@ def _split_pipe_categories(value: str) -> list[str]:
 
 def build_progress_delta(history_path: Path, report: dict) -> Optional[dict]:
     speaker_id = str(report.get("input", {}).get("speaker_id") or "").strip()
+    learning_language = str(report.get("input", {}).get("learning_language") or "").strip().lower()
     task_family = str(report.get("input", {}).get("task_family") or "").strip()
     if not speaker_id or not task_family or not history_path.exists():
         return None
@@ -284,6 +308,11 @@ def build_progress_delta(history_path: Path, report: dict) -> Optional[dict]:
             for row in reader
             if row.get("speaker_id", "").strip() == speaker_id
             and row.get("task_family", "").strip() == task_family
+            and (
+                not learning_language
+                or not row.get("learning_language", "").strip()
+                or row.get("learning_language", "").strip().lower() == learning_language
+            )
         ]
 
     if not prior_rows:
@@ -338,6 +367,7 @@ def build_progress_delta(history_path: Path, report: dict) -> Optional[dict]:
     return {
         "comparison_scope": {
             "speaker_id": speaker_id,
+            "learning_language": learning_language,
             "task_family": task_family,
         },
         "previous_session_id": previous.get("session_id", ""),
@@ -405,6 +435,37 @@ def evaluate_baseline(level: Optional[str], metrics: dict) -> Optional[dict]:
     }
 
 
+def _augment_scores_with_language_profile(
+    scores: dict,
+    *,
+    metrics: dict,
+    checks: dict,
+    rubric: RubricResult | None,
+    expected_language: str,
+    language_profile_key: str | None,
+    detected_language_probability: float | None,
+) -> dict:
+    enriched = dict(scores)
+    enriched["scorer_version"] = "legacy_hybrid_v1"
+    profile = resolve_language_profile(expected_language, profile_key=language_profile_key)
+    if profile is None:
+        return enriched
+    dimensions = score_dimensions(
+        metrics=metrics,
+        rubric=rubric,
+        checks=checks,
+        profile=profile,
+        detected_language_probability=detected_language_probability,
+    )
+    cefr_estimate = aggregate_dimension_scores(dimensions, profile=profile)
+    cefr_estimate["language"] = profile.code
+    enriched["language_profile_key"] = language_profile_key or default_language_profile_key(expected_language)
+    enriched["language_profile_version"] = profile.scorer_version
+    enriched["dimensions"] = dimensions
+    enriched["cefr_estimate"] = cefr_estimate
+    return enriched
+
+
 def _infer_provider(
     provider: Optional[str],
     llm_model: Optional[str],
@@ -412,12 +473,12 @@ def _infer_provider(
     settings: Settings,
 ) -> str:
     if provider:
-        return provider
+        return normalize_provider(provider)
     if llm_legacy:
         return "ollama"
     if llm_model:
         return "openrouter" if "/" in llm_model else "ollama"
-    return settings.provider
+    return normalize_provider(settings.provider)
 
 
 def _resolve_model(provider: str, llm_model: Optional[str], llm_legacy: Optional[str], settings: Settings) -> str:
@@ -430,17 +491,34 @@ def _resolve_model(provider: str, llm_model: Optional[str], llm_legacy: Optional
     return settings.ollama_model
 
 
+def _resolve_llm_api_key(provider: str) -> str | None:
+    if os.getenv("LLM_API_KEY"):
+        return os.getenv("LLM_API_KEY")
+    if provider == "openrouter":
+        return os.getenv("OPENROUTER_API_KEY")
+    if provider == "ollama":
+        return os.getenv("OLLAMA_API_KEY")
+    return None
+
+
+def _resolve_llm_base_url(provider: str, override: str | None, settings: Settings) -> str:
+    return resolved_base_url(provider, override or settings.llm_base_url or default_base_url(provider))
+
+
 def selftest(
     model: str | None = None,
     provider: str | None = None,
     timeout_sec: float | None = None,
+    llm_base_url: str | None = None,
 ) -> str:
     settings = Settings.from_env()
     chosen_provider = _infer_provider(provider, model, None, settings)
     chosen_model = model or _resolve_model(chosen_provider, None, None, settings)
+    chosen_base_url = _resolve_llm_base_url(chosen_provider, llm_base_url, settings)
+    api_key = _resolve_llm_api_key(chosen_provider)
     prompt = selftest_prompt_it()
 
-    if chosen_provider == "ollama":
+    if chosen_provider == "ollama" and chosen_base_url == default_base_url("ollama") and not api_key:
         return call_ollama(chosen_model, prompt)
 
     try:
@@ -450,6 +528,10 @@ def selftest(
             prompt=prompt,
             timeout_sec=timeout_sec or settings.llm_timeout_sec,
             openrouter_api_key=os.getenv("OPENROUTER_API_KEY"),
+            base_url=chosen_base_url,
+            api_key=api_key,
+            openrouter_http_referer=os.getenv("OPENROUTER_HTTP_REFERER"),
+            openrouter_app_title=os.getenv("OPENROUTER_APP_TITLE"),
             max_validation_retries=1,
         )
         return json.dumps(rubric.to_dict(), ensure_ascii=False, indent=2)
@@ -518,6 +600,8 @@ def _dry_run_assessment(
     llm_model: str,
     provider: str,
     expected_language: str,
+    language_profile_key: str | None,
+    feedback_language: str,
     theme: str,
     task_family: str,
     speaker_id: Optional[str],
@@ -554,6 +638,16 @@ def _dry_run_assessment(
         topic_pass=checks["topic_pass"],
         topic_fail_cap_score=settings.topic_fail_cap_score,
     )
+    scores = _augment_scores_with_language_profile(
+        scores,
+        metrics=metrics,
+        checks=checks,
+        rubric=None,
+        expected_language=expected_language,
+        language_profile_key=language_profile_key,
+        detected_language_probability=1.0,
+    )
+    profile = resolve_language_profile(expected_language, profile_key=language_profile_key)
     report = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "session_id": str(uuid4()),
@@ -563,6 +657,7 @@ def _dry_run_assessment(
             "llm_model": llm_model,
             "whisper_model": whisper_model,
             "expected_language": expected_language,
+            "feedback_language": feedback_language,
             "detected_language": expected_language,
             "detected_language_probability": 1.0,
             "theme": theme,
@@ -576,6 +671,10 @@ def _dry_run_assessment(
             "transcription_caveat": TRANSCRIPTION_CAVEAT,
             "dry_run": True,
             "audio_path": str(audio),
+            "scoring_model_version": "legacy_hybrid_v1",
+            "language_profile": profile.code if profile is not None else None,
+            "language_profile_key": language_profile_key,
+            "language_profile_version": profile.scorer_version if profile is not None else None,
         },
         "metrics": metrics,
         "checks": checks,
@@ -590,6 +689,8 @@ def _dry_run_assessment(
             checks=checks,
             theme=theme,
             target_duration_sec=target_duration_sec,
+            ui_locale=feedback_language,
+            learning_language=expected_language,
         ),
         "timings_ms": {"audio_features": 0.0, "asr": 0.0, "llm": 0.0},
     }
@@ -620,8 +721,11 @@ def run_assessment(
     speaker_id: Optional[str] = None,
     target_duration_sec: float = 120.0,
     expected_language: Optional[str] = None,
+    language_profile_key: Optional[str] = None,
+    feedback_language: Optional[str] = None,
     min_word_count: Optional[int] = None,
     llm_timeout_sec: Optional[float] = None,
+    llm_base_url: Optional[str] = None,
     asr_compute_type: Optional[str] = None,
     asr_fallback_compute_type: Optional[str] = None,
     pause_threshold_offset_db: Optional[float] = None,
@@ -631,10 +735,18 @@ def run_assessment(
     chosen_provider = _infer_provider(provider, llm_model, None, settings)
     chosen_model = _resolve_model(chosen_provider, llm_model, None, settings)
     chosen_language = expected_language or settings.expected_language
+    chosen_profile_key = (
+        str(language_profile_key).strip().lower()
+        if language_profile_key is not None and str(language_profile_key).strip()
+        else default_language_profile_key(chosen_language)
+    )
+    chosen_feedback_language = feedback_language or chosen_language
     chosen_task_family = task_family or settings.task_family
     chosen_speaker_id = speaker_id or settings.speaker_id
     chosen_min_words = min_word_count if min_word_count is not None else settings.min_word_count
     chosen_llm_timeout = llm_timeout_sec if llm_timeout_sec is not None else settings.llm_timeout_sec
+    chosen_llm_base_url = _resolve_llm_base_url(chosen_provider, llm_base_url, settings)
+    chosen_llm_api_key = _resolve_llm_api_key(chosen_provider)
     chosen_asr_compute_type = asr_compute_type or settings.asr_compute_type
     chosen_asr_fallback = (
         settings.asr_fallback_compute_type
@@ -654,6 +766,8 @@ def run_assessment(
             llm_model=chosen_model,
             provider=chosen_provider,
             expected_language=chosen_language,
+            language_profile_key=chosen_profile_key,
+            feedback_language=chosen_feedback_language,
             theme=theme,
             task_family=chosen_task_family,
             speaker_id=chosen_speaker_id,
@@ -690,7 +804,12 @@ def run_assessment(
         )
         timings_ms["asr"] = _elapsed_ms(stage_start)
 
-        metrics = metrics_from(asr_result["words"], audio_feats)
+        metrics = metrics_from(
+            asr_result["words"],
+            audio_feats,
+            language_code=chosen_language,
+            language_profile_key=chosen_profile_key,
+        )
         baseline = evaluate_baseline(target_cefr, metrics) if target_cefr else None
         transcript = asr_result["text"]
         detected_language = str(asr_result.get("detected_language") or chosen_language)
@@ -706,10 +825,16 @@ def run_assessment(
             warnings.append("llm_skipped_low_word_count")
             timings_ms["llm"] = 0.0
         else:
-            prompt = rubric_prompt_it(transcript, metrics, theme)
+            prompt = rubric_prompt(
+                transcript,
+                metrics,
+                theme,
+                expected_language=chosen_language,
+                feedback_language=chosen_feedback_language,
+            )
             stage_start = time.perf_counter()
             try:
-                if chosen_provider == "ollama":
+                if chosen_provider == "ollama" and chosen_llm_base_url == default_base_url("ollama") and not chosen_llm_api_key:
                     llm_raw = call_ollama(chosen_model, prompt)
                     rubric_obj = _validate_rubric_payload(extract_rubric_json(llm_raw))
                     if rubric_obj is None:
@@ -722,6 +847,10 @@ def run_assessment(
                         prompt=prompt,
                         timeout_sec=chosen_llm_timeout,
                         openrouter_api_key=os.getenv("OPENROUTER_API_KEY"),
+                        base_url=chosen_llm_base_url,
+                        api_key=chosen_llm_api_key,
+                        openrouter_http_referer=os.getenv("OPENROUTER_HTTP_REFERER"),
+                        openrouter_app_title=os.getenv("OPENROUTER_APP_TITLE"),
                         max_validation_retries=1,
                     )
             except LLMClientError as exc:
@@ -734,20 +863,26 @@ def run_assessment(
             llm_raw = json.dumps({"error": "llm_skipped"})
 
         if rubric_obj is not None:
-            coaching_prompt = coaching_prompt_it(
+            coaching_prompt_text = coaching_prompt(
                 metrics=metrics,
                 rubric=rubric_obj.to_dict(),
                 theme=theme,
                 target_duration_sec=target_duration_sec,
+                expected_language=chosen_language,
+                feedback_language=chosen_feedback_language,
             )
             stage_start = time.perf_counter()
             try:
                 coaching_obj, _coaching_raw = generate_coaching_summary(
                     provider=chosen_provider,
                     model=chosen_model,
-                    prompt=coaching_prompt,
+                    prompt=coaching_prompt_text,
                     timeout_sec=chosen_llm_timeout,
                     openrouter_api_key=os.getenv("OPENROUTER_API_KEY"),
+                    base_url=chosen_llm_base_url,
+                    api_key=chosen_llm_api_key,
+                    openrouter_http_referer=os.getenv("OPENROUTER_HTTP_REFERER"),
+                    openrouter_app_title=os.getenv("OPENROUTER_APP_TITLE"),
                     max_validation_retries=1,
                 )
             except LLMClientError as exc:
@@ -782,6 +917,16 @@ def run_assessment(
             topic_pass=checks["topic_pass"],
             topic_fail_cap_score=settings.topic_fail_cap_score,
         )
+        scores = _augment_scores_with_language_profile(
+            scores,
+            metrics=metrics,
+            checks=checks,
+            rubric=rubric_obj,
+            expected_language=chosen_language,
+            language_profile_key=chosen_profile_key,
+            detected_language_probability=language_probability if isinstance(language_probability, (int, float)) else None,
+        )
+        profile = resolve_language_profile(chosen_language, profile_key=chosen_profile_key)
         requires_human_review = llm_score is None or not language_pass
         if coaching_obj is None:
             coaching_obj = build_fallback_coaching(
@@ -789,6 +934,8 @@ def run_assessment(
                 checks=checks,
                 theme=theme,
                 target_duration_sec=target_duration_sec,
+                ui_locale=chosen_feedback_language,
+                learning_language=chosen_language,
             )
 
         report = {
@@ -800,6 +947,7 @@ def run_assessment(
                 "llm_model": chosen_model,
                 "whisper_model": whisper_model,
                 "expected_language": chosen_language,
+                "feedback_language": chosen_feedback_language,
                 "detected_language": detected_language,
                 "detected_language_probability": language_probability,
                 "theme": theme,
@@ -816,6 +964,10 @@ def run_assessment(
                 "asr_compute_type_used": asr_result.get("compute_type_used", chosen_asr_compute_type),
                 "asr_compute_fallback_used": bool(asr_result.get("compute_fallback_used", False)),
                 "pause_threshold_offset_db": chosen_pause_threshold,
+                "scoring_model_version": "legacy_hybrid_v1",
+                "language_profile": profile.code if profile is not None else None,
+                "language_profile_key": chosen_profile_key,
+                "language_profile_version": profile.scorer_version if profile is not None else None,
             },
             "metrics": metrics,
             "checks": checks,
@@ -940,10 +1092,13 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("audio", nargs="?", type=Path, help="Pfad zu WAV/MP3/M4A/...")
     ap.add_argument("--whisper", default="large-v3", help="faster-whisper Modell")
-    ap.add_argument("--provider", choices=["openrouter", "ollama"], help="LLM provider")
+    ap.add_argument("--provider", choices=["openrouter", "ollama", "lmstudio", "openai_compatible"], help="LLM provider")
     ap.add_argument("--llm-model", help="LLM model name for the selected provider")
+    ap.add_argument("--llm-base-url", help="Override base URL for the selected provider")
     ap.add_argument("--llm", help="Legacy alias for local Ollama model selection")
     ap.add_argument("--expected-language", default=settings.expected_language, help="Erwarteter Sprachcode")
+    ap.add_argument("--language-profile-key", help="Optionaler Schlüssel für ein bestimmtes Sprachprofil")
+    ap.add_argument("--feedback-language", help="Sprachcode fuer Coaching- und Kommentartexte")
     ap.add_argument("--theme", default="tema libero", help="Thema der Sprechaufgabe")
     ap.add_argument("--task-family", default=settings.task_family, help="Familie der Sprechaufgabe für Verlaufsauswertungen")
     ap.add_argument("--speaker-id", default=settings.speaker_id, help="Optionale ID der sprechenden Person")
@@ -985,7 +1140,7 @@ def main() -> None:
         return
 
     if args.selftest:
-        print(selftest(model=chosen_model, provider=chosen_provider, timeout_sec=args.llm_timeout))
+        print(selftest(model=chosen_model, provider=chosen_provider, timeout_sec=args.llm_timeout, llm_base_url=args.llm_base_url))
         return
 
     if not args.audio:
@@ -1008,8 +1163,11 @@ def main() -> None:
         speaker_id=args.speaker_id,
         target_duration_sec=args.target_duration_sec,
         expected_language=args.expected_language,
+        language_profile_key=args.language_profile_key,
+        feedback_language=args.feedback_language,
         min_word_count=args.min_word_count,
         llm_timeout_sec=args.llm_timeout,
+        llm_base_url=args.llm_base_url,
         asr_compute_type=args.asr_compute_type,
         asr_fallback_compute_type=args.asr_fallback_compute_type,
         pause_threshold_offset_db=args.pause_threshold_offset_db,
@@ -1036,6 +1194,7 @@ def main() -> None:
         "task_family": args.task_family,
         "speaker_id": args.speaker_id or "",
         "target_duration_sec": args.target_duration_sec,
+        "feedback_language": args.feedback_language or args.expected_language,
     }
     if args.label:
         meta["label"] = args.label
@@ -1130,6 +1289,7 @@ def main() -> None:
                 "session_id": report.get("session_id", ""),
                 "schema_version": report.get("schema_version", ""),
                 "speaker_id": report.get("input", {}).get("speaker_id", args.speaker_id or ""),
+                "learning_language": report.get("input", {}).get("learning_language", args.expected_language),
                 "task_family": report.get("input", {}).get("task_family", args.task_family),
                 "theme": report.get("input", {}).get("theme", args.theme),
                 "audio": args.audio.name,

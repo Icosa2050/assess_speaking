@@ -1,4 +1,5 @@
 import os
+import socket
 import shutil
 import subprocess
 import sys
@@ -6,10 +7,41 @@ import time
 from pathlib import Path
 
 import pytest
-import requests
 
-STREAMLIT_PORT = 8502
+DEFAULT_STREAMLIT_PORT = 8502
+
+
+def _pick_free_port(preferred: int = DEFAULT_STREAMLIT_PORT) -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if sock.connect_ex(("127.0.0.1", preferred)) != 0:
+            return preferred
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _wait_for_port(host: str, port: int, *, timeout: float) -> None:
+    deadline = time.time() + timeout
+    last_err = None
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=1):
+                return
+        except OSError as exc:
+            last_err = exc
+            time.sleep(0.5)
+    raise RuntimeError(f"Streamlit port {host}:{port} did not become reachable within {timeout:.0f}s: {last_err}")
+
+
+STREAMLIT_PORT = _pick_free_port(DEFAULT_STREAMLIT_PORT)
+REAL_STREAMLIT_PORT = _pick_free_port(STREAMLIT_PORT + 1)
+APP_SHELL_PORT = _pick_free_port(REAL_STREAMLIT_PORT + 1)
+APP_SHELL_REAL_PORT = _pick_free_port(APP_SHELL_PORT + 1)
 BASE_URL = f"http://127.0.0.1:{STREAMLIT_PORT}"
+REAL_BASE_URL = f"http://127.0.0.1:{REAL_STREAMLIT_PORT}"
+APP_SHELL_BASE_URL = f"http://127.0.0.1:{APP_SHELL_PORT}"
+APP_SHELL_REAL_BASE_URL = f"http://127.0.0.1:{APP_SHELL_REAL_PORT}"
 
 
 @pytest.fixture(scope="session")
@@ -44,7 +76,7 @@ def prepare_reports(project_root: Path):
     yield
 
 
-def _start_streamlit_server(project_root: Path, *, dry_run: bool):
+def _start_streamlit_server(project_root: Path, *, dry_run: bool, port: int, entrypoint: Path):
     env = os.environ.copy()
     env.setdefault("PYTHONPATH", str(project_root))
     if dry_run:
@@ -58,9 +90,9 @@ def _start_streamlit_server(project_root: Path, *, dry_run: bool):
                      "-m",
                      "streamlit",
                      "run",
-                     str(project_root / "scripts" / "interactive_dashboard.py"),
+                     str(entrypoint),
                      "--server.headless=true",
-                     f"--server.port={STREAMLIT_PORT}",
+                     f"--server.port={port}",
                      "--server.address=127.0.0.1"]
 
     proc = subprocess.Popen(
@@ -72,31 +104,33 @@ def _start_streamlit_server(project_root: Path, *, dry_run: bool):
         text=True,
     )
 
-    health_url = f"{BASE_URL}/_stcore/health"
     deadline = time.time() + 60
-    last_err = None
     while time.time() < deadline:
         if proc.poll() is not None:
             stdout, stderr = proc.communicate(timeout=1)
             raise RuntimeError(f"Streamlit failed to start.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}")
         try:
-            resp = requests.get(health_url, timeout=1)
-            if resp.status_code == 200:
-                break
-        except requests.RequestException as exc:
-            last_err = exc
-        time.sleep(0.5)
+            _wait_for_port("127.0.0.1", port, timeout=2)
+            break
+        except RuntimeError:
+            time.sleep(0.5)
     else:
         proc.terminate()
         proc.wait(timeout=5)
-        raise RuntimeError(f"Streamlit health check failed: {last_err}")
+        stdout, stderr = proc.communicate(timeout=1)
+        raise RuntimeError(f"Streamlit health check failed.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}")
 
     return proc
 
 
 @pytest.fixture(scope="session")
 def streamlit_server(project_root: Path):
-    proc = _start_streamlit_server(project_root, dry_run=True)
+    proc = _start_streamlit_server(
+        project_root,
+        dry_run=True,
+        port=STREAMLIT_PORT,
+        entrypoint=project_root / "scripts" / "interactive_dashboard.py",
+    )
 
     yield BASE_URL
 
@@ -109,9 +143,14 @@ def streamlit_server(project_root: Path):
 
 @pytest.fixture(scope="session")
 def streamlit_real_server(project_root: Path):
-    proc = _start_streamlit_server(project_root, dry_run=False)
+    proc = _start_streamlit_server(
+        project_root,
+        dry_run=False,
+        port=REAL_STREAMLIT_PORT,
+        entrypoint=project_root / "scripts" / "interactive_dashboard.py",
+    )
 
-    yield BASE_URL
+    yield REAL_BASE_URL
 
     proc.terminate()
     try:
@@ -123,3 +162,39 @@ def streamlit_real_server(project_root: Path):
 @pytest.fixture(scope="session")
 def base_url() -> str:
     return BASE_URL
+
+
+@pytest.fixture(scope="session")
+def app_shell_server(project_root: Path):
+    proc = _start_streamlit_server(
+        project_root,
+        dry_run=True,
+        port=APP_SHELL_PORT,
+        entrypoint=project_root / "streamlit_app.py",
+    )
+
+    yield APP_SHELL_BASE_URL
+
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+@pytest.fixture(scope="session")
+def app_shell_real_server(project_root: Path):
+    proc = _start_streamlit_server(
+        project_root,
+        dry_run=False,
+        port=APP_SHELL_REAL_PORT,
+        entrypoint=project_root / "streamlit_app.py",
+    )
+
+    yield APP_SHELL_REAL_BASE_URL
+
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()

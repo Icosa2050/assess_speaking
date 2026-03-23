@@ -1,0 +1,42 @@
+{
+  "manifest_id": "italian_real_audio_shadow_v1",
+  "language_code": "it",
+  "language_profile_key": "it_live_shadow",
+  "task_family": "real_audio_grading_compare",
+  "version": "calibration_manifest_it_v1",
+  "active": true,
+  "tags": ["italian", "real-audio", "shadow", "ordering"],
+  "notes": "Initial Italian real-audio shadow set. CEFR labels are intentionally omitted until human ratings are available.",
+  "cases": [
+    {
+      "case_id": "it_real_audio_candidate_1",
+      "audio_path": "../../audio/test1.m4a",
+      "expected_language": "it",
+      "theme": "tema libero",
+      "speaker_id": "it-shadow-1",
+      "target_duration_sec": 30.0,
+      "active": true,
+      "tags": ["baseline", "shadow"],
+      "notes": "First Italian real-audio sample used in existing ranking tests."
+    },
+    {
+      "case_id": "it_real_audio_candidate_2",
+      "audio_path": "../../audio/test2.m4a",
+      "expected_language": "it",
+      "theme": "tema libero",
+      "speaker_id": "it-shadow-2",
+      "target_duration_sec": 30.0,
+      "active": true,
+      "tags": ["stronger-sample", "shadow"],
+      "notes": "Second Italian real-audio sample that should outrank the first."
+    }
+  ],
+  "pair_expectations": [
+    {
+      "higher_case_id": "it_real_audio_candidate_2",
+      "lower_case_id": "it_real_audio_candidate_1",
+      "active": true,
+      "notes": "Existing real-audio regression expects the second Italian sample to outrank the first."
+    }
+  ]
+}

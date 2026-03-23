@@ -49,6 +49,9 @@ requirements inside `.venv`, leaving the global Python untouched. PyPI provides
 macOS wheels for `av`, `ctranslate2`, `onnxruntime`, `praat-parselmouth`, and
 `rapidfuzz` on Python 3.13 (verified on macOS 15/Sequoia, Oct 2025).
 
+If you do not want to activate the venv manually, use the repo-local launcher:
+`./scripts/python.sh ...`
+
 ## 2) Test audio without a microphone
 ```bash
 ./scripts/generate_sample.sh         # creates samples/italian_demo.wav
@@ -112,11 +115,16 @@ The CLI dashboard renders the history table (via `rich`) and can export an HTML
 snapshot. It also supports speaker and task-family filters so progress on
 `travel_narrative` is not mixed with unrelated speaking tasks.
 
-### Interactive analysis (Streamlit)
-Launch the Streamlit app for uploads, re-runs, and charts:
+### Legacy interactive dashboard (compatibility surface)
+Launch the older all-in-one Streamlit dashboard for uploads, re-runs, and charts:
 ```bash
 streamlit run scripts/interactive_dashboard.py -- --log-dir reports
 ```
+
+This dashboard is still supported as a compatibility surface, but it is no
+longer the primary UX for the app. New product work should target the multipage
+shell instead. The old dashboard remains useful while migration and archive work
+are in progress.
 
 Simpler launcher from the current worktree:
 ```bash
@@ -129,11 +137,29 @@ The launcher sets `PYTHONPATH` to the current worktree automatically, so it is
 the easiest way to run the dashboard from a feature worktree or a terminal
 opened by Codex.app.
 
-In the browser you can upload new audio or reuse existing files, add labels,
-trigger assessments, and inspect metrics/rubrics over time. The trend tab now
-supports speaker/task-family filtering plus recurring-issue charts, so
+In the browser you can still upload new audio or reuse existing files, add
+labels, trigger assessments, and inspect metrics/rubrics over time. The trend
+tab supports speaker/task-family filtering plus recurring-issue charts, so
 `travel_narrative` progress can be reviewed independently from other task
 families. Results continue to accumulate in `reports/`.
+
+### Primary multipage app shell
+
+The primary product-facing UI is now the multipage app shell:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+It introduces separate `Home`, `Runtime Setup`, `Session Setup`, `Speak`,
+`Review`, `History`, `Library`, `Settings`, and `Scoring Guide` screens with
+shared session, runtime, and i18n helpers.
+
+Current shell/deprecation status is documented in:
+
+- `docs/MULTIPAGE_APP_SHELL_PLAN.md`
+- `docs/RUNTIME_SETUP_ROLLOUT.md`
+- `docs/CURRENT_APP_SURFACE_AND_DEPRECATION.md`
 
 ### Prompt trainer with CEFR baselines
 - `prompts/prompts.json` contains sample prompts (B1/B2/C1) plus matching audio
@@ -180,11 +206,11 @@ is stored in Redis hashes. In-flight Redis jobs are re-queued on service start
 so a restart does not silently drop work that was already dequeued.
 
 ### Tests & CI
-- **Unit tests**: `python -m unittest discover -s tests`
+- **Unit tests**: `./scripts/run_tests.sh`
 - **OpenRouter integration (opt-in)**:
-  `RUN_OPENROUTER_INTEGRATION=1 python -m unittest tests.test_integration_openrouter -v`
+  `RUN_OPENROUTER_INTEGRATION=1 ./scripts/python.sh -m unittest tests.test_integration_openrouter -v`
 - **Optional sample-audio integration test (no microphone required)**:
-  `RUN_AUDIO_INTEGRATION=1 WHISPER_MODEL=tiny python -m unittest tests.test_sample_integration`
+  `RUN_AUDIO_INTEGRATION=1 WHISPER_MODEL=tiny ./scripts/python.sh -m unittest tests.test_sample_integration`
 - **Self-hosted real-ASR lane**:
   `.github/workflows/real-asr-selfhosted.yml` runs the sample-audio integration on a
   self-hosted Apple Silicon runner with labels `self-hosted`, `macOS`, `ARM64`,
@@ -195,11 +221,53 @@ so a restart does not silently drop work that was already dequeued.
   opt-in and does not slow down or destabilize the default hosted PR checks.
   Each run uploads an artifact bundle with the sample integration log, CLI output,
   saved report JSON/history, and a cache/runner metadata snapshot.
-- **End-to-end tests (Playwright + pytest)**: `pytest tests/e2e`
+- **End-to-end tests (Playwright + pytest)**: `./scripts/run_e2e.sh`
   * Traces, videos, and screenshots are saved automatically on failure in
     `test-results/` and `playwright-report/` (see
     [Playwright Test](https://playwright.dev/docs/intro) and
     [pytest-playwright](https://playwright.dev/python/docs/intro)).
+  * The wrapper always uses the repo-local virtualenv and the Playwright-only
+    pytest config, so plain `pytest` no longer depends on Playwright plugins
+    being installed globally.
+- **Interactive research browser (Playwright CLI + dedicated Chrome profile)**:
+  use `./scripts/playwright_research.sh open 'https://example.com'` for a stable,
+  Playwright-owned Chrome profile under `.playwright/profiles/research`. Reuse it
+  with `./scripts/playwright_research.sh snapshot`, `click`, `type`, and `run-code`.
+  For CELI specifically, `./scripts/playwright_celi.sh open 'https://apps.unistrapg.it/cqpweb/celi/'`
+  uses a separate dedicated profile under `.playwright/profiles/celi` so corpus
+  logins do not mix with general research state. Quote URLs that contain `?`,
+  and run commands sequentially (`open`, then `snapshot`, then `click`, etc.)
+  rather than in parallel so the session has time to settle after navigation.
+  To fully reset a profile, close the browser session and remove the matching
+  directory under `.playwright/profiles/`.
+- **CELI harvesting CLI**: after logging into CELI once with
+  `./scripts/playwright_celi.sh`, use
+  `./scripts/python.sh scripts/harvest_celi_queries.py matrix --terms casa,scuola,lavoro --levels B1,B2,C1,C2 --output tmp/celi_harvest/query_matrix.json`
+  for query matrices,
+  `./scripts/python.sh scripts/harvest_celi_queries.py frequency --term casa`
+  for the frequency-breakdown page, and
+  `./scripts/python.sh scripts/harvest_celi_queries.py export --term casa --level C2`
+  for a metadata-rich concordance export. These commands reuse the dedicated
+  Playwright CELI profile and write snapshots/downloads under `tmp/celi_harvest`
+  plus `output/playwright/celi/`. For the checked-in Italian benchmark wordlist,
+  run
+  `./scripts/python.sh scripts/harvest_celi_queries.py manifest --manifest tests/fixtures/celi_wordlists/italian_core_benchmark_v1.json --output-dir tmp/celi_harvest`
+  to produce a stable bundle with `bundle.json`, `query_matrix.tsv`, and
+  `frequency_breakdowns.tsv`. Then rank terms by CEFR skew with
+  `./scripts/python.sh scripts/harvest_celi_queries.py analyze --bundle tmp/celi_harvest/italian_celi_core_benchmark_v1/bundle.json`,
+  which writes `skew_analysis.json` and `skew_ranking.tsv`.
+- **LIPS spoken-corpus pipeline**: build the phase-1 included/excluded artifacts with
+  `./scripts/python.sh scripts/build_lips_manifest.py '/tmp/Corpus LIPS/Corpus LIPS' --output-dir tmp/lips_manifest_real`
+  and validate the resulting JSONL bundle with
+  `./scripts/python.sh scripts/validate_lips_manifest.py tmp/lips_manifest_real`.
+  The build writes `lips_sections_included.jsonl`, `lips_sections_excluded.jsonl`,
+  `lips_build_report.json`, and `lips_review_sample.jsonl`. Strict validation is
+  designed to block sign-off until a completed manual review file is supplied.
+- **LIPS review support**: generate a fresh included/excluded review packet with
+  `./scripts/python.sh scripts/review_lips_manifest.py prepare tmp/lips_manifest_real --included-sample-size 20 --excluded-sample-size 20`
+  and summarize completed review files with
+  `./scripts/python.sh scripts/review_lips_manifest.py summarize --included-review tmp/lips_manifest_real/lips_review_sample.jsonl --excluded-review tmp/lips_manifest_real/lips_excluded_audit_sample.jsonl`.
+  This keeps the review loop low-fi and file-based: JSONL in, JSON summary out.
 - GitHub Actions workflow (`.github/workflows/ci.yml`) runs both suites and
   installs the Chromium browser via `playwright install --with-deps chromium`.
 

@@ -1,6 +1,6 @@
 import unittest
 
-from schemas import AssessmentReport, RubricResult, SchemaValidationError
+from assess_core.schemas import AssessmentReport, RubricResult, SchemaValidationError
 
 
 def _rubric_data() -> dict:
@@ -141,6 +141,14 @@ class AssessmentSchemaTests(unittest.TestCase):
         self.assertFalse(report.requires_human_review)
         self.assertEqual(report.schema_version, 2)
         self.assertEqual(report.session_id, "sess-123")
+
+    def test_report_preserves_extra_score_metadata(self):
+        data = _report_data()
+        data["scores"]["language_profile_version"] = "language_profile_en_v2"
+        data["scores"]["cefr_estimate"] = {"level": "B2", "calibrated": False}
+        report = AssessmentReport.from_dict(data)
+        self.assertEqual(report.scores["language_profile_version"], "language_profile_en_v2")
+        self.assertEqual(report.scores["cefr_estimate"]["level"], "B2")
 
     def test_report_rejects_invalid_requires_human_review(self):
         data = _report_data()

@@ -1,0 +1,11 @@
+Data esame: 01/01/2001
+Sede: Perugia
+Numero di matricola: 10001
+Livello: A1
+Trascrittore: Test
+
+
+SE1: parla della tua famiglia (Prova n.1) M
+
+E: parla della tua famiglia
+C: la mia famiglia e piccola. vivo con mia madre e mio fratello. la sera mangiamo insieme e parliamo della scuola e del lavoro.

@@ -1,0 +1,188 @@
+{
+  "suite_id": "english_monologue_quality_gates_v1",
+  "language_code": "en",
+  "language_profile_key": "en",
+  "task_family": "opinion_monologue",
+  "suite_type": "quality_gates",
+  "scorer_version": "language_profile_en_v2",
+  "active": true,
+  "tags": ["english", "monologue", "quality-gates"],
+  "notes": "Synthetic English suite for targeted penalties and gate-sensitive behaviors.",
+  "llm_contract": {
+    "rubric_prompt_version": "rubric_multilingual_v1",
+    "coaching_prompt_version": "coaching_multilingual_v1",
+    "response_parser": "extract_json_object",
+    "rubric_schema": "RubricResult",
+    "notes": "Same response contract as progression suite; used to watch gate-sensitive scorer drift."
+  },
+  "cases": [
+    {
+      "case_id": "en_off_topic_fluent",
+      "target_level": "B2",
+      "active": true,
+      "tags": ["off-topic", "quality-gates"],
+      "notes": "Fluent production should still be penalized sharply for coherence and task fulfillment when it misses the task.",
+      "detected_language_probability": 0.98,
+      "metrics": {
+        "duration_sec": 110.0,
+        "pause_total_sec": 4.0,
+        "word_count": 180,
+        "wpm": 102.0,
+        "fillers": 2,
+        "cohesion_markers": 1,
+        "complexity_index": 2
+      },
+      "checks": {
+        "duration_pass": true,
+        "topic_pass": false,
+        "min_words_pass": true,
+        "language_pass": true,
+        "asr_pause_consistent": true
+      },
+      "rubric": {
+        "fluency": 4,
+        "cohesion": 2,
+        "accuracy": 4,
+        "range": 4,
+        "overall": 2,
+        "comments_fluency": "Synthetic off-topic case",
+        "comments_cohesion": "Synthetic off-topic case",
+        "comments_accuracy": "Synthetic off-topic case",
+        "comments_range": "Synthetic off-topic case",
+        "overall_comment": "Synthetic off-topic case",
+        "on_topic": false,
+        "topic_relevance_score": 1,
+        "language_ok": true,
+        "recurring_grammar_errors": [],
+        "coherence_issues": [],
+        "lexical_gaps": [],
+        "evidence_quotes": [],
+        "confidence": "high"
+      },
+      "expected": {
+        "cefr_level": "B1",
+        "continuous_range": [3.55, 3.75],
+        "dimension_ranges": {
+          "fluency": [3.7, 3.95],
+          "pronunciation_intelligibility": [4.8, 5.0],
+          "grammar": [3.85, 4.05],
+          "lexicon": [4.0, 4.2],
+          "coherence": [1.75, 2.0],
+          "task_fulfillment": [2.9, 3.1]
+        }
+      }
+    },
+    {
+      "case_id": "en_language_mismatch",
+      "target_level": "B2",
+      "active": true,
+      "tags": ["language-mismatch", "quality-gates"],
+      "notes": "Language mismatch should drive intelligibility down even when the rest of the transcript looks structured.",
+      "detected_language_probability": 0.98,
+      "metrics": {
+        "duration_sec": 115.0,
+        "pause_total_sec": 5.0,
+        "word_count": 175,
+        "wpm": 95.0,
+        "fillers": 2,
+        "cohesion_markers": 2,
+        "complexity_index": 2
+      },
+      "checks": {
+        "duration_pass": true,
+        "topic_pass": true,
+        "min_words_pass": true,
+        "language_pass": false,
+        "asr_pause_consistent": true
+      },
+      "rubric": {
+        "fluency": 4,
+        "cohesion": 4,
+        "accuracy": 3,
+        "range": 3,
+        "overall": 2,
+        "comments_fluency": "Synthetic language mismatch case",
+        "comments_cohesion": "Synthetic language mismatch case",
+        "comments_accuracy": "Synthetic language mismatch case",
+        "comments_range": "Synthetic language mismatch case",
+        "overall_comment": "Synthetic language mismatch case",
+        "on_topic": true,
+        "topic_relevance_score": 4,
+        "language_ok": false,
+        "recurring_grammar_errors": [],
+        "coherence_issues": [],
+        "lexical_gaps": [],
+        "evidence_quotes": [],
+        "confidence": "high"
+      },
+      "expected": {
+        "cefr_level": "B1",
+        "continuous_range": [3.35, 3.6],
+        "dimension_ranges": {
+          "fluency": [3.55, 3.8],
+          "pronunciation_intelligibility": [1.9, 2.05],
+          "grammar": [3.0, 3.2],
+          "lexicon": [3.15, 3.35],
+          "coherence": [3.8, 4.0],
+          "task_fulfillment": [4.9, 5.0]
+        }
+      }
+    },
+    {
+      "case_id": "en_underdeveloped_short_response",
+      "target_level": "B1",
+      "active": true,
+      "tags": ["short-response", "quality-gates"],
+      "notes": "Underdeveloped short answer should keep low fluency, grammar, lexicon, and coherence despite staying on topic.",
+      "detected_language_probability": 0.98,
+      "metrics": {
+        "duration_sec": 55.0,
+        "pause_total_sec": 10.0,
+        "word_count": 55,
+        "wpm": 73.3,
+        "fillers": 4,
+        "cohesion_markers": 0,
+        "complexity_index": 0
+      },
+      "checks": {
+        "duration_pass": false,
+        "topic_pass": true,
+        "min_words_pass": false,
+        "language_pass": true,
+        "asr_pause_consistent": true
+      },
+      "rubric": {
+        "fluency": 2,
+        "cohesion": 2,
+        "accuracy": 2,
+        "range": 2,
+        "overall": 2,
+        "comments_fluency": "Synthetic short-response case",
+        "comments_cohesion": "Synthetic short-response case",
+        "comments_accuracy": "Synthetic short-response case",
+        "comments_range": "Synthetic short-response case",
+        "overall_comment": "Synthetic short-response case",
+        "on_topic": true,
+        "topic_relevance_score": 3,
+        "language_ok": true,
+        "recurring_grammar_errors": [],
+        "coherence_issues": [],
+        "lexical_gaps": [],
+        "evidence_quotes": [],
+        "confidence": "high"
+      },
+      "expected": {
+        "cefr_level": "B1",
+        "continuous_range": [2.3, 2.5],
+        "dimension_ranges": {
+          "fluency": [1.75, 1.95],
+          "pronunciation_intelligibility": [4.4, 4.6],
+          "grammar": [1.75, 1.95],
+          "lexicon": [1.95, 2.1],
+          "coherence": [1.85, 2.05],
+          "task_fulfillment": [3.65, 3.85]
+        }
+      }
+    }
+  ]
+}

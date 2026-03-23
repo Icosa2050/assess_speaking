@@ -1,8 +1,8 @@
 import unittest
 from unittest import mock
 
-import llm_client
-from feedback import build_fallback_coaching
+from assessment_runtime import llm_client
+from assessment_runtime.feedback import build_fallback_coaching
 
 
 VALID_COACHING_JSON = """
@@ -33,7 +33,26 @@ class CoachingSummaryTests(unittest.TestCase):
         self.assertEqual(len(coaching["top_3_priorities"]), 3)
         self.assertIn("Il mio ultimo viaggio all'estero", coaching["next_exercise"])
 
-    @mock.patch("llm_client._chat_completion", return_value=VALID_COACHING_JSON)
+    def test_build_fallback_coaching_uses_ui_locale(self):
+        coaching = build_fallback_coaching(
+            metrics={
+                "word_count": 50,
+                "fillers": 6,
+                "cohesion_markers": 0,
+                "wpm": 70,
+                "complexity_index": 0,
+            },
+            checks={"language_pass": False, "topic_pass": True, "duration_pass": False},
+            theme="Remote work",
+            target_duration_sec=180,
+            ui_locale="en",
+            learning_language="it",
+        )
+        self.assertIn("Complete the full task in Italian", coaching["top_3_priorities"][0])
+        self.assertTrue(coaching["coach_summary"].startswith("This is a useful starting point."))
+        self.assertIn("Complete the full task in Italian", coaching["next_exercise"])
+
+    @mock.patch("assessment_runtime.llm_client._chat_completion", return_value=VALID_COACHING_JSON)
     def test_generate_coaching_summary_returns_valid_payload(self, _mock_chat):
         coaching, raw = llm_client.generate_coaching_summary(
             provider="ollama",
@@ -44,7 +63,7 @@ class CoachingSummaryTests(unittest.TestCase):
         self.assertIn("coach_summary", raw)
 
     def test_generate_coaching_summary_retries_then_fails(self):
-        with mock.patch("llm_client._chat_completion", return_value='{"coach_summary":"x"}'):
+        with mock.patch("assessment_runtime.llm_client._chat_completion", return_value='{"coach_summary":"x"}'):
             with self.assertRaises(llm_client.LLMClientError):
                 llm_client.generate_coaching_summary(
                     provider="ollama",
