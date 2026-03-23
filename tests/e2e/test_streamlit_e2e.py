@@ -59,6 +59,13 @@ def open_prompt_trainer(page) -> None:
     prompt_tab.click()
 
 
+def activate_manual_upload_mode(page) -> None:
+    page.get_by_text("Stattdessen eine vorhandene Aufnahme nutzen", exact=True).click()
+    page.get_by_role("button", name="Alternative aktivieren").click()
+    expect(page.get_by_text("Du nutzt gerade eine vorhandene Aufnahme", exact=False)).to_be_visible(timeout=10000)
+    expect(page.locator('[aria-label="Audio-Datei hinzufügen"] input[type="file"]')).to_be_attached(timeout=10000)
+
+
 def test_01_basic_upload_creates_history(page, base_url, samples_dir, reports_dir, streamlit_server):
     page.goto(f"{base_url}/")
     page.wait_for_load_state("networkidle")
@@ -72,16 +79,17 @@ def test_01_basic_upload_creates_history(page, base_url, samples_dir, reports_di
 
     page.get_by_role("textbox", name="Speaker ID").fill("playwright-user")
     theme_input.fill("Il mio ultimo viaggio all'estero")
-    page.get_by_text("Stattdessen eine vorhandene Aufnahme nutzen", exact=True).click()
-    page.get_by_role("button", name="Alternative aktivieren").click()
+    activate_manual_upload_mode(page)
     page.locator('[aria-label="Audio-Datei hinzufügen"] input[type="file"]').set_input_files(
         str(samples_dir / "demo.m4a")
     )
     page.get_by_text("Technik und Notizen", exact=True).click()
     page.get_by_label("Label").fill("playwright-basic")
-    page.get_by_role("button", name="Datei auswerten").click()
+    run_button = page.get_by_role("button", name="Datei auswerten")
+    expect(run_button).to_be_enabled(timeout=10000)
+    run_button.click()
     expect(
-        page.get_by_text(localized_pattern("Nächste Übung für dich", "Next exercise for you", exact=False))
+        page.get_by_text(localized_pattern("Deine Rückmeldung", "Your feedback", exact=False))
     ).to_be_visible(timeout=60000)
 
     rows = read_history(reports_dir)
@@ -112,8 +120,10 @@ def test_02_prompt_file_upload_generates_baseline(page, base_url, samples_dir, r
         str(samples_dir / "demo.m4a")
     )
 
+    open_prompt_trainer(page)
+    expect(page.get_by_text("Letztes Prompt-Ergebnis", exact=True)).to_be_visible(timeout=60000)
     expect(
-        page.get_by_text(localized_pattern("Nächste Übung für dich", "Next exercise for you", exact=False))
+        page.get_by_text(localized_pattern("Deine Rückmeldung", "Your feedback", exact=False))
     ).to_be_visible(timeout=60000)
 
     rows = read_history(reports_dir)

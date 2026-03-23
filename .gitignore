@@ -9,8 +9,7 @@ report.json
 coverage.json
 reports/
 .streamlit/
-.playwright/
-!.playwright/
+.playwright/*
 !.playwright/*.config.json
 playwright-report/
 output/

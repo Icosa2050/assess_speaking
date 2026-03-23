@@ -43,6 +43,13 @@ def wait_for_labeled_history(reports_dir: Path, label: str, timeout: float = 180
     raise AssertionError(f"history.csv did not contain label {label!r} within timeout")
 
 
+def activate_manual_upload_mode(page) -> None:
+    page.get_by_text("Stattdessen eine vorhandene Aufnahme nutzen", exact=True).click()
+    page.get_by_role("button", name="Alternative aktivieren").click()
+    expect(page.get_by_text("Du nutzt gerade eine vorhandene Aufnahme", exact=False)).to_be_visible(timeout=10000)
+    expect(page.locator('[aria-label="Audio-Datei hinzufügen"] input[type="file"]')).to_be_attached(timeout=10000)
+
+
 def test_real_upload_returns_feedback(page, reports_dir, streamlit_real_server):
     audio_path = _require_real_audio_path()
     run_label = "playwright-real-audio"
@@ -55,8 +62,7 @@ def test_real_upload_returns_feedback(page, reports_dir, streamlit_real_server):
         "spinbutton",
         name=localized_pattern("Zielsprechdauer (Sekunden)", "Target speaking duration (seconds)"),
     ).fill("60")
-    page.get_by_text("Stattdessen eine vorhandene Aufnahme nutzen", exact=True).click()
-    page.get_by_role("button", name="Alternative aktivieren").click()
+    activate_manual_upload_mode(page)
     page.locator('[aria-label="Audio-Datei hinzufügen"] input[type="file"]').set_input_files(str(audio_path))
     page.get_by_label("Label").fill(run_label)
 
@@ -65,10 +71,12 @@ def test_real_upload_returns_feedback(page, reports_dir, streamlit_real_server):
         os.getenv("ASSESS_SPEAKING_REAL_WHISPER_MODEL", "tiny")
     )
 
-    page.get_by_role("button", name="Datei auswerten").click()
+    run_button = page.get_by_role("button", name="Datei auswerten")
+    expect(run_button).to_be_enabled(timeout=15000)
+    run_button.click()
 
     expect(
-        page.get_by_text(localized_pattern("Nächste Übung für dich", "Next exercise for you", exact=False))
+        page.get_by_text(localized_pattern("Deine Rückmeldung", "Your feedback", exact=False))
     ).to_be_visible(timeout=180000)
     expect(
         page.get_by_text(
