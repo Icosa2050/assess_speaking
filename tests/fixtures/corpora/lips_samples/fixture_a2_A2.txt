@@ -1,0 +1,11 @@
+Data esame: 01/01/2002
+Sede: Perugia
+Numero di matricola: 10002
+Livello: A2
+Trascrittore: Test
+
+
+SE1 argomento: descrivi una foto del mercato (Prova n.1) M
+
+E: descrivi la foto
+C: nella foto c'e un mercato con molte persone. una donna compra la frutta, un bambino guarda i colori e un uomo parla con il venditore.

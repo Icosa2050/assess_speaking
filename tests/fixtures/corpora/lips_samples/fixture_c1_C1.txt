@@ -1,0 +1,11 @@
+Data esame: 07/06/2003
+Sede: Reggio Emilia
+Numero di matricola: 20001
+Livello: 3
+Trascrittore: Test
+
+
+SE1 argomento: un viaggio importante della tua vita (Prova n.1) M
+
+E1: racconta il viaggio
+c: ho fatto un viaggio in treno attraverso l'Europa con due amici. durante quel viaggio ho visitato molte citta, ho parlato con persone nuove e ho imparato a organizzare tutto da solo.

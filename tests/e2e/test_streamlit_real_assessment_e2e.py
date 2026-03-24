@@ -1,5 +1,6 @@
 import csv
 import os
+import re
 import time
 from pathlib import Path
 
@@ -7,6 +8,13 @@ import pytest
 from playwright.sync_api import expect
 
 DEFAULT_REAL_AUDIO_PATH = Path(__file__).resolve().parents[1] / "audio" / "test1.m4a"
+
+
+def localized_pattern(*labels: str, exact: bool = True):
+    joined = "|".join(re.escape(label) for label in labels)
+    if exact:
+        return re.compile(rf"^({joined})$")
+    return re.compile(joined)
 
 
 def _require_real_audio_path() -> Path:
@@ -35,29 +43,50 @@ def wait_for_labeled_history(reports_dir: Path, label: str, timeout: float = 180
     raise AssertionError(f"history.csv did not contain label {label!r} within timeout")
 
 
-def test_real_upload_returns_feedback(page, base_url, reports_dir, streamlit_real_server):
+def activate_manual_upload_mode(page) -> None:
+    page.get_by_text("Stattdessen eine vorhandene Aufnahme nutzen", exact=True).click()
+    page.get_by_role("button", name="Alternative aktivieren").click()
+    expect(page.get_by_text("Du nutzt gerade eine vorhandene Aufnahme", exact=False)).to_be_visible(timeout=10000)
+    expect(page.locator('[aria-label="Audio-Datei hinzufügen"] input[type="file"]')).to_be_attached(timeout=10000)
+
+
+def test_real_upload_returns_feedback(page, reports_dir, streamlit_real_server):
     audio_path = _require_real_audio_path()
     run_label = "playwright-real-audio"
-    page.goto(f"{base_url}/")
+    page.goto(f"{streamlit_real_server}/")
     page.wait_for_load_state("networkidle")
 
     page.get_by_label("Speaker ID").fill("playwright-real-user")
-    page.get_by_label("Thema").fill("tema libero")
-    page.get_by_label("Zielsprechdauer (Sekunden)").fill("60")
-    page.get_by_text("Stattdessen eine vorhandene Aufnahme nutzen", exact=True).click()
-    page.get_by_role("button", name="Alternative aktivieren").click()
+    page.get_by_role("textbox", name=localized_pattern("Thema", "Theme")).fill("tema libero")
+    page.get_by_role(
+        "spinbutton",
+        name=localized_pattern("Zielsprechdauer (Sekunden)", "Target speaking duration (seconds)"),
+    ).fill("60")
+    activate_manual_upload_mode(page)
     page.locator('[aria-label="Audio-Datei hinzufügen"] input[type="file"]').set_input_files(str(audio_path))
     page.get_by_label("Label").fill(run_label)
 
-    page.get_by_text("Erweiterte Optionen", exact=True).click()
-    page.get_by_role("textbox", name="Whisper-Modell", exact=True).fill(
+    page.get_by_text("Technik und Notizen", exact=True).click()
+    page.get_by_role("textbox", name="Whisper-Modell (lokal)", exact=True).fill(
         os.getenv("ASSESS_SPEAKING_REAL_WHISPER_MODEL", "tiny")
     )
 
-    page.get_by_role("button", name="Datei auswerten").click()
+    run_button = page.get_by_role("button", name="Datei auswerten")
+    expect(run_button).to_be_enabled(timeout=15000)
+    run_button.click()
 
-    expect(page.get_by_text("Nächste Übung für dich", exact=False)).to_be_visible(timeout=180000)
-    expect(page.get_by_text("Darauf solltest du als Nächstes achten", exact=False)).to_be_visible(timeout=180000)
+    expect(
+        page.get_by_text(localized_pattern("Deine Rückmeldung", "Your feedback", exact=False))
+    ).to_be_visible(timeout=180000)
+    expect(
+        page.get_by_text(
+            localized_pattern(
+                "Darauf solltest du als Nächstes achten",
+                "What to focus on next",
+                exact=False,
+            )
+        )
+    ).to_be_visible(timeout=180000)
 
     row = wait_for_labeled_history(reports_dir, run_label, timeout=180.0)
     assert row["speaker_id"] == "playwright-real-user"

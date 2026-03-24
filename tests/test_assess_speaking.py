@@ -9,10 +9,11 @@ from pathlib import Path
 from unittest import mock
 
 import assess_speaking
-import asr
-import audio_features
-from llm_client import LLMClientError
-from schemas import RubricResult
+from assessment_runtime import assessment_prompts
+from assessment_runtime import asr
+from assessment_runtime import audio_features
+from assess_core.schemas import RubricResult
+from assessment_runtime.llm_client import LLMClientError
 
 
 def _sample_report(*, overall: int = 4) -> dict:
@@ -44,9 +45,9 @@ def _sample_report(*, overall: int = 4) -> dict:
             "detected_language_probability": 0.99,
             "theme": "la mia città",
             "target_duration_sec": 60.0,
-            "prompt_version": "rubric_it_v2",
-            "rubric_prompt_version": "rubric_it_v2",
-            "coaching_prompt_version": "coaching_it_v1",
+            "prompt_version": "rubric_multilingual_v1",
+            "rubric_prompt_version": "rubric_multilingual_v1",
+            "coaching_prompt_version": "coaching_multilingual_v1",
             "transcription_basis": "automatic_asr",
             "transcription_caveat": "Assessment is based on automatic transcription and may contain ASR errors.",
             "asr_compute_type": "default",
@@ -133,6 +134,23 @@ class MetricsAndPromptTests(unittest.TestCase):
         self.assertEqual(result["cohesion_markers"], 1)
         self.assertEqual(result["complexity_index"], 2)
 
+    def test_metrics_from_uses_english_language_profile(self):
+        words = [
+            {"text": "Um"},
+            {"text": "however"},
+            {"text": "I"},
+            {"text": "think"},
+            {"text": "that"},
+            {"text": "if"},
+            {"text": "we"},
+            {"text": "travel"},
+        ]
+        audio = {"duration_sec": 20.0, "pauses": [(3.0, 3.5, 0.5)]}
+        result = assess_speaking.metrics_from(words, audio, language_code="en")
+        self.assertEqual(result["fillers"], 1)
+        self.assertEqual(result["cohesion_markers"], 1)
+        self.assertEqual(result["complexity_index"], 2)
+
     def test_rubric_prompt_it_includes_theme_and_schema(self):
         metrics = {
             "duration_sec": 12,
@@ -150,7 +168,7 @@ class MetricsAndPromptTests(unittest.TestCase):
         self.assertIn("on_topic", prompt)
         self.assertIn("topic_relevance_score", prompt)
         self.assertIn("recurring_grammar_errors", prompt)
-        self.assertIn("Rispondi SOLO con JSON valido", prompt)
+        self.assertIn("Reply ONLY with valid JSON", prompt)
 
     def test_rubric_prompt_sanitizes_triple_quotes(self):
         metrics = {
@@ -189,6 +207,62 @@ class MetricsAndPromptTests(unittest.TestCase):
         self.assertIn('"on_topic": true', prompt)
         self.assertIn('"optional_note": null', prompt)
         self.assertIn('\\"ciao\\"', prompt)
+
+    def test_rubric_prompt_targets_learning_language_but_returns_feedback_language(self):
+        metrics = {
+            "duration_sec": 12,
+            "speaking_time_sec": 10,
+            "pause_total_sec": 2,
+            "pause_count": 3,
+            "word_count": 120,
+            "wpm": 72.5,
+            "fillers": 1,
+            "cohesion_markers": 2,
+            "complexity_index": 4,
+        }
+        prompt = assessment_prompts.rubric_prompt(
+            "Transcript",
+            metrics,
+            "remote work",
+            expected_language="it",
+            feedback_language="en",
+        )
+        self.assertIn("spoken Italian", prompt)
+        self.assertIn("Write every natural-language string value in English", prompt)
+        self.assertIn("Do NOT translate `category` or `confidence` values", prompt)
+        self.assertIn("Do NOT translate `examples` or `evidence_quotes`", prompt)
+        self.assertIn("`evidence_quotes` must contain exact, untranslated substrings", prompt)
+
+    def test_coaching_prompt_targets_learning_language_but_returns_feedback_language(self):
+        metrics = {
+            "speaking_time_sec": 10,
+            "pause_total_sec": 2,
+            "pause_count": 3,
+            "word_count": 120,
+            "wpm": 72.5,
+            "fillers": 1,
+            "cohesion_markers": 2,
+            "complexity_index": 4,
+        }
+        prompt = assessment_prompts.coaching_prompt(
+            metrics,
+            {"overall_comment": "ok", "language_ok": True},
+            "remote work",
+            180.0,
+            expected_language="it",
+            feedback_language="en",
+        )
+        self.assertIn("learners of Italian", prompt)
+        self.assertIn("Write every natural-language string value in English", prompt)
+        self.assertIn("Do NOT translate `category` or `confidence` values", prompt)
+        self.assertIn("Write all generated text fields", prompt)
+        self.assertIn("do NOT translate the quote", prompt)
+
+    def test_language_name_falls_back_to_explicit_code_description(self):
+        self.assertEqual(
+            assessment_prompts.language_name("fr"),
+            "the language identified by code 'fr'",
+        )
 
 
 class ParsingAndBaselineTests(unittest.TestCase):
@@ -649,6 +723,116 @@ class RunAssessmentTests(unittest.TestCase):
         self.assertEqual(len(result["report"]["coaching"]["top_3_priorities"]), 3)
         self.assertIn("baseline_comparison", result)
 
+    @mock.patch.object(assess_speaking, "load_audio_features", return_value={"duration_sec": 45.0, "pauses": [(10.0, 10.6, 0.6)]})
+    @mock.patch.object(
+        assess_speaking,
+        "transcribe",
+        return_value={
+            "text": "However I think that if we work remotely we can focus more clearly on our goals.",
+            "detected_language": "en",
+            "language_probability": 0.98,
+            "compute_type_used": "default",
+            "compute_fallback_used": False,
+            "words": [
+                {"t0": 0.0, "t1": 4.0, "text": "however"},
+                {"t0": 4.0, "t1": 8.0, "text": "i"},
+                {"t0": 8.0, "t1": 12.0, "text": "think"},
+                {"t0": 12.0, "t1": 16.0, "text": "that"},
+                {"t0": 16.0, "t1": 20.0, "text": "if"},
+                {"t0": 20.0, "t1": 24.0, "text": "we"},
+                {"t0": 24.0, "t1": 28.0, "text": "work"},
+                {"t0": 28.0, "t1": 32.0, "text": "remotely"},
+                {"t0": 32.0, "t1": 36.0, "text": "focus"},
+            ],
+        },
+    )
+    @mock.patch.object(
+        assess_speaking,
+        "generate_rubric",
+        return_value=(
+            RubricResult(
+                fluency=4,
+                cohesion=4,
+                accuracy=4,
+                range=5,
+                overall=4,
+                comments_fluency="ok",
+                comments_cohesion="ok",
+                comments_accuracy="ok",
+                comments_range="ok",
+                overall_comment="ok",
+                on_topic=True,
+                topic_relevance_score=5,
+                language_ok=True,
+                recurring_grammar_errors=[],
+                coherence_issues=[],
+                lexical_gaps=[],
+                evidence_quotes=["However I think"],
+                confidence="high",
+            ),
+            '{"overall":4}',
+        ),
+    )
+    @mock.patch.object(
+        assess_speaking,
+        "generate_coaching_summary",
+        return_value=(
+            mock.Mock(
+                to_dict=mock.Mock(
+                    return_value={
+                        "strengths": ["Strong structure."],
+                        "top_3_priorities": ["Add detail", "Use more examples", "Keep pace steady"],
+                        "next_focus": "Add detail",
+                        "next_exercise": "Repeat the prompt with one concrete example.",
+                        "coach_summary": "Strong answer.",
+                    }
+                )
+            ),
+            '{"coach_summary":"ok"}',
+        ),
+    )
+    def test_run_assessment_adds_provisional_english_dimension_scores(
+        self,
+        _mock_coaching,
+        _mock_rubric,
+        _mock_transcribe,
+        _mock_audio,
+    ):
+        result = assess_speaking.run_assessment(
+            Path("sample.wav"),
+            llm_model="google/gemini-3.1-pro-preview",
+            provider="openrouter",
+            expected_language="en",
+            theme="remote work",
+            task_family="opinion_monologue",
+            target_duration_sec=45.0,
+        )
+        scores = result["report"]["scores"]
+        self.assertEqual(scores["scorer_version"], "legacy_hybrid_v1")
+        self.assertEqual(scores["language_profile_key"], "en")
+        self.assertEqual(scores["language_profile_version"], "language_profile_en_v2")
+        self.assertIn("dimensions", scores)
+        self.assertIn("cefr_estimate", scores)
+        self.assertEqual(scores["cefr_estimate"]["language"], "en")
+        self.assertFalse(scores["cefr_estimate"]["calibrated"])
+        self.assertEqual(result["report"]["input"]["language_profile"], "en")
+        self.assertEqual(result["report"]["input"]["language_profile_key"], "en")
+
+    def test_run_assessment_uses_italian_live_shadow_profile_by_default(self):
+        result = assess_speaking.run_assessment(
+            Path("sample.wav"),
+            llm_model="google/gemini-3.1-pro-preview",
+            provider="openrouter",
+            expected_language="it",
+            dry_run=True,
+        )
+        scores = result["report"]["scores"]
+        report_input = result["report"]["input"]
+        self.assertEqual(scores["language_profile_key"], "it")
+        self.assertEqual(scores["language_profile_version"], "language_profile_it_v1_live_shadow")
+        self.assertEqual(report_input["language_profile_key"], "it")
+        self.assertEqual(report_input["language_profile_version"], "language_profile_it_v1_live_shadow")
+
 
 class MainCliTests(unittest.TestCase):
     def test_main_without_arguments_exits(self):
@@ -704,6 +888,62 @@ class MainCliTests(unittest.TestCase):
         ):
             assess_speaking.main()
         self.assertIsNone(mock_run_assessment.call_args.kwargs["asr_fallback_compute_type"])
+
+    @mock.patch("assess_speaking.run_assessment")
+    def test_main_passes_feedback_language_to_run_assessment(self, mock_run_assessment):
+        mock_run_assessment.return_value = {
+            "metrics": _sample_report()["metrics"],
+            "transcript_full": "ciao mondo",
+            "transcript_preview": "ciao mondo",
+            "llm_rubric": json.dumps(_sample_report()["rubric"]),
+            "report": _sample_report(),
+        }
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        args = [
+            "assess_speaking.py",
+            "sample.wav",
+            "--no-log",
+            "--expected-language",
+            "it",
+            "--feedback-language",
+            "en",
+        ]
+        with (
+            mock.patch("sys.argv", args),
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
+            assess_speaking.main()
+        self.assertEqual(mock_run_assessment.call_args.kwargs["feedback_language"], "en")
+
+    @mock.patch("assess_speaking.run_assessment")
+    def test_main_passes_language_profile_key_to_run_assessment(self, mock_run_assessment):
+        mock_run_assessment.return_value = {
+            "metrics": _sample_report()["metrics"],
+            "transcript_full": "ciao mondo",
+            "transcript_preview": "ciao mondo",
+            "llm_rubric": json.dumps(_sample_report()["rubric"]),
+            "report": _sample_report(),
+        }
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        args = [
+            "assess_speaking.py",
+            "sample.wav",
+            "--no-log",
+            "--expected-language",
+            "en",
+            "--language-profile-key",
+            "en",
+        ]
+        with (
+            mock.patch("sys.argv", args),
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
+            assess_speaking.main()
+        self.assertEqual(mock_run_assessment.call_args.kwargs["language_profile_key"], "en")
 
     @mock.patch("assess_speaking.run_assessment")
     def test_main_lms_dry_run_uses_env_token_and_skips_upload(self, mock_run_assessment):

@@ -1,7 +1,7 @@
 import unittest
 from dataclasses import dataclass
 
-import progress_analysis
+from assessment_runtime import progress_analysis
 
 
 @dataclass
@@ -77,6 +77,33 @@ class ProgressAnalysisTests(unittest.TestCase):
         self.assertEqual(travel["count"], 2)
         self.assertAlmostEqual(travel["avg_final"], 3.7, places=2)
         self.assertEqual(travel["grammar_counts"]["preposition_choice"], 2)
+
+    def test_task_family_progress_ignores_non_numeric_scores(self):
+        records = [
+            DummyRecord(
+                speaker_id="bern",
+                task_family="opinion",
+                final_score="",
+                overall="n/a",
+                top_priorities=("Stronger examples",),
+                grammar_error_categories=(),
+                coherence_issue_categories=(),
+            ),
+            DummyRecord(
+                speaker_id="bern",
+                task_family="opinion",
+                final_score="4.2",
+                overall="4.0",
+                top_priorities=("Stronger examples",),
+                grammar_error_categories=(),
+                coherence_issue_categories=(),
+            ),
+        ]
+        summaries = progress_analysis.task_family_progress(records, speaker_id="bern")
+        self.assertEqual(len(summaries), 1)
+        self.assertAlmostEqual(summaries[0]["avg_final"], 4.2, places=2)
+        self.assertEqual(summaries[0]["latest_final"], 4.2)
+        self.assertEqual(summaries[0]["latest_overall"], 4.0)
 
 
 if __name__ == "__main__":

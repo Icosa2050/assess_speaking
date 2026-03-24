@@ -7,7 +7,8 @@ praat-parselmouth==0.4.6
 rapidfuzz==3.9.6
 rich==13.8.1
 tabulate==0.9.0
-streamlit==1.39.0
+streamlit==1.55.0
+watchdog==6.0.0
 streamlit-webrtc==0.47.6
 pytest==8.4.2
 pytest-playwright==0.7.1
@@ -18,5 +19,7 @@ fastapi==0.115.2
 uvicorn==0.30.6
 httpx==0.28.1
 redis==5.2.1
+coverage==7.5.4
+keyring==25.6.0
 # Optional: LMStudio Python library (install only if you plan to use the Python client)
 #lmstudio==0.1.1

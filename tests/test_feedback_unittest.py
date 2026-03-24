@@ -2,7 +2,7 @@ import json
 import unittest
 from pathlib import Path
 
-import feedback
+from assessment_runtime import feedback
 
 
 class FeedbackTests(unittest.TestCase):

@@ -1,0 +1,16 @@
+Data: 06/12/2004
+Sede: Torino
+Numero di matricola: 40001
+ivello: 3
+Trascrittore: Test
+
+
+SE 1 argomento: cinema (Prova n.1) Dm
+
+E: cosa pensi del cinema
+C: mi piace il cinema quando racconta storie vere e complesse
+E: quale film hai visto
+C: ho visto un documentario italiano molto interessante
+
+
+SE2 argomento: (Prova n.2) M = monologo Md = monologo con inserti di dialogo MD = monologo e dialogo

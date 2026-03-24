@@ -1,0 +1,96 @@
+{
+  "manifest_id": "english_monologue_seeds_v1",
+  "language_code": "en",
+  "task_family": "opinion_monologue",
+  "version": "seed_manifest_en_v1",
+  "active": true,
+  "tags": ["english", "monologue", "seed-corpus", "baseline"],
+  "notes": "English seed corpus for clean synthetic benchmark rendering with duration-aware monologue targets.",
+  "render_defaults": {
+    "provider": "macos_say",
+    "voice": "Samantha",
+    "rate_wpm": 160,
+    "output_format": "wav",
+    "sample_rate_hz": 16000,
+    "channels": 1,
+    "notes": "Default clean render settings for local macOS generation."
+  },
+  "seeds": [
+    {
+      "seed_id": "en_b1_favorite_place",
+      "language_code": "en",
+      "task_family": "opinion_monologue",
+      "target_cefr": "B1",
+      "target_duration_sec": 120,
+      "topic_tag": "travel",
+      "benchmark_suite_id": "english_monologue_cefr_v1",
+      "benchmark_case_id": "en_b1_simple_narrative",
+      "transcript": "My favorite place is a small lake near my hometown. I go there very often, especially in summer, because it is quiet and because I feel good there. It is not a famous place, and it is not big, but for me it is very important. When I arrive, I usually walk slowly near the water and I look at the trees. Sometimes I sit on a bench, and sometimes I stay on the grass. Um, I like this moment because everything is calm and simple. I often go there with my family. We bring sandwiches, fruit, and something to drink. We talk, we walk, and we look at the ducks. My cousin likes running near the path, and my parents like telling old stories. The activities are simple, but I never feel bored. In the city everything is fast, noisy, and sometimes stressful. At the lake, life looks easier. I can breathe better and I can think better. This place was also important when I was younger. When I was child, I went there after bad days at school. If I had a problem with a friend or if I felt sad, I went there and it help me feel calmer. I know this sentence is simple, but it is true. The lake always gave me the feeling that problems can become smaller after some time. Um, even now, when I have too many things in my head, I like going there because it gives me peace. Some people maybe prefer mountains or the sea, and I understand that. Those places are beautiful too. But my favorite place is not only about beauty. It is about memory, comfort, and the feeling of being safe. For this reason, I think a favorite place can be ordinary for other people but very special for you. For me, this lake is exactly that kind of place, and I hope I will keep visiting it for a long time.",
+      "render_text": "My favorite place is a small lake near my hometown. [[slnc 350]] I go there very often, especially in summer, because it is quiet and because I feel good there. It is not a famous place, and it is not big, but for me it is very important. [[slnc 350]] When I arrive, I usually walk slowly near the water and I look at the trees. Sometimes I sit on a bench, and sometimes I stay on the grass. Um, I like this moment because everything is calm and simple. [[slnc 350]] I often go there with my family. We bring sandwiches, fruit, and something to drink. We talk, we walk, and we look at the ducks. My cousin likes running near the path, and my parents like telling old stories. [[slnc 350]] The activities are simple, but I never feel bored. In the city everything is fast, noisy, and sometimes stressful. At the lake, life looks easier. I can breathe better and I can think better. [[slnc 350]] This place was also important when I was younger. When I was child, I went there after bad days at school. If I had a problem with a friend or if I felt sad, I went there and it help me feel calmer. [[slnc 350]] I know this sentence is simple, but it is true. The lake always gave me the feeling that problems can become smaller after some time. Um, even now, when I have too many things in my head, I like going there because it gives me peace. [[slnc 350]] Some people maybe prefer mountains or the sea, and I understand that. Those places are beautiful too. But my favorite place is not only about beauty. It is about memory, comfort, and the feeling of being safe. For this reason, I think a favorite place can be ordinary for other people but very special for you. For me, this lake is exactly that kind of place, and I hope I will keep visiting it for a long time.",
+      "render_overrides": {
+        "rate_wpm": 150
+      },
+      "source_type": "synthetic_seed",
+      "active": true,
+      "tags": ["b1", "travel", "baseline"],
+      "notes": "Simple narrative seed with basic connectors and a realistic two-minute target."
+    },
+    {
+      "seed_id": "en_b2_remote_work",
+      "language_code": "en",
+      "task_family": "opinion_monologue",
+      "target_cefr": "B2",
+      "target_duration_sec": 120,
+      "topic_tag": "work",
+      "benchmark_suite_id": "english_monologue_cefr_v1",
+      "benchmark_case_id": "en_b2_supported_argument",
+      "transcript": "Remote work can be good, but I do not think it is the best answer for every company. In my opinion, a mixed system is usually better, because workers need flexibility, but they also need real contact with other people in the team. One good point is time. Employees do not travel to the office every day, so they can start work with less stress and they can use that extra time for family or rest. Many people also say they focus better at home when they need to read, write, or finish one task without many interruptions. For workers who live far from the office, this kind of system can be very helpful. Still, there are some bad points too. Online meetings help, but they do not solve everything. Small misunderstandings can stay longer, and new employees may learn more slowly because they do not see direct how other colleagues solve problems. Some workers also begin to work too much at home because the border between work and private life becomes weak. After some time, this can make people tired and less motivate. Because of this, I think companies should use a balanced plan. Some days can be for meetings, training, and teamwork in the office. Other days can be for quiet work at home. This solution is not perfect, but it answer the two sides better than only one model. So, remote work is useful if companies manage it well. It is not a miracle, but it is not a mistake either. If managers communicate clearly and keep regular contact with workers, remote work can stay practical and stable in modern working life.",
+      "render_text": "Remote work can be good, but I do not think it is the best answer for every company. In my opinion, a mixed system is usually better, because workers need flexibility, but they also need real contact with other people in the team. [[slnc 300]] One good point is time. Employees do not travel to the office every day, so they can start work with less stress and they can use that extra time for family or rest. Many people also say they focus better at home when they need to read, write, or finish one task without many interruptions. [[slnc 300]] For workers who live far from the office, this kind of system can be very helpful. Still, there are some bad points too. Online meetings help, but they do not solve everything. Small misunderstandings can stay longer, and new employees may learn more slowly because they do not see direct how other colleagues solve problems. [[slnc 300]] Some workers also begin to work too much at home because the border between work and private life becomes weak. After some time, this can make people tired and less motivate. Because of this, I think companies should use a balanced plan. [[slnc 300]] Some days can be for meetings, training, and teamwork in the office. Other days can be for quiet work at home. This solution is not perfect, but it answer the two sides better than only one model. [[slnc 300]] So, remote work is useful if companies manage it well. It is not a miracle, but it is not a mistake either. If managers communicate clearly and keep regular contact with workers, remote work can stay practical and stable in modern working life.",
+      "render_overrides": {
+        "rate_wpm": 155
+      },
+      "source_type": "synthetic_seed",
+      "active": true,
+      "tags": ["b2", "work", "baseline"],
+      "notes": "B2 argumentative seed with explicit trade-offs, justification, and conclusion."
+    },
+    {
+      "seed_id": "en_c1_city_change",
+      "language_code": "en",
+      "task_family": "opinion_monologue",
+      "target_cefr": "C1",
+      "target_duration_sec": 120,
+      "topic_tag": "society",
+      "benchmark_suite_id": "english_monologue_cefr_v1",
+      "benchmark_case_id": "en_c1_advanced_reflection",
+      "transcript": "Over the last decade, my city has changed in ways that are both exciting and unsettling. New tram lines, renovated public squares, and independent cultural spaces have made everyday life feel more dynamic. At the same time, rising rents and constant redevelopment have quietly pushed many long time residents to the margins. That tension, in my opinion, defines what progress really means. It is easy to celebrate visible improvement. Better transport reduces isolation, cleaner streets make public areas more welcoming, and new businesses create jobs. For young professionals and students, these changes can make a city feel open, modern, and full of possibility. Yet the same transformation can produce a different reality for people who built their lives there years earlier. When local shops disappear, when neighbors move away, and when familiar districts become too expensive, the city begins to lose part of its social memory. I do not think urban change is inherently negative. Cities cannot remain frozen in time, and communities need investment if they want to thrive. The problem starts when development is measured only by growth, profit, or visual appeal. A city should also be judged by whether different groups can still imagine a future there. If teachers, service workers, artists, and elderly residents are all pushed out, then the city may look better while becoming less humane. For that reason, I believe good urban policy must balance ambition with protection. Investment matters, but so do affordable housing, local businesses, and public spaces that remain genuinely shared. Otherwise, progress becomes impressive on the surface and deeply fragile underneath.",
+      "render_text": "Over the last decade, my city has changed in ways that are both exciting and unsettling. New tram lines, renovated public squares, and independent cultural spaces have made everyday life feel more dynamic. [[slnc 350]] At the same time, rising rents and constant redevelopment have quietly pushed many long time residents to the margins. That tension, in my opinion, defines what progress really means. It is easy to celebrate visible improvement. Better transport reduces isolation, cleaner streets make public areas more welcoming, and new businesses create jobs. [[slnc 350]] For young professionals and students, these changes can make a city feel open, modern, and full of possibility. Yet the same transformation can produce a different reality for people who built their lives there years earlier. When local shops disappear, when neighbors move away, and when familiar districts become too expensive, the city begins to lose part of its social memory. [[slnc 350]] I do not think urban change is inherently negative. Cities cannot remain frozen in time, and communities need investment if they want to thrive. The problem starts when development is measured only by growth, profit, or visual appeal. A city should also be judged by whether different groups can still imagine a future there. [[slnc 350]] If teachers, service workers, artists, and elderly residents are all pushed out, then the city may look better while becoming less humane. For that reason, I believe good urban policy must balance ambition with protection. Investment matters, but so do affordable housing, local businesses, and public spaces that remain genuinely shared. Otherwise, progress becomes impressive on the surface and deeply fragile underneath.",
+      "render_overrides": {
+        "rate_wpm": 155
+      },
+      "source_type": "synthetic_seed",
+      "active": true,
+      "tags": ["c1", "society", "baseline"],
+      "notes": "C1 reflective seed with balanced argumentation and sustained social analysis."
+    },
+    {
+      "seed_id": "en_c2_memory_voice",
+      "language_code": "en",
+      "task_family": "opinion_monologue",
+      "target_cefr": "C2",
+      "target_duration_sec": 120,
+      "topic_tag": "memory",
+      "benchmark_suite_id": "english_monologue_cefr_v1",
+      "benchmark_case_id": "en_c2_polished_monologue",
+      "transcript": "What fascinates me about memory is not its reliability but its selectiveness. We rarely preserve experience in a faithful way. Instead, we edit it, soften it, dramatize it, and arrange it until it becomes emotionally coherent. In that sense, memory is less an archive than a narrative art. A childhood journey, for example, may survive not as a sequence of events but as an atmosphere of light, distance, and expectation. We remember a train window, a particular smell, the sound of someone laughing in another room, and only afterwards do we build a story around those fragments. That process is not necessarily dishonest. On the contrary, it may be one of the ways human beings make experience bearable and meaningful. If every memory remained raw, chaotic, and equally vivid, identity itself would probably feel unstable. Selective memory allows us to recognize patterns, to create continuity, and to decide which moments deserve symbolic value. At the same time, that same selectiveness makes memory vulnerable. We can mistake repetition for truth, inherit emotional versions of events from family stories, or remember ourselves as more coherent than we really were. This is why memory is so closely linked to imagination. The two are not opposites. They are collaborators. Imagination fills the gaps that memory leaves behind, while memory gives imagination enough texture to feel credible. For me, this is precisely what makes remembered experience so powerful. A memory does not have to be perfectly accurate in order to reveal something true. It can be shaped, incomplete, even slightly distorted, and still express a deeper emotional reality than a simple factual record ever could.",
+      "render_text": "What fascinates me about memory is not its reliability but its selectiveness. We rarely preserve experience in a faithful way. Instead, we edit it, soften it, dramatize it, and arrange it until it becomes emotionally coherent. [[slnc 350]] In that sense, memory is less an archive than a narrative art. A childhood journey, for example, may survive not as a sequence of events but as an atmosphere of light, distance, and expectation. We remember a train window, a particular smell, the sound of someone laughing in another room, and only afterwards do we build a story around those fragments. [[slnc 350]] That process is not necessarily dishonest. On the contrary, it may be one of the ways human beings make experience bearable and meaningful. If every memory remained raw, chaotic, and equally vivid, identity itself would probably feel unstable. Selective memory allows us to recognize patterns, to create continuity, and to decide which moments deserve symbolic value. [[slnc 350]] At the same time, that same selectiveness makes memory vulnerable. We can mistake repetition for truth, inherit emotional versions of events from family stories, or remember ourselves as more coherent than we really were. This is why memory is so closely linked to imagination. The two are not opposites. They are collaborators. [[slnc 350]] Imagination fills the gaps that memory leaves behind, while memory gives imagination enough texture to feel credible. For me, this is precisely what makes remembered experience so powerful. A memory does not have to be perfectly accurate in order to reveal something true. It can be shaped, incomplete, even slightly distorted, and still express a deeper emotional reality than a simple factual record ever could.",
+      "render_overrides": {
+        "rate_wpm": 145
+      },
+      "source_type": "synthetic_seed",
+      "active": true,
+      "tags": ["c2", "memory", "baseline"],
+      "notes": "C2 seed with abstract reasoning, metaphor, and a sustained conceptual argument."
+    }
+  ]
+}

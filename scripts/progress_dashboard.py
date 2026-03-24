@@ -5,11 +5,12 @@ import csv
 import json
 from dataclasses import dataclass
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from statistics import mean
 from typing import Iterable, List, Optional
 
-from progress_analysis import (
+from assessment_runtime.progress_analysis import (
     filter_records,
     format_top_counts,
     latest_priorities,
@@ -25,6 +26,7 @@ class Record:
     session_id: str
     schema_version: Optional[int]
     speaker_id: str
+    learning_language: str
     task_family: str
     theme: str
     audio: str
@@ -80,6 +82,34 @@ def parse_pipe_list(value: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in value.split("|") if item.strip())
 
 
+@lru_cache(maxsize=512)
+def infer_learning_language(report_path: str) -> str:
+    if not report_path:
+        return ""
+    path = Path(report_path)
+    if not path.exists():
+        return ""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    report = payload.get("report") if isinstance(payload.get("report"), dict) else {}
+    report_input = report.get("input") if isinstance(report.get("input"), dict) else {}
+    for candidate in (
+        payload.get("learning_language"),
+        report_input.get("learning_language"),
+        report_input.get("expected_language"),
+        report_input.get("language_profile_key"),
+        report_input.get("detected_language"),
+    ):
+        value = str(candidate or "").strip().lower()
+        if value:
+            return value
+    return ""
+
+
 def load_history(history_path: Path) -> List[Record]:
     if not history_path.exists():
         raise FileNotFoundError(f"History file not found: {history_path}")
@@ -92,12 +122,14 @@ def load_history(history_path: Path) -> List[Record]:
                 ts = datetime.fromisoformat(row["timestamp"])
             except Exception as exc:  # pragma: no cover - defensive
                 raise ValueError(f"Invalid timestamp '{row.get('timestamp')}'") from exc
+            report_path = row.get("report_path", "")
             rows.append(
                 Record(
                     timestamp=ts,
                     session_id=row.get("session_id", ""),
                     schema_version=parse_int(row.get("schema_version", "")),
                     speaker_id=row.get("speaker_id", ""),
+                    learning_language=row.get("learning_language", "").strip().lower() or infer_learning_language(report_path),
                     task_family=row.get("task_family", ""),
                     theme=row.get("theme", ""),
                     audio=row.get("audio", ""),
@@ -123,7 +155,7 @@ def load_history(history_path: Path) -> List[Record]:
                     ),
                     grammar_error_categories=parse_pipe_list(row.get("grammar_error_categories", "")),
                     coherence_issue_categories=parse_pipe_list(row.get("coherence_issue_categories", "")),
-                    report_path=row.get("report_path", ""),
+                    report_path=report_path,
                 )
             )
     return sorted(rows, key=lambda r: r.timestamp)
@@ -174,7 +206,7 @@ def render_terminal(
         console.print("[bold yellow]Keine Einträge in history.csv gefunden.[/bold yellow]")
         return
 
-    console.print("\n[bold underline]Assess Speaking – Verlauf[/bold underline]\n")
+    console.print("\n[bold underline]Speaking Studio - Verlauf[/bold underline]\n")
     meta_line = []
     if summary.get("count"):
         meta_line.append(f"Runs: {summary['count']}")
@@ -377,7 +409,7 @@ def render_html(
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Assess Speaking – Verlauf</title>
+<title>Speaking Studio - Verlauf</title>
 <style>
  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 2rem; background: #f8f9fb; color: #222; }}
  h1 {{ margin-bottom: 0.2rem; }}
@@ -392,7 +424,7 @@ def render_html(
 </style>
 </head>
 <body>
-<h1>Assess Speaking – Verlauf</h1>
+<h1>Speaking Studio - Verlauf</h1>
 <div class="meta">{' &nbsp;|&nbsp; '.join(summary_html) if summary_html else 'Keine Daten.'}</div>
 <table>
 <thead>

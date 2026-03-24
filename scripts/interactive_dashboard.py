@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Interactive Streamlit dashboard for assess_speaking results."""
+"""Legacy Streamlit compatibility dashboard for assess_speaking results."""
 from __future__ import annotations
 
 import asyncio
 import argparse
 import csv
+import hashlib
 import io
 import json
 import logging
@@ -20,11 +21,19 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
-import progress_analysis
-from settings import Settings
+from assessment_runtime import asr as asr_backend
+from assessment_runtime import progress_analysis
+from assessment_runtime import theme_library as theme_library_store
+from assess_core.settings import Settings
 from scripts import progress_dashboard
 from streamlit_webrtc import RTCConfiguration, WebRtcMode, webrtc_streamer
+try:
+    from streamlit_webrtc.component import compile_state, generate_frontend_component_key
+except Exception:  # pragma: no cover - optional internal API
+    compile_state = None
+    generate_frontend_component_key = None
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 LOGGER = logging.getLogger(__name__)
@@ -38,7 +47,7 @@ ASSESS_SCRIPT = PROJECT_ROOT / "assess_speaking.py"
 PROMPTS_FILE = PROJECT_ROOT / "prompts" / "prompts.json"
 DEFAULT_SETTINGS = Settings.from_env()
 DEFAULT_PROVIDER = DEFAULT_SETTINGS.provider
-DEFAULT_WHISPER_MODEL = "large-v3"
+DEFAULT_WHISPER_MODEL = asr_backend.recommend_model_choice()["model"]
 DEFAULT_LLM_MODEL = (
     DEFAULT_SETTINGS.openrouter_rubric_model
     if DEFAULT_PROVIDER == "openrouter"
@@ -47,6 +56,10 @@ DEFAULT_LLM_MODEL = (
 DEFAULT_TASK_FAMILY = "travel_narrative" if DEFAULT_SETTINGS.task_family == "generic" else DEFAULT_SETTINGS.task_family
 DEFAULT_THEME = "Il mio ultimo viaggio all'estero"
 DEFAULT_TARGET_DURATION_SEC = 180.0
+DEFAULT_LEARNING_LANGUAGE = (DEFAULT_SETTINGS.expected_language or "it").lower()
+DEFAULT_UI_LOCALE = os.getenv("ASSESS_UI_LOCALE", "de").strip().lower() or "de"
+HAS_NATIVE_AUDIO_INPUT = callable(getattr(st, "audio_input", None))
+WHISPER_MODEL_OPTIONS = list(asr_backend.KNOWN_WHISPER_MODELS)
 PRACTICE_TASK_FAMILIES = [
     "travel_narrative",
     "personal_experience",
@@ -54,8 +67,9 @@ PRACTICE_TASK_FAMILIES = [
     "picture_description",
     "free_monologue",
 ]
-PRACTICE_MODES = ["Direkt im Browser aufnehmen", "Audiodatei hochladen", "Lokale Datei verwenden"]
-PRACTICE_FLOW_STEPS = ("Aufgabe wählen", "Aufnahme", "Auswertung")
+NEW_LANGUAGE_OPTION = "__new_language__"
+PRACTICE_MODE_RECORD = "record"
+PRACTICE_MODE_UPLOAD = "upload"
 RECORDER_TRANSLATIONS = {
     "start": "Aufnahme starten",
     "stop": "Aufnahme beenden",
@@ -65,6 +79,202 @@ RECORDER_TRANSLATIONS = {
     "device_not_available": "Kein Mikrofon gefunden.",
     "device_access_denied": "Mikrofonzugriff wurde verweigert.",
 }
+RECORDER_DEBUG_ENABLED = os.getenv("ASSESS_SPEAKING_RECORDER_DEBUG", "0") == "1"
+
+UI_LOCALE_NAMES = {
+    "de": "Deutsch",
+    "en": "English",
+    "it": "Italiano",
+}
+
+LEGACY_DASHBOARD_NOTICE = (
+    "Legacy compatibility surface: this dashboard remains available during the "
+    "migration to the multipage app shell. Prefer `streamlit run streamlit_app.py` "
+    "for current product work. This dashboard will be archived once shell parity is signed off."
+)
+
+LEARNING_LANGUAGE_NAMES = {
+    "it": "Italiano",
+    "en": "English",
+}
+
+UI_STRINGS = {
+    "de": {
+        "log_dir": "Log-Verzeichnis",
+        "ui_locale": "UX-Sprache",
+        "learning_language": "Lernsprache",
+        "workflow_title": "Workflow",
+        "workflow_steps": (
+            "Aufgabe definieren",
+            "Direkt im Browser sprechen",
+            "Aufnahme prüfen und auswerten",
+            "Coaching lesen und direkt erneut versuchen",
+        ),
+        "training_heading": "Sprechtraining",
+        "hero_title": "Sprich zuerst. Aufnahme und Aufgabenfokus stehen im Mittelpunkt.",
+        "hero_subtitle": "Wähle ein Thema, hole dir einen klaren Sprechauftrag und versuche die Aufgabe direkt noch einmal nach dem Feedback.",
+        "speaker_id": "Speaker ID",
+        "theme_suggestion": "Themenvorschlag",
+        "target_duration": "Zielsprechdauer (Sekunden)",
+        "theme": "Thema",
+        "task_settings": "Aufgabe anpassen",
+        "secondary_tools": "Weitere Werkzeuge und Verlauf",
+        "language_status": "Lernsprache: {language}. Die Gates prüfen Sprache, Thema, Dauer und Wortmenge.",
+        "feedback_heading": "Deine Rückmeldung",
+        "strengths_heading": "Das gelingt dir schon",
+        "priorities_heading": "Darauf solltest du als Nächstes achten",
+        "next_focus": "Konkreter Fokus für den nächsten Versuch:",
+        "next_exercise": "Nächste Übung für dich:",
+        "progress_heading": "Vergleich zum letzten Versuch",
+        "recurring_grammar": "Wiederkehrende Grammatikmuster",
+        "recurring_structure": "Wiederkehrende Strukturprobleme",
+        "evaluation_details": "So wurde bewertet",
+        "baseline_heading": "CEFR-Baseline",
+        "warnings": "Warnungen",
+        "raw_json": "Rohdaten und JSON",
+        "retry_task": "Gleiche Aufgabe erneut versuchen",
+        "gate_language": "Sprache",
+        "gate_theme": "Thema",
+        "gate_duration": "Dauer",
+        "gate_words": "Wortmenge",
+        "status_review": "Manuelle Prüfung empfohlen",
+        "status_unstable": "Aufgabe noch nicht stabil erfüllt",
+        "status_done": "Aufgabe erfüllt",
+    },
+    "en": {
+        "log_dir": "Log directory",
+        "ui_locale": "UX language",
+        "learning_language": "Learning language",
+        "workflow_title": "Workflow",
+        "workflow_steps": (
+            "Define the task",
+            "Speak directly in the browser",
+            "Review and evaluate the recording",
+            "Read the coaching and try again",
+        ),
+        "training_heading": "Speaking practice",
+        "hero_title": "Speak first. The recording and the task focus come first.",
+        "hero_subtitle": "Choose a topic, get a clear speaking task, and try it again right after the feedback.",
+        "speaker_id": "Speaker ID",
+        "theme_suggestion": "Suggested theme",
+        "target_duration": "Target speaking duration (seconds)",
+        "theme": "Theme",
+        "task_settings": "Adjust task",
+        "secondary_tools": "More tools and progress",
+        "language_status": "Learning language: {language}. The gates check language, topic, duration, and word count.",
+        "feedback_heading": "Your feedback",
+        "strengths_heading": "What is already working",
+        "priorities_heading": "What to focus on next",
+        "next_focus": "Specific focus for the next attempt:",
+        "next_exercise": "Next exercise for you:",
+        "progress_heading": "Comparison with your last attempt",
+        "recurring_grammar": "Recurring grammar patterns",
+        "recurring_structure": "Recurring structure issues",
+        "evaluation_details": "How this was evaluated",
+        "baseline_heading": "CEFR baseline",
+        "warnings": "Warnings",
+        "raw_json": "Raw data and JSON",
+        "retry_task": "Try the same task again",
+        "gate_language": "Language",
+        "gate_theme": "Topic",
+        "gate_duration": "Duration",
+        "gate_words": "Word count",
+        "status_review": "Manual review recommended",
+        "status_unstable": "Task not yet completed reliably",
+        "status_done": "Task completed",
+    },
+    "it": {
+        "log_dir": "Cartella dei log",
+        "ui_locale": "Lingua dell'interfaccia",
+        "learning_language": "Lingua di apprendimento",
+        "workflow_title": "Flusso",
+        "workflow_steps": (
+            "Definisci il compito",
+            "Parla direttamente nel browser",
+            "Controlla e valuta la registrazione",
+            "Leggi il coaching e riprova subito",
+        ),
+        "training_heading": "Allenamento orale",
+        "hero_title": "Prima parla. Registrazione e compito vengono al primo posto.",
+        "hero_subtitle": "Scegli un tema, ottieni un compito orale chiaro e riprovalo subito dopo il feedback.",
+        "speaker_id": "Speaker ID",
+        "theme_suggestion": "Tema suggerito",
+        "target_duration": "Durata target (secondi)",
+        "theme": "Tema",
+        "task_settings": "Personalizza il compito",
+        "secondary_tools": "Altri strumenti e progressi",
+        "language_status": "Lingua di apprendimento: {language}. I controlli verificano lingua, tema, durata e quantità di parole.",
+        "feedback_heading": "Il tuo feedback",
+        "strengths_heading": "Cosa sta già funzionando",
+        "priorities_heading": "Su cosa concentrarti adesso",
+        "next_focus": "Focus concreto per il prossimo tentativo:",
+        "next_exercise": "Prossimo esercizio per te:",
+        "progress_heading": "Confronto con l'ultimo tentativo",
+        "recurring_grammar": "Pattern grammaticali ricorrenti",
+        "recurring_structure": "Problemi strutturali ricorrenti",
+        "evaluation_details": "Come è stata fatta la valutazione",
+        "baseline_heading": "Baseline CEFR",
+        "warnings": "Avvisi",
+        "raw_json": "Dati grezzi e JSON",
+        "retry_task": "Prova di nuovo lo stesso compito",
+        "gate_language": "Lingua",
+        "gate_theme": "Tema",
+        "gate_duration": "Durata",
+        "gate_words": "Parole",
+        "status_review": "Revisione manuale consigliata",
+        "status_unstable": "Compito non ancora svolto in modo stabile",
+        "status_done": "Compito svolto",
+    },
+}
+
+
+def _supported_ui_locale(locale_code: str | None) -> str:
+    code = (locale_code or DEFAULT_UI_LOCALE).strip().lower()
+    return code if code in UI_STRINGS else "de"
+
+
+def ui_text(locale_code: str, key: str, **kwargs) -> str:
+    locale_bucket = UI_STRINGS.get(_supported_ui_locale(locale_code), UI_STRINGS["de"])
+    template = locale_bucket.get(key, UI_STRINGS["de"].get(key, key))
+    if isinstance(template, str):
+        return template.format(**kwargs)
+    raise TypeError(f"UI text '{key}' is not a string")
+
+
+def workflow_steps(locale_code: str) -> tuple[str, ...]:
+    locale_bucket = UI_STRINGS.get(_supported_ui_locale(locale_code), UI_STRINGS["de"])
+    return tuple(locale_bucket.get("workflow_steps", UI_STRINGS["de"]["workflow_steps"]))
+
+
+def normalize_practice_mode(raw_mode: str | None) -> str:
+    mode = (raw_mode or PRACTICE_MODE_RECORD).strip()
+    if mode == PRACTICE_MODE_UPLOAD or mode == "Audiodatei hochladen":
+        return PRACTICE_MODE_UPLOAD
+    return PRACTICE_MODE_RECORD
+
+
+def validate_theme_library_submission(
+    *,
+    manage_mode: str,
+    language_code: str,
+    language_label: str,
+    theme_title: str,
+) -> dict[str, str]:
+    errors: dict[str, str] = {}
+    if manage_mode == NEW_LANGUAGE_OPTION:
+        if not language_code.strip():
+            errors["language_code"] = "Bitte gib einen Sprachcode ein."
+        if not language_label.strip():
+            errors["language_label"] = "Bitte gib einen Sprachname ein."
+    if not theme_title.strip():
+        errors["theme_title"] = "Bitte gib ein Thema ein."
+    return errors
+
+
+def format_whisper_model_option(model_name: str) -> str:
+    availability = asr_backend.describe_model_availability(model_name)
+    suffix = "lokal" if availability["cached"] else "Download nötig"
+    return f"{model_name} ({suffix})"
 
 
 def build_rtc_configuration() -> RTCConfiguration:
@@ -250,6 +460,7 @@ def load_prompts(path: Path) -> list[dict]:
         return []
     data = json.loads(path.read_text(encoding="utf-8"))
     for item in data:
+        item["learning_language"] = str(item.get("learning_language") or item.get("language") or "it").strip().lower()
         audio_path = Path(item["audio"])
         if not audio_path.is_absolute():
             item["audio_path"] = str((PROJECT_ROOT / audio_path).resolve())
@@ -267,6 +478,7 @@ def create_prompt_attempt(prompt: dict, now: float | None = None) -> dict:
         "plays_remaining": prompt["max_playbacks"],
         "audio": prompt["audio_path"],
         "cefr": prompt["cefr_target"],
+        "learning_language": str(prompt.get("learning_language") or "it").strip().lower(),
         "label": f"prompt:{prompt['id']}",
         **create_recording_attempt(),
     }
@@ -289,12 +501,17 @@ def create_recording_attempt() -> dict:
         "connection_requested_at": None,
         "recording_started_at": None,
         "show_saved_notice": False,
+        "input_digest": None,
     }
 
 
 def remaining_time(attempt: dict, now: float | None = None) -> float:
     now = now or time.time()
     return attempt["deadline"] - now
+
+
+def attempt_expired(attempt: dict, now: float | None = None) -> bool:
+    return remaining_time(attempt, now=now) <= 0
 
 
 def can_play_prompt(attempt: dict) -> bool:
@@ -388,11 +605,12 @@ def sync_recording_state(
     attempt: dict,
     webrtc_ctx,
     *,
+    component_key: str | None = None,
     target_dir: Path,
     prefix: str,
     connection_timeout_sec: float = 8.0,
 ) -> dict:
-    state = getattr(webrtc_ctx, "state", None)
+    state = resolve_webrtc_state(component_key, webrtc_ctx)
     is_recording = bool(state and state.playing)
     is_signalling = bool(state and state.signalling)
     was_recording = bool(attempt.get("is_recording"))
@@ -468,6 +686,96 @@ def sync_recording_state(
     return attempt
 
 
+def get_frontend_component_value(component_key: str | None):
+    if not component_key or not generate_frontend_component_key:
+        return None
+    frontend_key = generate_frontend_component_key(component_key)
+    component_value = st.session_state.get(frontend_key)
+    if isinstance(component_value, str):
+        try:
+            component_value = json.loads(component_value)
+        except json.JSONDecodeError:
+            return {"_raw": component_value, "_invalid_json": True}
+    if isinstance(component_value, dict):
+        return component_value
+    return None
+
+
+def resolve_webrtc_state(component_key: str | None, webrtc_ctx):
+    state = getattr(webrtc_ctx, "state", None)
+    if not component_key or not compile_state or not generate_frontend_component_key:
+        return state
+    component_value = get_frontend_component_value(component_key)
+    if not isinstance(component_value, dict):
+        return state
+    if component_value.get("_invalid_json"):
+        return state
+    frontend_state = compile_state(component_value)
+    if webrtc_ctx is not None and state != frontend_state:
+        setter = getattr(webrtc_ctx, "_set_state", None)
+        if callable(setter):
+            setter(frontend_state)
+    return frontend_state
+
+
+def build_recorder_debug_snapshot(
+    attempt: dict,
+    webrtc_ctx,
+    *,
+    component_key: str | None,
+    audio_frames_count: int = 0,
+) -> dict:
+    ctx_state = getattr(webrtc_ctx, "state", None)
+    frontend_value = get_frontend_component_value(component_key)
+    resolved_state = resolve_webrtc_state(component_key, webrtc_ctx)
+    return {
+        "ts": round(time.time(), 3),
+        "component_key": component_key,
+        "status": attempt.get("status"),
+        "ctx_playing": bool(ctx_state and getattr(ctx_state, "playing", False)),
+        "ctx_signalling": bool(ctx_state and getattr(ctx_state, "signalling", False)),
+        "resolved_playing": bool(resolved_state and getattr(resolved_state, "playing", False)),
+        "resolved_signalling": bool(resolved_state and getattr(resolved_state, "signalling", False)),
+        "frontend_value": frontend_value,
+        "audio_receiver": bool(webrtc_ctx and getattr(webrtc_ctx, "audio_receiver", None)),
+        "audio_frames_count": int(audio_frames_count),
+        "chunk_count": len(attempt.get("chunks") or []),
+        "measured_duration_sec": attempt_duration_sec(attempt),
+        "display_duration_sec": display_duration_sec(attempt),
+        "saved_path": attempt.get("saved_path"),
+        "connection_requested_at": attempt.get("connection_requested_at"),
+        "recording_started_at": attempt.get("recording_started_at"),
+        "save_error": attempt.get("save_error"),
+    }
+
+
+def log_recorder_snapshot(session_key: str, snapshot: dict) -> None:
+    serialized = json.dumps(snapshot, sort_keys=True, default=str)
+    digest_key = f"{session_key}_debug_digest"
+    if st.session_state.get(digest_key) == serialized:
+        return
+    st.session_state[digest_key] = serialized
+    log_key = f"{session_key}_debug_log"
+    entries = st.session_state.get(log_key) or []
+    entries = list(entries)
+    entries.append(snapshot)
+    st.session_state[log_key] = entries[-25:]
+    LOGGER.warning("RECORDER_DEBUG %s", serialized)
+
+
+def render_recorder_debug(session_key: str, snapshot: dict) -> None:
+    if not RECORDER_DEBUG_ENABLED:
+        return
+    log_key = f"{session_key}_debug_log"
+    with st.expander("Recorder-Diagnose", expanded=True):
+        st.caption("Rohzustand aus Streamlit und streamlit-webrtc. Relevant, wenn der Browser 'Running...' zeigt, aber die UI stillsteht.")
+        st.json(snapshot)
+        history = st.session_state.get(log_key) or []
+        if history:
+            st.caption("Letzte Zustandswechsel")
+            st.json(history[-10:])
+
+
 def mark_recording_connecting(attempt: dict) -> dict:
     attempt = dict(attempt)
     attempt["connection_requested_at"] = attempt.get("connection_requested_at") or time.time()
@@ -481,6 +789,63 @@ def flag_recording_requested(session_key: str) -> None:
     st.session_state[session_key] = mark_recording_connecting(attempt)
 
 
+def render_whisper_model_controls(
+    *,
+    select_key: str,
+    notice_key: str,
+    label: str = "Whisper-Modell",
+    compact: bool = False,
+    show_cache_details: bool = False,
+) -> tuple[str, dict]:
+    recommendation = asr_backend.recommend_model_choice()
+    if select_key not in st.session_state:
+        st.session_state[select_key] = recommendation["model"]
+    selected_model = st.selectbox(
+        label,
+        options=WHISPER_MODEL_OPTIONS,
+        key=select_key,
+        format_func=format_whisper_model_option,
+    )
+    availability = asr_backend.describe_model_availability(selected_model)
+    st.caption(f"Empfehlung: `{recommendation['model']}`. {recommendation['reason']}")
+
+    notice = st.session_state.get(notice_key)
+    if notice:
+        level, message = notice
+        getattr(st, level, st.info)(message)
+
+    if availability["cached"]:
+        status_method = st.caption if compact else st.success
+        status_method(f"`{selected_model}` ist lokal vorhanden und sofort nutzbar.")
+        if show_cache_details and availability.get("cached_path"):
+            st.caption(f"Cache: `{availability['cached_path']}`")
+        return selected_model, availability
+
+    st.warning(f"`{selected_model}` ist noch nicht lokal vorhanden. Lade es zuerst herunter oder wähle ein bereits vorhandenes Modell.")
+    action_cols = st.columns([1, 1])
+    if action_cols[0].button(f"`{selected_model}` herunterladen", key=f"{notice_key}_download"):
+        with st.spinner(f"Lade `{selected_model}` herunter..."):
+            try:
+                availability = asr_backend.ensure_model_downloaded(selected_model)
+                st.session_state[notice_key] = (
+                    "success",
+                    f"`{selected_model}` wurde heruntergeladen und ist jetzt einsatzbereit.",
+                )
+            except Exception as exc:  # pragma: no cover - network / local environment
+                st.session_state[notice_key] = (
+                    "error",
+                    f"Download von `{selected_model}` fehlgeschlagen: {exc}",
+                )
+        dashboard_rerun()
+    if selected_model != recommendation["model"] and action_cols[1].button(
+        f"Empfehlung `{recommendation['model']}` wählen",
+        key=f"{notice_key}_recommend",
+    ):
+        st.session_state[select_key] = recommendation["model"]
+        dashboard_rerun()
+    return selected_model, availability
+
+
 def run_assessment(
     audio_path: Path,
     log_dir: Path,
@@ -491,6 +856,9 @@ def run_assessment(
     target_cefr: str | None = None,
     *,
     provider: str = DEFAULT_PROVIDER,
+    expected_language: str = DEFAULT_LEARNING_LANGUAGE,
+    language_profile_key: str | None = None,
+    feedback_language: str = DEFAULT_UI_LOCALE,
     speaker_id: str = "",
     task_family: str = DEFAULT_TASK_FAMILY,
     theme: str = DEFAULT_THEME,
@@ -504,6 +872,10 @@ def run_assessment(
         whisper,
         "--provider",
         provider,
+        "--expected-language",
+        expected_language,
+        "--feedback-language",
+        feedback_language,
         "--llm-model",
         llm,
         "--log-dir",
@@ -515,6 +887,8 @@ def run_assessment(
         "--target-duration-sec",
         str(float(target_duration_sec)),
     ]
+    if language_profile_key:
+        cmd.extend(["--language-profile-key", language_profile_key])
     if speaker_id:
         cmd.extend(["--speaker-id", speaker_id])
     if label:
@@ -529,12 +903,141 @@ def run_assessment(
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
+def create_assessment_request(
+    *,
+    audio_path: Path,
+    log_dir: Path,
+    whisper: str,
+    llm: str,
+    label: str,
+    notes: str,
+    provider: str,
+    expected_language: str,
+    feedback_language: str,
+    speaker_id: str,
+    task_family: str,
+    theme: str,
+    target_duration_sec: float,
+    target_cefr: str | None = None,
+    language_profile_key: str | None = None,
+) -> dict:
+    return {
+        "audio_path": str(audio_path),
+        "log_dir": str(log_dir),
+        "whisper": whisper,
+        "llm": llm,
+        "label": label,
+        "notes": notes,
+        "provider": provider,
+        "expected_language": expected_language,
+        "language_profile_key": language_profile_key,
+        "feedback_language": feedback_language,
+        "speaker_id": speaker_id,
+        "task_family": task_family,
+        "theme": theme,
+        "target_duration_sec": float(target_duration_sec),
+        "target_cefr": target_cefr,
+    }
+
+
+def execute_assessment_request(request: dict) -> subprocess.CompletedProcess:
+    return run_assessment(
+        Path(request["audio_path"]),
+        Path(request["log_dir"]),
+        request["whisper"],
+        request["llm"],
+        request.get("label", ""),
+        request.get("notes", ""),
+        target_cefr=request.get("target_cefr"),
+        provider=request.get("provider", DEFAULT_PROVIDER),
+        expected_language=request.get("expected_language", DEFAULT_LEARNING_LANGUAGE),
+        language_profile_key=request.get("language_profile_key"),
+        feedback_language=request.get("feedback_language", request.get("expected_language", DEFAULT_LEARNING_LANGUAGE)),
+        speaker_id=request.get("speaker_id", ""),
+        task_family=request.get("task_family", DEFAULT_TASK_FAMILY),
+        theme=request.get("theme", DEFAULT_THEME),
+        target_duration_sec=float(request.get("target_duration_sec", DEFAULT_TARGET_DURATION_SEC)),
+    )
+
+
+def build_prompt_assessment_request(
+    *,
+    attempt: dict,
+    prompt: dict,
+    response_path: Path,
+    log_dir: Path,
+    whisper: str,
+    llm: str,
+    notes: str,
+    provider: str,
+    speaker_id: str,
+    ui_locale: str,
+    target_cefr: str | None = None,
+) -> dict:
+    learning_language = str(
+        attempt.get("learning_language")
+        or prompt.get("learning_language")
+        or DEFAULT_LEARNING_LANGUAGE
+    ).strip().lower()
+    return create_assessment_request(
+        audio_path=response_path,
+        log_dir=log_dir,
+        whisper=whisper,
+        llm=llm,
+        label=attempt["label"],
+        notes=notes,
+        provider=provider,
+        expected_language=learning_language,
+        feedback_language=ui_locale,
+        speaker_id=speaker_id,
+        task_family="prompt_trainer",
+        theme=prompt["title"],
+        target_duration_sec=float(prompt["response_seconds"]),
+        target_cefr=target_cefr or attempt.get("cefr"),
+    )
+
+
 def store_uploaded_audio(uploaded_file: io.BytesIO, original_name: str, target_dir: Path) -> Path:
     target_dir.mkdir(parents=True, exist_ok=True)
     suffix = Path(original_name).suffix or ".wav"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=target_dir) as tmp:
         tmp.write(uploaded_file.getbuffer())
         return Path(tmp.name)
+
+
+def persist_audio_input(uploaded_audio, *, session_key: str, target_dir: Path, prefix: str) -> dict:
+    attempt = st.session_state.get(session_key) or create_recording_attempt()
+    if uploaded_audio is None:
+        return attempt
+    audio_bytes = uploaded_audio.getvalue()
+    digest = hashlib.sha1(audio_bytes).hexdigest()
+    saved_path = attempt.get("saved_path")
+    if digest == attempt.get("input_digest") and saved_path and Path(saved_path).exists():
+        attempt["status"] = "ready"
+        return attempt
+    try:
+        output_path = store_uploaded_audio(
+            uploaded_audio,
+            getattr(uploaded_audio, "name", f"{prefix}.wav") or f"{prefix}.wav",
+            target_dir,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        errored = create_recording_attempt()
+        errored["status"] = "error"
+        errored["save_error"] = f"Audio konnte nicht gespeichert werden: {exc}"
+        return errored
+    stored = create_recording_attempt()
+    stored["saved_path"] = str(output_path)
+    stored["saved_chunk_count"] = 1
+    stored["show_saved_notice"] = True
+    stored["status"] = "ready"
+    stored["input_digest"] = digest
+    return stored
+
+
+def reset_audio_input_recorder(*, session_key: str, version_key: str) -> None:
+    st.session_state[session_key] = create_recording_attempt()
+    st.session_state[version_key] = int(st.session_state.get(version_key, 0)) + 1
 
 
 def parse_cli_json(stdout: str) -> dict | None:
@@ -612,69 +1115,156 @@ def format_issue_label(issue: str) -> str:
     return ISSUE_LABELS.get(issue, issue.replace("_", " ").capitalize())
 
 
-def generate_practice_brief(task_family: str, theme: str, target_duration_sec: float, variant_index: int = 0) -> dict:
+def format_language_option(library: dict, language_code: str) -> str:
+    return theme_library_store.language_label(library, language_code)
+
+
+def theme_option_label(theme_entry: dict) -> str:
+    level = str(theme_entry.get("level") or "").upper()
+    title = str(theme_entry.get("title") or "").strip()
+    return f"{level} – {title}" if level else title
+
+
+def generate_practice_brief(
+    task_family: str,
+    theme: str,
+    target_duration_sec: float,
+    *,
+    language_code: str = DEFAULT_LEARNING_LANGUAGE,
+    variant_index: int = 0,
+) -> dict:
     theme = (theme or DEFAULT_THEME).strip()
-    templates = {
-        "travel_narrative": [
-            {
-                "title": "Racconta il viaggio come una storia chiara",
-                "prompt": f"Parla in italiano del tema '{theme}'. Porta l'ascoltatore dall'inizio alla fine senza saltare passaggi importanti.",
-                "cover_points": ["Dove e con chi eri", "Che cosa è successo prima, poi e alla fine", "Che cosa ti è rimasto del viaggio"],
-                "starter_phrases": ["Prima di partire...", "La cosa più memorabile è stata...", "Alla fine ho capito che..."],
-            },
-            {
-                "title": "Rendi il racconto più concreto",
-                "prompt": f"Parla di '{theme}' aggiungendo dettagli precisi: luogo, persone, imprevisti e sensazioni.",
-                "cover_points": ["Un dettaglio visivo o pratico", "Un piccolo problema o sorpresa", "Una riflessione personale finale"],
-                "starter_phrases": ["Appena sono arrivato...", "A un certo punto...", "Se ci ripenso oggi..."],
-            },
-        ],
-        "personal_experience": [
-            {
-                "title": "Spiega un'esperienza personale con ordine",
-                "prompt": f"Parla del tema '{theme}' come se stessi raccontando un episodio importante a un amico.",
-                "cover_points": ["Contesto iniziale", "Momento decisivo", "Cosa hai imparato"],
-                "starter_phrases": ["All'inizio...", "Il momento chiave è stato...", "Da allora..."],
-            }
-        ],
-        "opinion_monologue": [
-            {
-                "title": "Prendi posizione e sostienila",
-                "prompt": f"Esprimi la tua opinione sul tema '{theme}' con almeno due argomenti chiari e un esempio.",
-                "cover_points": ["La tua posizione", "Due argomenti distinti", "Un esempio concreto"],
-                "starter_phrases": ["Secondo me...", "Il punto principale è...", "Per esempio..."],
-            }
-        ],
-        "picture_description": [
-            {
-                "title": "Descrivi e interpreta",
-                "prompt": f"Usa il tema '{theme}' per descrivere quello che si vede, spiegare il contesto e ipotizzare cosa succede dopo.",
-                "cover_points": ["Che cosa si vede", "Che atmosfera c'è", "Che cosa potrebbe succedere dopo"],
-                "starter_phrases": ["In primo piano...", "Mi sembra che...", "Probabilmente..."],
-            }
-        ],
-        "free_monologue": [
-            {
-                "title": "Parla liberamente, ma con una struttura",
-                "prompt": f"Parla in italiano del tema '{theme}' mantenendo una struttura semplice: apertura, sviluppo, chiusura.",
-                "cover_points": ["Introduzione breve", "Due sviluppi chiari", "Chiusura con opinione o lezione"],
-                "starter_phrases": ["Vorrei parlare di...", "Un aspetto importante è...", "In conclusione..."],
-            }
-        ],
+    templates_by_language = {
+        "it": {
+            "travel_narrative": [
+                {
+                    "title": "Racconta il tema come una storia chiara",
+                    "prompt": f"Parla in italiano del tema '{theme}'. Porta l'ascoltatore dall'inizio alla fine senza saltare passaggi importanti.",
+                    "cover_points": ["Dove e con chi eri", "Che cosa è successo prima, poi e alla fine", "Che cosa ti è rimasto dell'esperienza"],
+                    "starter_phrases": ["Prima di partire...", "La cosa più memorabile è stata...", "Alla fine ho capito che..."],
+                },
+                {
+                    "title": "Rendi il racconto più concreto",
+                    "prompt": f"Parla di '{theme}' aggiungendo dettagli precisi: luogo, persone, imprevisti e sensazioni.",
+                    "cover_points": ["Un dettaglio visivo o pratico", "Un piccolo problema o sorpresa", "Una riflessione personale finale"],
+                    "starter_phrases": ["Appena sono arrivato...", "A un certo punto...", "Se ci ripenso oggi..."],
+                },
+            ],
+            "personal_experience": [
+                {
+                    "title": "Spiega un'esperienza personale con ordine",
+                    "prompt": f"Parla del tema '{theme}' come se stessi raccontando un episodio importante a un amico.",
+                    "cover_points": ["Contesto iniziale", "Momento decisivo", "Cosa hai imparato"],
+                    "starter_phrases": ["All'inizio...", "Il momento chiave è stato...", "Da allora..."],
+                }
+            ],
+            "opinion_monologue": [
+                {
+                    "title": "Prendi posizione e sostienila",
+                    "prompt": f"Esprimi la tua opinione sul tema '{theme}' con almeno due argomenti chiari e un esempio.",
+                    "cover_points": ["La tua posizione", "Due argomenti distinti", "Un esempio concreto"],
+                    "starter_phrases": ["Secondo me...", "Il punto principale è...", "Per esempio..."],
+                }
+            ],
+            "picture_description": [
+                {
+                    "title": "Descrivi e interpreta",
+                    "prompt": f"Usa il tema '{theme}' per descrivere quello che si vede, spiegare il contesto e ipotizzare cosa succede dopo.",
+                    "cover_points": ["Che cosa si vede", "Che atmosfera c'è", "Che cosa potrebbe succedere dopo"],
+                    "starter_phrases": ["In primo piano...", "Mi sembra che...", "Probabilmente..."],
+                }
+            ],
+            "free_monologue": [
+                {
+                    "title": "Parla liberamente, ma con una struttura",
+                    "prompt": f"Parla in italiano del tema '{theme}' mantenendo una struttura semplice: apertura, sviluppo, chiusura.",
+                    "cover_points": ["Introduzione breve", "Due sviluppi chiari", "Chiusura con opinione o lezione"],
+                    "starter_phrases": ["Vorrei parlare di...", "Un aspetto importante è...", "In conclusione..."],
+                }
+            ],
+            "success_focus": [
+                "Usa connettivi per legare gli eventi o le idee.",
+                "Chiudi con una riflessione personale invece di fermarti bruscamente.",
+            ],
+            "summary_caption": "Ziel: ruhig sprechen, einen roten Faden halten und sauber abschließen.",
+        },
+        "en": {
+            "travel_narrative": [
+                {
+                    "title": "Tell the story in a clear sequence",
+                    "prompt": f"Speak in English about '{theme}'. Lead the listener from the beginning to the end without skipping important steps.",
+                    "cover_points": ["Where you were and who was with you", "What happened first, next, and in the end", "What stayed with you afterwards"],
+                    "starter_phrases": ["Before I left...", "The most memorable part was...", "In the end I realised that..."],
+                },
+                {
+                    "title": "Make the story more concrete",
+                    "prompt": f"Talk about '{theme}' with specific details: place, people, surprises, and feelings.",
+                    "cover_points": ["One vivid detail", "One problem or surprise", "A final personal reflection"],
+                    "starter_phrases": ["As soon as I arrived...", "At one point...", "Looking back now..."],
+                },
+            ],
+            "personal_experience": [
+                {
+                    "title": "Explain a personal experience in order",
+                    "prompt": f"Talk about '{theme}' as if you were telling an important experience to a friend.",
+                    "cover_points": ["The initial context", "The key moment", "What you learned"],
+                    "starter_phrases": ["At the beginning...", "The key moment was...", "Since then..."],
+                }
+            ],
+            "opinion_monologue": [
+                {
+                    "title": "Take a position and support it",
+                    "prompt": f"Give your opinion on '{theme}' with at least two clear arguments and one example.",
+                    "cover_points": ["Your position", "Two distinct arguments", "One concrete example"],
+                    "starter_phrases": ["In my view...", "The main point is...", "For example..."],
+                }
+            ],
+            "picture_description": [
+                {
+                    "title": "Describe and interpret",
+                    "prompt": f"Use the theme '{theme}' to describe what can be seen, explain the context, and suggest what might happen next.",
+                    "cover_points": ["What can be seen", "What atmosphere is present", "What may happen next"],
+                    "starter_phrases": ["In the foreground...", "It seems to me that...", "Probably..."],
+                }
+            ],
+            "free_monologue": [
+                {
+                    "title": "Speak freely, but keep a structure",
+                    "prompt": f"Speak in English about '{theme}' with a simple structure: opening, development, closing.",
+                    "cover_points": ["A short introduction", "Two clear developments", "A closing thought or lesson"],
+                    "starter_phrases": ["I’d like to talk about...", "One important aspect is...", "To sum up..."],
+                }
+            ],
+            "success_focus": [
+                "Link ideas with connectors instead of short isolated sentences.",
+                "Finish with a personal reflection instead of stopping abruptly.",
+            ],
+            "summary_caption": "Goal: speak calmly, keep a clear thread, and finish cleanly.",
+        },
     }
+    templates = templates_by_language.get(language_code) or templates_by_language["en"]
     options = templates.get(task_family) or templates["free_monologue"]
     chosen = options[variant_index % len(options)]
     target_minutes = round(float(target_duration_sec) / 60.0, 1)
+    duration_focus = (
+        f"Punta a parlare per circa {target_minutes} minuti."
+        if language_code == "it" and target_minutes >= 1
+        else f"Punta a parlare per circa {int(target_duration_sec)} secondi."
+        if language_code == "it"
+        else f"Aim to speak for about {target_minutes} minutes."
+        if target_minutes >= 1
+        else f"Aim to speak for about {int(target_duration_sec)} seconds."
+    )
     return {
         "title": chosen["title"],
         "prompt": chosen["prompt"],
         "cover_points": chosen["cover_points"],
         "starter_phrases": chosen["starter_phrases"],
         "success_focus": [
-            f"Punta a parlare per circa {target_minutes} minuti." if target_minutes >= 1 else f"Punta a parlare per circa {int(target_duration_sec)} secondi.",
-            "Usa connettivi per legare gli eventi o le idee.",
-            "Chiudi con una riflessione personale invece di fermarti bruscamente.",
+            duration_focus,
+            *templates["success_focus"],
         ],
+        "summary_caption": templates["summary_caption"],
     }
 
 
@@ -684,7 +1274,7 @@ def render_practice_brief(brief: dict) -> None:
         st.markdown("### Dein Sprechauftrag")
         st.markdown(f"**{brief['title']}**")
         st.write(brief["prompt"])
-        st.caption("Ziel: ruhig sprechen, einen roten Faden halten und sauber abschließen.")
+        st.caption(brief.get("summary_caption", ""))
     with card_cols[1]:
         st.markdown("### Darüber solltest du sprechen")
         for item in brief["cover_points"]:
@@ -698,9 +1288,10 @@ def render_practice_brief(brief: dict) -> None:
             st.markdown(f"- {item}")
 
 
-def render_step_strip(current_step: int) -> None:
-    step_cols = st.columns(len(PRACTICE_FLOW_STEPS))
-    for idx, label in enumerate(PRACTICE_FLOW_STEPS, start=1):
+def render_step_strip(current_step: int, *, ui_locale: str) -> None:
+    localized_steps = workflow_steps(ui_locale)
+    step_cols = st.columns(len(localized_steps))
+    for idx, label in enumerate(localized_steps, start=1):
         text = f"{idx}. {label}"
         if idx < current_step:
             step_cols[idx - 1].success(text)
@@ -708,6 +1299,63 @@ def render_step_strip(current_step: int) -> None:
             step_cols[idx - 1].info(text)
         else:
             step_cols[idx - 1].caption(text)
+
+
+def render_live_timer_widget(attempt: dict, *, target_duration_sec: float, key: str) -> None:
+    measured = attempt_duration_sec(attempt)
+    started_at = attempt.get("recording_started_at")
+    status = attempt.get("status") or "idle"
+    target_sec = max(0, int(round(float(target_duration_sec))))
+    started_at_js = "null" if not started_at else str(float(started_at))
+    html = f"""
+    <div id="{key}" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:0.25rem 0 0.75rem 0;">
+      <div style="padding:12px;border-radius:12px;background:#0f172a;color:#e5e7eb;">
+        <div style="font-size:0.85rem;opacity:0.8;">Gesprochen</div>
+        <div data-role="spoken" style="font-size:2rem;font-weight:700;">00:00</div>
+      </div>
+      <div style="padding:12px;border-radius:12px;background:#111827;color:#e5e7eb;">
+        <div style="font-size:0.85rem;opacity:0.8;">Ziel</div>
+        <div data-role="target" style="font-size:2rem;font-weight:700;">00:00</div>
+      </div>
+      <div style="padding:12px;border-radius:12px;background:#111827;color:#e5e7eb;">
+        <div style="font-size:0.85rem;opacity:0.8;">Rest</div>
+        <div data-role="remaining" style="font-size:2rem;font-weight:700;">00:00</div>
+      </div>
+    </div>
+    <script>
+    (function() {{
+      const root = document.getElementById({json.dumps(key)});
+      if (!root) return;
+      const spokenEl = root.querySelector('[data-role="spoken"]');
+      const targetEl = root.querySelector('[data-role="target"]');
+      const remainingEl = root.querySelector('[data-role="remaining"]');
+      const target = {target_sec};
+      const status = {json.dumps(status)};
+      const measured = {float(measured)};
+      const startedAt = {started_at_js};
+      function fmt(total) {{
+        total = Math.max(0, Math.round(total));
+        const m = String(Math.floor(total / 60)).padStart(2, '0');
+        const s = String(total % 60).padStart(2, '0');
+        return `${{m}}:${{s}}`;
+      }}
+      function render() {{
+        const now = Date.now() / 1000;
+        const spoken = (status === 'recording' && startedAt) ? Math.max(measured, now - startedAt) : measured;
+        const remaining = Math.max(0, target - spoken);
+        spokenEl.textContent = fmt(spoken);
+        targetEl.textContent = fmt(target);
+        remainingEl.textContent = fmt(remaining);
+      }}
+      render();
+      if (status === 'recording') {{
+        const id = setInterval(render, 1000);
+        window.addEventListener('beforeunload', () => clearInterval(id), {{ once: true }});
+      }}
+    }})();
+    </script>
+    """
+    components.html(html, height=118)
 
 
 def render_recorder_status(
@@ -722,15 +1370,10 @@ def render_recorder_status(
         return
 
     status = attempt.get("status", "idle")
+    st.markdown(f"### {title}")
+    render_live_timer_widget(attempt, target_duration_sec=target_duration_sec, key=f"timer_{title}_{attempt.get('saved_path')}_{attempt.get('recording_started_at')}")
     recorded_sec = display_duration_sec(attempt)
     target_sec = float(target_duration_sec)
-    remaining_sec = max(0.0, target_sec - recorded_sec)
-
-    st.markdown(f"### {title}")
-    metrics = st.columns(3)
-    metrics[0].metric("Gesprochen", format_duration(recorded_sec))
-    metrics[1].metric("Ziel", format_duration(target_sec))
-    metrics[2].metric("Rest", format_duration(remaining_sec))
     progress = 0.0 if target_sec <= 0 else min(recorded_sec / target_sec, 1.0)
     st.progress(progress)
 
@@ -749,6 +1392,33 @@ def render_recorder_status(
         st.error(attempt.get("save_error") or "Mit der Aufnahme ist ein Fehler aufgetreten.")
 
 
+def render_native_recorder_status(
+    attempt: dict,
+    *,
+    title: str,
+    target_duration_sec: float,
+    evaluate_label: str,
+) -> None:
+    st.markdown(f"### {title}")
+    if attempt.get("saved_path"):
+        st.success("Aufnahme gespeichert. Du kannst sie jetzt anhören oder direkt auswerten.")
+        saved_path = Path(str(attempt["saved_path"]))
+        if saved_path.exists():
+            st.audio(saved_path.read_bytes(), format="audio/wav")
+        st.caption(f"Nächster Schritt: Klicke rechts auf `{evaluate_label}`.")
+        return
+    if attempt.get("status") == "error":
+        st.error(attempt.get("save_error") or "Mit der Aufnahme ist ein Fehler aufgetreten.")
+        return
+    target_minutes = round(float(target_duration_sec) / 60.0, 1)
+    st.info(
+        "Der Browser-Recorder übernimmt Start, Stop und Laufzeit direkt im Widget oben."
+    )
+    st.caption(
+        f"Ziel: etwa {target_minutes} Minuten sprechen. Nach dem Stoppen wird die Datei automatisch übernommen."
+    )
+
+
 def current_practice_step(attempt: dict, *, evaluation_running: bool = False) -> int:
     if evaluation_running:
         return 3
@@ -758,11 +1428,8 @@ def current_practice_step(attempt: dict, *, evaluation_running: bool = False) ->
     return 1
 
 
-@st.fragment(run_every=1)
 def render_practice_recorder_fragment(log_dir: Path, target_duration_sec: float) -> None:
     practice_attempt = st.session_state.get("practice_attempt") or create_recording_attempt()
-    previous_status = practice_attempt.get("status")
-    previous_saved_path = practice_attempt.get("saved_path")
 
     webrtc_ctx = webrtc_streamer(
         key="practice_recorder",
@@ -773,6 +1440,7 @@ def render_practice_recorder_fragment(log_dir: Path, target_duration_sec: float)
         translations=RECORDER_TRANSLATIONS,
         on_change=lambda: flag_recording_requested("practice_attempt"),
     )
+    audio_frames = []
     if webrtc_ctx and webrtc_ctx.audio_receiver:
         try:
             audio_frames = webrtc_ctx.audio_receiver.get_frames(timeout=1)
@@ -798,10 +1466,18 @@ def render_practice_recorder_fragment(log_dir: Path, target_duration_sec: float)
     practice_attempt = sync_recording_state(
         practice_attempt,
         webrtc_ctx,
+        component_key="practice_recorder",
         target_dir=log_dir / "recordings",
         prefix="practice",
     )
     st.session_state["practice_attempt"] = practice_attempt
+    debug_snapshot = build_recorder_debug_snapshot(
+        practice_attempt,
+        webrtc_ctx,
+        component_key="practice_recorder",
+        audio_frames_count=len(audio_frames),
+    )
+    log_recorder_snapshot("practice_attempt", debug_snapshot)
 
     render_recorder_status(
         practice_attempt,
@@ -809,6 +1485,7 @@ def render_practice_recorder_fragment(log_dir: Path, target_duration_sec: float)
         evaluation_running=st.session_state.get("manual_assessment_running", False),
         title="Status deiner Aufnahme",
     )
+    render_recorder_debug("practice_attempt", debug_snapshot)
     if practice_attempt.get("saved_path"):
         saved_path = Path(practice_attempt["saved_path"])
         if saved_path.exists():
@@ -824,14 +1501,9 @@ def render_practice_recorder_fragment(log_dir: Path, target_duration_sec: float)
             st.session_state["practice_attempt"] = create_recording_attempt()
             st.rerun()
 
-    if (
-        previous_status != practice_attempt.get("status")
-        or previous_saved_path != practice_attempt.get("saved_path")
-    ):
-        st.rerun()
 
 
-def build_result_summary(payload: dict) -> dict:
+def build_result_summary(payload: dict, *, ui_locale: str) -> dict:
     report = payload.get("report") if isinstance(payload, dict) else None
     report = report if isinstance(report, dict) else {}
     checks = report.get("checks") if isinstance(report.get("checks"), dict) else {}
@@ -851,22 +1523,22 @@ def build_result_summary(payload: dict) -> dict:
         if isinstance(issue, dict) and issue.get("type")
     ]
     gates = [
-        ("Sprache", bool(checks.get("language_pass"))),
-        ("Thema", bool(checks.get("topic_pass"))),
-        ("Dauer", bool(checks.get("duration_pass"))),
-        ("Wortmenge", bool(checks.get("min_words_pass"))),
+        (ui_text(ui_locale, "gate_language"), bool(checks.get("language_pass"))),
+        (ui_text(ui_locale, "gate_theme"), bool(checks.get("topic_pass"))),
+        (ui_text(ui_locale, "gate_duration"), bool(checks.get("duration_pass"))),
+        (ui_text(ui_locale, "gate_words"), bool(checks.get("min_words_pass"))),
     ]
     failed_gates = [label for label, passed in gates if not passed]
     requires_review = bool(report.get("requires_human_review"))
     if requires_review:
         status_level = "warning"
-        status_title = "Manuelle Prüfung empfohlen"
+        status_title = ui_text(ui_locale, "status_review")
     elif failed_gates:
         status_level = "info"
-        status_title = "Aufgabe noch nicht stabil erfüllt"
+        status_title = ui_text(ui_locale, "status_unstable")
     else:
         status_level = "success"
-        status_title = "Aufgabe erfüllt"
+        status_title = ui_text(ui_locale, "status_done")
     return {
         "status_level": status_level,
         "status_title": status_title,
@@ -931,8 +1603,8 @@ def build_progress_delta_lines(progress_delta: dict | None) -> list[str]:
     return lines
 
 
-def render_assessment_feedback(payload: dict, *, key_prefix: str) -> None:
-    summary = build_result_summary(payload)
+def render_assessment_feedback(payload: dict, *, key_prefix: str, ui_locale: str) -> None:
+    summary = build_result_summary(payload, ui_locale=ui_locale)
     status_text = summary["status_title"]
     if summary["failed_gates"]:
         status_text += " – offen: " + ", ".join(summary["failed_gates"])
@@ -943,7 +1615,7 @@ def render_assessment_feedback(payload: dict, *, key_prefix: str) -> None:
     else:
         st.info(status_text)
 
-    st.markdown("### Deine Rückmeldung")
+    st.markdown(f"### {ui_text(ui_locale, 'feedback_heading')}")
     score_cols = st.columns(2)
     score_cols[0].metric("Gesamtwert", summary["final_score"] if summary["final_score"] is not None else "–")
     score_cols[1].metric("Niveau", summary["band"] if summary["band"] is not None else "–")
@@ -956,45 +1628,45 @@ def render_assessment_feedback(payload: dict, *, key_prefix: str) -> None:
 
     left, right = st.columns(2)
     with left:
-        st.subheader("Das gelingt dir schon")
+        st.subheader(ui_text(ui_locale, "strengths_heading"))
         if summary["strengths"]:
             for item in summary["strengths"]:
                 st.markdown(f"- {item}")
         else:
             st.caption("Hier erscheinen die Dinge, die bereits stabil wirken.")
     with right:
-        st.subheader("Darauf solltest du als Nächstes achten")
+        st.subheader(ui_text(ui_locale, "priorities_heading"))
         if summary["priorities"]:
             for idx, item in enumerate(summary["priorities"], start=1):
                 st.markdown(f"{idx}. {item}")
         else:
             st.caption("Noch keine Prioritäten vorhanden.")
         if summary["next_focus"]:
-            st.markdown(f"**Konkreter Fokus für den nächsten Versuch:** {summary['next_focus']}")
+            st.markdown(f"**{ui_text(ui_locale, 'next_focus')}** {summary['next_focus']}")
 
     if summary["next_exercise"]:
-        st.info(f"**Nächste Übung für dich:** {summary['next_exercise']}")
+        st.info(f"**{ui_text(ui_locale, 'next_exercise')}** {summary['next_exercise']}")
 
     if summary["progress_lines"]:
-        st.subheader("Vergleich zum letzten Versuch")
+        st.subheader(ui_text(ui_locale, "progress_heading"))
         for line in summary["progress_lines"]:
             st.markdown(f"- {line}")
 
     issue_cols = st.columns(2)
     with issue_cols[0]:
-        st.caption("Wiederkehrende Grammatikmuster")
+        st.caption(ui_text(ui_locale, "recurring_grammar"))
         if summary["recurring_grammar"]:
             st.write(", ".join(summary["recurring_grammar"]))
         else:
             st.write("–")
     with issue_cols[1]:
-        st.caption("Wiederkehrende Strukturprobleme")
+        st.caption(ui_text(ui_locale, "recurring_structure"))
         if summary["recurring_coherence"]:
             st.write(", ".join(summary["recurring_coherence"]))
         else:
             st.write("–")
 
-    with st.expander("So wurde bewertet", expanded=False):
+    with st.expander(ui_text(ui_locale, "evaluation_details"), expanded=False):
         detail_cols = st.columns(3)
         detail_cols[0].metric("Bewertungsart", summary["mode_label"])
         detail_cols[1].metric("Sprachurteil", summary["llm_score"] if summary["llm_score"] is not None else "–")
@@ -1005,7 +1677,7 @@ def render_assessment_feedback(payload: dict, *, key_prefix: str) -> None:
 
     baseline = summary["baseline"]
     if isinstance(baseline, dict):
-        st.subheader("CEFR-Baseline")
+        st.subheader(ui_text(ui_locale, "baseline_heading"))
         st.markdown(f"**Baseline {baseline['level']}** – {baseline.get('comment', '')}")
         rows = [
             {
@@ -1016,21 +1688,23 @@ def render_assessment_feedback(payload: dict, *, key_prefix: str) -> None:
             }
             for metric, entry in baseline["targets"].items()
         ]
-        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch")
 
     if summary["warnings"]:
-        st.caption("Warnungen: " + ", ".join(summary["warnings"]))
+        st.caption(ui_text(ui_locale, "warnings") + ": " + ", ".join(summary["warnings"]))
 
-    with st.expander("Rohdaten und JSON"):
+    with st.expander(ui_text(ui_locale, "raw_json")):
         st.json(payload)
-    if st.button("Gleiche Aufgabe erneut versuchen", key=f"{key_prefix}_retry"):
+    if st.button(ui_text(ui_locale, "retry_task"), key=f"{key_prefix}_retry"):
         st.session_state[f"{key_prefix}_payload"] = None
         dashboard_rerun()
 
 
 def main() -> None:
-    st.set_page_config(page_title="Assess Speaking Dashboard", layout="wide")
-    st.title("Assess Speaking – Interactive Dashboard")
+    st.set_page_config(page_title="Speaking Studio Dashboard", layout="wide")
+    st.title("Speaking Studio - Interactive Dashboard")
+    st.warning(LEGACY_DASHBOARD_NOTICE)
+    st.caption("Primary app surface: `streamlit run streamlit_app.py`")
     st.markdown(
         """
         <style>
@@ -1053,100 +1727,277 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    log_dir_str = st.sidebar.text_input("Log-Verzeichnis", str(DEFAULT_LOG_DIR))
+    initial_ui_locale = _supported_ui_locale(st.session_state.get("ui_locale_select", DEFAULT_UI_LOCALE))
+    log_dir_str = st.sidebar.text_input(ui_text(initial_ui_locale, "log_dir"), str(DEFAULT_LOG_DIR))
     log_dir = Path(log_dir_str).expanduser().resolve()
     prompts = load_prompts(PROMPTS_FILE)
+    theme_library = theme_library_store.load_theme_library(log_dir)
+    dashboard_prefs = theme_library_store.load_dashboard_prefs(log_dir)
     if "prompt_attempt" not in st.session_state:
         st.session_state["prompt_attempt"] = None
     st.session_state.setdefault("practice_attempt", create_recording_attempt())
     st.session_state.setdefault("manual_payload", None)
     st.session_state.setdefault("manual_assessment_running", False)
+    st.session_state.setdefault("manual_assessment_request", None)
     st.session_state.setdefault("prompt_payload", None)
     st.session_state.setdefault("prompt_assessment_running", False)
+    st.session_state.setdefault("prompt_assessment_request", None)
     st.session_state.setdefault("practice_prompt_variant", 0)
-    st.session_state.setdefault("practice_mode", "Direkt im Browser aufnehmen")
-    st.sidebar.markdown("""
-    **Workflow**
-    1. Aufgabe definieren
-    2. Direkt im Browser sprechen
-    3. Aufnahme prüfen und auswerten
-    4. Coaching lesen und direkt erneut versuchen
-    """)
+    st.session_state.setdefault("practice_mode", PRACTICE_MODE_RECORD)
+    st.session_state["practice_mode"] = normalize_practice_mode(st.session_state.get("practice_mode"))
+    st.session_state.setdefault("practice_audio_input_version", 0)
+    st.session_state.setdefault("prompt_audio_input_version", 0)
+    st.session_state.setdefault("practice_whisper_model_select", DEFAULT_WHISPER_MODEL)
+    st.session_state.setdefault("prompt_whisper_model_select", DEFAULT_WHISPER_MODEL)
+    st.session_state.setdefault(
+        "ui_locale_select",
+        _supported_ui_locale(dashboard_prefs.get("ui_locale", initial_ui_locale)),
+    )
+    st.session_state.setdefault("speaker_id_input", dashboard_prefs.get("speaker_id", DEFAULT_SETTINGS.speaker_id or ""))
+    st.session_state.setdefault(
+        "learning_language_select",
+        dashboard_prefs.get("learning_language", dashboard_prefs.get("language", DEFAULT_LEARNING_LANGUAGE)),
+    )
+    st.session_state.setdefault("practice_level_select", dashboard_prefs.get("cefr_level", "B1"))
+    st.session_state.setdefault("practice_theme_text", dashboard_prefs.get("theme", DEFAULT_THEME))
+    st.session_state.setdefault("practice_theme_choice", dashboard_prefs.get("theme_choice", ""))
+    st.session_state.setdefault("practice_task_family", dashboard_prefs.get("task_family", DEFAULT_TASK_FAMILY))
+    st.session_state.setdefault("target_duration_sec", float(dashboard_prefs.get("target_duration_sec", DEFAULT_TARGET_DURATION_SEC)))
+    pending_practice_selection = st.session_state.pop("pending_practice_selection", None)
+    if isinstance(pending_practice_selection, dict):
+        if pending_practice_selection.get("learning_language"):
+            st.session_state["learning_language_select"] = pending_practice_selection["learning_language"]
+        if pending_practice_selection.get("cefr_level"):
+            st.session_state["practice_level_select"] = pending_practice_selection["cefr_level"]
+        if pending_practice_selection.get("theme_choice"):
+            st.session_state["practice_theme_choice"] = pending_practice_selection["theme_choice"]
+            st.session_state["practice_theme_choice_previous"] = ""
+        if pending_practice_selection.get("theme"):
+            st.session_state["practice_theme_text"] = pending_practice_selection["theme"]
+        if pending_practice_selection.get("task_family"):
+            st.session_state["practice_task_family"] = pending_practice_selection["task_family"]
+    theme_library_success = st.session_state.pop("theme_library_success", None)
+    ui_locale = _supported_ui_locale(st.session_state["ui_locale_select"])
+
+    st.sidebar.selectbox(
+        ui_text(ui_locale, "ui_locale"),
+        options=tuple(UI_LOCALE_NAMES),
+        key="ui_locale_select",
+        format_func=lambda code: UI_LOCALE_NAMES.get(code, code),
+    )
+    ui_locale = _supported_ui_locale(st.session_state["ui_locale_select"])
+    st.sidebar.markdown(
+        "\n".join(
+            [
+                f"**{ui_text(ui_locale, 'workflow_title')}**",
+                *[f"{idx}. {step}" for idx, step in enumerate(workflow_steps(ui_locale), start=1)],
+            ]
+        )
+    )
 
     history_df = pd.DataFrame()
     history_records = []
-    warning_container = st.empty()
+    history_status: tuple[str, str] | None = None
     try:
         history_records = load_history_records(log_dir)
         history_df = load_history_df(log_dir)
     except FileNotFoundError:
-        warning_container.info("Noch keine `history.csv` gefunden – führe zuerst eine Bewertung aus.")
+        history_status = ("info", "Noch keine `history.csv` gefunden – führe zuerst eine Bewertung aus.")
     except ValueError as exc:  # pragma: no cover - defensive
-        warning_container.error(f"Konnte history.csv nicht lesen: {exc}")
+        history_status = ("error", f"Konnte history.csv nicht lesen: {exc}")
 
-    st.header("Sprechtraining")
+    st.header(ui_text(ui_locale, "training_heading"))
     st.markdown(
-        """
+        f"""
         <div class="practice-hero">
-          <strong>Sprich zuerst. Aufnahme und Aufgabenfokus stehen im Mittelpunkt.</strong>
+          <strong>{ui_text(ui_locale, "hero_title")}</strong>
           <div class="practice-subtle">
-            Wähle ein Thema, hole dir einen klaren Sprechauftrag und versuche die Aufgabe direkt noch einmal nach dem Feedback.
+            {ui_text(ui_locale, "hero_subtitle")}
           </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    context_cols = st.columns([1, 1])
-    with context_cols[0]:
+    language_codes = theme_library_store.language_options(theme_library)
+    if st.session_state["learning_language_select"] not in language_codes and language_codes:
+        st.session_state["learning_language_select"] = language_codes[0]
+    context_row_one = st.columns([1, 1, 1])
+    with context_row_one[0]:
         speaker_id = st.text_input(
-            "Speaker ID",
-            value=st.session_state.get("speaker_id", DEFAULT_SETTINGS.speaker_id or ""),
-            help="Für Timeline und Vergleich gleicher Sprecher.",
+            ui_text(ui_locale, "speaker_id"),
+            key="speaker_id_input",
+            help="Pflichtfeld für Timeline und Vergleich gleicher Sprecher.",
+        ).strip()
+    with context_row_one[1]:
+        selected_learning_language = st.selectbox(
+            ui_text(ui_locale, "learning_language"),
+            options=language_codes,
+            key="learning_language_select",
+            format_func=lambda code: format_language_option(theme_library, code),
         )
-        task_family = st.selectbox(
-            "Task-Family",
-            options=PRACTICE_TASK_FAMILIES,
-            index=PRACTICE_TASK_FAMILIES.index(DEFAULT_TASK_FAMILY)
-            if DEFAULT_TASK_FAMILY in PRACTICE_TASK_FAMILIES
-            else 0,
-            help="Vergleiche werden innerhalb derselben Task-Family gemacht.",
+    with context_row_one[2]:
+        selected_level = st.selectbox(
+            "CEFR-Stufe",
+            options=["B1", "B2", "C1"],
+            key="practice_level_select",
         )
-    with context_cols[1]:
-        theme = st.text_area(
-            "Thema",
-            value=st.session_state.get("theme", DEFAULT_THEME),
-            help="Beispiel: Il mio ultimo viaggio all'estero",
-        )
-        target_duration_sec = st.number_input(
-            "Zielsprechdauer (Sekunden)",
-            min_value=30.0,
-            max_value=600.0,
-            step=30.0,
-            value=float(st.session_state.get("target_duration_sec", DEFAULT_TARGET_DURATION_SEC)),
-        )
+
+    available_themes = theme_library_store.themes_for_language_and_level(
+        theme_library,
+        selected_learning_language,
+        selected_level,
+    )
+    theme_labels = [theme_option_label(entry) for entry in available_themes]
+    theme_options = theme_labels + ["Eigenes Thema"]
+    if st.session_state["practice_theme_choice"] not in theme_options:
+        st.session_state["practice_theme_choice"] = theme_labels[0] if theme_labels else "Eigenes Thema"
+
+    with st.expander(ui_text(ui_locale, "task_settings"), expanded=True):
+        context_row_two = st.columns([1.1, 1.4])
+        with context_row_two[0]:
+            selected_theme_label = st.selectbox(
+                ui_text(ui_locale, "theme_suggestion"),
+                options=theme_options,
+                key="practice_theme_choice",
+            )
+            selected_theme_entry = next((entry for entry in available_themes if theme_option_label(entry) == selected_theme_label), None)
+            previous_theme_label = st.session_state.get("practice_theme_choice_previous")
+            if selected_theme_entry and selected_theme_label != previous_theme_label:
+                st.session_state["practice_theme_text"] = selected_theme_entry["title"]
+                st.session_state["practice_task_family"] = selected_theme_entry.get("task_family", DEFAULT_TASK_FAMILY)
+            st.session_state["practice_theme_choice_previous"] = selected_theme_label
+            target_duration_sec = st.number_input(
+                ui_text(ui_locale, "target_duration"),
+                min_value=30.0,
+                max_value=600.0,
+                step=30.0,
+                key="target_duration_sec",
+            )
+        with context_row_two[1]:
+            theme = st.text_area(
+                ui_text(ui_locale, "theme"),
+                key="practice_theme_text",
+                help="Pflichtfeld. Du kannst einen Vorschlag direkt anpassen oder ein eigenes Thema schreiben.",
+            ).strip()
+
+    task_family = st.session_state.get("practice_task_family", DEFAULT_TASK_FAMILY)
     st.session_state["speaker_id"] = speaker_id
     st.session_state["theme"] = theme
-    st.session_state["target_duration_sec"] = target_duration_sec
-    st.caption("Sprache: Italienisch. Die Gates prüfen Sprache, Thema, Dauer und Wortmenge.")
+    st.session_state["task_family"] = task_family
+    st.caption(
+        ui_text(
+            ui_locale,
+            "language_status",
+            language=format_language_option(theme_library, selected_learning_language),
+        )
+    )
+
+    with st.sidebar.expander("Sprachen und Themen verwalten", expanded=False):
+        theme_library_errors = st.session_state.get("theme_library_form_errors", {})
+        if theme_library_success:
+            st.success(theme_library_success)
+        st.caption("Hier kannst du weitere Sprachen und eigene Themen dauerhaft im lokalen Dashboard speichern.")
+        with st.form("theme_library_form"):
+            manage_cols = st.columns([1, 1])
+            with manage_cols[0]:
+                known_languages = theme_library_store.language_options(theme_library)
+                manage_mode = st.selectbox(
+                    "Sprache wählen oder neu anlegen",
+                    options=known_languages + [NEW_LANGUAGE_OPTION],
+                    key="manage_language_mode",
+                    format_func=lambda code: "Neue Sprache anlegen" if code == NEW_LANGUAGE_OPTION else format_language_option(theme_library, code),
+                )
+                if manage_mode == NEW_LANGUAGE_OPTION:
+                    manage_language_code = st.text_input("Sprachcode", key="manage_language_code", placeholder="z. B. de")
+                    if theme_library_errors.get("language_code"):
+                        st.error(theme_library_errors["language_code"])
+                    manage_language_label = st.text_input("Sprachname", key="manage_language_label", placeholder="z. B. Deutsch")
+                    if theme_library_errors.get("language_label"):
+                        st.error(theme_library_errors["language_label"])
+                else:
+                    manage_language_code = manage_mode
+                    manage_language_label = theme_library_store.language_label(theme_library, manage_mode)
+                    st.caption(f"Speichert unter `{manage_language_code}` · {manage_language_label}")
+            with manage_cols[1]:
+                new_theme_title = st.text_input("Neues Thema", key="manage_theme_title", placeholder="z. B. Ein Gespräch, das mich beeindruckt hat")
+                if theme_library_errors.get("theme_title"):
+                    st.error(theme_library_errors["theme_title"])
+                new_theme_level = st.selectbox("CEFR-Stufe (Thema)", options=["B1", "B2", "C1"], key="manage_theme_level")
+                new_theme_family = st.selectbox("Task-Family (Thema)", options=PRACTICE_TASK_FAMILIES, key="manage_theme_family")
+            save_theme_clicked = st.form_submit_button("Thema speichern")
+        if save_theme_clicked:
+            validation_errors = validate_theme_library_submission(
+                manage_mode=manage_mode,
+                language_code=manage_language_code,
+                language_label=manage_language_label,
+                theme_title=new_theme_title,
+            )
+            if validation_errors:
+                st.session_state["theme_library_form_errors"] = validation_errors
+                dashboard_rerun()
+            try:
+                normalized_code = manage_language_code.strip().lower()
+                normalized_label = manage_language_label.strip()
+                normalized_title = new_theme_title.strip()
+                updated_library = theme_library_store.add_theme(
+                    theme_library,
+                    language_code=normalized_code,
+                    language_label=normalized_label,
+                    title=normalized_title,
+                    level=new_theme_level,
+                    task_family=new_theme_family,
+                )
+                theme_library_store.save_theme_library(log_dir, updated_library)
+                st.session_state["theme_library_form_errors"] = {}
+                st.session_state["theme_library_success"] = f"Thema '{normalized_title}' wurde gespeichert."
+                st.session_state["pending_practice_selection"] = {
+                    "learning_language": normalized_code,
+                    "cefr_level": new_theme_level,
+                    "theme_choice": theme_option_label({"title": normalized_title, "level": new_theme_level}),
+                    "theme": normalized_title,
+                    "task_family": new_theme_family,
+                }
+                dashboard_rerun()
+            except Exception as exc:  # pragma: no cover - defensive
+                st.error(f"Thema konnte nicht gespeichert werden: {exc}")
+
+    try:
+        theme_library_store.save_dashboard_prefs(
+            log_dir,
+            {
+                "ui_locale": ui_locale,
+                "speaker_id": speaker_id,
+                "learning_language": selected_learning_language,
+                "language": selected_learning_language,
+                "cefr_level": selected_level,
+                "theme": theme,
+                "theme_choice": st.session_state.get("practice_theme_choice", ""),
+                "task_family": task_family,
+                "target_duration_sec": float(target_duration_sec),
+            },
+        )
+    except Exception:
+        pass
     control_cols = st.columns([1, 1])
     with control_cols[1]:
         if st.button("Neue Aufgabenfassung", key="rotate_practice_prompt"):
             st.session_state["practice_prompt_variant"] += 1
             dashboard_rerun()
-    practice_mode = st.session_state.get("practice_mode", "Direkt im Browser aufnehmen")
+    practice_mode = normalize_practice_mode(st.session_state.get("practice_mode", PRACTICE_MODE_RECORD))
     with control_cols[0]:
-        if practice_mode == "Direkt im Browser aufnehmen":
-            st.info("Primärer Weg: direkt sprechen. Upload und lokaler Dateipfad sind nur Ausweichwege.")
+        if practice_mode == PRACTICE_MODE_RECORD:
+            st.caption("Primärer Weg: direkt sprechen. Upload und lokaler Dateipfad sind nur Ausweichwege.")
         else:
             st.warning("Du nutzt gerade eine vorhandene Aufnahme. Für echtes Sprechtraining ist die Browseraufnahme der bevorzugte Weg.")
             if st.button("Zur Direktaufnahme zurückkehren", key="switch_back_to_capture"):
-                st.session_state["practice_mode"] = "Direkt im Browser aufnehmen"
+                st.session_state["practice_mode"] = PRACTICE_MODE_RECORD
                 dashboard_rerun()
 
     practice_brief = generate_practice_brief(
         task_family=task_family,
         theme=theme,
         target_duration_sec=target_duration_sec,
+        language_code=selected_learning_language,
         variant_index=st.session_state.get("practice_prompt_variant", 0),
     )
     render_practice_brief(practice_brief)
@@ -1156,77 +2007,115 @@ def main() -> None:
 
     with col_left:
         uploaded = None
-        existing_path = ""
         render_step_strip(
             2
-            if practice_mode != "Direkt im Browser aufnehmen"
+            if practice_mode != PRACTICE_MODE_RECORD
             else current_practice_step(
                 practice_attempt,
                 evaluation_running=st.session_state.get("manual_assessment_running", False),
-            )
+            ),
+            ui_locale=ui_locale,
         )
         st.markdown("### Jetzt sprechen")
         st.caption("Die Aufnahme wird nach dem Stoppen automatisch gespeichert. Erst danach ist die Auswertung aktiv.")
-        if practice_mode != "Direkt im Browser aufnehmen":
+        if practice_mode != PRACTICE_MODE_RECORD:
             with st.expander("Alternative: vorhandene Aufnahme nutzen", expanded=True):
-                alternative_mode = st.radio(
-                    "Alternative wählen",
-                    options=["Audiodatei hochladen", "Lokale Datei verwenden"],
-                    index=0 if practice_mode == "Audiodatei hochladen" else 1,
-                    horizontal=True,
-                    key="practice_mode_radio",
+                st.session_state["practice_mode"] = PRACTICE_MODE_UPLOAD
+                practice_mode = PRACTICE_MODE_UPLOAD
+                uploaded = st.file_uploader(
+                    "Audio-Datei hinzufügen",
+                    type=["wav", "mp3", "m4a", "flac", "ogg"],
+                    key="practice_upload_alt",
                 )
-                st.session_state["practice_mode"] = alternative_mode
-                practice_mode = alternative_mode
-                if practice_mode == "Audiodatei hochladen":
-                    uploaded = st.file_uploader(
-                        "Audio-Datei hinzufügen",
-                        type=["wav", "mp3", "m4a", "flac", "ogg"],
-                    )
-                else:
-                    existing_path = st.text_input("Lokalen Pfad verwenden", "")
         else:
             with st.expander("Stattdessen eine vorhandene Aufnahme nutzen", expanded=False):
-                alternative_mode = st.radio(
-                    "Alternative wählen",
-                    options=["Audiodatei hochladen", "Lokale Datei verwenden"],
-                    horizontal=True,
-                    key="practice_mode_radio",
-                )
                 if st.button("Alternative aktivieren", key="activate_alternative_mode"):
-                    st.session_state["practice_mode"] = alternative_mode
+                    st.session_state["practice_mode"] = PRACTICE_MODE_UPLOAD
                     dashboard_rerun()
-        if practice_mode == "Direkt im Browser aufnehmen":
-            render_practice_recorder_fragment(log_dir, float(target_duration_sec))
+        if practice_mode == PRACTICE_MODE_RECORD:
+            if HAS_NATIVE_AUDIO_INPUT:
+                st.caption("Direktaufnahme aktiv. Dein Browser zeigt Start, Stop und Laufzeit direkt im Recorder.")
+                widget_key = f"practice_audio_input_{st.session_state.get('practice_audio_input_version', 0)}"
+                recorded_audio = st.audio_input("Direkt im Browser aufnehmen", key=widget_key)
+                practice_attempt = persist_audio_input(
+                    recorded_audio,
+                    session_key="practice_attempt",
+                    target_dir=log_dir / "recordings",
+                    prefix="practice",
+                )
+                st.session_state["practice_attempt"] = practice_attempt
+                render_native_recorder_status(
+                    practice_attempt,
+                    title="Status deiner Aufnahme",
+                    target_duration_sec=float(target_duration_sec),
+                    evaluate_label="Aufnahme auswerten",
+                )
+                if practice_attempt.get("saved_path"):
+                    recorder_actions = st.columns(2)
+                    if recorder_actions[0].button("Neue Aufnahme starten", key="reset_practice_recording_native"):
+                        reset_audio_input_recorder(
+                            session_key="practice_attempt",
+                            version_key="practice_audio_input_version",
+                        )
+                        st.session_state["manual_payload"] = None
+                        dashboard_rerun()
+                    recorder_actions[1].markdown("**Nächster Schritt:** Klicke rechts auf `Aufnahme auswerten`.")
+            else:
+                st.warning("Dieser Streamlit-Build hat noch keinen nativen Recorder. Fallback auf die ältere WebRTC-Aufnahme.")
+                render_practice_recorder_fragment(log_dir, float(target_duration_sec))
             practice_attempt = st.session_state.get("practice_attempt") or create_recording_attempt()
-        elif practice_mode == "Audiodatei hochladen":
+        elif practice_mode == PRACTICE_MODE_UPLOAD:
             st.caption("Sekundärer Weg: eine bereits vorhandene Aufnahme auswerten.")
-            uploaded = uploaded or st.file_uploader("Audio-Datei hinzufügen", type=["wav", "mp3", "m4a", "flac", "ogg"])
-        else:
-            st.caption("Sekundärer Weg: nutze einen lokalen Dateipfad nur dann, wenn die Aufnahme schon auf diesem Rechner liegt.")
-            existing_path = existing_path or st.text_input("Lokalen Pfad verwenden", "")
     with col_right:
-        st.markdown("### Danach")
-        label = st.text_input("Label", "")
-        with st.expander("Erweiterte Optionen", expanded=False):
+        st.markdown("### Auswertung")
+        st.caption("Wenn die Aufnahme gespeichert ist, kannst du sie hier direkt bewerten.")
+        with st.expander("Technik und Notizen", expanded=False):
+            label = st.text_input("Label", "")
+            st.markdown("#### Transkription (Whisper, lokal)")
+            whisper_model, whisper_availability = render_whisper_model_controls(
+                select_key="practice_whisper_model_select",
+                notice_key="practice_whisper_model_notice",
+                label="Whisper-Modell (lokal)",
+                compact=True,
+            )
             notes = st.text_area("Notiz", "", height=100)
-            provider = st.selectbox("LLM-Anbieter", options=["openrouter", "ollama"], index=0 if DEFAULT_PROVIDER == "openrouter" else 1)
-            whisper_model = st.text_input("Whisper-Modell", value=DEFAULT_WHISPER_MODEL)
+            provider = st.selectbox(
+                "Bewertungsanbieter (LLM)",
+                options=["openrouter", "ollama"],
+                index=0 if DEFAULT_PROVIDER == "openrouter" else 1,
+            )
             llm_default = DEFAULT_LLM_MODEL if provider == DEFAULT_PROVIDER else (
                 DEFAULT_SETTINGS.openrouter_rubric_model if provider == "openrouter" else DEFAULT_SETTINGS.ollama_model
             )
-            llm_model = st.text_input("LLM-Modell", value=llm_default)
+            llm_model = st.text_input("Bewertungsmodell (LLM)", value=llm_default)
             if not RTC_CONFIGURATION.get("iceServers"):
                 st.caption("Recorder läuft lokal ohne externen STUN-Server. Für Fernzugriff kannst du `ASSESS_SPEAKING_STUN_URLS` setzen.")
-        run_label = "Aufnahme auswerten" if practice_mode == "Direkt im Browser aufnehmen" else "Datei auswerten"
-        run_disabled = practice_mode == "Direkt im Browser aufnehmen" and not bool(practice_attempt.get("saved_path"))
+        st.caption(f"Whisper: `{st.session_state.get('practice_whisper_model_select', DEFAULT_WHISPER_MODEL)}`")
+        run_label = (
+            "Auswertung läuft..."
+            if st.session_state.get("manual_assessment_running")
+            else "Aufnahme auswerten"
+            if practice_mode == PRACTICE_MODE_RECORD
+            else "Datei auswerten"
+        )
+        run_disabled = (
+            (practice_mode == PRACTICE_MODE_RECORD and not bool(practice_attempt.get("saved_path")))
+            or not whisper_availability.get("cached")
+            or not speaker_id
+            or not theme
+            or st.session_state.get("manual_assessment_running", False)
+        )
         run_button = st.button(run_label, type="primary", disabled=run_disabled)
-        if run_disabled:
+        if not whisper_availability.get("cached"):
+            st.caption("Die Auswertung bleibt gesperrt, bis ein lokales Whisper-Modell bereitsteht.")
+        elif not speaker_id or not theme:
+            st.caption("Speaker ID und Thema sind Pflichtfelder, bevor die Auswertung starten kann.")
+        elif run_disabled:
             st.caption("Die Auswertung wird erst aktiv, wenn die Aufnahme beendet und erfolgreich gespeichert wurde.")
 
     if run_button:
         audio_path: Path | None = None
-        if practice_mode == "Direkt im Browser aufnehmen":
+        if practice_mode == PRACTICE_MODE_RECORD:
             attempt = st.session_state.get("practice_attempt") or {}
             if not attempt.get("saved_path"):
                 st.warning("Bitte beende zuerst die Aufnahme. Danach wird sie automatisch gespeichert.")
@@ -1237,398 +2126,457 @@ def main() -> None:
                 audio_path = store_uploaded_audio(uploaded, uploaded.name, log_dir / "uploads")
             except Exception as exc:  # pragma: no cover - defensive
                 st.error(f"Upload fehlgeschlagen: {exc}")
-        elif existing_path:
-            potential = Path(existing_path).expanduser()
-            if potential.exists():
-                audio_path = potential
-            else:
-                st.error(f"Datei nicht gefunden: {potential}")
         else:
-            st.warning("Bitte nimm Audio auf, lade eine Datei hoch oder gib einen lokalen Pfad an.")
+            st.warning("Bitte nimm Audio auf oder lade eine Datei hoch.")
 
-        if audio_path:
+        if audio_path and not whisper_availability.get("cached"):
+            st.error("Das gewählte Whisper-Modell ist noch nicht lokal verfügbar. Lade es zuerst herunter oder wähle ein vorhandenes Modell.")
+        elif audio_path and (not speaker_id or not theme):
+            st.error("Speaker ID und Thema sind Pflichtfelder.")
+        elif audio_path:
+            st.session_state["manual_assessment_request"] = create_assessment_request(
+                audio_path=audio_path,
+                log_dir=log_dir,
+                whisper=whisper_model,
+                llm=llm_model,
+                label=label,
+                notes=notes,
+                provider=provider,
+                expected_language=selected_learning_language,
+                feedback_language=ui_locale,
+                speaker_id=speaker_id,
+                task_family=task_family,
+                theme=theme,
+                target_duration_sec=target_duration_sec,
+            )
             st.session_state["manual_assessment_running"] = True
-            with st.spinner("Auswertung läuft..."):
-                result = run_assessment(
-                    audio_path,
-                    log_dir,
-                    whisper_model,
-                    llm_model,
-                    label,
-                    notes,
-                    provider=provider,
-                    speaker_id=speaker_id,
-                    task_family=task_family,
-                    theme=theme,
-                    target_duration_sec=target_duration_sec,
-                )
-            st.session_state["manual_assessment_running"] = False
-            if result.returncode != 0:
-                st.error("Bewertung fehlgeschlagen. Siehe Log unten.")
-                st.code(result.stderr or result.stdout)
-            else:
-                payload = parse_cli_json(result.stdout) or load_latest_report_payload(log_dir, label=label)
-                if payload:
-                    st.session_state["manual_payload"] = payload
-                st.success("Bewertung abgeschlossen – Verlauf aktualisiert.")
-                rerun_history(log_dir)
-                history_df = load_history_df(log_dir)
-                if practice_mode == "Direkt im Browser aufnehmen":
-                    st.session_state["practice_attempt"] = create_recording_attempt()
+            dashboard_rerun()
         else:
             st.session_state["manual_assessment_running"] = False
             st.session_state["manual_payload"] = None
 
-    if st.session_state.get("manual_payload"):
-        render_assessment_feedback(st.session_state["manual_payload"], key_prefix="manual")
-
-    trainer_tab, chart_tab, table_tab, detail_tab = st.tabs(["Prompt-Trainer", "Trend", "Tabelle", "Details"])
-
-    with trainer_tab:
-        existing_prompt_payload = st.session_state.get("prompt_payload")
-        if isinstance(existing_prompt_payload, dict):
-            st.subheader("Letztes Prompt-Ergebnis")
-            render_assessment_feedback(existing_prompt_payload, key_prefix="prompt")
-        if not prompts:
-            st.info("Keine Übungsprompts gefunden (`prompts/prompts.json`).")
+    manual_request = st.session_state.get("manual_assessment_request")
+    if manual_request and st.session_state.get("manual_assessment_running"):
+        with st.spinner("Auswertung läuft..."):
+            result = execute_assessment_request(manual_request)
+        st.session_state["manual_assessment_running"] = False
+        st.session_state["manual_assessment_request"] = None
+        if result.returncode != 0:
+            st.error("Bewertung fehlgeschlagen. Siehe Log unten.")
+            st.code(result.stderr or result.stdout)
         else:
-            titles = [f"{p['title']} ({p['cefr_target']})" for p in prompts]
-            current_idx = st.selectbox(
-                "Prompt auswählen", options=range(len(prompts)), format_func=lambda i: titles[i]
+            payload = parse_cli_json(result.stdout) or load_latest_report_payload(
+                Path(manual_request["log_dir"]),
+                label=manual_request.get("label", ""),
             )
-            selected_prompt = prompts[current_idx]
-            st.markdown(
-                f"**Ziel CEFR:** {selected_prompt['cefr_target']} – Antwortzeit: {selected_prompt['response_seconds']} s – Wiedergaben: {selected_prompt['max_playbacks']}"
-            )
-            st.write(selected_prompt["prompt_text"])
+            if payload:
+                st.session_state["manual_payload"] = payload
+            st.success("Bewertung abgeschlossen – Verlauf aktualisiert.")
+            rerun_history(Path(manual_request["log_dir"]))
+            history_df = load_history_df(Path(manual_request["log_dir"]))
+            if practice_mode == PRACTICE_MODE_RECORD:
+                st.session_state["practice_attempt"] = create_recording_attempt()
+        dashboard_rerun()
 
-            with st.expander("Advanced Prompt-Einstellungen", expanded=False):
-                prompt_provider = st.selectbox(
-                    "LLM-Anbieter (Prompt)",
-                    options=["openrouter", "ollama"],
-                    index=0 if provider == "openrouter" else 1,
-                    key="prompt_provider",
-                )
-                prompt_whisper = st.text_input(
-                    "Whisper-Modell (Prompt)", value=whisper_model, key="prompt_whisper_model"
-                )
-                prompt_llm_default = (
-                    DEFAULT_SETTINGS.openrouter_rubric_model
-                    if prompt_provider == "openrouter"
-                    else DEFAULT_SETTINGS.ollama_model
-                )
-                prompt_llm = st.text_input(
-                    "LLM-Modell (Prompt)", value=prompt_llm_default, key="prompt_llm_model"
-                )
-            prompt_notes = st.text_input("Notiz (optional)", key="prompt_notes")
+    if st.session_state.get("manual_payload"):
+        render_assessment_feedback(st.session_state["manual_payload"], key_prefix="manual", ui_locale=ui_locale)
 
-            attempt = st.session_state.get("prompt_attempt")
-            if attempt and attempt["id"] != selected_prompt["id"]:
-                st.warning("Es läuft gerade ein Versuch für einen anderen Prompt.")
-                if st.button("Aktuellen Versuch verwerfen"):
-                    st.session_state["prompt_attempt"] = None
-                st.write("Wähle den ursprünglichen Prompt oder verwerfe den Versuch.")
-            elif attempt is None:
-                if st.button("Übung starten", key=f"start_{selected_prompt['id']}"):
-                    st.session_state["prompt_attempt"] = create_prompt_attempt(selected_prompt)
-                    attempt = st.session_state["prompt_attempt"]
+    with st.expander(ui_text(ui_locale, "secondary_tools"), expanded=False):
+        trainer_tab, chart_tab, table_tab, detail_tab = st.tabs(["Prompt-Trainer", "Trend", "Tabelle", "Details"])
+
+        with trainer_tab:
+            existing_prompt_payload = st.session_state.get("prompt_payload")
+            if isinstance(existing_prompt_payload, dict):
+                st.subheader("Letztes Prompt-Ergebnis")
+                render_assessment_feedback(existing_prompt_payload, key_prefix="prompt", ui_locale=ui_locale)
+            if not prompts:
+                st.info("Keine Übungsprompts gefunden (`prompts/prompts.json`).")
             else:
-                attempt = st.session_state["prompt_attempt"]
-
-            attempt = st.session_state.get("prompt_attempt")
-            if attempt and attempt["id"] == selected_prompt["id"]:
-                remaining = remaining_time(attempt)
-                st.info(
-                    f"Verbleibende Zeit: {max(0, int(remaining))}s von {selected_prompt['response_seconds']}s"
+                titles = [f"{p['title']} ({p['cefr_target']})" for p in prompts]
+                current_idx = st.selectbox(
+                    "Prompt auswählen", options=range(len(prompts)), format_func=lambda i: titles[i]
                 )
-                if st.button("Übung abbrechen", key=f"cancel_{selected_prompt['id']}"):
-                    st.session_state["prompt_attempt"] = None
-                    dashboard_rerun()
-
-                webrtc_ctx = webrtc_streamer(
-                    key=f"recorder_{selected_prompt['id']}",
-                    mode=WebRtcMode.SENDONLY,
-                    audio_receiver_size=256,
-                    rtc_configuration=RTC_CONFIGURATION,
-                    media_stream_constraints={"audio": True, "video": False},
-                    translations=RECORDER_TRANSLATIONS,
-                    on_change=lambda: flag_recording_requested("prompt_attempt"),
+                selected_prompt = prompts[current_idx]
+                st.markdown(
+                    f"**Ziel CEFR:** {selected_prompt['cefr_target']} – Antwortzeit: {selected_prompt['response_seconds']} s – Wiedergaben: {selected_prompt['max_playbacks']}"
                 )
+                st.write(selected_prompt["prompt_text"])
 
-                if attempt.get("chunks") is None:
-                    attempt["chunks"] = []
+                with st.expander("Advanced Prompt-Einstellungen", expanded=False):
+                    prompt_provider = st.selectbox(
+                        "Bewertungsanbieter (Prompt-LLM)",
+                        options=["openrouter", "ollama"],
+                        index=0 if provider == "openrouter" else 1,
+                        key="prompt_provider",
+                    )
+                    prompt_whisper, prompt_whisper_availability = render_whisper_model_controls(
+                        select_key="prompt_whisper_model_select",
+                        notice_key="prompt_whisper_model_notice",
+                        label="Whisper-Modell (Prompt, lokal)",
+                    )
+                    prompt_llm_default = (
+                        DEFAULT_SETTINGS.openrouter_rubric_model
+                        if prompt_provider == "openrouter"
+                        else DEFAULT_SETTINGS.ollama_model
+                    )
+                    prompt_llm = st.text_input(
+                        "Bewertungsmodell (Prompt-LLM)", value=prompt_llm_default, key="prompt_llm_model"
+                    )
+                prompt_notes = st.text_input("Notiz (optional)", key="prompt_notes")
 
-                if webrtc_ctx and webrtc_ctx.audio_receiver:
-                    try:
-                        audio_frames = webrtc_ctx.audio_receiver.get_frames(timeout=1)
-                    except queue.Empty:
-                        audio_frames = []
-                    if audio_frames:
-                        for frame in audio_frames:
-                            audio = frame.to_ndarray()
-                            sample_rate = getattr(frame, "sample_rate", 48000)
-                            if audio.ndim == 1:
-                                channels = 1
-                                data = audio
-                            else:
-                                channels = audio.shape[0]
-                                data = audio.T
-                            if data.dtype != np.int16:
-                                data = np.clip(data, -1.0, 1.0)
-                                data = (data * 32767).astype(np.int16)
-                            else:
-                                data = data.astype(np.int16, copy=False)
-                            append_audio_bytes(attempt, data.tobytes(), sample_rate, channels)
-                attempt = sync_recording_state(
-                    attempt,
-                    webrtc_ctx,
-                    target_dir=log_dir / "prompt_responses",
-                    prefix=f"prompt_{selected_prompt['id']}",
-                )
-                st.session_state["prompt_attempt"] = attempt
-                render_recorder_status(
-                    attempt,
-                    target_duration_sec=float(selected_prompt["response_seconds"]),
-                    evaluation_running=st.session_state.get("prompt_assessment_running", False),
-                    title="Status deiner Antwort",
-                )
-                prompt_actions = st.columns(2)
-                if prompt_actions[0].button("Antwort neu aufnehmen", key=f"reset_record_{selected_prompt['id']}"):
-                    st.session_state["prompt_attempt"] = create_prompt_attempt(selected_prompt)
-                    dashboard_rerun()
-                prompt_run_clicked = prompt_actions[1].button(
-                    "Antwort auswerten",
-                    key=f"finalize_record_{selected_prompt['id']}",
-                    disabled=not bool(attempt.get("saved_path")),
-                )
-                if not attempt.get("saved_path"):
-                    st.caption("Die Auswertung wird aktiv, sobald deine Antwort beendet und gespeichert wurde.")
-                elif Path(attempt["saved_path"]).exists():
-                    st.audio(Path(attempt["saved_path"]).read_bytes(), format="audio/wav")
+                attempt = st.session_state.get("prompt_attempt")
+                if attempt and attempt["id"] != selected_prompt["id"]:
+                    st.warning("Es läuft gerade ein Versuch für einen anderen Prompt.")
+                    if st.button("Aktuellen Versuch verwerfen"):
+                        st.session_state["prompt_attempt"] = None
+                    st.write("Wähle den ursprünglichen Prompt oder verwerfe den Versuch.")
+                elif attempt is None:
+                    if st.button("Übung starten", key=f"start_{selected_prompt['id']}"):
+                        st.session_state["prompt_attempt"] = create_prompt_attempt(selected_prompt)
+                        attempt = st.session_state["prompt_attempt"]
+                else:
+                    attempt = st.session_state["prompt_attempt"]
 
-                if prompt_run_clicked:
-                    response_path = Path(attempt["saved_path"]) if attempt.get("saved_path") else None
-                    if response_path is None:
-                        st.warning("Bitte beende zuerst die Aufnahme. Danach wird die Antwort automatisch gespeichert.")
-                    else:
-                        st.session_state["prompt_assessment_running"] = True
-                        with st.spinner("Auswertung läuft..."):
-                            result = run_assessment(
-                                response_path,
-                                log_dir,
-                                prompt_whisper,
-                                prompt_llm,
-                                attempt["label"],
-                                prompt_notes,
-                                target_cefr=attempt.get("cefr"),
-                                provider=prompt_provider,
-                                speaker_id=speaker_id,
-                                task_family="prompt_trainer",
-                                theme=selected_prompt["title"],
-                                target_duration_sec=float(selected_prompt["response_seconds"]),
-                            )
-                        st.session_state["prompt_assessment_running"] = False
-                        if result.returncode != 0:
-                            st.error("Bewertung fehlgeschlagen. Siehe Log unten.")
-                            st.code(result.stderr or result.stdout)
-                        else:
-                            payload = parse_cli_json(result.stdout) or load_latest_report_payload(
-                                log_dir,
-                                label=attempt["label"],
-                            )
-                            st.success("Bewertung abgeschlossen.")
-                            if payload:
-                                st.session_state["prompt_payload"] = payload
-                                render_assessment_feedback(payload, key_prefix="prompt")
-                            else:
-                                st.code(result.stdout.strip(), language="json")
-                            rerun_history(log_dir)
-                            history_df = load_history_df(log_dir)
+                attempt = st.session_state.get("prompt_attempt")
+                if attempt and attempt["id"] == selected_prompt["id"]:
+                    remaining = remaining_time(attempt)
+                    attempt_is_expired = attempt_expired(attempt)
+                    st.info(
+                        f"Verbleibende Zeit: {max(0, int(remaining))}s von {selected_prompt['response_seconds']}s"
+                    )
+                    if attempt_is_expired:
+                        st.error("Zeitlimit überschritten – starte die Übung neu, bevor du eine Antwort einreichst.")
+                    if st.button("Übung abbrechen", key=f"cancel_{selected_prompt['id']}"):
                         st.session_state["prompt_attempt"] = None
                         dashboard_rerun()
-                plays_left = attempt.get("plays_remaining", 0)
-                if can_play_prompt(attempt):
-                    if st.button(
-                        f"Prompt abspielen ({plays_left} verbleibend)", key=f"play_{selected_prompt['id']}"
-                    ):
-                        decrement_playback(attempt)
-                        attempt["last_audio"] = True
+                    if HAS_NATIVE_AUDIO_INPUT:
+                        st.caption("Direktantwort aktiv. Der Browser zeigt Aufnahme und Laufzeit im Recorder.")
+                        widget_key = f"prompt_audio_input_{st.session_state.get('prompt_audio_input_version', 0)}"
+                        prompt_audio = st.audio_input("Antwort direkt im Browser aufnehmen", key=widget_key)
+                        attempt = persist_audio_input(
+                            prompt_audio,
+                            session_key="prompt_attempt",
+                            target_dir=log_dir / "prompt_responses",
+                            prefix=f"prompt_{selected_prompt['id']}",
+                        )
                         st.session_state["prompt_attempt"] = attempt
-                else:
-                    st.caption("Maximale Anzahl an Wiedergaben erreicht.")
+                        render_native_recorder_status(
+                            attempt,
+                            title="Status deiner Antwort",
+                            target_duration_sec=float(selected_prompt["response_seconds"]),
+                            evaluate_label="Antwort auswerten",
+                        )
+                    else:
+                        webrtc_ctx = webrtc_streamer(
+                            key=f"recorder_{selected_prompt['id']}",
+                            mode=WebRtcMode.SENDONLY,
+                            audio_receiver_size=256,
+                            rtc_configuration=RTC_CONFIGURATION,
+                            media_stream_constraints={"audio": True, "video": False},
+                            translations=RECORDER_TRANSLATIONS,
+                            on_change=lambda: flag_recording_requested("prompt_attempt"),
+                        )
 
-                if attempt.get("last_audio"):
-                    st.audio(attempt["audio"])
+                        if attempt.get("chunks") is None:
+                            attempt["chunks"] = []
 
-                with st.expander("Stattdessen eine fertige Antwort hochladen", expanded=False):
-                    response = st.file_uploader(
-                        "Antwortdatei hochladen (wav/mp3/m4a)",
-                        type=["wav", "mp3", "m4a", "ogg", "flac"],
-                        key=f"response_{selected_prompt['id']}",
-                    )
-                    if response is not None:
-                        if time.time() > attempt["deadline"]:
-                            st.error("Zeitlimit überschritten – lade die Datei nach einem neuen Versuch erneut hoch.")
+                        audio_frames = []
+                        if webrtc_ctx and webrtc_ctx.audio_receiver:
+                            try:
+                                audio_frames = webrtc_ctx.audio_receiver.get_frames(timeout=1)
+                            except queue.Empty:
+                                audio_frames = []
+                            if audio_frames:
+                                for frame in audio_frames:
+                                    audio = frame.to_ndarray()
+                                    sample_rate = getattr(frame, "sample_rate", 48000)
+                                    if audio.ndim == 1:
+                                        channels = 1
+                                        data = audio
+                                    else:
+                                        channels = audio.shape[0]
+                                        data = audio.T
+                                    if data.dtype != np.int16:
+                                        data = np.clip(data, -1.0, 1.0)
+                                        data = (data * 32767).astype(np.int16)
+                                    else:
+                                        data = data.astype(np.int16, copy=False)
+                                    append_audio_bytes(attempt, data.tobytes(), sample_rate, channels)
+                        attempt = sync_recording_state(
+                            attempt,
+                            webrtc_ctx,
+                            component_key=f"recorder_{selected_prompt['id']}",
+                            target_dir=log_dir / "prompt_responses",
+                            prefix=f"prompt_{selected_prompt['id']}",
+                        )
+                        st.session_state["prompt_attempt"] = attempt
+                        debug_snapshot = build_recorder_debug_snapshot(
+                            attempt,
+                            webrtc_ctx,
+                            component_key=f"recorder_{selected_prompt['id']}",
+                            audio_frames_count=len(audio_frames),
+                        )
+                        log_recorder_snapshot("prompt_attempt", debug_snapshot)
+                        render_recorder_status(
+                            attempt,
+                            target_duration_sec=float(selected_prompt["response_seconds"]),
+                            evaluation_running=st.session_state.get("prompt_assessment_running", False),
+                            title="Status deiner Antwort",
+                        )
+                        render_recorder_debug("prompt_attempt", debug_snapshot)
+                    prompt_actions = st.columns(2)
+                    if prompt_actions[0].button("Antwort neu aufnehmen", key=f"reset_record_{selected_prompt['id']}"):
+                        if HAS_NATIVE_AUDIO_INPUT:
+                            reset_audio_input_recorder(
+                                session_key="prompt_attempt",
+                                version_key="prompt_audio_input_version",
+                            )
+                            st.session_state["prompt_attempt"] = create_prompt_attempt(selected_prompt)
                         else:
-                            response_path = store_uploaded_audio(
-                                response,
-                                response.name or "response.wav",
-                                log_dir / "prompt_responses",
+                            st.session_state["prompt_attempt"] = create_prompt_attempt(selected_prompt)
+                        dashboard_rerun()
+                    prompt_run_clicked = prompt_actions[1].button(
+                        "Auswertung läuft..." if st.session_state.get("prompt_assessment_running") else "Antwort auswerten",
+                        key=f"finalize_record_{selected_prompt['id']}",
+                        disabled=(
+                            not bool(attempt.get("saved_path"))
+                            or not prompt_whisper_availability.get("cached")
+                            or st.session_state.get("prompt_assessment_running", False)
+                            or attempt_is_expired
+                        ),
+                    )
+                    if not prompt_whisper_availability.get("cached"):
+                        st.caption("Die Auswertung bleibt gesperrt, bis ein lokales Whisper-Modell für den Prompt bereitsteht.")
+                    elif attempt_is_expired:
+                        st.caption("Die Auswertung ist gesperrt, weil das Zeitlimit überschritten wurde.")
+                    elif not attempt.get("saved_path"):
+                        st.caption("Die Auswertung wird aktiv, sobald deine Antwort beendet und gespeichert wurde.")
+                    elif Path(attempt["saved_path"]).exists():
+                        st.audio(Path(attempt["saved_path"]).read_bytes(), format="audio/wav")
+
+                    if prompt_run_clicked:
+                        response_path = Path(attempt["saved_path"]) if attempt.get("saved_path") else None
+                        if attempt_is_expired:
+                            st.warning("Zeitlimit überschritten – starte die Übung neu, bevor du eine Antwort auswertest.")
+                        elif response_path is None:
+                            st.warning("Bitte beende zuerst die Aufnahme. Danach wird die Antwort automatisch gespeichert.")
+                        elif not prompt_whisper_availability.get("cached"):
+                            st.error("Das gewählte Whisper-Modell ist für den Prompt noch nicht lokal verfügbar.")
+                        else:
+                            st.session_state["prompt_assessment_request"] = build_prompt_assessment_request(
+                                attempt=attempt,
+                                prompt=selected_prompt,
+                                response_path=response_path,
+                                log_dir=log_dir,
+                                whisper=prompt_whisper,
+                                llm=prompt_llm,
+                                notes=prompt_notes,
+                                provider=prompt_provider,
+                                speaker_id=speaker_id,
+                                ui_locale=ui_locale,
+                                target_cefr=attempt.get("cefr"),
                             )
                             st.session_state["prompt_assessment_running"] = True
-                            with st.spinner("Auswertung läuft..."):
-                                result = run_assessment(
-                                    response_path,
-                                    log_dir,
-                                    prompt_whisper,
-                                    prompt_llm,
-                                    attempt["label"],
-                                    prompt_notes,
-                                    target_cefr=attempt["cefr"],
+                            st.session_state["prompt_attempt"] = None
+                            dashboard_rerun()
+                    plays_left = attempt.get("plays_remaining", 0)
+                    if can_play_prompt(attempt):
+                        if st.button(
+                            f"Prompt abspielen ({plays_left} verbleibend)", key=f"play_{selected_prompt['id']}"
+                        ):
+                            decrement_playback(attempt)
+                            attempt["last_audio"] = True
+                            st.session_state["prompt_attempt"] = attempt
+                    else:
+                        st.caption("Maximale Anzahl an Wiedergaben erreicht.")
+
+                    if attempt.get("last_audio"):
+                        st.audio(attempt["audio"])
+
+                    with st.expander("Stattdessen eine fertige Antwort hochladen", expanded=False):
+                        response = st.file_uploader(
+                            "Antwortdatei hochladen (wav/mp3/m4a)",
+                            type=["wav", "mp3", "m4a", "ogg", "flac"],
+                            key=f"response_{selected_prompt['id']}",
+                            disabled=attempt_is_expired,
+                        )
+                        if attempt_is_expired:
+                            st.caption("Upload ist nach Ablauf des Zeitlimits gesperrt. Starte zuerst eine neue Übung.")
+                        elif response is not None:
+                            if not prompt_whisper_availability.get("cached"):
+                                st.error("Das gewählte Whisper-Modell ist für den Prompt noch nicht lokal verfügbar.")
+                            else:
+                                response_path = store_uploaded_audio(
+                                    response,
+                                    response.name or "response.wav",
+                                    log_dir / "prompt_responses",
+                                )
+                                st.session_state["prompt_assessment_request"] = build_prompt_assessment_request(
+                                    attempt=attempt,
+                                    prompt=selected_prompt,
+                                    response_path=response_path,
+                                    log_dir=log_dir,
+                                    whisper=prompt_whisper,
+                                    llm=prompt_llm,
+                                    notes=prompt_notes,
                                     provider=prompt_provider,
                                     speaker_id=speaker_id,
-                                    task_family="prompt_trainer",
-                                    theme=selected_prompt["title"],
-                                    target_duration_sec=float(selected_prompt["response_seconds"]),
+                                    ui_locale=ui_locale,
+                                    target_cefr=attempt["cefr"],
                                 )
-                            st.session_state["prompt_assessment_running"] = False
-                            if result.returncode != 0:
-                                st.error("Bewertung fehlgeschlagen. Siehe Log unten.")
-                                st.code(result.stderr or result.stdout)
-                            else:
-                                payload = parse_cli_json(result.stdout) or load_latest_report_payload(
-                                    log_dir,
-                                    label=attempt["label"],
-                                )
-                                st.success("Bewertung abgeschlossen.")
-                                if payload:
-                                    st.session_state["prompt_payload"] = payload
-                                    render_assessment_feedback(payload, key_prefix="prompt")
-                                else:
-                                    st.code(result.stdout.strip(), language="json")
-                                rerun_history(log_dir)
-                                history_df = load_history_df(log_dir)
+                                st.session_state["prompt_assessment_running"] = True
                                 st.session_state["prompt_attempt"] = None
                                 dashboard_rerun()
-
-    with chart_tab:
-        st.header("Mein Fortschritt")
-        if history_df.empty:
-            st.info("Noch keine Bewertungen verfügbar.")
-        else:
-            history_df = history_df.sort_values("timestamp")
-            history_df["date"] = history_df["timestamp"].dt.date
-            metric_cols = st.columns(4)
-            summary = progress_dashboard.summarise(history_records)
-            metric_cols[0].metric("Versuche", summary.get("count", 0))
-            metric_cols[1].metric("∅ WPM", summary.get("avg_wpm") or "–")
-            metric_cols[2].metric("∅ Gesamteindruck", summary.get("avg_overall") or "–")
-            metric_cols[3].metric("Bester Gesamtwert", summary.get("best_final") or "–")
-            filter_cols = st.columns(2)
-            speaker_options = ["Alle"] + sorted({record.speaker_id for record in history_records if record.speaker_id})
-            family_options = ["Alle"] + sorted({record.task_family for record in history_records if record.task_family})
-            selected_speaker = filter_cols[0].selectbox("Speaker", options=speaker_options)
-            selected_family = filter_cols[1].selectbox("Aufgabentyp", options=family_options)
-
-            filtered_records = progress_analysis.filter_records(
-                history_records,
-                speaker_id=None if selected_speaker == "Alle" else selected_speaker,
-                task_family=None if selected_family == "Alle" else selected_family,
-            )
-            chart_data = build_trend_chart_df(filtered_records)
-            if chart_data.empty:
-                st.info("Noch keine numerischen Werte für Chart verfügbar.")
+        prompt_request = st.session_state.get("prompt_assessment_request")
+        if prompt_request and st.session_state.get("prompt_assessment_running"):
+            with st.spinner("Auswertung läuft..."):
+                result = execute_assessment_request(prompt_request)
+            st.session_state["prompt_assessment_running"] = False
+            st.session_state["prompt_assessment_request"] = None
+            if result.returncode != 0:
+                st.error("Bewertung fehlgeschlagen. Siehe Log unten.")
+                st.code(result.stderr or result.stdout)
             else:
-                st.line_chart(chart_data)
-                family_summary = progress_analysis.task_family_progress(
-                    filtered_records if selected_family != "Alle" else history_records,
-                    speaker_id=None if selected_speaker == "Alle" else selected_speaker,
+                payload = parse_cli_json(result.stdout) or load_latest_report_payload(
+                    Path(prompt_request["log_dir"]),
+                    label=prompt_request.get("label", ""),
                 )
-                if family_summary:
-                    st.subheader("Vergleich nach Aufgabentyp")
-                    st.dataframe(
-                        pd.DataFrame(
-                            [
-                                {
-                                    "task_family": row["task_family"],
-                                    "count": row["count"],
-                                    "avg_final": row["avg_final"],
-                                    "latest_final": row["latest_final"],
-                                    "grammar": progress_analysis.format_top_counts(row["grammar_counts"]),
-                                    "coherence": progress_analysis.format_top_counts(row["coherence_counts"]),
-                                    "latest_priorities": " | ".join(row["latest_priorities"]),
-                                }
-                                for row in family_summary
-                            ]
-                        ),
-                        use_container_width=True,
-                    )
+                st.success("Bewertung abgeschlossen.")
+                if payload:
+                    st.session_state["prompt_payload"] = payload
+                else:
+                    st.code(result.stdout.strip(), language="json")
+                rerun_history(Path(prompt_request["log_dir"]))
+                history_df = load_history_df(Path(prompt_request["log_dir"]))
+            dashboard_rerun()
 
-                grammar_df = build_issue_count_df(filtered_records, "grammar_error_categories")
-                coherence_df = build_issue_count_df(filtered_records, "coherence_issue_categories")
-                issue_cols = st.columns(2)
-                with issue_cols[0]:
-                    st.caption("Wiederkehrende Grammatikmuster")
-                    if grammar_df.empty:
-                        st.info("Keine Grammatikmuster im aktuellen Filter.")
-                    else:
-                        st.bar_chart(grammar_df.set_index("category"))
-                with issue_cols[1]:
-                    st.caption("Wiederkehrende Strukturprobleme")
-                    if coherence_df.empty:
-                        st.info("Keine Strukturprobleme im aktuellen Filter.")
-                    else:
-                        st.bar_chart(coherence_df.set_index("category"))
-
-                if selected_family != "Alle":
-                    priority_delta = progress_analysis.latest_priorities(filtered_records)
-                    st.subheader("Vergleich der letzten Schwerpunkte")
-                    st.write("Neueste Schwerpunkte:", ", ".join(priority_delta["latest"]) or "–")
-                    st.write("Vorherige Schwerpunkte:", ", ".join(priority_delta["previous"]) or "–")
-                    st.write("Neu hinzugekommen:", ", ".join(priority_delta["new"]) or "–")
-                    st.write("Erledigt/entfallen:", ", ".join(priority_delta["resolved"]) or "–")
-
-    with table_tab:
-        if history_df.empty:
-            st.info("Noch keine Bewertungen verfügbar.")
-        else:
-            st.dataframe(history_df.drop(columns=["report_path"]), use_container_width=True)
-
-    with detail_tab:
-        if history_df.empty:
-            st.info("Noch keine Bewertungen verfügbar.")
-        else:
-            labels = history_df.apply(lambda r: f"{r['timestamp'].strftime('%Y-%m-%d %H:%M')} – {r['label'] or r['audio']}", axis=1)
-            selection = st.selectbox("Bewertung auswählen", options=list(labels))
-            selected_idx = labels.index[labels == selection][0]
-            selected = history_df.loc[selected_idx]
-            st.write("**Meta**")
-            st.json({
-                "timestamp": selected["timestamp"].isoformat(),
-                "speaker_id": selected.get("speaker_id"),
-                "task_family": selected.get("task_family"),
-                "audio": selected["audio"],
-                "label": selected["label"],
-                "whisper": selected["whisper"],
-                "llm": selected["llm"],
-                "wpm": selected["wpm"],
-                "overall": selected["overall"],
-                "final_score": selected.get("final_score"),
-            })
-            report_path = Path(selected["report_path"])
-            if report_path.exists():
-                try:
-                    content = json.loads(report_path.read_text(encoding="utf-8"))
-                    progress_delta = (content.get("report") or {}).get("progress_delta")
-                    if isinstance(progress_delta, dict):
-                        st.write("**Progress Delta**")
-                        st.json(progress_delta)
-                    st.write("**Speicherbericht**")
-                    st.json(content)
-                except Exception as exc:  # pragma: no cover - defensive
-                    st.error(f"Konnte JSON nicht laden: {exc}")
+        with chart_tab:
+            st.header("Mein Fortschritt")
+            if history_status is not None:
+                level, message = history_status
+                getattr(st, level, st.info)(message)
+            if history_df.empty:
+                st.info("Noch keine Bewertungen verfügbar.")
             else:
-                st.warning(f"Report-Datei nicht gefunden: {report_path}")
+                history_df = history_df.sort_values("timestamp")
+                history_df["date"] = history_df["timestamp"].dt.date
+                metric_cols = st.columns(4)
+                summary = progress_dashboard.summarise(history_records)
+                metric_cols[0].metric("Versuche", summary.get("count", 0))
+                metric_cols[1].metric("∅ WPM", summary.get("avg_wpm") or "–")
+                metric_cols[2].metric("∅ Gesamteindruck", summary.get("avg_overall") or "–")
+                metric_cols[3].metric("Bester Gesamtwert", summary.get("best_final") or "–")
+                filter_cols = st.columns(2)
+                speaker_options = ["Alle"] + sorted({record.speaker_id for record in history_records if record.speaker_id})
+                family_options = ["Alle"] + sorted({record.task_family for record in history_records if record.task_family})
+                selected_speaker = filter_cols[0].selectbox("Speaker", options=speaker_options)
+                selected_family = filter_cols[1].selectbox("Aufgabentyp", options=family_options)
+
+                filtered_records = progress_analysis.filter_records(
+                    history_records,
+                    speaker_id=None if selected_speaker == "Alle" else selected_speaker,
+                    task_family=None if selected_family == "Alle" else selected_family,
+                )
+                chart_data = build_trend_chart_df(filtered_records)
+                if chart_data.empty:
+                    st.info("Noch keine numerischen Werte für Chart verfügbar.")
+                else:
+                    st.line_chart(chart_data)
+                    family_summary = progress_analysis.task_family_progress(
+                        filtered_records if selected_family != "Alle" else history_records,
+                        speaker_id=None if selected_speaker == "Alle" else selected_speaker,
+                    )
+                    if family_summary:
+                        st.subheader("Vergleich nach Aufgabentyp")
+                        st.dataframe(
+                            pd.DataFrame(
+                                [
+                                    {
+                                        "task_family": row["task_family"],
+                                        "count": row["count"],
+                                        "avg_final": row["avg_final"],
+                                        "latest_final": row["latest_final"],
+                                        "grammar": progress_analysis.format_top_counts(row["grammar_counts"]),
+                                        "coherence": progress_analysis.format_top_counts(row["coherence_counts"]),
+                                        "latest_priorities": " | ".join(row["latest_priorities"]),
+                                    }
+                                    for row in family_summary
+                                ]
+                            ),
+                            width="stretch",
+                        )
+
+                    grammar_df = build_issue_count_df(filtered_records, "grammar_error_categories")
+                    coherence_df = build_issue_count_df(filtered_records, "coherence_issue_categories")
+                    issue_cols = st.columns(2)
+                    with issue_cols[0]:
+                        st.caption("Wiederkehrende Grammatikmuster")
+                        if grammar_df.empty:
+                            st.info("Keine Grammatikmuster im aktuellen Filter.")
+                        else:
+                            st.bar_chart(grammar_df.set_index("category"))
+                    with issue_cols[1]:
+                        st.caption("Wiederkehrende Strukturprobleme")
+                        if coherence_df.empty:
+                            st.info("Keine Strukturprobleme im aktuellen Filter.")
+                        else:
+                            st.bar_chart(coherence_df.set_index("category"))
+
+                    if selected_family != "Alle":
+                        priority_delta = progress_analysis.latest_priorities(filtered_records)
+                        st.subheader("Vergleich der letzten Schwerpunkte")
+                        st.write("Neueste Schwerpunkte:", ", ".join(priority_delta["latest"]) or "–")
+                        st.write("Vorherige Schwerpunkte:", ", ".join(priority_delta["previous"]) or "–")
+                        st.write("Neu hinzugekommen:", ", ".join(priority_delta["new"]) or "–")
+                        st.write("Erledigt/entfallen:", ", ".join(priority_delta["resolved"]) or "–")
+
+        with table_tab:
+            if history_status is not None and history_df.empty:
+                level, message = history_status
+                getattr(st, level, st.info)(message)
+            elif history_df.empty:
+                st.info("Noch keine Bewertungen verfügbar.")
+            else:
+                st.dataframe(history_df.drop(columns=["report_path"]), width="stretch")
+
+        with detail_tab:
+            if history_status is not None and history_df.empty:
+                level, message = history_status
+                getattr(st, level, st.info)(message)
+            elif history_df.empty:
+                st.info("Noch keine Bewertungen verfügbar.")
+            else:
+                labels = history_df.apply(lambda r: f"{r['timestamp'].strftime('%Y-%m-%d %H:%M')} – {r['label'] or r['audio']}", axis=1)
+                selection = st.selectbox("Bewertung auswählen", options=list(labels))
+                selected_idx = labels.index[labels == selection][0]
+                selected = history_df.loc[selected_idx]
+                st.write("**Meta**")
+                st.json({
+                    "timestamp": selected["timestamp"].isoformat(),
+                    "speaker_id": selected.get("speaker_id"),
+                    "task_family": selected.get("task_family"),
+                    "audio": selected["audio"],
+                    "label": selected["label"],
+                    "whisper": selected["whisper"],
+                    "llm": selected["llm"],
+                    "wpm": selected["wpm"],
+                    "overall": selected["overall"],
+                    "final_score": selected.get("final_score"),
+                })
+                report_path = Path(selected["report_path"])
+                if report_path.exists():
+                    try:
+                        content = json.loads(report_path.read_text(encoding="utf-8"))
+                        progress_delta = (content.get("report") or {}).get("progress_delta")
+                        if isinstance(progress_delta, dict):
+                            st.write("**Progress Delta**")
+                            st.json(progress_delta)
+                        st.write("**Speicherbericht**")
+                        st.json(content)
+                    except Exception as exc:  # pragma: no cover - defensive
+                        st.error(f"Konnte JSON nicht laden: {exc}")
+                else:
+                    st.warning(f"Report-Datei nicht gefunden: {report_path}")
 
 
 if __name__ == "__main__":

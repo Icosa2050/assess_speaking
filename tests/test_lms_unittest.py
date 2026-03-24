@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import lms
+from assessment_runtime import lms
 
 
 class CanvasClientTests(unittest.TestCase):

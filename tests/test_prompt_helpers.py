@@ -26,7 +26,12 @@ class PromptHelperTests(unittest.TestCase):
             "response_seconds": 90,
             "max_playbacks": 1,
             "cefr_target": "B2",
+            "learning_language": "it",
         }
+
+    def test_legacy_dashboard_notice_points_to_app_shell(self):
+        self.assertIn("Legacy compatibility surface", dashboard.LEGACY_DASHBOARD_NOTICE)
+        self.assertIn("streamlit_app.py", dashboard.LEGACY_DASHBOARD_NOTICE)
 
     def test_create_prompt_attempt_initialises_fields(self):
         attempt = dashboard.create_prompt_attempt(self.prompt, now=100.0)
@@ -36,12 +41,15 @@ class PromptHelperTests(unittest.TestCase):
         self.assertEqual(attempt["plays_remaining"], 1)
         self.assertEqual(attempt["audio"], self.prompt["audio_path"])
         self.assertEqual(attempt["cefr"], "B2")
+        self.assertEqual(attempt["learning_language"], "it")
         self.assertEqual(attempt["chunks"], [])
 
     def test_remaining_time_and_decrement(self):
         attempt = dashboard.create_prompt_attempt(self.prompt, now=10.0)
         remaining = dashboard.remaining_time(attempt, now=55.0)
         self.assertAlmostEqual(remaining, 45.0)
+        self.assertFalse(dashboard.attempt_expired(attempt, now=55.0))
+        self.assertTrue(dashboard.attempt_expired(attempt, now=101.0))
         self.assertTrue(dashboard.can_play_prompt(attempt))
         dashboard.decrement_playback(attempt)
         self.assertEqual(attempt["plays_remaining"], 0)
@@ -73,6 +81,68 @@ class PromptHelperTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 dashboard.write_attempt_audio(attempt, out_path)
 
+    def test_persist_audio_input_stores_new_recording(self):
+        class UploadedAudio:
+            name = "browser.wav"
+
+            def __init__(self, payload: bytes):
+                self._payload = payload
+
+            def getvalue(self):
+                return self._payload
+
+            def getbuffer(self):
+                return memoryview(self._payload)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session_state = {"practice_attempt": dashboard.create_recording_attempt()}
+            with mock.patch.object(dashboard.st, "session_state", session_state):
+                attempt = dashboard.persist_audio_input(
+                    UploadedAudio(b"RIFF....WAVE"),
+                    session_key="practice_attempt",
+                    target_dir=Path(tmpdir),
+                    prefix="practice",
+                )
+                self.assertEqual(attempt["status"], "ready")
+                self.assertTrue(Path(attempt["saved_path"]).exists())
+                self.assertIsNotNone(attempt["input_digest"])
+
+    def test_reset_audio_input_recorder_resets_attempt_and_bumps_version(self):
+        session_state = {
+            "practice_attempt": {"status": "ready", "saved_path": "/tmp/demo.wav"},
+            "practice_audio_input_version": 2,
+        }
+        with mock.patch.object(dashboard.st, "session_state", session_state):
+            dashboard.reset_audio_input_recorder(
+                session_key="practice_attempt",
+                version_key="practice_audio_input_version",
+            )
+        self.assertEqual(session_state["practice_attempt"]["status"], "idle")
+        self.assertEqual(session_state["practice_audio_input_version"], 3)
+
+    def test_normalize_practice_mode_accepts_legacy_labels(self):
+        self.assertEqual(dashboard.normalize_practice_mode("Audiodatei hochladen"), dashboard.PRACTICE_MODE_UPLOAD)
+        self.assertEqual(dashboard.normalize_practice_mode("record"), dashboard.PRACTICE_MODE_RECORD)
+
+    def test_validate_theme_library_submission_requires_theme_title(self):
+        errors = dashboard.validate_theme_library_submission(
+            manage_mode="it",
+            language_code="it",
+            language_label="Italiano",
+            theme_title="",
+        )
+        self.assertEqual(errors["theme_title"], "Bitte gib ein Thema ein.")
+
+    def test_validate_theme_library_submission_requires_new_language_fields(self):
+        errors = dashboard.validate_theme_library_submission(
+            manage_mode=dashboard.NEW_LANGUAGE_OPTION,
+            language_code="",
+            language_label="",
+            theme_title="Nuovo tema",
+        )
+        self.assertEqual(errors["language_code"], "Bitte gib einen Sprachcode ein.")
+        self.assertEqual(errors["language_label"], "Bitte gib einen Sprachname ein.")
+
     def test_parse_cli_json_variants(self):
         payload = {"metrics": {"wpm": 100}}
         json_body = json.dumps(payload)
@@ -102,6 +172,34 @@ class PromptHelperTests(unittest.TestCase):
             loaded = dashboard.load_prompts(prompts_path)
             self.assertEqual(len(loaded), 1)
             self.assertTrue(loaded[0]["audio_path"].endswith("relative.wav"))
+            self.assertEqual(loaded[0]["learning_language"], "it")
+
+    def test_build_prompt_assessment_request_uses_prompt_learning_language(self):
+        request = dashboard.build_prompt_assessment_request(
+            attempt={
+                "label": "prompt:b2_remote_work",
+                "cefr": "B2",
+                "learning_language": "it",
+            },
+            prompt={
+                "id": "b2_remote_work",
+                "title": "B2 – Lavoro da casa",
+                "response_seconds": 90,
+                "learning_language": "it",
+            },
+            response_path=Path("response.wav"),
+            log_dir=Path("reports"),
+            whisper="large-v3",
+            llm="google/gemini-3.1-pro-preview",
+            notes="prompt notes",
+            provider="openrouter",
+            speaker_id="bern",
+            ui_locale="en",
+        )
+        self.assertEqual(request["expected_language"], "it")
+        self.assertEqual(request["feedback_language"], "en")
+        self.assertEqual(request["task_family"], "prompt_trainer")
+        self.assertEqual(request["theme"], "B2 – Lavoro da casa")
 
     @mock.patch("scripts.interactive_dashboard.subprocess.run")
     def test_run_assessment_appends_dry_run_flag_when_env_set(self, mock_run):
@@ -131,12 +229,18 @@ class PromptHelperTests(unittest.TestCase):
             "trip-attempt",
             "notes",
             provider="openrouter",
+            expected_language="en",
+            feedback_language="de",
             speaker_id="bern",
             task_family="travel_narrative",
             theme="Il mio ultimo viaggio all'estero",
             target_duration_sec=180,
         )
         command = mock_run.call_args.args[0]
+        self.assertIn("--expected-language", command)
+        self.assertIn("en", command)
+        self.assertIn("--feedback-language", command)
+        self.assertIn("de", command)
         self.assertIn("--speaker-id", command)
         self.assertIn("bern", command)
         self.assertIn("--task-family", command)
@@ -145,6 +249,52 @@ class PromptHelperTests(unittest.TestCase):
         self.assertIn("Il mio ultimo viaggio all'estero", command)
         self.assertIn("--target-duration-sec", command)
         self.assertIn("180.0", command)
+
+    def test_create_assessment_request_serializes_runtime_inputs(self):
+        request = dashboard.create_assessment_request(
+            audio_path=Path("sample.wav"),
+            log_dir=Path("reports"),
+            whisper="large-v3",
+            llm="google/gemini-3.1-pro-preview",
+            label="trip-attempt",
+            notes="notes",
+            provider="openrouter",
+            expected_language="it",
+            feedback_language="en",
+            speaker_id="bern",
+            task_family="travel_narrative",
+            theme="Il mio ultimo viaggio all'estero",
+            target_duration_sec=180,
+            target_cefr="B1",
+        )
+        self.assertEqual(request["audio_path"], "sample.wav")
+        self.assertEqual(request["provider"], "openrouter")
+        self.assertEqual(request["expected_language"], "it")
+        self.assertEqual(request["feedback_language"], "en")
+        self.assertEqual(request["target_cefr"], "B1")
+
+    @mock.patch("scripts.interactive_dashboard.subprocess.run")
+    def test_run_assessment_passes_language_profile_key_when_set(self, mock_run):
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="{}", stderr="")
+        dashboard.run_assessment(
+            Path("sample.wav"),
+            Path("reports"),
+            "large-v3",
+            "google/gemini-3.1-pro-preview",
+            "trip-attempt",
+            "notes",
+            provider="openrouter",
+            expected_language="en",
+            language_profile_key="en",
+            feedback_language="de",
+            speaker_id="bern",
+            task_family="travel_narrative",
+            theme="Il mio ultimo viaggio all'estero",
+            target_duration_sec=180,
+        )
+        command = mock_run.call_args.args[0]
+        self.assertIn("--language-profile-key", command)
+        self.assertIn("en", command)
 
     def test_load_history_df_exposes_extended_columns(self):
         dashboard.load_history_records.clear()
@@ -208,7 +358,7 @@ class PromptHelperTests(unittest.TestCase):
                 },
             }
         }
-        summary = dashboard.build_result_summary(payload)
+        summary = dashboard.build_result_summary(payload, ui_locale="de")
         self.assertEqual(summary["status_level"], "info")
         self.assertEqual(summary["failed_gates"], ["Thema"])
         self.assertEqual(summary["priorities"][0], "Più dettagli")
@@ -227,18 +377,31 @@ class PromptHelperTests(unittest.TestCase):
             task_family="travel_narrative",
             theme="Il mio ultimo viaggio all'estero",
             target_duration_sec=180,
+            language_code="it",
             variant_index=0,
         )
         second = dashboard.generate_practice_brief(
             task_family="travel_narrative",
             theme="Il mio ultimo viaggio all'estero",
             target_duration_sec=180,
+            language_code="it",
             variant_index=1,
         )
         self.assertIn("Il mio ultimo viaggio all'estero", first["prompt"])
         self.assertNotEqual(first["title"], second["title"])
         self.assertEqual(len(first["cover_points"]), 3)
         self.assertTrue(first["starter_phrases"])
+
+    def test_generate_practice_brief_supports_english(self):
+        brief = dashboard.generate_practice_brief(
+            task_family="opinion_monologue",
+            theme="The pros and cons of working from home",
+            target_duration_sec=180,
+            language_code="en",
+            variant_index=0,
+        )
+        self.assertIn("The pros and cons of working from home", brief["prompt"])
+        self.assertIn("Aim to speak", brief["success_focus"][0])
 
     def test_create_recording_attempt_initialises_empty_audio_state(self):
         attempt = dashboard.create_recording_attempt()
@@ -318,6 +481,96 @@ class PromptHelperTests(unittest.TestCase):
         )
         self.assertEqual(updated["status"], "error")
         self.assertIn("Aufnahme wurde nicht gestartet", updated["save_error"])
+
+    def test_resolve_webrtc_state_prefers_frontend_session_value(self):
+        if dashboard.compile_state is None or dashboard.generate_frontend_component_key is None:
+            self.skipTest("streamlit-webrtc internal helpers unavailable")
+
+        class DummyContext:
+            def __init__(self):
+                self.state = None
+
+            def _set_state(self, state):
+                self.state = state
+
+        frontend_key = dashboard.generate_frontend_component_key("practice_recorder")
+        ctx = DummyContext()
+        with mock.patch.object(dashboard.st, "session_state", {frontend_key: {"playing": True, "sdpOffer": {"type": "offer"}}}):
+            state = dashboard.resolve_webrtc_state("practice_recorder", ctx)
+        self.assertTrue(state.playing)
+        self.assertTrue(state.signalling)
+        self.assertTrue(ctx.state.playing)
+
+    def test_sync_recording_state_uses_frontend_component_state(self):
+        if dashboard.compile_state is None or dashboard.generate_frontend_component_key is None:
+            self.skipTest("streamlit-webrtc internal helpers unavailable")
+
+        class DummyContext:
+            def __init__(self):
+                self.state = None
+
+            def _set_state(self, state):
+                self.state = state
+
+        attempt = dashboard.create_recording_attempt()
+        frontend_key = dashboard.generate_frontend_component_key("practice_recorder")
+        ctx = DummyContext()
+        with mock.patch.object(
+            dashboard.st,
+            "session_state",
+            {frontend_key: {"playing": True, "sdpOffer": {"type": "offer"}}},
+        ):
+            updated = dashboard.sync_recording_state(
+                attempt,
+                ctx,
+                component_key="practice_recorder",
+                target_dir=Path("/tmp"),
+                prefix="practice",
+                connection_timeout_sec=8.0,
+            )
+        self.assertEqual(updated["status"], "recording")
+        self.assertTrue(updated["is_recording"])
+        self.assertTrue(updated["is_signalling"])
+
+    def test_build_recorder_debug_snapshot_includes_frontend_state(self):
+        if dashboard.generate_frontend_component_key is None:
+            self.skipTest("streamlit-webrtc internal helpers unavailable")
+
+        class DummyState:
+            playing = False
+            signalling = False
+
+        class DummyContext:
+            state = DummyState()
+            audio_receiver = object()
+
+            def _set_state(self, state):
+                self.state = state
+
+        attempt = dashboard.create_recording_attempt()
+        frontend_key = dashboard.generate_frontend_component_key("practice_recorder")
+        with mock.patch.object(
+            dashboard.st,
+            "session_state",
+            {frontend_key: {"playing": True, "sdpOffer": {"type": "offer"}}},
+        ):
+            snapshot = dashboard.build_recorder_debug_snapshot(
+                attempt,
+                DummyContext(),
+                component_key="practice_recorder",
+                audio_frames_count=3,
+            )
+        self.assertTrue(snapshot["resolved_playing"])
+        self.assertEqual(snapshot["audio_frames_count"], 3)
+        self.assertIsInstance(snapshot["frontend_value"], dict)
+
+    def test_log_recorder_snapshot_keeps_recent_entries(self):
+        session_state = {}
+        with mock.patch.object(dashboard.st, "session_state", session_state):
+            for idx in range(30):
+                dashboard.log_recorder_snapshot("practice_attempt", {"ts": idx, "status": "idle"})
+        self.assertEqual(len(session_state["practice_attempt_debug_log"]), 25)
+        self.assertEqual(session_state["practice_attempt_debug_log"][0]["ts"], 5)
 
 
 if __name__ == "__main__":

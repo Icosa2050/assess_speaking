@@ -1,11 +1,23 @@
 .venv/
 __pycache__/
 *.pyc
+.coverage
+.coverage.*
 sample.aiff
 sample.wav
 report.json
+coverage.json
 reports/
+.streamlit/
+.playwright/*
+!.playwright/*.config.json
 playwright-report/
+output/
 test-results/
 traces/
+tmp/
 .DS_Store
+
+# Accidental shell-output artifacts observed in the repo root.
+/-o
+/--file-format=AIFF

@@ -1,0 +1,25 @@
+{
+  "browser": {
+    "browserName": "chromium",
+    "userDataDir": ".playwright/profiles/research",
+    "launchOptions": {
+      "channel": "chrome",
+      "headless": false
+    },
+    "contextOptions": {
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    }
+  },
+  "outputDir": "output/playwright/research",
+  "outputMode": "file",
+  "console": {
+    "level": "warning"
+  },
+  "timeouts": {
+    "action": 5000,
+    "navigation": 60000
+  }
+}

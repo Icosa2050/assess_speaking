@@ -4,6 +4,7 @@ on:
   push:
     branches: [ main ]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   tests:
@@ -35,8 +36,11 @@ jobs:
       - name: Run unit tests
         run: python -m unittest discover -s tests
 
+      - name: Run LIPS corpus pipeline smoke tests
+        run: python -m unittest tests.test_lips_dataset tests.test_lips_manifest_pipeline -v
+
       - name: Run Playwright E2E tests
-        run: pytest tests/e2e
+        run: python -m pytest -c pytest.e2e.ini tests/e2e
         env:
           STREAMLIT_HEADLESS: 'true'
           ASSESS_SPEAKING_DRY_RUN: '1'
