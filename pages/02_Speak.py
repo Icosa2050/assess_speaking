@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import streamlit as st
@@ -8,6 +7,7 @@ import streamlit as st
 from app_shell.i18n import t
 from app_shell.page_helpers import configure_page, go_to, render_guard, render_page_intro, render_shell_summary
 from app_shell.runtime_providers import requires_api_key
+from app_shell.runtime_resolver import active_connection, resolve_connection_runtime
 from app_shell.services import cleanup_temp_audio, create_assessment_request, execute_assessment_request, review_summary, store_uploaded_audio
 from app_shell.state import (
     RecordingStatus,
@@ -35,10 +35,24 @@ def _task_family_label(task_family: str) -> str:
     return label
 
 
+def _clear_attached_recording(log_dir: str) -> None:
+    state = get_app_state()
+    if state.recording.audio_path:
+        cleanup_temp_audio(state.recording.audio_path, allowed_root=log_dir)
+    clear_recording()
+    for key in ("speak_audio_input", "speak_upload"):
+        st.session_state.pop(key, None)
+
+
 state = configure_page("speak", "nav.speak", icon="🎤")
 
 if not has_setup(state):
     render_guard("speak.guard_missing_setup", "speak.go_setup", "pages/01_Session_Setup.py")
+
+runtime_connection = active_connection(state.prefs)
+if runtime_connection is None:
+    render_guard("home.runtime_setup_body", "home.runtime_setup_button", "pages/00_Setup.py")
+runtime_config = resolve_connection_runtime(runtime_connection)
 
 render_page_intro("speak.title")
 render_shell_summary(state)
@@ -109,21 +123,12 @@ with record_col:
 
         state = get_app_state()
         if state.recording.audio_path and state.recording.input_method and state.recording.input_method != input_method:
-            cleanup_temp_audio(state.recording.audio_path, allowed_root=state.prefs.log_dir)
-            clear_recording()
+            _clear_attached_recording(state.prefs.log_dir)
             state = get_app_state()
         if new_path and new_digest != state.recording.input_digest:
             if state.recording.audio_path and state.recording.audio_path != str(new_path):
                 cleanup_temp_audio(state.recording.audio_path, allowed_root=state.prefs.log_dir)
             update_recording(audio_path=str(new_path), input_digest=new_digest, input_method=input_method)
-            state = get_app_state()
-        elif input_method == "record" and audio_input is None and state.recording.input_method == "record" and state.recording.input_digest and state.recording.audio_path:
-            cleanup_temp_audio(state.recording.audio_path, allowed_root=state.prefs.log_dir)
-            clear_recording()
-            state = get_app_state()
-        elif input_method == "upload" and uploaded_file is None and state.recording.input_method == "upload" and state.recording.input_digest and state.recording.audio_path:
-            cleanup_temp_audio(state.recording.audio_path, allowed_root=state.prefs.log_dir)
-            clear_recording()
             state = get_app_state()
 
         recording_exists = _recording_file_exists(state.recording.audio_path)
@@ -141,6 +146,10 @@ with record_col:
                     st.error(t("speak.preview_error", detail=str(exc)))
         else:
             st.info(t("speak.status_idle"))
+        if has_recording(state):
+            if st.button(t("speak.remove_recording"), key="speak_remove_recording", width="content"):
+                _clear_attached_recording(state.prefs.log_dir)
+                st.rerun()
 
 with action_col:
     with st.container(border=True):
@@ -149,8 +158,8 @@ with action_col:
         st.caption(
             t(
                 "speak.assessment_caption",
-                provider=state.prefs.provider,
-                model=state.prefs.model,
+                provider=runtime_config.provider,
+                model=runtime_config.model,
                 whisper=state.prefs.whisper_model,
             )
         )
@@ -162,8 +171,8 @@ with action_col:
                 (t("setup.duration"), f"{int(state.draft.duration_sec)} s" if state.draft.duration_sec else "-"),
             ]
         )
-        effective_llm_api_key = state.prefs.llm_api_key or state.prefs.openrouter_api_key
-        if requires_api_key(state.prefs.provider) and not effective_llm_api_key and not os.getenv("LLM_API_KEY") and not os.getenv("OPENROUTER_API_KEY"):
+        effective_llm_api_key = runtime_config.api_key
+        if requires_api_key(runtime_config.provider) and not effective_llm_api_key:
             st.warning(t("speak.openrouter_missing_key"))
         if "speak_label" not in st.session_state:
             st.session_state["speak_label"] = state.recording.label_input
@@ -186,19 +195,19 @@ with action_col:
 
 state = get_app_state()
 if state.recording.status == RecordingStatus.ASSESSING:
-    effective_llm_api_key = state.prefs.llm_api_key or state.prefs.openrouter_api_key
+    effective_llm_api_key = runtime_config.api_key
     request = create_assessment_request(
         audio_path=Path(state.recording.audio_path),
         log_dir=state.prefs.log_dir,
         whisper=state.prefs.whisper_model,
-        provider=state.prefs.provider,
-        llm_model=state.prefs.model,
-        llm_base_url=state.prefs.llm_base_url,
+        provider=runtime_config.provider,
+        llm_model=runtime_config.model,
+        llm_base_url=runtime_config.base_url,
         expected_language=state.draft.learning_language,
         feedback_language=state.prefs.ui_locale,
         llm_api_key=effective_llm_api_key,
-        openrouter_http_referer=state.prefs.openrouter_http_referer,
-        openrouter_app_title=state.prefs.openrouter_app_title,
+        openrouter_http_referer=runtime_config.extra_headers.get("HTTP-Referer", ""),
+        openrouter_app_title=runtime_config.extra_headers.get("X-Title", ""),
         speaker_id=state.draft.speaker_id,
         task_family=state.draft.task_family,
         theme=state.draft.theme_label,

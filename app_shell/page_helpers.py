@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import streamlit as st
 from streamlit.errors import StreamlitAPIException
@@ -65,6 +66,104 @@ def render_shell_summary(state: AppShellState) -> None:
             speaker_id=state.draft.speaker_id or "—",
         )
     )
+
+
+def format_byte_count(num_bytes: int | float | None) -> str:
+    if num_bytes is None:
+        return "unknown size"
+    value = float(num_bytes)
+    if value < 0:
+        return "unknown size"
+    units = ("B", "KB", "MB", "GB", "TB")
+    unit_index = 0
+    while value >= 1024 and unit_index < len(units) - 1:
+        value /= 1024
+        unit_index += 1
+    if unit_index == 0:
+        return f"{int(value)} {units[unit_index]}"
+    return f"{value:.1f} {units[unit_index]}"
+
+
+def describe_whisper_download_event(event: dict[str, object]) -> dict[str, object]:
+    stage = str(event.get("stage") or "")
+    current_file = Path(str(event.get("current_file") or "")).name
+    downloaded_bytes = int(event.get("downloaded_bytes") or 0)
+    total_bytes = int(event.get("total_bytes") or 0)
+    completed_files = int(event.get("completed_files") or 0)
+    total_files = int(event.get("total_files") or 0)
+    progress_percent = 0
+    if total_bytes > 0:
+        progress_percent = max(0, min(100, int(downloaded_bytes * 100 / total_bytes)))
+    elif stage in {"finalizing", "ready"}:
+        progress_percent = 100
+
+    if stage == "checking_cache":
+        return {
+            "headline": t("runtime_setup.download_status.checking_cache_headline"),
+            "detail": t("runtime_setup.download_status.checking_cache_detail"),
+            "progress_percent": 0,
+        }
+    if stage == "starting_download":
+        pending_files = int(event.get("pending_files") or 0)
+        pending_bytes = int(event.get("pending_bytes") or 0)
+        detail = (
+            t(
+                "runtime_setup.download_status.starting_download_detail",
+                pending_files=pending_files,
+                pending_bytes=format_byte_count(pending_bytes),
+            )
+            if pending_bytes > 0
+            else t(
+                "runtime_setup.download_status.starting_download_detail_files_only",
+                pending_files=pending_files,
+            )
+        )
+        return {
+            "headline": t("runtime_setup.download_status.starting_download_headline"),
+            "detail": detail,
+            "progress_percent": progress_percent,
+        }
+    if stage == "downloading":
+        detail = (
+            t(
+                "runtime_setup.download_status.downloading_detail",
+                downloaded_bytes=format_byte_count(downloaded_bytes),
+                total_bytes=format_byte_count(total_bytes),
+                completed_files=completed_files,
+                total_files=total_files,
+            )
+            if total_files > 0
+            else t(
+                "runtime_setup.download_status.downloading_detail_bytes_only",
+                downloaded_bytes=format_byte_count(downloaded_bytes),
+                total_bytes=format_byte_count(total_bytes),
+            )
+        )
+        return {
+            "headline": t(
+                "runtime_setup.download_status.downloading_headline",
+                current_file=current_file or t("runtime_setup.download_status.model_files_fallback"),
+            ),
+            "detail": detail,
+            "progress_percent": progress_percent,
+        }
+    if stage == "finalizing":
+        return {
+            "headline": t("runtime_setup.download_status.finalizing_headline"),
+            "detail": t("runtime_setup.download_status.finalizing_detail"),
+            "progress_percent": 100,
+        }
+    if stage == "ready":
+        return {
+            "headline": t("runtime_setup.download_status.ready_headline"),
+            "detail": str(event.get("cached_path") or "").strip() or t("runtime_setup.download_status.ready_detail"),
+            "progress_percent": 100,
+        }
+    return {
+        "headline": t("runtime_setup.download_status.default_headline"),
+        "detail": t("runtime_setup.download_status.default_detail"),
+        "progress_percent": progress_percent,
+    }
 
 
 def go_to(page_path: str, *, return_to: str | None = None) -> None:

@@ -10,11 +10,11 @@
     "settings": "Settings"
   },
   "locale": {
-    "en": "English",
-    "de": "German",
-    "it": "Italian",
-    "fr": "French",
-    "es": "Spanish"
+    "en": "Anglais",
+    "de": "Allemand",
+    "it": "Italien",
+    "fr": "Francais",
+    "es": "Espagnol"
   },
   "task_family": {
     "travel_narrative": "Travel narrative",

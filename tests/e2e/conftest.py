@@ -1,9 +1,11 @@
+import json
 import os
 import socket
 import shutil
 import subprocess
 import sys
 import time
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -59,6 +61,56 @@ def samples_dir(project_root: Path) -> Path:
     return project_root / "samples"
 
 
+@lru_cache(maxsize=None)
+def load_locale_strings(project_root: Path, locale: str) -> dict[str, object]:
+    return json.loads((project_root / "locales" / f"{locale}.json").read_text(encoding="utf-8"))
+
+
+def locale_text(project_root: Path, locale: str, key: str) -> str:
+    value: object = load_locale_strings(project_root, locale)
+    for part in key.split("."):
+        if not isinstance(value, dict) or part not in value:
+            raise KeyError(f"Missing locale key {key!r} for locale {locale!r}")
+        value = value[part]
+    if not isinstance(value, str):
+        raise TypeError(f"Locale key {key!r} for locale {locale!r} did not resolve to a string")
+    return value
+
+
+def write_dashboard_prefs(project_root: Path, *, ui_locale: str) -> Path:
+    reports_dir = project_root / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    prefs_path = reports_dir / "dashboard_prefs.json"
+    prefs_path.write_text(
+        json.dumps(
+            {
+                "ui_locale": ui_locale,
+                "log_dir": str(reports_dir.resolve()),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return prefs_path
+
+
+@pytest.fixture
+def app_shell_locale(project_root: Path):
+    def _seed(ui_locale: str) -> Path:
+        return write_dashboard_prefs(project_root, ui_locale=ui_locale)
+
+    return _seed
+
+
+@pytest.fixture
+def app_shell_text(project_root: Path):
+    def _resolve(ui_locale: str, key: str) -> str:
+        return locale_text(project_root, ui_locale, key)
+
+    return _resolve
+
+
 def _faster_whisper_cache_exists(model_name: str, env: dict[str, str]) -> bool:
     hub_cache = Path(
         env.get("HF_HUB_CACHE")
@@ -79,6 +131,7 @@ def prepare_reports(project_root: Path):
 def _start_streamlit_server(project_root: Path, *, dry_run: bool, port: int, entrypoint: Path):
     env = os.environ.copy()
     env.setdefault("PYTHONPATH", str(project_root))
+    env.pop("APP_SHELL_SKIP_BOOTSTRAP", None)
     if dry_run:
         env.setdefault("ASSESS_SPEAKING_DRY_RUN", "1")
     else:

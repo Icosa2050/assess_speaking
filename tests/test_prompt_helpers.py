@@ -124,6 +124,20 @@ class PromptHelperTests(unittest.TestCase):
         self.assertEqual(dashboard.normalize_practice_mode("Audiodatei hochladen"), dashboard.PRACTICE_MODE_UPLOAD)
         self.assertEqual(dashboard.normalize_practice_mode("record"), dashboard.PRACTICE_MODE_RECORD)
 
+    def test_effective_whisper_model_availability_marks_dry_run_models_as_simulated(self):
+        with (
+            mock.patch.dict(os.environ, {"ASSESS_SPEAKING_DRY_RUN": "1"}, clear=False),
+            mock.patch.object(
+                dashboard.asr_backend,
+                "describe_model_availability",
+                return_value={"model": "medium", "repo_id": "repo", "cached": False, "cached_path": None},
+            ),
+        ):
+            availability = dashboard.effective_whisper_model_availability("medium")
+        self.assertTrue(availability["cached"])
+        self.assertTrue(availability["simulated"])
+        self.assertIsNone(availability["cached_path"])
+
     def test_validate_theme_library_submission_requires_theme_title(self):
         errors = dashboard.validate_theme_library_submission(
             manage_mode="it",

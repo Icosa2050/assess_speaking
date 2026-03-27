@@ -12,7 +12,9 @@
   "locale": {
     "en": "Inglese",
     "de": "Tedesco",
-    "it": "Italiano"
+    "it": "Italiano",
+    "fr": "Francese",
+    "es": "Spagnolo"
   },
   "task_family": {
     "travel_narrative": "Racconto di viaggio",
@@ -39,6 +41,96 @@
     "secondary_body": "Storico, libreria e impostazioni restano disponibili senza competere con il compito principale.",
     "debug_title": "Stato di debug"
   },
+  "runtime_setup": {
+    "title": "Configurazione runtime",
+    "body": "Prepara Whisper e la prima connessione di inferenza prima di usare il resto della app shell.",
+    "current_connection_ready": "Esiste gia una connessione attiva. Puoi ritestarla o sostituirla qui sotto.",
+    "last_test_passed": "L'ultimo test di connessione e riuscito.",
+    "last_test_failed": "L'ultimo test di connessione e fallito. I dettagli sono mostrati nella Sezione D qui sotto.",
+    "section_whisper": "Sezione A · Whisper",
+    "whisper_model": "Modello Whisper",
+    "whisper_guidance": "Guida: tiny e il piu veloce, small e il default bilanciato, large-v3 offre la qualita migliore.",
+    "cache_ready": "Stato cache: pronto in {path}",
+    "cache_missing": "Stato cache: non ancora scaricato.",
+    "download_model": "Scarica modello",
+    "whisper_ready": "Il modello Whisper e pronto in {path}.",
+    "whisper_download_failed": "Download di Whisper non riuscito: {detail}",
+    "section_provider": "Sezione B · Provider di inferenza",
+    "provider_label": "Provider",
+    "provider_options": {
+      "ollama_local": {
+        "label": "Ollama locale",
+        "hint": "Usa un modello Ollama installato come `llama3` o `llama3.2:3b`."
+      },
+      "ollama_cloud": {
+        "label": "Ollama cloud",
+        "hint": "Usa un model id esposto dal tuo endpoint Ollama remoto."
+      },
+      "lmstudio_local": {
+        "label": "LM Studio locale",
+        "hint": "Usa il model id caricato in LM Studio, per esempio `qwen2.5`."
+      },
+      "openrouter": {
+        "label": "OpenRouter",
+        "hint": "Usa un model id instradato da OpenRouter come `google/gemini-3.1-pro-preview`."
+      },
+      "openai_compatible": {
+        "label": "Compatibile OpenAI",
+        "hint": "Inserisci il model id esposto dal tuo endpoint compatibile OpenAI."
+      }
+    },
+    "ollama_cloud_note": "Gli endpoint cloud possono esporre modelli e autenticazione diversi rispetto a Ollama locale.",
+    "openai_compatible_note": "Usa questa opzione per endpoint OpenAI-compatibili personalizzati quando nessun preset dedicato e adatto.",
+    "section_connection": "Sezione C · Dettagli connessione",
+    "connection_label": "Nome connessione",
+    "base_url": "Base URL",
+    "base_url_placeholder": "https://il-tuo-endpoint.example/v1",
+    "base_url_help": "Lascia vuoto per usare la base URL suggerita dal provider.",
+    "model": "Modello",
+    "detect_local_models": "Rileva modelli locali",
+    "detecting_local_models": "Rilevamento modelli locali in corso...",
+    "detected_local_models_message": "Rilevati {count} modelli locali tramite {endpoint}.",
+    "detected_local_models_empty": "Nessun modello restituito da {endpoint}. Puoi comunque inserirne uno manualmente.",
+    "detected_local_models_failed": "Rilevamento modelli fallito: {detail}",
+    "detected_local_models_label": "Modelli locali rilevati",
+    "detected_local_model_selected": "Modello rilevato selezionato: `{model}`",
+    "detected_local_models_help": "Il rilevamento locale puo compilare questo campo dal servizio in esecuzione.",
+    "api_key": "Bearer token / API key",
+    "openrouter_http_referer": "HTTP-Referer OpenRouter",
+    "openrouter_app_title": "Titolo app OpenRouter",
+    "suggested_base_url": "base URL `{value}`",
+    "suggested_model": "modello `{value}`",
+    "suggested_defaults": "Default suggeriti: {values}",
+    "secret_storage_note": "Backend per i segreti: {backend}. {detail}",
+    "secret_storage_ok": "E disponibile uno storage sicuro persistente.",
+    "section_actions": "Sezione D · Test connessione",
+    "actions_body": "Esegui prima un controllo rapido di salute, poi un breve smoke test. Il salvataggio rende anche attiva questa connessione. I risultati dei test sono consigliati ma non bloccano mai il salvataggio.",
+    "test_connection": "Testa connessione",
+    "save_connection": "Salva e usa connessione",
+    "back_home": "Torna alla home",
+    "testing_connection": "Test della connessione in corso...",
+    "test_message": "Controllo salute riuscito su {endpoint}. Lo smoke test ha raggiunto {base_url} con il modello {model}. Anteprima: {preview}",
+    "test_error": "Test della connessione fallito: {detail}",
+    "save_success": "Connessione salvata e impostata come attiva.",
+    "save_success_session_only": "Connessione salvata e impostata come attiva. Lo storage dei segreti usa la modalita {backend}.",
+    "download_status": {
+      "checking_cache_headline": "Controllo della cache Whisper esistente...",
+      "checking_cache_detail": "Sto cercando un modello gia scaricato prima di contattare Hugging Face.",
+      "starting_download_headline": "Preparazione del download del modello Whisper...",
+      "starting_download_detail": "{pending_files} file in attesa · {pending_bytes} rimanenti",
+      "starting_download_detail_files_only": "{pending_files} file in attesa",
+      "downloading_headline": "Download di {current_file} in corso...",
+      "downloading_detail": "{downloaded_bytes} / {total_bytes} · {completed_files}/{total_files} file pronti",
+      "downloading_detail_bytes_only": "{downloaded_bytes} / {total_bytes}",
+      "model_files_fallback": "file del modello Whisper",
+      "finalizing_headline": "Finalizzazione del modello Whisper...",
+      "finalizing_detail": "Sto verificando lo snapshot in cache e preparando l'inizializzazione del modello.",
+      "ready_headline": "Modello Whisper pronto.",
+      "ready_detail": "Il modello selezionato ora e' disponibile nella cache locale.",
+      "default_headline": "Download del modello Whisper in corso...",
+      "default_detail": "Sto raccogliendo le informazioni di avanzamento."
+    }
+  },
   "setup": {
     "title": "Prepara una sessione orale",
     "body": "Scegli speaker, lingua di studio, livello, tema e durata prima della registrazione.",
@@ -56,6 +148,8 @@
     "flow_hint": "Poi registra una risposta orale per la revisione.",
     "custom_theme": "Tema personalizzato",
     "custom_theme_label": "Inserisci un tema personalizzato",
+    "custom_theme_save": "Salva questo tema personalizzato per riutilizzarlo",
+    "custom_theme_save_help": "Se lo salvi, questo tema apparira nella libreria per {language} a livello {level} come {task_family}.",
     "error_speaker_id": "Lo Speaker ID e obbligatorio.",
     "error_theme": "Scegli o inserisci un tema."
   },
@@ -76,6 +170,7 @@
     "status_idle": "Nessuna registrazione allegata.",
     "status_missing_file": "Era stata selezionata una registrazione, ma il file audio non e piu disponibile.",
     "status_ready": "Una registrazione e pronta per la valutazione.",
+    "remove_recording": "Rimuovi registrazione",
     "ingest_error": "Impossibile salvare l'audio: {detail}",
     "preview_error": "Impossibile aprire l'anteprima della registrazione: {detail}",
     "assessment_title": "Valutazione",

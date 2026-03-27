@@ -35,9 +35,13 @@ def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeo
     except error.URLError as exc:
         raise LLMClientError(f"Network error: {exc.reason}") from exc
     try:
-        return json.loads(raw)
+        parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise LLMClientError(f"Invalid JSON response: {raw[:300]}") from exc
+    if not isinstance(parsed, dict):
+        typename = type(parsed).__name__
+        raise LLMClientError(f"Unexpected JSON response type: expected object, got {typename}")
+    return parsed
 
 
 def _get_json(url: str, headers: dict[str, str], timeout_sec: float) -> dict[str, Any]:
@@ -53,9 +57,13 @@ def _get_json(url: str, headers: dict[str, str], timeout_sec: float) -> dict[str
     except error.URLError as exc:
         raise LLMClientError(f"Network error: {exc.reason}") from exc
     try:
-        return json.loads(raw)
+        parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise LLMClientError(f"Invalid JSON response: {raw[:300]}") from exc
+    if not isinstance(parsed, dict):
+        typename = type(parsed).__name__
+        raise LLMClientError(f"Unexpected JSON response type: expected object, got {typename}")
+    return parsed
 
 
 def extract_json_object(content: str | dict[str, Any]) -> dict[str, Any]:
@@ -116,6 +124,42 @@ def extract_json_object(content: str | dict[str, Any]) -> dict[str, Any]:
     raise SchemaValidationError("Could not find valid JSON object in LLM content")
 
 
+def _coerce_message_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if not isinstance(value, list):
+        return ""
+    fragments: list[str] = []
+    for item in value:
+        if isinstance(item, str):
+            if item:
+                fragments.append(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        for key in ("text", "content"):
+            candidate = item.get(key)
+            if isinstance(candidate, str) and candidate:
+                fragments.append(candidate)
+                break
+    return "".join(fragments)
+
+
+def _extract_assistant_message_text(result: dict[str, Any]) -> str:
+    try:
+        choice = result["choices"][0]
+        message = choice["message"]
+    except Exception as exc:
+        raise LLMClientError(f"Unexpected chat completion payload: {result}") from exc
+    if not isinstance(message, dict):
+        raise LLMClientError(f"Unexpected chat completion payload: {result}")
+    for key in ("content", "refusal", "reasoning", "reasoning_content"):
+        candidate = _coerce_message_text(message.get(key))
+        if candidate.strip():
+            return candidate
+    raise LLMClientError(f"Chat completion returned no assistant text: {result}")
+
+
 def _chat_completion(
     provider: str,
     model: str,
@@ -128,6 +172,7 @@ def _chat_completion(
     openrouter_http_referer: str | None = None,
     openrouter_app_title: str | None = None,
     extra_payload: dict[str, Any] | None = None,
+    require_json_object: bool = False,
 ) -> str:
     normalized_provider = normalize_provider(provider)
     headers = {"Content-Type": "application/json"}
@@ -156,7 +201,7 @@ def _chat_completion(
     }
     if extra_payload:
         payload.update(extra_payload)
-    if normalized_provider == "openrouter":
+    if normalized_provider == "openrouter" and require_json_object:
         payload["response_format"] = {"type": "json_object"}
     try:
         result = _post_json(url, payload, headers, timeout_sec)
@@ -164,7 +209,7 @@ def _chat_completion(
         if normalized_provider != "openrouter":
             raise
         message = str(exc).lower()
-        if "response_format" not in message and "json_object" not in message:
+        if (not require_json_object) or ("response_format" not in message and "json_object" not in message):
             raise
         fallback_payload = {
             "model": model,
@@ -174,10 +219,7 @@ def _chat_completion(
         if extra_payload:
             fallback_payload.update(extra_payload)
         result = _post_json(url, fallback_payload, headers, timeout_sec)
-    try:
-        return result["choices"][0]["message"]["content"]
-    except Exception as exc:
-        raise LLMClientError(f"Unexpected chat completion payload: {result}") from exc
+    return _extract_assistant_message_text(result)
 
 
 def generate_rubric(
@@ -205,6 +247,7 @@ def generate_rubric(
             api_key=api_key,
             openrouter_http_referer=openrouter_http_referer,
             openrouter_app_title=openrouter_app_title,
+            require_json_object=True,
         )
         try:
             payload = extract_json_object(raw)
@@ -246,6 +289,7 @@ def generate_coaching_summary(
             api_key=api_key,
             openrouter_http_referer=openrouter_http_referer,
             openrouter_app_title=openrouter_app_title,
+            require_json_object=True,
         )
         try:
             payload = extract_json_object(raw)
@@ -348,6 +392,9 @@ def test_connection(
         openrouter_app_title=openrouter_app_title,
         extra_payload={"temperature": 0, "max_tokens": 8},
     )
+    if not isinstance(content, str):
+        typename = type(content).__name__
+        raise LLMClientError(f"Unexpected chat completion content type: expected text, got {typename}")
     return {
         "provider": normalized_provider,
         "base_url": runtime_base_url(normalized_provider, base_url),

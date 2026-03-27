@@ -78,7 +78,7 @@ def compute_checks(
     word_count = int(metrics.get("word_count", 0))
     duration_pass = speaking_time >= (target_duration_sec * duration_pass_ratio)
     min_words_pass = word_count >= min_word_count
-    topic_pass = rubric.on_topic if rubric is not None else True
+    topic_pass = rubric.on_topic if rubric is not None else None
     return {
         "duration_pass": duration_pass,
         "topic_pass": topic_pass,
@@ -90,7 +90,7 @@ def compute_checks(
 def final_scores(
     deterministic: float,
     llm: Optional[float],
-    topic_pass: bool,
+    topic_pass: Optional[bool],
     topic_fail_cap_score: float,
 ) -> dict:
     if llm is None:
@@ -99,7 +99,7 @@ def final_scores(
     else:
         final = (FINAL_SCORE_WEIGHTS["deterministic"] * deterministic) + (FINAL_SCORE_WEIGHTS["rubric"] * llm)
         mode = "hybrid"
-    if not topic_pass:
+    if topic_pass is False:
         final = min(final, topic_fail_cap_score)
     final = round(_clip(final, SCORE_MIN, SCORE_MAX), 2)
     band = int(round(final))

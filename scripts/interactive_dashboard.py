@@ -272,9 +272,19 @@ def validate_theme_library_submission(
 
 
 def format_whisper_model_option(model_name: str) -> str:
-    availability = asr_backend.describe_model_availability(model_name)
+    availability = effective_whisper_model_availability(model_name)
     suffix = "lokal" if availability["cached"] else "Download nötig"
     return f"{model_name} ({suffix})"
+
+
+def effective_whisper_model_availability(model_name: str) -> dict:
+    availability = dict(asr_backend.describe_model_availability(model_name))
+    if os.getenv("ASSESS_SPEAKING_DRY_RUN") == "1" and not availability.get("cached"):
+        availability["cached"] = True
+        availability["simulated"] = True
+    else:
+        availability["simulated"] = False
+    return availability
 
 
 def build_rtc_configuration() -> RTCConfiguration:
@@ -806,7 +816,7 @@ def render_whisper_model_controls(
         key=select_key,
         format_func=format_whisper_model_option,
     )
-    availability = asr_backend.describe_model_availability(selected_model)
+    availability = effective_whisper_model_availability(selected_model)
     st.caption(f"Empfehlung: `{recommendation['model']}`. {recommendation['reason']}")
 
     notice = st.session_state.get(notice_key)
@@ -816,7 +826,10 @@ def render_whisper_model_controls(
 
     if availability["cached"]:
         status_method = st.caption if compact else st.success
-        status_method(f"`{selected_model}` ist lokal vorhanden und sofort nutzbar.")
+        if availability.get("simulated"):
+            status_method(f"`{selected_model}` wird im Dry-Run als verfügbar behandelt.")
+        else:
+            status_method(f"`{selected_model}` ist lokal vorhanden und sofort nutzbar.")
         if show_cache_details and availability.get("cached_path"):
             st.caption(f"Cache: `{availability['cached_path']}`")
         return selected_model, availability

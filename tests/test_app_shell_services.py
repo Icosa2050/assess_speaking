@@ -7,12 +7,15 @@ from unittest import mock
 from app_shell.services import (
     NEW_LANGUAGE_OPTION,
     create_assessment_request,
+    discover_runtime_models,
+    download_whisper_model,
     delete_provider_connection,
     execute_assessment_request,
     hydrate_state_from_storage,
     load_report_payload,
     parse_cli_json,
     review_summary,
+    sanitize_setup_base_url,
     set_default_provider_connection,
     store_uploaded_audio,
     test_runtime_connection,
@@ -34,11 +37,15 @@ class _FakeUpload:
 
 
 class AppShellServiceTests(unittest.TestCase):
-    @mock.patch.dict(os.environ, {"APP_SHELL_SKIP_BOOTSTRAP": ""}, clear=False)
+    @mock.patch.dict(
+        os.environ,
+        {"APP_SHELL_SKIP_BOOTSTRAP": "", "LLM_API_KEY": "", "OPENROUTER_API_KEY": "", "OLLAMA_API_KEY": ""},
+        clear=False,
+    )
     @mock.patch("app_shell.services.load_history_records")
     @mock.patch("app_shell.services.load_theme_library")
     @mock.patch("app_shell.services.load_dashboard_prefs")
-    def test_hydrate_state_from_storage_restores_openrouter_preferences(
+    def test_hydrate_state_from_storage_restores_openrouter_preferences_without_legacy_key(
         self,
         mock_load_prefs,
         mock_load_library,
@@ -50,7 +57,6 @@ class AppShellServiceTests(unittest.TestCase):
             "provider": "openrouter",
             "model": "anthropic/claude-sonnet-4.5",
             "whisper_model": "base",
-            "openrouter_api_key": "saved-key",
             "openrouter_http_referer": "https://example.test/app",
             "openrouter_app_title": "Assess Speaking Dev",
             "log_dir": "reports",
@@ -77,15 +83,19 @@ class AppShellServiceTests(unittest.TestCase):
         self.assertEqual(hydrated.prefs.provider, "openrouter")
         self.assertEqual(hydrated.prefs.model, "anthropic/claude-sonnet-4.5")
         self.assertEqual(hydrated.prefs.whisper_model, "base")
-        self.assertEqual(hydrated.prefs.openrouter_api_key, "saved-key")
+        self.assertEqual(hydrated.prefs.llm_api_key, "")
         self.assertEqual(hydrated.prefs.openrouter_http_referer, "https://example.test/app")
         self.assertEqual(hydrated.prefs.openrouter_app_title, "Assess Speaking Dev")
 
-    @mock.patch.dict(os.environ, {"APP_SHELL_SKIP_BOOTSTRAP": ""}, clear=False)
+    @mock.patch.dict(
+        os.environ,
+        {"APP_SHELL_SKIP_BOOTSTRAP": "", "LLM_API_KEY": "", "OPENROUTER_API_KEY": "", "OLLAMA_API_KEY": ""},
+        clear=False,
+    )
     @mock.patch("app_shell.services.load_history_records")
     @mock.patch("app_shell.services.load_theme_library")
     @mock.patch("app_shell.services.load_dashboard_prefs")
-    def test_hydrate_state_from_storage_migrates_legacy_default_app_title(
+    def test_hydrate_state_from_storage_preserves_explicit_openrouter_app_title(
         self,
         mock_load_prefs,
         mock_load_library,
@@ -106,21 +116,21 @@ class AppShellServiceTests(unittest.TestCase):
 
         hydrated = hydrate_state_from_storage(AppShellState(prefs=AppPreferences()))
 
-        self.assertEqual(hydrated.prefs.openrouter_app_title, "Speaking Studio")
+        self.assertEqual(hydrated.prefs.openrouter_app_title, "Assess Speaking")
 
-    @mock.patch.dict(os.environ, {"APP_SHELL_SKIP_BOOTSTRAP": ""}, clear=False)
-    @mock.patch("app_shell.services.set_secret")
-    @mock.patch("app_shell.services.get_secret", return_value="")
+    @mock.patch.dict(
+        os.environ,
+        {"APP_SHELL_SKIP_BOOTSTRAP": "", "LLM_API_KEY": "", "OPENROUTER_API_KEY": "", "OLLAMA_API_KEY": ""},
+        clear=False,
+    )
     @mock.patch("app_shell.services.load_history_records")
     @mock.patch("app_shell.services.load_theme_library")
     @mock.patch("app_shell.services.load_dashboard_prefs")
-    def test_hydrate_state_from_storage_migrates_legacy_plaintext_key_into_secret_store(
+    def test_hydrate_state_from_storage_ignores_legacy_plaintext_key(
         self,
         mock_load_prefs,
         mock_load_library,
         mock_load_history,
-        _mock_get_secret,
-        mock_set_secret,
     ):
         mock_load_history.return_value = []
         mock_load_prefs.return_value = {
@@ -132,9 +142,7 @@ class AppShellServiceTests(unittest.TestCase):
 
         hydrated = hydrate_state_from_storage(AppShellState(prefs=AppPreferences()))
 
-        self.assertEqual(hydrated.prefs.llm_api_key, "saved-key")
-        self.assertEqual(hydrated.prefs.openrouter_api_key, "saved-key")
-        mock_set_secret.assert_called_once()
+        self.assertEqual(hydrated.prefs.llm_api_key, "")
 
     @mock.patch.dict(os.environ, {"APP_SHELL_SKIP_BOOTSTRAP": ""}, clear=False)
     @mock.patch("app_shell.services.load_report_payload")
@@ -374,7 +382,7 @@ class AppShellServiceTests(unittest.TestCase):
         self.assertEqual(stored["speaker_profiles"]["bern"]["task_family"], "travel_narrative")
 
     @mock.patch("app_shell.services.set_secret")
-    def test_save_state_preferences_moves_runtime_secret_out_of_dashboard_prefs(self, mock_set_secret):
+    def test_save_state_preferences_does_not_persist_runtime_secret_without_saved_connection(self, mock_set_secret):
         with tempfile.TemporaryDirectory() as tmpdir:
             log_dir = Path(tmpdir)
             state = AppShellState(
@@ -382,7 +390,6 @@ class AppShellServiceTests(unittest.TestCase):
                     log_dir=str(log_dir),
                     provider="openrouter",
                     llm_api_key="key-123",
-                    openrouter_api_key="key-123",
                 ),
             )
 
@@ -393,7 +400,7 @@ class AppShellServiceTests(unittest.TestCase):
 
         self.assertNotIn("openrouter_api_key", stored)
         self.assertNotIn("llm_api_key", stored)
-        mock_set_secret.assert_called_once()
+        mock_set_secret.assert_not_called()
 
     def test_set_default_provider_connection_promotes_requested_connection(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -494,10 +501,111 @@ class AppShellServiceTests(unittest.TestCase):
         mock_health_check.assert_called_once()
         mock_test_connection.assert_called_once()
 
+    def test_sanitize_setup_base_url_strips_local_ollama_suffixes(self):
+        self.assertEqual(sanitize_setup_base_url("ollama_local", "http://localhost:11434/api"), "http://localhost:11434")
+        self.assertEqual(sanitize_setup_base_url("ollama_local", "http://localhost:11434/v1"), "http://localhost:11434")
+        self.assertEqual(sanitize_setup_base_url("ollama_local", "http://localhost:11434/api/v1"), "http://localhost:11434")
+
+    @mock.patch("app_shell.services.llm_health_check")
+    def test_discover_runtime_models_sanitizes_local_ollama_url(self, mock_health_check):
+        mock_health_check.return_value = {
+            "provider": "ollama",
+            "endpoint": "http://localhost:11434/api/tags",
+            "payload": {"models": [{"name": "llama3"}, {"name": "mistral"}]},
+        }
+
+        result = discover_runtime_models(
+            provider="ollama_local",
+            provider_choice="ollama_local",
+            base_url="http://localhost:11434/api",
+        )
+
+        self.assertEqual(result["health_endpoint"], "http://localhost:11434/api/tags")
+        self.assertEqual(result["models"], ["llama3", "mistral"])
+        self.assertEqual(mock_health_check.call_args.kwargs["base_url"], "http://localhost:11434")
+
+    @mock.patch("app_shell.services.llm_health_check")
+    @mock.patch("app_shell.services.test_llm_connection")
+    def test_test_runtime_connection_uses_discovered_model_when_input_is_blank(self, mock_test_connection, mock_health_check):
+        mock_health_check.return_value = {
+            "provider": "lmstudio",
+            "endpoint": "http://localhost:1234/v1/models",
+            "payload": {"data": [{"id": "qwen2.5"}]},
+        }
+        mock_test_connection.return_value = {"ok": True, "content_preview": "OK", "model": "qwen2.5"}
+
+        result = test_runtime_connection(
+            provider="lmstudio_local",
+            provider_choice="lmstudio_local",
+            model="",
+            base_url="http://localhost:1234/v1",
+        )
+
+        self.assertEqual(result["health_endpoint"], "http://localhost:1234/v1/models")
+        self.assertEqual(result["models_payload"]["data"][0]["id"], "qwen2.5")
+        self.assertEqual(mock_test_connection.call_args.kwargs["model"], "qwen2.5")
+
+    @mock.patch("app_shell.services.llm_health_check")
+    @mock.patch("app_shell.services.test_llm_connection")
+    def test_test_runtime_connection_sanitizes_local_ollama_base_url(self, mock_test_connection, mock_health_check):
+        mock_health_check.return_value = {
+            "provider": "ollama",
+            "endpoint": "http://localhost:11434/api/tags",
+            "payload": {"models": [{"name": "llama3"}]},
+        }
+        mock_test_connection.return_value = {"ok": True, "content_preview": "OK", "model": "llama3"}
+
+        result = test_runtime_connection(
+            provider="ollama_local",
+            provider_choice="ollama_local",
+            model="llama3",
+            base_url="http://localhost:11434/api",
+        )
+
+        self.assertEqual(result["base_url"], "http://localhost:11434/v1")
+        self.assertEqual(result["service_base_url"], "http://localhost:11434")
+        self.assertEqual(mock_health_check.call_args.kwargs["base_url"], "http://localhost:11434")
+        self.assertEqual(mock_test_connection.call_args.kwargs["base_url"], "http://localhost:11434/v1")
+        self.assertEqual(mock_test_connection.call_args.kwargs["timeout_sec"], 30.0)
+
+    @mock.patch("app_shell.services.llm_health_check")
+    @mock.patch("app_shell.services.test_llm_connection")
+    def test_test_runtime_connection_keeps_default_timeout_for_remote_provider(self, mock_test_connection, mock_health_check):
+        mock_health_check.return_value = {
+            "provider": "openrouter",
+            "endpoint": "https://openrouter.ai/api/v1/models",
+            "payload": {"data": [{"id": "google/gemini-3.1-pro-preview"}]},
+        }
+        mock_test_connection.return_value = {
+            "ok": True,
+            "content_preview": "OK",
+            "model": "google/gemini-3.1-pro-preview",
+        }
+
+        test_runtime_connection(
+            provider="openrouter",
+            provider_choice="openrouter",
+            model="google/gemini-3.1-pro-preview",
+            base_url="https://openrouter.ai/api/v1",
+        )
+
+        self.assertEqual(mock_test_connection.call_args.kwargs["timeout_sec"], 10.0)
+
     def test_whisper_model_status_marks_uncached_model(self):
         status = whisper_model_status("definitely-not-a-real-whisper-model")
         self.assertFalse(status["cached"])
         self.assertEqual(status["model"], "definitely-not-a-real-whisper-model")
+
+    @mock.patch("app_shell.services.whisper_model_status", return_value={"cached": True, "cached_path": "/tmp/model"})
+    @mock.patch("app_shell.services.ensure_model_downloaded")
+    def test_download_whisper_model_passes_progress_callback(self, mock_ensure_downloaded, mock_status):
+        callback = mock.Mock()
+
+        result = download_whisper_model("small", progress_callback=callback)
+
+        self.assertEqual(result["cached_path"], "/tmp/model")
+        mock_ensure_downloaded.assert_called_once_with("small", progress_callback=callback)
+        mock_status.assert_called_once_with("small")
 
     def test_validate_theme_submission_flags_missing_fields(self):
         errors = validate_theme_submission(
@@ -539,13 +647,13 @@ class AppShellServiceTests(unittest.TestCase):
             task_family="travel_narrative",
             theme="Il mio ultimo viaggio all'estero",
             target_duration_sec=180,
-            openrouter_api_key="key-123",
+            llm_api_key="key-123",
             openrouter_http_referer="http://localhost:8503",
             openrouter_app_title="Speaking Studio",
         )
         self.assertEqual(request["expected_language"], "it")
         self.assertEqual(request["feedback_language"], "en")
-        self.assertEqual(request["openrouter_api_key"], "key-123")
+        self.assertEqual(request["llm_api_key"], "key-123")
 
     @mock.patch("app_shell.services.subprocess.run")
     def test_execute_assessment_request_passes_language_profile_key_to_cli(self, mock_run):
@@ -592,7 +700,7 @@ class AppShellServiceTests(unittest.TestCase):
                 "llm_model": "google/gemini-3.1-pro-preview",
                 "expected_language": "it",
                 "feedback_language": "en",
-                "openrouter_api_key": "key-123",
+                "llm_api_key": "key-123",
                 "openrouter_http_referer": "http://localhost:8503",
                 "openrouter_app_title": "Speaking Studio",
                 "speaker_id": "bern",

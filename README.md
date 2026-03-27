@@ -158,7 +158,6 @@ shared session, runtime, and i18n helpers.
 Current shell/deprecation status is documented in:
 
 - `docs/MULTIPAGE_APP_SHELL_PLAN.md`
-- `docs/RUNTIME_SETUP_ROLLOUT.md`
 - `docs/CURRENT_APP_SURFACE_AND_DEPRECATION.md`
 
 ### Prompt trainer with CEFR baselines
@@ -178,35 +177,16 @@ Current shell/deprecation status is documented in:
   comparison (WPM range, filler cap, cohesion/complexity markers), and the trend
   plots.
 
-### Telegram webhook service (experimental)
-Run a webhook service so users can submit voice notes via Telegram:
-
-```bash
-export TELEGRAM_BOT_TOKEN="<bot-token>"
-export TELEGRAM_WEBHOOK_SECRET="<optional-shared-secret>"
-export ASSESS_WHISPER_MODEL="large-v3"    # optional
-export ASSESS_LLM_MODEL="llama3.1"        # optional
-# Optional durable queue + persistent status:
-# export SERVICE_REDIS_URL="redis://localhost:6379/0"
-# export SERVICE_REDIS_PREFIX="assess_speaking"
-# export SERVICE_MAX_WORKERS="2"
-uvicorn service.app:app --host 0.0.0.0 --port 8000
-```
-
-Endpoints:
-- `GET /health` health and config status
-- `POST /webhooks/telegram` Telegram update receiver
-- `GET /jobs/{job_id}` job status (in-memory or Redis-backed)
-
-The service downloads the Telegram audio file, runs the same assessment
-pipeline used by the CLI, sends a summary back to chat, and uploads the JSON
-report as a Telegram document.
-If `SERVICE_REDIS_URL` is set, webhook jobs are queued in Redis and job status
-is stored in Redis hashes. In-flight Redis jobs are re-queued on service start
-so a restart does not silently drop work that was already dequeued.
-
 ### Tests & CI
 - **Unit tests**: `./scripts/run_tests.sh`
+- **Source coverage**: `./scripts/run_coverage.sh`
+- **Full coverage (including tests)**: `./scripts/run_coverage.sh --full`
+- The test and coverage wrappers always use the repo-local `.venv` via
+  `./scripts/python.sh`, so they stay consistent even when a global `pytest` or
+  `coverage` installation points at a different Python.
+- Coverage outputs:
+  - source mode: `coverage.json` + `htmlcov/`
+  - full mode: `coverage.full.json` + `htmlcov-full/`
 - **OpenRouter integration (opt-in)**:
   `RUN_OPENROUTER_INTEGRATION=1 ./scripts/python.sh -m unittest tests.test_integration_openrouter -v`
 - **Optional sample-audio integration test (no microphone required)**:

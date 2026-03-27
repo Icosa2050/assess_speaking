@@ -562,8 +562,39 @@ class RunAssessmentTests(unittest.TestCase):
         self.assertTrue(result["report"]["requires_human_review"])
         self.assertIn("language_mismatch", result["report"]["warnings"])
         self.assertIsNone(result["report"]["rubric"])
+        self.assertIsNone(result["report"]["checks"]["topic_pass"])
         self.assertEqual(len(result["report"]["coaching"]["top_3_priorities"]), 3)
         mock_generate.assert_not_called()
+
+    @mock.patch.object(assess_speaking, "load_audio_features", return_value={"duration_sec": 4.0, "pauses": []})
+    @mock.patch.object(
+        assess_speaking,
+        "transcribe",
+        return_value={
+            "text": "Eins, zwei, drei.",
+            "detected_language": "de",
+            "language_probability": 0.99,
+            "compute_type_used": "default",
+            "compute_fallback_used": False,
+            "words": [
+                {"t0": 0.0, "t1": 1.0, "text": "eins"},
+                {"t0": 1.0, "t1": 2.0, "text": "zwei"},
+                {"t0": 2.0, "t1": 3.0, "text": "drei"},
+            ],
+        },
+    )
+    def test_run_assessment_language_mismatch_mentions_short_transcript_in_fallback_coaching(self, _mock_transcribe, _mock_audio):
+        result = assess_speaking.run_assessment(
+            Path("sample.wav"),
+            expected_language="it",
+            feedback_language="de",
+            theme="cambiamento climatico",
+            target_duration_sec=180,
+        )
+        self.assertEqual(result["transcript_full"], "Eins, zwei, drei.")
+        self.assertIsNone(result["report"]["checks"]["topic_pass"])
+        self.assertIn("Eins, zwei, drei.", result["report"]["coaching"]["coach_summary"])
+        self.assertIn("Deutsch", result["report"]["coaching"]["coach_summary"])
 
     @mock.patch.object(assess_speaking, "generate_coaching_summary", side_effect=LLMClientError("coach timeout"))
     @mock.patch.object(assess_speaking, "load_audio_features", return_value={"duration_sec": 50.0, "pauses": []})

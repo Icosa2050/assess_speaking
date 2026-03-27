@@ -12,7 +12,9 @@
   "locale": {
     "en": "Englisch",
     "de": "Deutsch",
-    "it": "Italienisch"
+    "it": "Italienisch",
+    "fr": "Franzoesisch",
+    "es": "Spanisch"
   },
   "task_family": {
     "travel_narrative": "Reiseerzaehlung",
@@ -39,6 +41,96 @@
     "secondary_body": "Verlauf, Bibliothek und Einstellungen bleiben erreichbar, ohne den Kernfluss zu stoeren.",
     "debug_title": "Debug-Zustand"
   },
+  "runtime_setup": {
+    "title": "Runtime-Setup",
+    "body": "Bereite Whisper und die erste Inferenzverbindung vor, bevor du den Rest der App-Shell nutzt.",
+    "current_connection_ready": "Es ist bereits eine aktive Verbindung konfiguriert. Du kannst sie unten erneut testen oder ersetzen.",
+    "last_test_passed": "Der letzte Verbindungstest war erfolgreich.",
+    "last_test_failed": "Der letzte Verbindungstest ist fehlgeschlagen. Details stehen unten in Abschnitt D.",
+    "section_whisper": "Abschnitt A · Whisper",
+    "whisper_model": "Whisper-Modell",
+    "whisper_guidance": "Hinweis: tiny ist am schnellsten, small ist der ausgewogene Standard, und large-v3 liefert die beste Qualitaet.",
+    "cache_ready": "Cache-Status: bereit unter {path}",
+    "cache_missing": "Cache-Status: noch nicht heruntergeladen.",
+    "download_model": "Modell herunterladen",
+    "whisper_ready": "Das Whisper-Modell ist unter {path} bereit.",
+    "whisper_download_failed": "Whisper-Download fehlgeschlagen: {detail}",
+    "section_provider": "Abschnitt B · Inferenz-Provider",
+    "provider_label": "Provider",
+    "provider_options": {
+      "ollama_local": {
+        "label": "Ollama lokal",
+        "hint": "Nutze ein installiertes Ollama-Modell wie `llama3` oder `llama3.2:3b`."
+      },
+      "ollama_cloud": {
+        "label": "Ollama Cloud",
+        "hint": "Nutze eine Modell-ID, die dein entfernter Ollama-Endpunkt bereitstellt."
+      },
+      "lmstudio_local": {
+        "label": "LM Studio lokal",
+        "hint": "Nutze die in LM Studio geladene Modell-ID, zum Beispiel `qwen2.5`."
+      },
+      "openrouter": {
+        "label": "OpenRouter",
+        "hint": "Nutze eine ueber OpenRouter geroutete Modell-ID wie `google/gemini-3.1-pro-preview`."
+      },
+      "openai_compatible": {
+        "label": "OpenAI-kompatibel",
+        "hint": "Gib die Modell-ID ein, die dein OpenAI-kompatibler Endpunkt bereitstellt."
+      }
+    },
+    "ollama_cloud_note": "Cloud-Endpunkte koennen andere Modelle und Authentifizierung als lokales Ollama bereitstellen.",
+    "openai_compatible_note": "Nutze das fuer eigene OpenAI-kompatible Endpunkte, wenn keiner der vorhandenen Presets passt.",
+    "section_connection": "Abschnitt C · Verbindungsdetails",
+    "connection_label": "Verbindungsname",
+    "base_url": "Basis-URL",
+    "base_url_placeholder": "https://dein-endpunkt.example/v1",
+    "base_url_help": "Leer lassen, um die vom Provider vorgeschlagene Basis-URL zu verwenden.",
+    "model": "Modell",
+    "detect_local_models": "Lokale Modelle erkennen",
+    "detecting_local_models": "Lokale Modelle werden erkannt...",
+    "detected_local_models_message": "{count} lokale Modelle ueber {endpoint} erkannt.",
+    "detected_local_models_empty": "Von {endpoint} wurden keine Modelle geliefert. Du kannst trotzdem eines manuell eintragen.",
+    "detected_local_models_failed": "Modellerkennung fehlgeschlagen: {detail}",
+    "detected_local_models_label": "Erkannte lokale Modelle",
+    "detected_local_model_selected": "Ausgewaehltes erkanntes Modell: `{model}`",
+    "detected_local_models_help": "Die lokale Modellerkennung kann dieses Feld aus dem laufenden Dienst vorbelegen.",
+    "api_key": "Bearer-Token / API-Key",
+    "openrouter_http_referer": "OpenRouter HTTP-Referer",
+    "openrouter_app_title": "OpenRouter App-Titel",
+    "suggested_base_url": "Basis-URL `{value}`",
+    "suggested_model": "Modell `{value}`",
+    "suggested_defaults": "Vorgeschlagene Standardwerte: {values}",
+    "secret_storage_note": "Secret-Store-Backend: {backend}. {detail}",
+    "secret_storage_ok": "Persistente sichere Speicherung ist verfuegbar.",
+    "section_actions": "Abschnitt D · Verbindung testen",
+    "actions_body": "Fuehre zuerst einen kurzen Health-Check und dann einen kleinen Smoke-Test aus. Beim Speichern wird diese Verbindung auch aktiv gesetzt. Testergebnisse werden empfohlen, blockieren das Speichern aber nie.",
+    "test_connection": "Verbindung testen",
+    "save_connection": "Verbindung speichern und verwenden",
+    "back_home": "Zur Startseite",
+    "testing_connection": "Verbindung wird getestet...",
+    "test_message": "Health-Check unter {endpoint} erfolgreich. Der Smoke-Test erreichte {base_url} mit dem Modell {model}. Vorschau: {preview}",
+    "test_error": "Verbindungstest fehlgeschlagen: {detail}",
+    "save_success": "Verbindung gespeichert und als aktiv gesetzt.",
+    "save_success_session_only": "Verbindung gespeichert und als aktiv gesetzt. Die Secret-Speicherung laeuft im Modus {backend}.",
+    "download_status": {
+      "checking_cache_headline": "Vorhandenen Whisper-Cache pruefen...",
+      "checking_cache_detail": "Es wird nach einem bereits heruntergeladenen Modell gesucht, bevor Hugging Face kontaktiert wird.",
+      "starting_download_headline": "Whisper-Modell-Download vorbereiten...",
+      "starting_download_detail": "{pending_files} Dateien ausstehend · {pending_bytes} verbleibend",
+      "starting_download_detail_files_only": "{pending_files} Dateien ausstehend",
+      "downloading_headline": "{current_file} wird heruntergeladen...",
+      "downloading_detail": "{downloaded_bytes} / {total_bytes} · {completed_files}/{total_files} Dateien bereit",
+      "downloading_detail_bytes_only": "{downloaded_bytes} / {total_bytes}",
+      "model_files_fallback": "Whisper-Modelldateien",
+      "finalizing_headline": "Whisper-Modell wird finalisiert...",
+      "finalizing_detail": "Der Cache-Snapshot wird verifiziert und die Modellinitialisierung vorbereitet.",
+      "ready_headline": "Whisper-Modell ist bereit.",
+      "ready_detail": "Das ausgewaehlte Modell ist jetzt lokal im Cache vorhanden.",
+      "default_headline": "Whisper-Modell wird heruntergeladen...",
+      "default_detail": "Fortschrittsinformationen werden gesammelt."
+    }
+  },
   "setup": {
     "title": "Eine Sprechsession vorbereiten",
     "body": "Waehle Sprecher, Lernsprache, Zielniveau, Thema und Dauer vor der Aufnahme.",
@@ -56,6 +148,8 @@
     "flow_hint": "Als Naechstes nimmst du eine gesprochene Antwort fuer die Auswertung auf.",
     "custom_theme": "Eigenes Thema",
     "custom_theme_label": "Eigenes Thema eingeben",
+    "custom_theme_save": "Dieses eigene Thema fuer spaeter speichern",
+    "custom_theme_save_help": "Wenn du es speicherst, erscheint dieses Thema in der Bibliothek fuer {language} auf {level} als {task_family}.",
     "error_speaker_id": "Eine Speaker ID ist erforderlich.",
     "error_theme": "Bitte waehle ein Thema oder gib eines ein."
   },
@@ -76,6 +170,7 @@
     "status_idle": "Noch keine Aufnahme vorhanden.",
     "status_missing_file": "Eine fruehere Aufnahme wurde ausgewaehlt, aber die Audiodatei ist nicht mehr verfuegbar.",
     "status_ready": "Eine Aufnahme ist vorhanden und bereit fuer die Auswertung.",
+    "remove_recording": "Aufnahme entfernen",
     "ingest_error": "Das Audio konnte nicht gespeichert werden: {detail}",
     "preview_error": "Die Vorschau der Aufnahme konnte nicht geoeffnet werden: {detail}",
     "assessment_title": "Auswertung",

@@ -1,0 +1,26 @@
+[run]
+# Source coverage is the default workflow. scripts/run_coverage.sh switches
+# between source-only and full reporting by passing omit arguments at runtime.
+branch = True
+source =
+    .
+omit =
+    .codex/*
+    .playwright/*
+    .pytest_cache/*
+    .ruff_cache/*
+    .taskmaster/*
+    .venv/*
+    docs/*
+    output/*
+    reports/*
+    tmp/*
+    training/*
+
+[report]
+show_missing = True
+skip_empty = True
+exclude_also =
+    pragma: no cover
+    if TYPE_CHECKING:
+    if __name__ == "__main__":

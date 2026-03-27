@@ -52,6 +52,28 @@ class CoachingSummaryTests(unittest.TestCase):
         self.assertTrue(coaching["coach_summary"].startswith("This is a useful starting point."))
         self.assertIn("Complete the full task in Italian", coaching["next_exercise"])
 
+    def test_build_fallback_coaching_calls_out_short_language_mismatch_transcript(self):
+        coaching = build_fallback_coaching(
+            metrics={
+                "word_count": 3,
+                "fillers": 0,
+                "cohesion_markers": 0,
+                "wpm": 15,
+                "complexity_index": 0,
+            },
+            checks={"language_pass": False, "topic_pass": None, "duration_pass": False},
+            theme="cambiamento climatico",
+            target_duration_sec=180,
+            ui_locale="de",
+            learning_language="it",
+            transcript="Eins, zwei, drei.",
+            detected_language="de",
+        )
+        self.assertIn("Eins, zwei, drei.", coaching["coach_summary"])
+        self.assertIn("Deutsch", coaching["coach_summary"])
+        self.assertNotIn("Du bist beim vorgegebenen Thema geblieben.", coaching["strengths"])
+        self.assertIn("laengere Antwort in Italienisch", coaching["top_3_priorities"][0])
+
     @mock.patch("assessment_runtime.llm_client._chat_completion", return_value=VALID_COACHING_JSON)
     def test_generate_coaching_summary_returns_valid_payload(self, _mock_chat):
         coaching, raw = llm_client.generate_coaching_summary(

@@ -86,35 +86,17 @@ def resolve_connection_runtime(connection: ProviderConnection) -> RuntimeConfig:
 
 def resolve_runtime_config(prefs: AppPreferences) -> RuntimeConfig:
     connection = active_connection(prefs)
-    if connection is not None:
-        return resolve_connection_runtime(connection)
-    provider = normalize_provider(getattr(prefs, "provider", ""))
-    api_key = str(getattr(prefs, "llm_api_key", "") or getattr(prefs, "openrouter_api_key", "") or "").strip()
-    if not api_key:
-        api_key = _env_secret(provider)
-    runtime = RuntimeConfig(
-        provider=provider,
-        model=str(getattr(prefs, "model", "") or DEFAULT_MODEL),
-        base_url=runtime_base_url(provider, getattr(prefs, "llm_base_url", "")),
-        api_key=api_key,
-    )
-    if provider == "openrouter":
-        runtime.extra_headers["HTTP-Referer"] = str(
-            getattr(prefs, "openrouter_http_referer", "") or DEFAULT_OPENROUTER_HTTP_REFERER
-        ).strip()
-        title = str(getattr(prefs, "openrouter_app_title", "") or DEFAULT_OPENROUTER_APP_TITLE).strip()
-        runtime.extra_headers["X-OpenRouter-Title"] = title
-        runtime.extra_headers["X-Title"] = title
-    return runtime
+    if connection is None:
+        raise ValueError("No active runtime connection is configured.")
+    return resolve_connection_runtime(connection)
 
 
-def sync_legacy_runtime_fields(prefs: AppPreferences) -> RuntimeConfig:
+def sync_runtime_fields(prefs: AppPreferences) -> RuntimeConfig:
     runtime = resolve_runtime_config(prefs)
     prefs.provider = runtime.provider
     prefs.model = runtime.model
     prefs.llm_base_url = runtime.base_url
     prefs.llm_api_key = runtime.api_key
-    prefs.openrouter_api_key = runtime.api_key if runtime.provider == "openrouter" else ""
     if runtime.provider == "openrouter":
         prefs.openrouter_http_referer = runtime.extra_headers.get("HTTP-Referer", DEFAULT_OPENROUTER_HTTP_REFERER)
         prefs.openrouter_app_title = runtime.extra_headers.get("X-Title", DEFAULT_OPENROUTER_APP_TITLE)

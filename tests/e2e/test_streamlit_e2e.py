@@ -59,6 +59,17 @@ def open_prompt_trainer(page) -> None:
     prompt_tab.click()
 
 
+def expect_prompt_attempt_active(page) -> None:
+    open_prompt_trainer(page)
+    expect(page.get_by_text("Verbleibende Zeit:", exact=False)).to_be_visible(timeout=10000)
+
+
+def select_prompt(page, current_label: str, target_label: str, prompt_text: str) -> None:
+    page.get_by_text(current_label, exact=True).click()
+    page.get_by_role("option", name=target_label).click()
+    expect(page.get_by_text(prompt_text, exact=False)).to_be_visible(timeout=10000)
+
+
 def activate_manual_upload_mode(page) -> None:
     page.get_by_text("Stattdessen eine vorhandene Aufnahme nutzen", exact=True).click()
     page.get_by_role("button", name="Alternative aktivieren").click()
@@ -101,16 +112,18 @@ def test_01_basic_upload_creates_history(page, base_url, samples_dir, reports_di
 def test_02_prompt_file_upload_generates_baseline(page, base_url, samples_dir, reports_dir, streamlit_server):
     page.goto(f"{base_url}/")
     page.wait_for_load_state("networkidle")
+    page.get_by_role("textbox", name="Speaker ID").fill("playwright-prompt")
     open_prompt_trainer(page)
 
-    page.get_by_text('B1 – Racconto di viaggio (B1)', exact=True).click()
-    page.get_by_role('option', name='B2 – Lavoro da casa (B2)').click()
+    select_prompt(
+        page,
+        "B1 – Racconto di viaggio (B1)",
+        "B2 – Lavoro da casa (B2)",
+        "Discuti i pro e i contro di lavorare da casa rispetto all'ufficio tradizionale.",
+    )
 
     page.get_by_role("button", name="Übung starten").click()
-    open_prompt_trainer(page)
-    expect(
-        page.get_by_text(localized_pattern("Verbleibende Zeit", "Zeitlimit überschritten", exact=False))
-    ).to_be_visible(timeout=10000)
+    expect_prompt_attempt_active(page)
 
     play_button = page.get_by_role("button", name=re.compile(r"^Prompt abspielen"))
     play_button.click()
@@ -128,7 +141,7 @@ def test_02_prompt_file_upload_generates_baseline(page, base_url, samples_dir, r
 
     rows = read_history(reports_dir)
     assert rows
-    row = latest_matching_row(rows, speaker_id="playwright-user")
+    row = latest_matching_row(rows, speaker_id="playwright-prompt")
     assert row["label"].startswith("prompt:b2_remote_work")
 
 
@@ -140,8 +153,7 @@ def test_03_switching_prompts_shows_warning(page, base_url, streamlit_server):
     page.get_by_role('option', name='B1 – Racconto di viaggio (B1)').click()
 
     page.get_by_role("button", name="Übung starten").click()
-    open_prompt_trainer(page)
-    expect(page.get_by_text("Verbleibende Zeit", exact=False)).to_be_visible(timeout=10000)
+    expect_prompt_attempt_active(page)
 
     page.get_by_text('B1 – Racconto di viaggio (B1)', exact=True).click()
     page.get_by_role('option', name='B2 – Lavoro da casa (B2)').click()
@@ -153,19 +165,19 @@ def test_04_prompt_timeout_blocks_submission(page, base_url, samples_dir, stream
     page.goto(f"{base_url}/")
     page.wait_for_load_state("networkidle")
     open_prompt_trainer(page)
-    page.get_by_text('B1 – Racconto di viaggio (B1)', exact=True).click()
-    page.get_by_role('option', name='B1 – Timer breve (test) (B1)').click()
+    select_prompt(
+        page,
+        "B1 – Racconto di viaggio (B1)",
+        "B1 – Timer breve (test) (B1)",
+        "Parla di un'attività che ti piace fare nel tempo libero.",
+    )
 
     page.get_by_role("button", name="Übung starten").click()
-    open_prompt_trainer(page)
-    expect(page.get_by_text("Verbleibende Zeit", exact=False)).to_be_visible(timeout=10000)
-
-    page.wait_for_timeout(4000)
+    expect_prompt_attempt_active(page)
     page.get_by_text("Stattdessen eine fertige Antwort hochladen", exact=True).click()
+    page.wait_for_timeout(4000)
     page.locator('[aria-label="Antwortdatei hochladen (wav/mp3/m4a)"] input[type="file"]').set_input_files(
         str(samples_dir / "demo.m4a")
     )
     open_prompt_trainer(page)
-    expect(page.get_by_text("Zeitlimit überschritten – starte die Übung neu", exact=False)).to_be_visible()
-    page.get_by_text("Stattdessen eine fertige Antwort hochladen", exact=True).click()
     expect(page.get_by_text("Upload ist nach Ablauf des Zeitlimits gesperrt", exact=False)).to_be_visible()

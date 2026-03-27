@@ -17,7 +17,7 @@ from assessment_runtime.asr import describe_model_availability, ensure_model_dow
 from assessment_runtime.llm_client import health_check as llm_health_check, test_connection as test_llm_connection
 import assessment_runtime.theme_library as theme_library_store
 from scripts import progress_dashboard
-from app_shell.migrations import deserialize_connections, ensure_single_default_connection, legacy_connection_from_prefs, serialize_connections
+from app_shell.runtime_connections import deserialize_connections, ensure_single_default_connection, serialize_connections
 from app_shell.runtime_providers import (
     connection_secret_ref,
     default_base_url,
@@ -27,10 +27,9 @@ from app_shell.runtime_providers import (
     provider_kind_from_choice,
     resolved_base_url,
     runtime_base_url,
-    secret_account_name,
     service_base_url,
 )
-from app_shell.runtime_resolver import active_connection, resolve_runtime_config, sync_legacy_runtime_fields
+from app_shell.runtime_resolver import active_connection, sync_runtime_fields
 from app_shell.secret_store import SecretStoreStatus, delete_secret, get_secret, secret_store_status, set_secret
 from app_shell.state import (
     DEFAULT_MODEL,
@@ -39,7 +38,6 @@ from app_shell.state import (
     DEFAULT_PROVIDER,
     DEFAULT_UI_LOCALE,
     DEFAULT_WHISPER_MODEL,
-    LEGACY_APP_NAME,
     ProviderConnection,
 )
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -48,10 +46,6 @@ DEFAULT_LOG_DIR = PROJECT_ROOT / "reports"
 DEFAULT_WHISPER_OPTIONS = ("tiny", "base", "small", "medium", "large-v3")
 NEW_LANGUAGE_OPTION = "__new_language__"
 BOOTSTRAP_KEY = "_app_shell_bootstrapped"
-
-
-def _runtime_secret_account(provider: str, base_url: str) -> str:
-    return secret_account_name(provider, base_url)
 
 
 def _secret_env_var_names(provider: str) -> tuple[str, ...]:
@@ -71,41 +65,6 @@ def _env_api_key_for_provider(provider: str) -> str:
         return str(os.getenv("OPENROUTER_API_KEY") or "")
     if normalized == "ollama":
         return str(os.getenv("OLLAMA_API_KEY") or "")
-    return ""
-
-
-def _load_persisted_runtime_secret(provider: str, base_url: str, prefs: dict[str, Any]) -> str:
-    legacy_secret = str(
-        prefs.get("llm_api_key")
-        or prefs.get("openrouter_api_key")
-        or ""
-    ).strip()
-    if legacy_secret:
-        return legacy_secret
-    account = _runtime_secret_account(provider, base_url)
-    stored_secret = get_secret(account)
-    if stored_secret:
-        return stored_secret
-    return _env_api_key_for_provider(provider)
-
-
-def _persist_runtime_secret(provider: str, base_url: str, api_key: str) -> SecretStoreStatus:
-    account = _runtime_secret_account(provider, base_url)
-    if not str(api_key or "").strip():
-        return delete_secret(account, env_var_names=_secret_env_var_names(provider))
-    return set_secret(account, str(api_key).strip(), env_var_names=_secret_env_var_names(provider))
-
-
-def _load_connection_secret(connection: ProviderConnection, prefs: dict[str, Any]) -> str:
-    secret_ref = str(connection.secret_ref or connection_secret_ref(connection.connection_id)).strip()
-    connection.secret_ref = secret_ref
-    stored_secret = get_secret(secret_ref, env_var_names=_secret_env_var_names(connection.provider_kind))
-    if stored_secret:
-        return stored_secret
-    legacy_secret = _load_persisted_runtime_secret(connection.provider_kind, connection.base_url, prefs)
-    if legacy_secret:
-        set_secret(secret_ref, legacy_secret, env_var_names=_secret_env_var_names(connection.provider_kind))
-        return legacy_secret
     return ""
 
 
@@ -160,7 +119,10 @@ def build_provider_connection(
     connection.provider_kind = provider_kind_from_choice(provider_choice)
     connection.label = str(label or default_connection_label(provider_choice)).strip() or default_connection_label(provider_choice)
     connection.default_model = str(model or DEFAULT_MODEL).strip() or DEFAULT_MODEL
-    connection.base_url = str(base_url or default_setup_base_url(provider_choice) or default_base_url(connection.provider_kind)).strip()
+    sanitized_base_url = sanitize_setup_base_url(provider_choice, base_url)
+    connection.base_url = str(
+        sanitized_base_url or default_setup_base_url(provider_choice) or default_base_url(connection.provider_kind)
+    ).strip()
     connection.secret_ref = str(connection.secret_ref or connection_secret_ref(connection.connection_id)).strip()
     connection.is_local = provider_choice in {"ollama_local", "lmstudio_local"} or "localhost" in connection.base_url or "127.0.0.1" in connection.base_url
     connection.auth_mode = "bearer" if connection.provider_kind == "openrouter" or str(api_key or "").strip() else "none"
@@ -221,7 +183,7 @@ def save_provider_connection(
         active_connection_id=connection.connection_id,
     )
     state.prefs.setup_complete = bool(state.prefs.connections)
-    sync_legacy_runtime_fields(state.prefs)
+    sync_runtime_fields(state.prefs)
     if connection.provider_kind == "openrouter":
         state.prefs.openrouter_http_referer = str(
             connection.provider_metadata.get("http_referer") or DEFAULT_OPENROUTER_HTTP_REFERER
@@ -230,7 +192,6 @@ def save_provider_connection(
             connection.provider_metadata.get("app_title") or DEFAULT_OPENROUTER_APP_TITLE
         ).strip()
     state.prefs.llm_api_key = str(api_key or state.prefs.llm_api_key or "").strip()
-    state.prefs.openrouter_api_key = state.prefs.llm_api_key if connection.provider_kind == "openrouter" else ""
     secret_status = _persist_connection_secret(connection, state.prefs.llm_api_key)
     save_state_preferences(state, persist_draft=persist_draft)
     return secret_status
@@ -251,7 +212,7 @@ def set_default_provider_connection(
         active_connection_id=connection_id,
     )
     state.prefs.setup_complete = bool(state.prefs.connections)
-    sync_legacy_runtime_fields(state.prefs)
+    sync_runtime_fields(state.prefs)
     save_state_preferences(state, persist_draft=persist_draft)
     return True
 
@@ -293,11 +254,10 @@ def delete_provider_connection(
     state.prefs.setup_complete = bool(state.prefs.connections)
 
     if state.prefs.connections:
-        sync_legacy_runtime_fields(state.prefs)
+        sync_runtime_fields(state.prefs)
     else:
         state.prefs.active_connection_id = ""
         state.prefs.llm_api_key = ""
-        state.prefs.openrouter_api_key = ""
 
     save_state_preferences(state, persist_draft=persist_draft)
     return True
@@ -557,18 +517,6 @@ def _resolved_draft_preferences(
 def _load_runtime_connections(prefs: dict[str, Any]) -> tuple[list[ProviderConnection], str]:
     connections = deserialize_connections(prefs.get("connections"))
     active_connection_id = str(prefs.get("active_connection_id") or "").strip()
-    if not connections:
-        legacy_connection = legacy_connection_from_prefs(prefs)
-        if legacy_connection is not None:
-            legacy_secret = _load_persisted_runtime_secret(
-                legacy_connection.provider_kind,
-                legacy_connection.base_url,
-                prefs,
-            )
-            if legacy_secret:
-                _persist_connection_secret(legacy_connection, legacy_secret)
-            connections = [legacy_connection]
-            active_connection_id = legacy_connection.connection_id
     connections, active_connection_id = ensure_single_default_connection(connections, active_connection_id)
     return connections, active_connection_id
 
@@ -589,9 +537,7 @@ def hydrate_state_from_storage(state) -> Any:
     )
     state.prefs.whisper_model = str(prefs.get("whisper_model") or state.prefs.whisper_model or DEFAULT_WHISPER_MODEL)
     state.prefs.whisper_cache_dir = str(prefs.get("whisper_cache_dir") or state.prefs.whisper_cache_dir or "").strip()
-    legacy_runtime_secret = _load_persisted_runtime_secret(state.prefs.provider, state.prefs.llm_base_url, prefs)
-    state.prefs.llm_api_key = legacy_runtime_secret
-    state.prefs.openrouter_api_key = state.prefs.llm_api_key if state.prefs.provider == "openrouter" else ""
+    state.prefs.llm_api_key = _env_api_key_for_provider(state.prefs.provider)
     state.prefs.openrouter_http_referer = str(
         prefs.get("openrouter_http_referer")
         or state.prefs.openrouter_http_referer
@@ -602,17 +548,14 @@ def hydrate_state_from_storage(state) -> Any:
         or state.prefs.openrouter_app_title
         or DEFAULT_OPENROUTER_APP_TITLE
     ).strip()
-    if not loaded_app_title or loaded_app_title == LEGACY_APP_NAME:
+    if not loaded_app_title:
         loaded_app_title = DEFAULT_OPENROUTER_APP_TITLE
     state.prefs.openrouter_app_title = loaded_app_title
     state.prefs.connections, state.prefs.active_connection_id = _load_runtime_connections(prefs)
     state.prefs.setup_complete = bool(prefs.get("setup_complete")) or bool(state.prefs.connections)
     state.prefs.log_dir = str(resolve_log_dir(prefs.get("log_dir") or state.prefs.log_dir or DEFAULT_LOG_DIR))
     if state.prefs.connections:
-        sync_legacy_runtime_fields(state.prefs)
-        if legacy_runtime_secret:
-            state.prefs.llm_api_key = legacy_runtime_secret
-            state.prefs.openrouter_api_key = legacy_runtime_secret if state.prefs.provider == "openrouter" else ""
+        sync_runtime_fields(state.prefs)
 
     draft_prefs = _resolved_draft_preferences(
         prefs,
@@ -661,19 +604,11 @@ def save_state_preferences(state, *, persist_draft: bool = True) -> SecretStoreS
             list(state.prefs.connections or []),
             active_connection_id=state.prefs.active_connection_id,
         )
-        sync_legacy_runtime_fields(state.prefs)
-    if not getattr(state.prefs, "llm_api_key", "") and getattr(state.prefs, "provider", "") == "openrouter":
-        state.prefs.llm_api_key = str(getattr(state.prefs, "openrouter_api_key", "") or "").strip()
+        sync_runtime_fields(state.prefs)
     active = active_connection(state.prefs)
     current_api_key = str(getattr(state.prefs, "llm_api_key", "") or "").strip()
     if active is not None and current_api_key:
         secret_status = _persist_connection_secret(active, current_api_key)
-    elif active is None and current_api_key:
-        secret_status = _persist_runtime_secret(
-            state.prefs.provider,
-            resolved_base_url(state.prefs.provider, getattr(state.prefs, "llm_base_url", "")),
-            current_api_key,
-        )
     else:
         secret_status = secret_store_status(env_var_names=_secret_env_var_names(state.prefs.provider))
     stored = load_dashboard_prefs(state.prefs.log_dir or DEFAULT_LOG_DIR)
@@ -704,9 +639,8 @@ def save_state_preferences(state, *, persist_draft: bool = True) -> SecretStoreS
         prefs["speaker_profiles"] = profiles
     save_dashboard_prefs(state.prefs.log_dir or DEFAULT_LOG_DIR, prefs)
     if state.prefs.connections:
-        sync_legacy_runtime_fields(state.prefs)
+        sync_runtime_fields(state.prefs)
     state.prefs.setup_complete = bool(state.prefs.setup_complete or state.prefs.connections)
-    state.prefs.openrouter_api_key = state.prefs.llm_api_key if state.prefs.provider == "openrouter" else ""
     return secret_status
 
 
@@ -718,9 +652,92 @@ def whisper_model_status(model_size: str) -> dict[str, Any]:
     return availability
 
 
-def download_whisper_model(model_size: str) -> dict[str, Any]:
-    ensure_model_downloaded(model_size)
+def download_whisper_model(model_size: str, *, progress_callback=None) -> dict[str, Any]:
+    ensure_model_downloaded(model_size, progress_callback=progress_callback)
     return whisper_model_status(model_size)
+
+
+def sanitize_setup_base_url(provider_choice: str = "", base_url: str = "") -> str:
+    candidate = str(base_url or "").strip().rstrip("/")
+    normalized_choice = str(provider_choice or "").strip().lower()
+    if not candidate:
+        return ""
+    if normalized_choice == "ollama_local":
+        for suffix in ("/api/v1", "/v1", "/api"):
+            if candidate.lower().endswith(suffix):
+                candidate = candidate[: -len(suffix)].rstrip("/")
+                break
+    elif normalized_choice == "lmstudio_local" and candidate.lower().endswith("/v1"):
+        candidate = f"{candidate[:-len('/v1')].rstrip('/')}/v1"
+    return candidate.rstrip("/")
+
+
+def _runtime_setup_test_timeout(provider_choice: str = "", base_url: str = "", timeout_sec: float = 10.0) -> float:
+    selected_choice = str(provider_choice or "").strip().lower()
+    candidate = str(base_url or "").strip().lower()
+    is_local_setup_provider = selected_choice in {"ollama_local", "lmstudio_local"}
+    is_localhost_endpoint = "localhost" in candidate or "127.0.0.1" in candidate
+    if is_local_setup_provider or is_localhost_endpoint:
+        return max(float(timeout_sec), 30.0)
+    return float(timeout_sec)
+
+
+def _health_payload_models(payload: dict[str, Any] | None) -> list[str]:
+    if not isinstance(payload, dict):
+        return []
+    discovered: list[str] = []
+    for collection_key in ("data", "models"):
+        items = payload.get(collection_key)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            for value_key in ("id", "name", "model"):
+                candidate = str(item.get(value_key) or "").strip()
+                if candidate:
+                    if candidate not in discovered:
+                        discovered.append(candidate)
+                    break
+    return discovered
+
+
+def _first_model_from_health_payload(payload: dict[str, Any] | None) -> str:
+    models = _health_payload_models(payload)
+    return models[0] if models else ""
+
+
+def discover_runtime_models(
+    *,
+    provider: str,
+    provider_choice: str = "",
+    base_url: str = "",
+    api_key: str = "",
+    openrouter_http_referer: str = "",
+    openrouter_app_title: str = "",
+    timeout_sec: float = 5.0,
+) -> dict[str, Any]:
+    normalized_provider = provider_kind_from_choice(provider_choice or provider)
+    sanitized_base_url = sanitize_setup_base_url(provider_choice, base_url)
+    if provider_choice and not sanitized_base_url:
+        sanitized_base_url = default_setup_base_url(provider_choice)
+    health_result = llm_health_check(
+        provider=normalized_provider,
+        base_url=sanitized_base_url or runtime_base_url(normalized_provider, sanitized_base_url),
+        api_key=api_key,
+        timeout_sec=timeout_sec,
+        openrouter_http_referer=openrouter_http_referer,
+        openrouter_app_title=openrouter_app_title,
+    )
+    health_payload = health_result.get("payload") or {}
+    return {
+        "provider": normalized_provider,
+        "base_url": runtime_base_url(normalized_provider, sanitized_base_url),
+        "service_base_url": service_base_url(normalized_provider, sanitized_base_url),
+        "health_endpoint": str(health_result.get("endpoint") or ""),
+        "health_payload": health_payload,
+        "models": _health_payload_models(health_payload),
+    }
 
 
 def test_runtime_connection(
@@ -735,20 +752,26 @@ def test_runtime_connection(
     timeout_sec: float = 10.0,
 ) -> dict[str, Any]:
     normalized_provider = provider_kind_from_choice(provider_choice or provider)
-    if provider_choice and not base_url:
-        base_url = default_setup_base_url(provider_choice)
-    resolved_url = runtime_base_url(normalized_provider, base_url)
+    sanitized_base_url = sanitize_setup_base_url(provider_choice, base_url)
+    if provider_choice and not sanitized_base_url:
+        sanitized_base_url = default_setup_base_url(provider_choice)
+    timeout_sec = _runtime_setup_test_timeout(provider_choice, sanitized_base_url or base_url, timeout_sec)
+    resolved_url = runtime_base_url(normalized_provider, sanitized_base_url)
     health_result = llm_health_check(
         provider=normalized_provider,
-        base_url=base_url or resolved_url,
+        base_url=sanitized_base_url or resolved_url,
         api_key=api_key,
         timeout_sec=timeout_sec,
         openrouter_http_referer=openrouter_http_referer,
         openrouter_app_title=openrouter_app_title,
     )
+    health_payload = health_result.get("payload") or {}
+    resolved_model = str(model or "").strip() or _first_model_from_health_payload(health_payload)
+    if not resolved_model:
+        raise ValueError("Enter a model name or use a provider that exposes models in the health check.")
     test_payload = test_llm_connection(
         provider=normalized_provider,
-        model=model,
+        model=resolved_model,
         base_url=resolved_url,
         api_key=api_key,
         timeout_sec=timeout_sec,
@@ -758,12 +781,17 @@ def test_runtime_connection(
     return {
         "provider": normalized_provider,
         "base_url": resolved_url,
-        "service_base_url": service_base_url(normalized_provider, base_url),
+        "service_base_url": service_base_url(normalized_provider, sanitized_base_url),
         "health_endpoint": str(health_result.get("endpoint") or ""),
-        "health_payload": health_result.get("payload") or {},
-        "models_payload": health_result.get("payload") or {},
+        "health_payload": health_payload,
+        "models_payload": health_payload,
         "test_payload": test_payload,
     }
+
+
+# Keep the public helper name for call sites, but prevent pytest from
+# mis-collecting it as a module-level test function.
+test_runtime_connection.__test__ = False
 
 
 def parse_cli_json(stdout: str) -> dict | None:
@@ -833,11 +861,9 @@ def create_assessment_request(
     language_profile_key: str | None = None,
     llm_base_url: str = "",
     llm_api_key: str = "",
-    openrouter_api_key: str = "",
     openrouter_http_referer: str = "",
     openrouter_app_title: str = "",
 ) -> dict[str, Any]:
-    resolved_api_key = llm_api_key or openrouter_api_key
     return {
         "audio_path": str(audio_path),
         "log_dir": str(resolve_log_dir(log_dir)),
@@ -848,8 +874,7 @@ def create_assessment_request(
         "expected_language": expected_language,
         "language_profile_key": language_profile_key,
         "feedback_language": feedback_language,
-        "llm_api_key": resolved_api_key,
-        "openrouter_api_key": resolved_api_key if normalize_provider(provider) == "openrouter" else "",
+        "llm_api_key": llm_api_key,
         "openrouter_http_referer": openrouter_http_referer,
         "openrouter_app_title": openrouter_app_title,
         "speaker_id": speaker_id,
@@ -865,7 +890,7 @@ def create_assessment_request(
 def execute_assessment_request(request: dict[str, Any]) -> tuple[dict | None, str | None]:
     env = os.environ.copy()
     env.setdefault("PYTHONPATH", str(PROJECT_ROOT))
-    request_api_key = str(request.get("llm_api_key") or request.get("openrouter_api_key") or "")
+    request_api_key = str(request.get("llm_api_key") or "")
     if request_api_key:
         env["LLM_API_KEY"] = request_api_key
         if request.get("provider") == "openrouter":

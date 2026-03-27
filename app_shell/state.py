@@ -10,7 +10,6 @@ from app_shell.runtime_providers import DEFAULT_PROVIDER, SUPPORTED_PROVIDERS
 
 APP_SHELL_STATE_KEY = "app_shell_state"
 APP_NAME = "Speaking Studio"
-LEGACY_APP_NAME = "Assess Speaking"
 DEFAULT_UI_LOCALE = "en"
 DEFAULT_MODEL = "google/gemini-3.1-pro-preview"
 DEFAULT_WHISPER_MODEL = "small"
@@ -59,7 +58,6 @@ class AppPreferences:
     model: str = DEFAULT_MODEL
     llm_base_url: str = ""
     llm_api_key: str = ""
-    openrouter_api_key: str = ""
     whisper_model: str = DEFAULT_WHISPER_MODEL
     whisper_cache_dir: str = ""
     openrouter_http_referer: str = DEFAULT_OPENROUTER_HTTP_REFERER
