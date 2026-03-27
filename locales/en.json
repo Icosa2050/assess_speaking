@@ -170,6 +170,7 @@
     "status_idle": "No recording is attached yet.",
     "status_missing_file": "A recording was selected earlier, but the audio file is no longer available.",
     "status_ready": "A recording is attached and ready for assessment.",
+    "remove_recording": "Remove recording",
     "ingest_error": "The audio could not be stored: {detail}",
     "preview_error": "The recording preview could not be opened: {detail}",
     "assessment_title": "Assessment",

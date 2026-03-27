@@ -63,6 +63,8 @@ def app_shell_clean_server(project_root: Path):
     env = os.environ.copy()
     env.setdefault("PYTHONPATH", str(project_root))
     env.setdefault("ASSESS_SPEAKING_DRY_RUN", "1")
+    stdout_log = tempfile.TemporaryFile(mode="w+")
+    stderr_log = tempfile.TemporaryFile(mode="w+")
     proc = subprocess.Popen(
         [
             sys.executable,
@@ -76,19 +78,35 @@ def app_shell_clean_server(project_root: Path):
         ],
         cwd=runtime_root,
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=stdout_log,
+        stderr=stderr_log,
         text=True,
     )
     try:
         _wait_for_port("127.0.0.1", port, timeout=60.0)
+        if proc.poll() is not None:
+            stdout_log.seek(0)
+            stderr_log.seek(0)
+            raise RuntimeError(
+                "Streamlit exited before the runtime setup E2E server became ready.\n"
+                f"STDOUT:\n{stdout_log.read()}\nSTDERR:\n{stderr_log.read()}"
+            )
         yield f"http://127.0.0.1:{port}"
+    except Exception as exc:
+        stdout_log.seek(0)
+        stderr_log.seek(0)
+        raise RuntimeError(
+            "Runtime setup E2E server failed to start.\n"
+            f"STDOUT:\n{stdout_log.read()}\nSTDERR:\n{stderr_log.read()}"
+        ) from exc
     finally:
         proc.terminate()
         try:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             proc.kill()
+        stdout_log.close()
+        stderr_log.close()
 
 
 def _open_runtime_setup(page: Page, base_url: str) -> None:

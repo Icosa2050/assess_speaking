@@ -35,6 +35,15 @@ def _task_family_label(task_family: str) -> str:
     return label
 
 
+def _clear_attached_recording(log_dir: str) -> None:
+    state = get_app_state()
+    if state.recording.audio_path:
+        cleanup_temp_audio(state.recording.audio_path, allowed_root=log_dir)
+    clear_recording()
+    for key in ("speak_audio_input", "speak_upload"):
+        st.session_state.pop(key, None)
+
+
 state = configure_page("speak", "nav.speak", icon="🎤")
 
 if not has_setup(state):
@@ -114,8 +123,7 @@ with record_col:
 
         state = get_app_state()
         if state.recording.audio_path and state.recording.input_method and state.recording.input_method != input_method:
-            cleanup_temp_audio(state.recording.audio_path, allowed_root=state.prefs.log_dir)
-            clear_recording()
+            _clear_attached_recording(state.prefs.log_dir)
             state = get_app_state()
         if new_path and new_digest != state.recording.input_digest:
             if state.recording.audio_path and state.recording.audio_path != str(new_path):
@@ -138,6 +146,10 @@ with record_col:
                     st.error(t("speak.preview_error", detail=str(exc)))
         else:
             st.info(t("speak.status_idle"))
+        if has_recording(state):
+            if st.button(t("speak.remove_recording"), key="speak_remove_recording", width="content"):
+                _clear_attached_recording(state.prefs.log_dir)
+                st.rerun()
 
 with action_col:
     with st.container(border=True):

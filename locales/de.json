@@ -170,6 +170,7 @@
     "status_idle": "Noch keine Aufnahme vorhanden.",
     "status_missing_file": "Eine fruehere Aufnahme wurde ausgewaehlt, aber die Audiodatei ist nicht mehr verfuegbar.",
     "status_ready": "Eine Aufnahme ist vorhanden und bereit fuer die Auswertung.",
+    "remove_recording": "Aufnahme entfernen",
     "ingest_error": "Das Audio konnte nicht gespeichert werden: {detail}",
     "preview_error": "Die Vorschau der Aufnahme konnte nicht geoeffnet werden: {detail}",
     "assessment_title": "Auswertung",

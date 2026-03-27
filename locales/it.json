@@ -170,6 +170,7 @@
     "status_idle": "Nessuna registrazione allegata.",
     "status_missing_file": "Era stata selezionata una registrazione, ma il file audio non e piu disponibile.",
     "status_ready": "Una registrazione e pronta per la valutazione.",
+    "remove_recording": "Rimuovi registrazione",
     "ingest_error": "Impossibile salvare l'audio: {detail}",
     "preview_error": "Impossibile aprire l'anteprima della registrazione: {detail}",
     "assessment_title": "Valutazione",

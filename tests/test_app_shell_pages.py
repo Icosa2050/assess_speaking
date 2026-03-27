@@ -668,6 +668,48 @@ class AppShellPageTests(unittest.TestCase):
             self.assertEqual(len(submit_buttons), 1)
             self.assertTrue(submit_buttons[0].disabled)
 
+    def test_speak_remove_recording_button_clears_attached_audio(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            audio_path = Path(tmpdir) / "uploads" / "sample.wav"
+            audio_path.parent.mkdir(parents=True, exist_ok=True)
+            audio_path.write_bytes(b"RIFF....WAVE")
+
+            at = _app_test("pages/02_Speak.py")
+            at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+                prefs=_active_runtime_prefs(ui_locale="en", provider="ollama", log_dir=tmpdir),
+                draft=DraftSession(
+                    session_id="draft-123",
+                    speaker_id="bern",
+                    learning_language="it",
+                    learning_language_label="Italiano",
+                    cefr_level="B1",
+                    theme_id="viaggio",
+                    theme_label="Il mio ultimo viaggio all'estero",
+                    task_family="travel_narrative",
+                    duration_sec=90,
+                    prompt_id="viaggio-b1",
+                    prompt_text="Parla del tuo ultimo viaggio.",
+                ),
+                recording=RecordingState(
+                    status=RecordingStatus.READY,
+                    audio_path=str(audio_path),
+                    input_method="upload",
+                    input_digest="digest-123",
+                ),
+            )
+            at.session_state["speak_input_method"] = "upload"
+
+            at.run()
+            at.button(key="speak_remove_recording").click()
+            at.run()
+
+            self.assertEqual(len(at.exception), 0)
+            state = at.session_state[APP_SHELL_STATE_KEY]
+            self.assertEqual(state.recording.audio_path, "")
+            self.assertEqual(state.recording.input_method, "")
+            self.assertFalse(audio_path.exists())
+            self.assertEqual([item.value for item in at.info], ["No recording is attached yet."])
+
     def test_speak_warns_when_openrouter_is_selected_without_any_key(self):
         at = _app_test("pages/02_Speak.py")
         at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
