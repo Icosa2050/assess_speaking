@@ -1,11 +1,7 @@
-#!/usr/bin/env bash
+#!/usr/bin/env zsh
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="${0:A:h}"
 PYTHON_RUNNER="${SCRIPT_DIR}/python.sh"
 
-if (($# > 0)); then
-  exec "${PYTHON_RUNNER}" -m unittest "$@"
-fi
-
-exec "${PYTHON_RUNNER}" -m unittest discover -s tests
+exec "${PYTHON_RUNNER}" -m pytest "$@"

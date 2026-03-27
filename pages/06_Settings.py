@@ -2,15 +2,22 @@ from __future__ import annotations
 
 import streamlit as st
 
+import app_shell.services as shell_services
 from app_shell.i18n import t
-from app_shell.page_helpers import configure_page, go_to, render_page_intro, render_shell_summary
+from app_shell.page_helpers import (
+    configure_page,
+    describe_whisper_download_event,
+    go_to,
+    render_page_intro,
+    render_shell_summary,
+)
+from app_shell.runtime_providers import default_setup_base_url
 from app_shell.runtime_resolver import active_connection, resolve_connection_runtime
 from app_shell.secret_store import secret_store_status
 from app_shell.services import (
     DEFAULT_WHISPER_OPTIONS,
     build_provider_connection,
     delete_provider_connection,
-    download_whisper_model,
     needs_runtime_setup,
     provider_choice_for_connection,
     save_provider_connection,
@@ -36,6 +43,16 @@ PROVIDER_CHOICES = {
     "openai_compatible": "Generic OpenAI-compatible",
 }
 
+PROVIDER_SUGGESTED_MODELS = {
+    "ollama_local": "llama3",
+    "ollama": "llama3",
+    "ollama_cloud": "llama3",
+    "lmstudio_local": "qwen2.5",
+    "lmstudio": "qwen2.5",
+    "openrouter": DEFAULT_MODEL,
+    "openai_compatible": "",
+}
+
 
 def _safe_index(options: list[str], value: str, default: int = 0) -> int:
     if value in options:
@@ -47,24 +64,39 @@ def _connection_option_label(connection) -> str:
     return f"{connection.label} · {connection.default_model}"
 
 
-def _populate_connection_form(state, connection) -> None:
-    provider_choice = provider_choice_for_connection(connection, state.prefs.provider)
+def _provider_choice_hint(connection, fallback_provider: str = "") -> str:
+    return provider_choice_for_connection(connection, fallback_provider)
+
+
+def _default_connection_form_values(provider_choice: str) -> dict[str, str]:
+    selected_choice = str(provider_choice or "").strip()
+    return {
+        "label": PROVIDER_CHOICES.get(selected_choice, "Runtime connection"),
+        "model": str(PROVIDER_SUGGESTED_MODELS.get(selected_choice, "") or "").strip(),
+        "base_url": shell_services.sanitize_setup_base_url(selected_choice, default_setup_base_url(selected_choice)),
+        "api_key": "",
+        "referer": DEFAULT_OPENROUTER_HTTP_REFERER,
+        "app_title": DEFAULT_OPENROUTER_APP_TITLE,
+    }
+
+
+def _populate_connection_form(connection, fallback_provider: str = "") -> None:
+    provider_choice = _provider_choice_hint(connection, fallback_provider)
     runtime = resolve_connection_runtime(connection) if connection is not None else None
     metadata = dict(connection.provider_metadata or {}) if connection is not None else {}
+    defaults = _default_connection_form_values(provider_choice)
     st.session_state["settings_provider"] = provider_choice
     st.session_state["settings_connection_label"] = (
-        connection.label if connection is not None else PROVIDER_CHOICES.get(provider_choice, "Runtime connection")
+        connection.label if connection is not None else defaults["label"]
     )
-    st.session_state["settings_model"] = connection.default_model if connection is not None else (state.prefs.model or DEFAULT_MODEL)
-    st.session_state["settings_base_url"] = connection.base_url if connection is not None else (state.prefs.llm_base_url or "")
-    st.session_state["settings_openrouter_api_key"] = (
-        runtime.api_key if runtime is not None else (state.prefs.llm_api_key or state.prefs.openrouter_api_key or "")
-    )
+    st.session_state["settings_model"] = connection.default_model if connection is not None else defaults["model"]
+    st.session_state["settings_base_url"] = connection.base_url if connection is not None else defaults["base_url"]
+    st.session_state["settings_api_key"] = runtime.api_key if runtime is not None else defaults["api_key"]
     st.session_state["settings_openrouter_http_referer"] = str(
-        metadata.get("http_referer") or state.prefs.openrouter_http_referer or DEFAULT_OPENROUTER_HTTP_REFERER
+        metadata.get("http_referer") or defaults["referer"]
     )
     st.session_state["settings_openrouter_app_title"] = str(
-        metadata.get("app_title") or state.prefs.openrouter_app_title or DEFAULT_OPENROUTER_APP_TITLE
+        metadata.get("app_title") or defaults["app_title"]
     )
 
 
@@ -126,13 +158,13 @@ selected_connection_id = st.selectbox(
 )
 editing_connection = next((item for item in state.prefs.connections if item.connection_id == selected_connection_id), None)
 if st.session_state.get("settings_form_connection_id") != selected_connection_id:
-    _populate_connection_form(state, editing_connection)
+    _populate_connection_form(editing_connection, state.prefs.provider)
     st.session_state["settings_form_connection_id"] = selected_connection_id
 legacy_provider_aliases = {"ollama": "ollama_local", "lmstudio": "lmstudio_local"}
 if "settings_provider" in st.session_state and st.session_state["settings_provider"] not in PROVIDER_CHOICES:
     st.session_state["settings_provider"] = legacy_provider_aliases.get(
         str(st.session_state["settings_provider"]),
-        provider_choice_for_connection(editing_connection, state.prefs.provider),
+        _provider_choice_hint(editing_connection, state.prefs.provider),
     )
 
 with st.container(border=True):
@@ -147,7 +179,7 @@ with st.container(border=True):
         edit_col, default_col, delete_col = st.columns(3)
         if edit_col.button("Edit", key=f"settings_edit_{connection.connection_id}", width="stretch"):
             st.session_state["settings_pending_connection_id"] = connection.connection_id
-            _populate_connection_form(state, connection)
+            _populate_connection_form(connection, state.prefs.provider)
             st.session_state["settings_form_connection_id"] = connection.connection_id
             st.rerun()
         if default_col.button(
@@ -159,7 +191,7 @@ with st.container(border=True):
             if set_default_provider_connection(state, connection.connection_id, persist_draft=False):
                 updated_connection = next((item for item in state.prefs.connections if item.connection_id == connection.connection_id), None)
                 st.session_state["settings_pending_connection_id"] = connection.connection_id
-                _populate_connection_form(state, updated_connection)
+                _populate_connection_form(updated_connection, state.prefs.provider)
                 st.session_state["settings_form_connection_id"] = connection.connection_id
                 st.session_state["settings_success"] = f"Default connection changed to {connection.label}."
             st.rerun()
@@ -169,7 +201,7 @@ with st.container(border=True):
                 next_connection = active_connection(state.prefs)
                 next_connection_id = next_connection.connection_id if next_connection is not None else "__new__"
                 st.session_state["settings_pending_connection_id"] = next_connection_id
-                _populate_connection_form(state, next_connection)
+                _populate_connection_form(next_connection, state.prefs.provider)
                 st.session_state["settings_form_connection_id"] = next_connection_id
                 st.session_state["settings_success"] = f"Deleted connection {deleted_label}."
             st.rerun()
@@ -185,21 +217,23 @@ ui_locale = st.selectbox(
 provider_choice = st.selectbox(
     t("settings.provider"),
     options=list(PROVIDER_CHOICES),
-    index=_safe_index(list(PROVIDER_CHOICES), provider_choice_for_connection(editing_connection, state.prefs.provider)),
+    index=_safe_index(list(PROVIDER_CHOICES), _provider_choice_hint(editing_connection, state.prefs.provider)),
     format_func=lambda value: PROVIDER_CHOICES.get(value, value),
     key="settings_provider",
 )
+
+provider_defaults = _default_connection_form_values(provider_choice)
 
 label_default = editing_connection.label if editing_connection else PROVIDER_CHOICES[provider_choice]
 label = st.text_input("Connection label", value=label_default, key="settings_connection_label")
 
 model = st.text_input(
     t("settings.model"),
-    value=(editing_connection.default_model if editing_connection else (state.prefs.model or DEFAULT_MODEL)),
+    value=(editing_connection.default_model if editing_connection else provider_defaults["model"]),
     key="settings_model",
 )
 
-base_url_default = editing_connection.base_url if editing_connection else (state.prefs.llm_base_url or "")
+base_url_default = editing_connection.base_url if editing_connection else provider_defaults["base_url"]
 base_url = st.text_input(
     t("settings.base_url"),
     value=base_url_default,
@@ -208,17 +242,16 @@ base_url = st.text_input(
 
 api_key = st.text_input(
     t("settings.api_key"),
-    value=state.prefs.llm_api_key or state.prefs.openrouter_api_key or "",
+    value=provider_defaults["api_key"],
     type="password",
-    key="settings_openrouter_api_key",
+    key="settings_api_key",
 )
 
 openrouter_http_referer = st.text_input(
     t("settings.openrouter_http_referer"),
     value=str(
         (editing_connection.provider_metadata if editing_connection else {}).get("http_referer")
-        or state.prefs.openrouter_http_referer
-        or DEFAULT_OPENROUTER_HTTP_REFERER
+        or provider_defaults["referer"]
     ),
     disabled=provider_choice != "openrouter",
     key="settings_openrouter_http_referer",
@@ -228,8 +261,7 @@ openrouter_app_title = st.text_input(
     t("settings.openrouter_app_title"),
     value=str(
         (editing_connection.provider_metadata if editing_connection else {}).get("app_title")
-        or state.prefs.openrouter_app_title
-        or DEFAULT_OPENROUTER_APP_TITLE
+        or provider_defaults["app_title"]
     ),
     disabled=provider_choice != "openrouter",
     key="settings_openrouter_app_title",
@@ -258,14 +290,24 @@ else:
 if availability["recommendation_reason"]:
     st.caption(availability["recommendation_reason"])
 
+download_status = st.empty()
+download_detail = st.empty()
+download_progress = st.empty()
 download_model = st.button(t("settings.whisper_download"), key="settings_whisper_download", width="stretch")
 test_connection = st.button(t("settings.test_connection"), key="settings_test_connection", width="stretch")
 saved = st.button(t("settings.save"), key="settings_save", width="stretch")
 
 if download_model:
+    progress_bar = download_progress.progress(0)
+
+    def _update_download_progress(event: dict[str, object]) -> None:
+        status = describe_whisper_download_event(event)
+        download_status.info(str(status["headline"]))
+        download_detail.caption(str(status["detail"]))
+        progress_bar.progress(int(status["progress_percent"]))
+
     try:
-        with st.spinner(t("settings.whisper_downloading")):
-            result = download_whisper_model(whisper_model)
+        result = shell_services.download_whisper_model(whisper_model, progress_callback=_update_download_progress)
         st.session_state["settings_whisper_message"] = t("settings.whisper_downloaded", path=result["cached_path"])
     except Exception as exc:
         st.session_state["settings_whisper_error"] = t("settings.whisper_download_failed", detail=str(exc))

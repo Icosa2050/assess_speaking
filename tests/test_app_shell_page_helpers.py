@@ -6,12 +6,33 @@ from pathlib import Path
 from unittest.mock import patch
 
 import app_shell.page_helpers as page_helpers
-from app_shell.page_helpers import resolve_page_title_locale
+from app_shell.page_helpers import describe_whisper_download_event, format_byte_count, resolve_page_title_locale
 from app_shell.state import AppShellState
 from streamlit.errors import StreamlitAPIException
 
 
 class PageHelpersTests(unittest.TestCase):
+    def test_format_byte_count_uses_human_readable_units(self):
+        self.assertEqual(format_byte_count(512), "512 B")
+        self.assertEqual(format_byte_count(1536), "1.5 KB")
+        self.assertEqual(format_byte_count(5 * 1024 * 1024), "5.0 MB")
+
+    def test_describe_whisper_download_event_reports_progress(self):
+        status = describe_whisper_download_event(
+            {
+                "stage": "downloading",
+                "current_file": "/tmp/cache/model.bin",
+                "downloaded_bytes": 512,
+                "total_bytes": 1024,
+                "completed_files": 1,
+                "total_files": 4,
+            }
+        )
+
+        self.assertEqual(status["headline"], "Downloading model.bin...")
+        self.assertEqual(status["detail"], "512 B / 1.0 KB · 1/4 files ready")
+        self.assertEqual(status["progress_percent"], 50)
+
     def test_resolve_page_title_locale_reads_local_prefs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             log_dir = Path(tmpdir)

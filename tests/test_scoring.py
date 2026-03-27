@@ -49,10 +49,15 @@ class ScoringTests(unittest.TestCase):
         )
         self.assertFalse(checks["language_pass"])
         self.assertTrue(checks["duration_pass"])
+        self.assertIsNone(checks["topic_pass"])
 
     def test_final_scores_caps_off_topic(self):
         scores = final_scores(deterministic=4.5, llm=4.5, topic_pass=False, topic_fail_cap_score=2.5)
         self.assertEqual(scores["final"], 2.5)
+
+    def test_final_scores_do_not_cap_when_topic_is_unassessed(self):
+        scores = final_scores(deterministic=4.5, llm=None, topic_pass=None, topic_fail_cap_score=2.5)
+        self.assertEqual(scores["final"], 4.5)
 
     def test_dimension_scoring_produces_provisional_english_cefr_estimate(self):
         profile = require_language_profile("en")

@@ -1,11 +1,15 @@
 import unittest
 from unittest import mock
 
-from app_shell.runtime_resolver import resolve_runtime_config, sync_legacy_runtime_fields
+from app_shell.runtime_resolver import resolve_runtime_config, sync_runtime_fields
 from app_shell.state import AppPreferences, ProviderConnection
 
 
 class RuntimeResolverTests(unittest.TestCase):
+    def test_resolve_runtime_config_requires_active_connection(self):
+        with self.assertRaisesRegex(ValueError, "No active runtime connection is configured."):
+            resolve_runtime_config(AppPreferences())
+
     @mock.patch("app_shell.runtime_resolver.get_secret", return_value="local-token")
     def test_resolve_runtime_config_adds_v1_for_local_ollama_connection(self, _mock_get_secret):
         prefs = AppPreferences(
@@ -30,7 +34,7 @@ class RuntimeResolverTests(unittest.TestCase):
         self.assertEqual(runtime.model, "llama3")
 
     @mock.patch("app_shell.runtime_resolver.get_secret", return_value="saved-key")
-    def test_sync_legacy_runtime_fields_uses_openrouter_connection_metadata(self, _mock_get_secret):
+    def test_sync_runtime_fields_uses_openrouter_connection_metadata(self, _mock_get_secret):
         prefs = AppPreferences(
             connections=[
                 ProviderConnection(
@@ -49,7 +53,7 @@ class RuntimeResolverTests(unittest.TestCase):
             ],
             active_connection_id="conn-2",
         )
-        sync_legacy_runtime_fields(prefs)
+        sync_runtime_fields(prefs)
         self.assertEqual(prefs.provider, "openrouter")
         self.assertEqual(prefs.llm_api_key, "saved-key")
         self.assertEqual(prefs.openrouter_http_referer, "http://localhost:8503")

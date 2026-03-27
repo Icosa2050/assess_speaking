@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from assessment_runtime import asr
@@ -115,13 +116,13 @@ class AsrTests(unittest.TestCase):
             recommendation = asr.recommend_model_choice()
         self.assertEqual(recommendation["model"], "medium")
 
-    def test_describe_model_availability_treats_dry_run_as_cached(self):
+    def test_describe_model_availability_does_not_force_cache_in_dry_run(self):
         with (
             mock.patch.dict(asr.os.environ, {"ASSESS_SPEAKING_DRY_RUN": "1"}, clear=False),
             mock.patch.object(asr, "_resolve_cached_model_path", return_value=None),
         ):
             availability = asr.describe_model_availability("tiny")
-        self.assertTrue(availability["cached"])
+        self.assertFalse(availability["cached"])
         self.assertIsNone(availability["cached_path"])
 
     def test_ensure_model_downloaded_returns_cached_model_without_init(self):
@@ -147,6 +148,53 @@ class AsrTests(unittest.TestCase):
             availability = asr.ensure_model_downloaded("tiny")
         self.assertEqual(availability["cached_path"], "/tmp/model")
         mock_init.assert_called_once()
+
+    def test_ensure_model_downloaded_reports_progress_for_hub_downloads(self):
+        availability_side_effect = [
+            {"cached": False, "cached_path": None},
+            {"cached": True, "cached_path": "/tmp/model"},
+        ]
+        planned_files = [
+            SimpleNamespace(
+                filename="config.json",
+                file_size=200,
+                commit_hash="abc123",
+                local_path="/tmp/model/config.json",
+                will_download=False,
+            ),
+            SimpleNamespace(
+                filename="model.bin",
+                file_size=800,
+                commit_hash="abc123",
+                local_path="/tmp/model/model.bin",
+                will_download=True,
+            ),
+        ]
+        events: list[dict] = []
+
+        def fake_hf_hub_download(_repo_id, filename, revision, tqdm_class=None):
+            self.assertEqual(revision, "abc123")
+            if tqdm_class is not None:
+                progress = tqdm_class(total=800, initial=0)
+                progress.update(800)
+            return f"/tmp/model/{filename}"
+
+        with (
+            mock.patch.object(asr, "WhisperModel", object()),
+            mock.patch.object(asr, "describe_model_availability", side_effect=availability_side_effect),
+            mock.patch.object(asr, "_plan_snapshot_download", return_value=planned_files),
+            mock.patch.object(asr, "hf_hub_download", side_effect=fake_hf_hub_download),
+            mock.patch.object(asr, "_initialize_whisper_model", return_value=(object(), "default", False)),
+        ):
+            availability = asr.ensure_model_downloaded("tiny", progress_callback=events.append)
+
+        self.assertEqual(availability["cached_path"], "/tmp/model")
+        self.assertEqual(events[0]["stage"], "checking_cache")
+        self.assertIn("starting_download", [event["stage"] for event in events])
+        self.assertIn("finalizing", [event["stage"] for event in events])
+        self.assertEqual(events[-1]["stage"], "ready")
+        downloading_events = [event for event in events if event["stage"] == "downloading"]
+        self.assertTrue(any(event.get("current_file") == "model.bin" for event in downloading_events))
 
 
 if __name__ == "__main__":

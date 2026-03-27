@@ -691,6 +691,8 @@ def _dry_run_assessment(
             target_duration_sec=target_duration_sec,
             ui_locale=feedback_language,
             learning_language=expected_language,
+            transcript=transcript,
+            detected_language=expected_language,
         ),
         "timings_ms": {"audio_features": 0.0, "asr": 0.0, "llm": 0.0},
     }
@@ -936,6 +938,8 @@ def run_assessment(
                 target_duration_sec=target_duration_sec,
                 ui_locale=chosen_feedback_language,
                 learning_language=chosen_language,
+                transcript=transcript,
+                detected_language=detected_language,
             )
 
         report = {

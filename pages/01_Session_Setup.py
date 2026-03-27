@@ -4,11 +4,14 @@ import streamlit as st
 
 from app_shell.i18n import t
 from app_shell.page_helpers import configure_page, go_to, render_page_intro, render_shell_summary
+from app_shell.runtime_resolver import active_connection
 from app_shell.services import (
+    add_theme,
     build_practice_brief,
     language_codes,
     language_label,
     load_theme_library,
+    save_theme_library,
     save_state_preferences,
     theme_entry_id,
     themes_for_language_and_level,
@@ -37,10 +40,15 @@ if not available_languages:
 default_language = state.draft.learning_language if state.draft.learning_language in available_languages else available_languages[0]
 available_themes = themes_for_language_and_level(library, default_language, state.draft.cefr_level)
 theme_labels = [item["title"] for item in available_themes]
+custom_theme_option = t("setup.custom_theme")
 current_theme_option = (
     st.session_state.get("setup_theme_select")
-    or (state.draft.theme_label if state.draft.theme_label in theme_labels else "")
-    or (theme_labels[0] if theme_labels else t("setup.custom_theme"))
+    or (
+        state.draft.theme_label
+        if state.draft.theme_label in theme_labels
+        else (custom_theme_option if state.draft.theme_label else "")
+    )
+    or (theme_labels[0] if theme_labels else custom_theme_option)
 )
 
 form_col, preview_col = st.columns([1.15, 0.95], gap="large")
@@ -68,24 +76,34 @@ with form_col:
         )
         available_themes = themes_for_language_and_level(library, selected_language, selected_cefr)
         theme_labels = [item["title"] for item in available_themes]
-        theme_select_options = theme_labels + [t("setup.custom_theme")]
+        theme_select_options = theme_labels + [custom_theme_option]
         if "setup_theme_select" in st.session_state and st.session_state["setup_theme_select"] not in theme_select_options:
             del st.session_state["setup_theme_select"]
         active_theme_option = st.session_state.get("setup_theme_select", current_theme_option)
         if active_theme_option not in theme_select_options:
-            active_theme_option = theme_labels[0] if theme_labels else t("setup.custom_theme")
+            active_theme_option = theme_labels[0] if theme_labels else custom_theme_option
         selected_theme_option = st.selectbox(
             t("setup.theme"),
             options=theme_select_options,
             index=_safe_index(theme_select_options, active_theme_option),
             key="setup_theme_select",
         )
+        initial_custom_theme_value = (
+            state.draft.theme_label
+            if state.draft.theme_label and state.draft.theme_label not in theme_labels
+            else ""
+        )
         custom_theme = st.text_input(
             t("setup.custom_theme_label"),
-            value=state.draft.theme_label if selected_theme_option == t("setup.custom_theme") else "",
+            value=initial_custom_theme_value,
             key="setup_custom_theme",
-            disabled=selected_theme_option != t("setup.custom_theme"),
+            disabled=selected_theme_option != custom_theme_option,
         ).strip()
+        save_custom_theme_for_reuse = st.checkbox(
+            t("setup.custom_theme_save"),
+            key="setup_save_custom_theme",
+            disabled=selected_theme_option != custom_theme_option or not custom_theme,
+        )
         selected_duration = st.select_slider(
             t("setup.duration"),
             options=list(DURATION_OPTIONS),
@@ -98,7 +116,7 @@ selected_theme_entry = next(
     (item for item in available_themes if item["title"] == selected_theme_option),
     None,
 )
-resolved_theme_label = custom_theme if selected_theme_option == t("setup.custom_theme") else (selected_theme_entry or {}).get("title", "")
+resolved_theme_label = custom_theme if selected_theme_option == custom_theme_option else (selected_theme_entry or {}).get("title", "")
 resolved_task_family = (
     (selected_theme_entry or {}).get("task_family")
     or state.draft.task_family
@@ -114,6 +132,8 @@ selected_language_label = language_label(library, selected_language)
 task_family_label = t(f"task_family.{resolved_task_family}")
 if task_family_label.startswith("["):
     task_family_label = resolved_task_family.replace("_", " ")
+should_offer_custom_theme_save = selected_theme_option == custom_theme_option
+persist_custom_theme = should_offer_custom_theme_save and bool(resolved_theme_label) and bool(save_custom_theme_for_reuse)
 
 prompt_text = str(brief.get("prompt") or "")
 success_focus = brief.get("success_focus") if isinstance(brief.get("success_focus"), list) else []
@@ -142,6 +162,15 @@ with preview_col:
                 (t("history.task_family_name"), task_family_label),
             ]
         )
+        if should_offer_custom_theme_save:
+            render_inline_note(
+                t(
+                    "setup.custom_theme_save_help",
+                    language=selected_language_label,
+                    level=selected_cefr,
+                    task_family=task_family_label,
+                )
+            )
         render_inline_note(t("setup.flow_hint"))
 
 if submitted:
@@ -154,6 +183,17 @@ if submitted:
         for error in errors:
             st.error(error)
         st.stop()
+
+    if persist_custom_theme:
+        updated_library = add_theme(
+            library,
+            language_code=selected_language,
+            language_label=selected_language_label,
+            title=resolved_theme_label,
+            level=selected_cefr,
+            task_family=resolved_task_family,
+        )
+        save_theme_library(state.prefs.log_dir, updated_library)
 
     apply_setup(
         speaker_id=speaker_id,
@@ -169,4 +209,5 @@ if submitted:
         prompt_text=prompt_text,
     )
     save_state_preferences(state)
-    go_to("pages/02_Speak.py", return_to="setup")
+    next_page = "pages/02_Speak.py" if active_connection(state.prefs) is not None else "pages/00_Setup.py"
+    go_to(next_page, return_to="setup")

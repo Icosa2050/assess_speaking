@@ -1,6 +1,9 @@
 import unittest
 
-from app_shell.i18n import locale_key_map, t
+from app_shell.i18n import flatten_keys, load_locale, locale_key_map, t
+
+PREPARED_UI_LOCALES = ("fr", "es")
+KNOWN_LOCALE_CODES = ("en", "de", "it", "fr", "es")
 
 
 class AppShellI18nTests(unittest.TestCase):
@@ -26,6 +29,18 @@ class AppShellI18nTests(unittest.TestCase):
         self.assertIn("draft-1", translated)
         self.assertIn("bern", translated)
         self.assertIn("Italiano", translated)
+
+    def test_prepared_locales_track_english_keys(self):
+        baseline = flatten_keys(load_locale("en"))
+        for locale in PREPARED_UI_LOCALES:
+            self.assertEqual(baseline, flatten_keys(load_locale(locale)), f"Prepared locale {locale} drifted from en")
+
+    def test_locale_names_cover_prepared_languages(self):
+        for locale in ("en", "de", "it", *PREPARED_UI_LOCALES):
+            locale_names = load_locale(locale).get("locale", {})
+            self.assertIsInstance(locale_names, dict)
+            for code in KNOWN_LOCALE_CODES:
+                self.assertIn(code, locale_names, f"Locale {locale} is missing locale.{code}")
 
 
 if __name__ == "__main__":

@@ -71,7 +71,12 @@ def score_dimensions(
     lexicon = _round_score((0.85 * lexicon_base) + (0.15 * _bounded_score(lexical_support_score)))
 
     coherence_base = float(rubric.cohesion) if rubric is not None else 3.0
-    topic_relevance = float(rubric.topic_relevance_score) if rubric is not None else (5.0 if checks.get("topic_pass") else 2.0)
+    topic_gate = checks.get("topic_pass")
+    topic_relevance = (
+        float(rubric.topic_relevance_score)
+        if rubric is not None
+        else (5.0 if topic_gate is True else 3.0 if topic_gate is None else 2.0)
+    )
     coherence = _round_score(
         (0.55 * coherence_base)
         + (0.25 * _bounded_score(marker_score))
@@ -79,7 +84,7 @@ def score_dimensions(
     )
 
     task_fulfillment = _round_score(
-        (0.50 * (5.0 if checks.get("topic_pass") else topic_relevance))
+        (0.50 * (5.0 if topic_gate is True else 3.0 if topic_gate is None else topic_relevance))
         + (0.25 * (5.0 if checks.get("duration_pass") else 2.5))
         + (0.25 * (5.0 if checks.get("min_words_pass") else 2.5))
     )

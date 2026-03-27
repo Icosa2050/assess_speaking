@@ -19,6 +19,59 @@ def _app_test(path: str) -> AppTest:
     return AppTest.from_file(str(ROOT / path), default_timeout=10)
 
 
+def _active_runtime_prefs(
+    *,
+    ui_locale: str = "en",
+    provider: str = "ollama",
+    log_dir: str = "reports",
+    connection_id: str = "primary",
+    secret_ref: str = "",
+) -> AppPreferences:
+    default_models = {
+        "ollama": "llama3",
+        "lmstudio": "qwen2.5",
+        "openrouter": "google/gemini-3.1-pro-preview",
+        "openai_compatible": "model-1",
+    }
+    default_base_urls = {
+        "ollama": "http://localhost:11434/v1",
+        "lmstudio": "http://localhost:1234/v1",
+        "openrouter": "https://openrouter.ai/api/v1",
+        "openai_compatible": "https://example.com/v1",
+    }
+    provider_metadata = {}
+    if provider == "openrouter":
+        provider_metadata = {
+            "http_referer": "http://localhost:8503",
+            "app_title": "Speaking Studio",
+        }
+    model = default_models[provider]
+    base_url = default_base_urls[provider]
+    return AppPreferences(
+        ui_locale=ui_locale,
+        provider=provider,
+        model=model,
+        llm_base_url=base_url,
+        log_dir=log_dir,
+        active_connection_id=connection_id,
+        connections=[
+            ProviderConnection(
+                connection_id=connection_id,
+                provider_kind=provider,
+                label=f"{provider.title()} Primary",
+                base_url=base_url,
+                default_model=model,
+                auth_mode="bearer" if provider == "openrouter" or secret_ref else "none",
+                secret_ref=secret_ref,
+                is_default=True,
+                is_local=provider in {"ollama", "lmstudio"},
+                provider_metadata=provider_metadata,
+            )
+        ],
+        setup_complete=True,
+    )
+
+
 def _history_record(
     *,
     timestamp: str,
@@ -90,6 +143,198 @@ class AppShellPageTests(unittest.TestCase):
         self.assertTrue(any(button.key == "runtime_setup_download_model" for button in at.button))
         self.assertTrue(any(button.key == "runtime_setup_save_connection" for button in at.button))
 
+    def test_runtime_setup_download_shows_success_after_progress_callback(self):
+        def _fake_download(_model_name, progress_callback=None):
+            if progress_callback is not None:
+                progress_callback(
+                    {
+                        "stage": "downloading",
+                        "current_file": "model.bin",
+                        "downloaded_bytes": 512,
+                        "total_bytes": 1024,
+                        "completed_files": 1,
+                        "total_files": 2,
+                    }
+                )
+                progress_callback({"stage": "ready", "cached_path": "/tmp/medium"})
+            return {"cached_path": "/tmp/medium"}
+
+        at = _app_test("pages/00_Setup.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=AppPreferences(ui_locale="en")
+        )
+        with patch("app_shell.services.download_whisper_model", side_effect=_fake_download):
+            at.run()
+            at.button(key="runtime_setup_download_model").click()
+            at.run()
+
+        self.assertEqual(len(at.exception), 0)
+        self.assertTrue(any("Whisper model is ready at /tmp/medium." in item.value for item in at.success))
+
+    def test_runtime_setup_provider_switch_updates_dependent_fields(self):
+        at = _app_test("pages/00_Setup.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=AppPreferences(ui_locale="en", provider="openrouter")
+        )
+        at.run()
+
+        self.assertEqual(at.text_input(key="runtime_setup_base_url").value, "https://openrouter.ai/api/v1")
+        self.assertEqual(at.text_input(key="runtime_setup_model").value, "google/gemini-3.1-pro-preview")
+
+        at.selectbox(key="runtime_setup_provider_choice").set_value("ollama_local")
+        at.run()
+
+        self.assertEqual(at.text_input(key="runtime_setup_label").value, "Ollama Local")
+        self.assertEqual(at.text_input(key="runtime_setup_base_url").value, "http://localhost:11434")
+        self.assertEqual(at.text_input(key="runtime_setup_model").value, "llama3")
+        self.assertTrue(at.text_input(key="runtime_setup_openrouter_http_referer").disabled)
+
+    def test_runtime_setup_provider_switch_supports_lmstudio_and_openai_compatible(self):
+        at = _app_test("pages/00_Setup.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=AppPreferences(ui_locale="en", provider="openrouter")
+        )
+        at.run()
+
+        at.selectbox(key="runtime_setup_provider_choice").set_value("ollama_cloud")
+        at.run()
+        self.assertEqual(at.text_input(key="runtime_setup_base_url").value, "https://ollama.com/api")
+        self.assertEqual(at.text_input(key="runtime_setup_model").value, "llama3")
+        self.assertFalse(any(button.key == "runtime_setup_detect_local_models" for button in at.button))
+
+        at.selectbox(key="runtime_setup_provider_choice").set_value("lmstudio_local")
+        at.run()
+        self.assertEqual(at.text_input(key="runtime_setup_base_url").value, "http://localhost:1234/v1")
+        self.assertEqual(at.text_input(key="runtime_setup_model").value, "qwen2.5")
+        self.assertTrue(any(button.key == "runtime_setup_detect_local_models" for button in at.button))
+
+        at.selectbox(key="runtime_setup_provider_choice").set_value("openai_compatible")
+        at.run()
+        self.assertEqual(at.text_input(key="runtime_setup_model").value, "")
+        self.assertFalse(any(button.key == "runtime_setup_detect_local_models" for button in at.button))
+
+    def test_runtime_setup_existing_connection_notice_is_not_success_banner(self):
+        at = _app_test("pages/00_Setup.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=AppPreferences(
+                ui_locale="en",
+                setup_complete=True,
+                active_connection_id="primary",
+                connections=[
+                    ProviderConnection(
+                        connection_id="primary",
+                        provider_kind="openrouter",
+                        label="Primary",
+                        base_url="https://openrouter.ai/api/v1",
+                        default_model="google/gemini-3.1-pro-preview",
+                        is_default=True,
+                    )
+                ],
+            )
+        )
+        at.run()
+
+        self.assertFalse(any("Runtime setup is already complete." in item.value for item in at.success))
+        self.assertTrue(any("An active connection is already configured." in item.value for item in at.caption))
+
+    def test_runtime_setup_explains_that_save_activates_connection(self):
+        at = _app_test("pages/00_Setup.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=AppPreferences(ui_locale="en")
+        )
+
+        at.run()
+
+        self.assertTrue(any(button.key == "runtime_setup_save_connection" and button.label == "Save and use connection" for button in at.button))
+        self.assertTrue(
+            any(
+                "Saving also makes this the active connection." in item.value
+                and "recommended but never block save" in item.value
+                for item in at.caption
+            )
+        )
+
+    def test_runtime_setup_detects_ollama_local_models_and_autofills(self):
+        at = _app_test("pages/00_Setup.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=AppPreferences(ui_locale="en", provider="openrouter")
+        )
+        with patch(
+            "app_shell.services.discover_runtime_models",
+            return_value={
+                "provider": "ollama",
+                "base_url": "http://localhost:11434/v1",
+                "health_endpoint": "http://localhost:11434/api/tags",
+                "health_payload": {"models": [{"name": "mistral:latest"}, {"name": "llama3"}]},
+                "models": ["mistral:latest", "llama3"],
+            },
+        ):
+            at.run()
+            at.selectbox(key="runtime_setup_provider_choice").set_value("ollama_local")
+            at.run()
+            at.text_input(key="runtime_setup_model").set_value("")
+            at.button(key="runtime_setup_detect_local_models").click()
+            at.run()
+
+        self.assertEqual(at.text_input(key="runtime_setup_model").value, "mistral:latest")
+        self.assertEqual(at.selectbox(key="runtime_setup_detected_model_choice").value, "mistral:latest")
+        self.assertTrue(any("Detected 2 local model(s)" in item.value for item in at.info))
+
+    def test_runtime_setup_detects_lmstudio_local_models_and_autofills(self):
+        at = _app_test("pages/00_Setup.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=AppPreferences(ui_locale="en", provider="openrouter")
+        )
+        with patch(
+            "app_shell.services.discover_runtime_models",
+            return_value={
+                "provider": "lmstudio",
+                "base_url": "http://localhost:1234/v1",
+                "health_endpoint": "http://localhost:1234/v1/models",
+                "health_payload": {"data": [{"id": "qwen2.5-coder"}, {"id": "deepseek-r1"}]},
+                "models": ["qwen2.5-coder", "deepseek-r1"],
+            },
+        ):
+            at.run()
+            at.selectbox(key="runtime_setup_provider_choice").set_value("lmstudio_local")
+            at.run()
+            at.text_input(key="runtime_setup_model").set_value("")
+            at.button(key="runtime_setup_detect_local_models").click()
+            at.run()
+
+        self.assertEqual(at.text_input(key="runtime_setup_model").value, "qwen2.5-coder")
+        self.assertEqual(at.selectbox(key="runtime_setup_detected_model_choice").value, "qwen2.5-coder")
+        self.assertTrue(any("http://localhost:1234/v1/models" in item.value for item in at.info))
+
+    def test_runtime_setup_test_error_shows_without_setup_complete_success_banner(self):
+        at = _app_test("pages/00_Setup.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=AppPreferences(
+                ui_locale="en",
+                setup_complete=True,
+                provider="lmstudio",
+                active_connection_id="primary",
+                connections=[
+                    ProviderConnection(
+                        connection_id="primary",
+                        provider_kind="lmstudio",
+                        label="LM Studio",
+                        base_url="http://localhost:1234/v1",
+                        default_model="qwen2.5",
+                        is_default=True,
+                        provider_metadata={"deployment": "local", "token_optional": True},
+                    )
+                ],
+            )
+        )
+        with patch("app_shell.services.test_runtime_connection", side_effect=RuntimeError("HTTP 404: model missing")):
+            at.run()
+            at.button(key="runtime_setup_test_connection").click()
+            at.run()
+
+        self.assertTrue(any("Connection test failed: HTTP 404: model missing" in item.value for item in at.warning))
+        self.assertFalse(any("Runtime setup is already complete." in item.value for item in at.success))
+
     def test_runtime_setup_save_creates_first_connection(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             at = _app_test("pages/00_Setup.py")
@@ -156,6 +401,29 @@ class AppShellPageTests(unittest.TestCase):
         at.run()
         self.assertEqual(at.selectbox(key="setup_theme_select").value, "How travel habits have changed in recent years")
 
+    def test_setup_restores_custom_theme_from_draft(self):
+        at = _app_test("pages/01_Session_Setup.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=AppPreferences(ui_locale="en"),
+            draft=DraftSession(
+                session_id="draft-123",
+                speaker_id="bern",
+                learning_language="it",
+                learning_language_label="Italiano",
+                cefr_level="B1",
+                theme_id="b1-cambiamento-climatico",
+                theme_label="Cambiamento climatico",
+                task_family="personal_experience",
+                duration_sec=90,
+                prompt_text="Parla del cambiamento climatico.",
+            ),
+        )
+        at.run()
+        self.assertEqual(len(at.exception), 0)
+        self.assertEqual(at.selectbox(key="setup_theme_select").value, "Custom theme")
+        self.assertEqual(at.text_input(key="setup_custom_theme").value, "Cambiamento climatico")
+        self.assertIn("Cambiamento climatico", [item.value for item in at.subheader])
+
     def test_setup_resets_invalid_theme_widget_state_when_options_change(self):
         at = _app_test("pages/01_Session_Setup.py")
         at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
@@ -173,7 +441,7 @@ class AppShellPageTests(unittest.TestCase):
         self.assertEqual(len(at.exception), 0)
         self.assertEqual(at.selectbox(key="setup_theme_select").value, "Il mio ultimo viaggio all'estero")
 
-    def test_setup_submit_updates_state_and_marks_next_page(self):
+    def test_setup_submit_updates_state_and_routes_to_runtime_setup_without_connection(self):
         at = _app_test("pages/01_Session_Setup.py")
         at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
             prefs=AppPreferences(ui_locale="en")
@@ -195,13 +463,85 @@ class AppShellPageTests(unittest.TestCase):
         self.assertEqual(state.draft.theme_label, "The pros and cons of working from home")
         self.assertEqual(state.draft.task_family, "opinion_monologue")
         self.assertEqual(state.draft.duration_sec, 120)
+        self.assertEqual(at.session_state["_next_page"], "pages/00_Setup.py")
+        self.assertEqual(len(at.exception), 0)
+
+    def test_setup_submit_routes_to_speak_when_runtime_connection_exists(self):
+        at = _app_test("pages/01_Session_Setup.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=_active_runtime_prefs(ui_locale="en", provider="ollama")
+        )
+        at.run()
+        at.text_input(key="setup_speaker_id").set_value("bern")
+        at.selectbox(key="setup_learning_language").set_value("en")
+        at.selectbox(key="setup_cefr").set_value("B2")
+        at.run()
+        at.selectbox(key="setup_theme_select").set_value("The pros and cons of working from home")
+        at.select_slider(key="setup_duration").set_value(120)
+        at.button(key="setup_continue").click()
+        at.run()
+
         self.assertEqual(at.session_state["_next_page"], "pages/02_Speak.py")
         self.assertEqual(len(at.exception), 0)
+
+    def test_setup_submit_can_save_custom_theme_for_reuse(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            at = _app_test("pages/01_Session_Setup.py")
+            at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+                prefs=AppPreferences(ui_locale="en", log_dir=tmpdir)
+            )
+            at.run()
+            at.text_input(key="setup_speaker_id").set_value("bern")
+            at.selectbox(key="setup_theme_select").set_value("Custom theme")
+            at.run()
+            at.text_input(key="setup_custom_theme").set_value("Cambiamento climatico")
+            at.checkbox(key="setup_save_custom_theme").set_value(True)
+            at.button(key="setup_continue").click()
+            at.run()
+
+            state = at.session_state[APP_SHELL_STATE_KEY]
+            self.assertEqual(state.draft.theme_label, "Cambiamento climatico")
+            self.assertEqual(at.session_state["_next_page"], "pages/00_Setup.py")
+
+            persisted = theme_library.load_theme_library(Path(tmpdir))
+            self.assertIn(
+                {
+                    "title": "Cambiamento climatico",
+                    "level": "B1",
+                    "task_family": "free_monologue",
+                },
+                persisted["it"]["themes"],
+            )
 
     def test_speak_renders_prompt_when_setup_exists(self):
         at = _app_test("pages/02_Speak.py")
         at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
             prefs=AppPreferences(ui_locale="en", provider="ollama"),
+            draft=DraftSession(
+                session_id="draft-123",
+                speaker_id="bern",
+                learning_language="it",
+                learning_language_label="Italiano",
+                cefr_level="B1",
+                theme_id="viaggio",
+                theme_label="Il mio ultimo viaggio all'estero",
+                task_family="travel_narrative",
+                duration_sec=90,
+                prompt_id="viaggio-b1",
+                prompt_text="Parla del tuo ultimo viaggio.",
+            )
+        )
+        at.run()
+        self.assertEqual(
+            [warning.value for warning in at.warning],
+            ["Configure Whisper and at least one inference connection before using the full runtime flow."],
+        )
+        self.assertTrue(any(button.key == "guard::pages/00_Setup.py" for button in at.button))
+
+    def test_speak_renders_prompt_when_runtime_connection_exists(self):
+        at = _app_test("pages/02_Speak.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=_active_runtime_prefs(ui_locale="en", provider="ollama"),
             draft=DraftSession(
                 session_id="draft-123",
                 speaker_id="bern",
@@ -223,7 +563,7 @@ class AppShellPageTests(unittest.TestCase):
     def test_speak_warns_when_recording_file_is_missing(self):
         at = _app_test("pages/02_Speak.py")
         at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
-            prefs=AppPreferences(ui_locale="en", provider="ollama"),
+            prefs=_active_runtime_prefs(ui_locale="en", provider="ollama"),
             draft=DraftSession(
                 session_id="draft-123",
                 speaker_id="bern",
@@ -245,10 +585,93 @@ class AppShellPageTests(unittest.TestCase):
         self.assertEqual(len(submit_buttons), 1)
         self.assertTrue(submit_buttons[0].disabled)
 
+    def test_speak_keeps_saved_browser_recording_across_rerun_without_widget_payload(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            audio_path = Path(tmpdir) / "recording.wav"
+            audio_path.write_bytes(b"RIFF....WAVE")
+
+            at = _app_test("pages/02_Speak.py")
+            at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+                prefs=_active_runtime_prefs(ui_locale="en", provider="ollama", log_dir=tmpdir),
+                draft=DraftSession(
+                    session_id="draft-123",
+                    speaker_id="bern",
+                    learning_language="it",
+                    learning_language_label="Italiano",
+                    cefr_level="B1",
+                    theme_id="viaggio",
+                    theme_label="Il mio ultimo viaggio all'estero",
+                    task_family="travel_narrative",
+                    duration_sec=90,
+                    prompt_id="viaggio-b1",
+                    prompt_text="Parla del tuo ultimo viaggio.",
+                ),
+                recording=RecordingState(
+                    status=RecordingStatus.READY,
+                    audio_path=str(audio_path),
+                    input_method="record",
+                    input_digest="digest-123",
+                ),
+            )
+            at.run()
+
+            self.assertEqual(len(at.warning), 0)
+            self.assertTrue(any("A recording is attached" in item.value for item in at.success))
+            submit_buttons = [button for button in at.button if button.key == "speak_submit"]
+            self.assertEqual(len(submit_buttons), 1)
+            self.assertFalse(submit_buttons[0].disabled)
+            self.assertEqual(
+                at.session_state[APP_SHELL_STATE_KEY].recording.audio_path,
+                str(audio_path),
+            )
+
+    def test_speak_switching_input_method_clears_previous_recording(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            audio_path = Path(tmpdir) / "recordings" / "recording.wav"
+            audio_path.parent.mkdir(parents=True, exist_ok=True)
+            audio_path.write_bytes(b"RIFF....WAVE")
+
+            at = _app_test("pages/02_Speak.py")
+            at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+                prefs=_active_runtime_prefs(ui_locale="en", provider="ollama", log_dir=tmpdir),
+                draft=DraftSession(
+                    session_id="draft-123",
+                    speaker_id="bern",
+                    learning_language="it",
+                    learning_language_label="Italiano",
+                    cefr_level="B1",
+                    theme_id="viaggio",
+                    theme_label="Il mio ultimo viaggio all'estero",
+                    task_family="travel_narrative",
+                    duration_sec=90,
+                    prompt_id="viaggio-b1",
+                    prompt_text="Parla del tuo ultimo viaggio.",
+                ),
+                recording=RecordingState(
+                    status=RecordingStatus.READY,
+                    audio_path=str(audio_path),
+                    input_method="record",
+                    input_digest="digest-123",
+                ),
+            )
+            at.session_state["speak_input_method"] = "upload"
+
+            at.run()
+
+            self.assertEqual(len(at.exception), 0)
+            state = at.session_state[APP_SHELL_STATE_KEY]
+            self.assertEqual(state.recording.audio_path, "")
+            self.assertEqual(state.recording.input_method, "")
+            self.assertFalse(audio_path.exists())
+            self.assertEqual([item.value for item in at.info], ["No recording is attached yet."])
+            submit_buttons = [button for button in at.button if button.key == "speak_submit"]
+            self.assertEqual(len(submit_buttons), 1)
+            self.assertTrue(submit_buttons[0].disabled)
+
     def test_speak_warns_when_openrouter_is_selected_without_any_key(self):
         at = _app_test("pages/02_Speak.py")
         at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
-            prefs=AppPreferences(ui_locale="en", provider="openrouter"),
+            prefs=_active_runtime_prefs(ui_locale="en", provider="openrouter"),
             draft=DraftSession(
                 session_id="draft-123",
                 speaker_id="bern",
@@ -273,7 +696,7 @@ class AppShellPageTests(unittest.TestCase):
     def test_speak_skips_openrouter_warning_when_saved_key_exists(self):
         at = _app_test("pages/02_Speak.py")
         at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
-            prefs=AppPreferences(ui_locale="en", provider="openrouter", openrouter_api_key="saved-key"),
+            prefs=_active_runtime_prefs(ui_locale="en", provider="openrouter", secret_ref="saved-openrouter"),
             draft=DraftSession(
                 session_id="draft-123",
                 speaker_id="bern",
@@ -288,7 +711,8 @@ class AppShellPageTests(unittest.TestCase):
                 prompt_text="Give your opinion on working from home.",
             ),
         )
-        with patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}, clear=False):
+        with patch("app_shell.runtime_resolver.get_secret", return_value="saved-key"), \
+                patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}, clear=False):
             at.run()
         self.assertNotIn(
             "OpenRouter is selected, but no API key is configured in Settings and no OPENROUTER_API_KEY is available in the environment.",
@@ -298,7 +722,7 @@ class AppShellPageTests(unittest.TestCase):
     def test_speak_skips_openrouter_warning_when_environment_key_exists(self):
         at = _app_test("pages/02_Speak.py")
         at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
-            prefs=AppPreferences(ui_locale="en", provider="openrouter"),
+            prefs=_active_runtime_prefs(ui_locale="en", provider="openrouter"),
             draft=DraftSession(
                 session_id="draft-123",
                 speaker_id="bern",
@@ -322,7 +746,7 @@ class AppShellPageTests(unittest.TestCase):
 
     def test_speak_preserves_label_and_notes_when_returning_from_setup(self):
         state = AppShellState(
-            prefs=AppPreferences(ui_locale="en", provider="ollama"),
+            prefs=_active_runtime_prefs(ui_locale="en", provider="ollama"),
             draft=DraftSession(
                 session_id="draft-123",
                 speaker_id="bern",
@@ -359,8 +783,12 @@ class AppShellPageTests(unittest.TestCase):
             audio_path = Path(tmpdir) / "attempt.wav"
             audio_path.write_bytes(b"fake-audio")
             at = _app_test("pages/02_Speak.py")
+            prefs = _active_runtime_prefs(ui_locale="en", provider="ollama", log_dir=tmpdir)
+            prefs.provider = "openrouter"
+            prefs.model = "stale-model"
+            prefs.llm_base_url = "https://stale.example/v1"
             at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
-                prefs=AppPreferences(ui_locale="en", provider="ollama", log_dir=tmpdir),
+                prefs=prefs,
                 draft=DraftSession(
                     session_id="draft-123",
                     speaker_id="bern",
@@ -393,10 +821,14 @@ class AppShellPageTests(unittest.TestCase):
                     "coaching": {"coach_summary": "Clear structure."},
                 },
             }
-            with patch("app_shell.services.create_assessment_request", return_value={"ok": True}), \
+            with patch("app_shell.services.create_assessment_request", return_value={"ok": True}) as create_request, \
                     patch("app_shell.services.execute_assessment_request", return_value=(payload, None)):
                 at.run()
 
+            kwargs = create_request.call_args.kwargs
+            self.assertEqual(kwargs["provider"], "ollama")
+            self.assertEqual(kwargs["llm_model"], "llama3")
+            self.assertEqual(kwargs["llm_base_url"], "http://localhost:11434/v1")
             self.assertEqual(at.session_state["_next_page"], "pages/03_Review.py")
             state = at.session_state[APP_SHELL_STATE_KEY]
             self.assertEqual(state.review.report_id, "report-1")
@@ -409,7 +841,7 @@ class AppShellPageTests(unittest.TestCase):
             audio_path.write_bytes(b"fake-audio")
             at = _app_test("pages/02_Speak.py")
             at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
-                prefs=AppPreferences(ui_locale="en", provider="ollama", log_dir=tmpdir),
+                prefs=_active_runtime_prefs(ui_locale="en", provider="ollama", log_dir=tmpdir),
                 draft=DraftSession(
                     session_id="draft-123",
                     speaker_id="bern",
@@ -1122,7 +1554,7 @@ class AppShellPageTests(unittest.TestCase):
             prefs=AppPreferences(ui_locale="en", provider="ollama")
         )
         at.run()
-        self.assertFalse(at.text_input(key="settings_openrouter_api_key").disabled)
+        self.assertFalse(at.text_input(key="settings_api_key").disabled)
         self.assertTrue(at.text_input(key="settings_openrouter_http_referer").disabled)
         self.assertTrue(at.text_input(key="settings_openrouter_app_title").disabled)
         at.selectbox(key="settings_provider").set_value("openrouter")
@@ -1242,7 +1674,7 @@ class AppShellPageTests(unittest.TestCase):
             at.selectbox(key="settings_provider").set_value("lmstudio")
             at.text_input(key="settings_model").set_value("qwen2.5")
             at.text_input(key="settings_base_url").set_value("http://localhost:1234/v1")
-            at.text_input(key="settings_openrouter_api_key").set_value("token-123")
+            at.text_input(key="settings_api_key").set_value("token-123")
             at.button(key="settings_save").click()
             at.run()
 
@@ -1262,6 +1694,34 @@ class AppShellPageTests(unittest.TestCase):
         at.run()
         self.assertEqual(at.session_state["_next_page"], "streamlit_app.py")
 
+    def test_settings_download_shows_success_after_progress_callback(self):
+        def _fake_download(_model_name, progress_callback=None):
+            if progress_callback is not None:
+                progress_callback(
+                    {
+                        "stage": "downloading",
+                        "current_file": "model.bin",
+                        "downloaded_bytes": 1024,
+                        "total_bytes": 2048,
+                        "completed_files": 1,
+                        "total_files": 3,
+                    }
+                )
+                progress_callback({"stage": "ready", "cached_path": "/tmp/small"})
+            return {"cached_path": "/tmp/small"}
+
+        at = _app_test("pages/06_Settings.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=AppPreferences(ui_locale="en"),
+        )
+        with patch("app_shell.services.download_whisper_model", side_effect=_fake_download):
+            at.run()
+            at.button(key="settings_whisper_download").click()
+            at.run()
+
+        self.assertEqual(len(at.exception), 0)
+        self.assertTrue(any("/tmp/small" in item.value for item in at.success))
+
     def test_settings_save_persists_openrouter_credentials_and_identifier(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             at = _app_test("pages/06_Settings.py")
@@ -1271,7 +1731,7 @@ class AppShellPageTests(unittest.TestCase):
             at.run()
             at.selectbox(key="settings_provider").set_value("openrouter")
             at.text_input(key="settings_model").set_value("google/gemini-3.1-pro-preview")
-            at.text_input(key="settings_openrouter_api_key").set_value("key-123")
+            at.text_input(key="settings_api_key").set_value("key-123")
             at.text_input(key="settings_openrouter_http_referer").set_value("http://localhost:8503")
             at.text_input(key="settings_openrouter_app_title").set_value("Speaking Studio")
             at.button(key="settings_save").click()
@@ -1280,7 +1740,6 @@ class AppShellPageTests(unittest.TestCase):
             state = at.session_state[APP_SHELL_STATE_KEY]
             self.assertEqual(state.prefs.provider, "openrouter")
             self.assertEqual(state.prefs.llm_api_key, "key-123")
-            self.assertEqual(state.prefs.openrouter_api_key, "key-123")
             self.assertEqual(state.prefs.openrouter_http_referer, "http://localhost:8503")
             self.assertEqual(state.prefs.openrouter_app_title, "Speaking Studio")
 

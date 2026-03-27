@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
-from app_shell.runtime_providers import connection_secret_ref, default_base_url, default_connection_label, normalize_provider, runtime_base_url
-from app_shell.state import DEFAULT_MODEL, DEFAULT_OPENROUTER_APP_TITLE, DEFAULT_OPENROUTER_HTTP_REFERER, LEGACY_APP_NAME, ProviderConnection
+from app_shell.runtime_providers import connection_secret_ref, default_base_url, default_connection_label, normalize_provider
+from app_shell.state import DEFAULT_MODEL, ProviderConnection
 
 
 def _is_local_url(url: str) -> bool:
@@ -82,57 +82,3 @@ def ensure_single_default_connection(
         normalized[0].is_default = True
         chosen_active = normalized[0].connection_id
     return normalized, chosen_active
-
-
-def legacy_connection_from_prefs(prefs: dict[str, Any]) -> ProviderConnection | None:
-    legacy_markers = (
-        str(prefs.get("provider") or "").strip(),
-        str(prefs.get("model") or "").strip(),
-        str(prefs.get("llm_base_url") or "").strip(),
-        str(prefs.get("llm_api_key") or "").strip(),
-        str(prefs.get("openrouter_api_key") or "").strip(),
-    )
-    if not any(legacy_markers):
-        return None
-    provider_kind = normalize_provider(prefs.get("provider"))
-    model = str(prefs.get("model") or DEFAULT_MODEL).strip() or DEFAULT_MODEL
-    base_url = str(prefs.get("llm_base_url") or default_base_url(provider_kind)).strip() or default_base_url(provider_kind)
-    openrouter_http_referer = str(prefs.get("openrouter_http_referer") or DEFAULT_OPENROUTER_HTTP_REFERER).strip()
-    openrouter_app_title = str(prefs.get("openrouter_app_title") or DEFAULT_OPENROUTER_APP_TITLE).strip()
-    if not openrouter_app_title or openrouter_app_title == LEGACY_APP_NAME:
-        openrouter_app_title = DEFAULT_OPENROUTER_APP_TITLE
-    if not provider_kind and not model:
-        return None
-    connection_id = uuid4().hex
-    metadata: dict[str, Any] = {}
-    label = default_connection_label(provider_kind)
-    is_local = _is_local_url(base_url)
-    if provider_kind == "openrouter":
-        metadata = {
-            "http_referer": openrouter_http_referer or DEFAULT_OPENROUTER_HTTP_REFERER,
-            "app_title": openrouter_app_title or DEFAULT_OPENROUTER_APP_TITLE,
-        }
-        label = "OpenRouter"
-    elif provider_kind == "ollama":
-        deployment = "local" if is_local else "cloud"
-        metadata = {"deployment": deployment}
-        label = "Ollama Local" if deployment == "local" else "Ollama Cloud"
-    elif provider_kind == "lmstudio":
-        metadata = {"deployment": "local", "token_optional": True}
-        label = "LM Studio Local"
-        is_local = True
-    elif provider_kind == "openai_compatible":
-        metadata = {"deployment": "custom"}
-        label = "OpenAI-compatible"
-    return ProviderConnection(
-        connection_id=connection_id,
-        provider_kind=provider_kind,
-        label=label,
-        base_url=runtime_base_url(provider_kind, base_url) if provider_kind != "ollama" else str(base_url).rstrip("/"),
-        default_model=model,
-        auth_mode="bearer" if provider_kind in {"openrouter", "openai_compatible", "lmstudio"} or str(prefs.get("llm_api_key") or prefs.get("openrouter_api_key") or "").strip() else "none",
-        secret_ref=connection_secret_ref(connection_id),
-        is_default=True,
-        is_local=is_local,
-        provider_metadata=metadata,
-    )
