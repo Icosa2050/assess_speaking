@@ -11,6 +11,8 @@ from corpora.lips_dataset import (
     LipsBuildConfig,
     build_excluded_audit_sample,
     build_lips_manifest,
+    load_excluded_audit_annotations,
+    load_review_annotations,
     read_jsonl,
     summarize_lips_review,
     write_jsonl,
@@ -105,6 +107,44 @@ class LipsReviewSupportTests(unittest.TestCase):
             {"turn_structure_not_monologue_like": 1},
         )
         self.assertEqual(report.excluded_suggested_families, {"opinion_monologue": 1})
+
+    def test_read_jsonl_reports_file_and_line_for_malformed_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            review_path = Path(tmp_dir) / "bad_review.jsonl"
+            review_path.write_text('{"ok": true}\n{"broken": \n', encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, r"bad_review\.jsonl:2"):
+                read_jsonl(review_path)
+
+    def test_review_annotation_loaders_require_real_booleans(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            included_review = Path(tmp_dir) / "included_review.jsonl"
+            excluded_review = Path(tmp_dir) / "excluded_review.jsonl"
+            write_jsonl(
+                included_review,
+                [
+                    {
+                        "source_file": "a.txt",
+                        "section_id": "SE1",
+                        "reviewer_accepts_mapping": "false",
+                    }
+                ],
+            )
+            write_jsonl(
+                excluded_review,
+                [
+                    {
+                        "source_file": "b.txt",
+                        "section_id": "SE2",
+                        "reviewer_accepts_exclusion": "true",
+                    }
+                ],
+            )
+
+            with self.assertRaisesRegex(ValueError, "reviewer_accepts_mapping must be a boolean"):
+                load_review_annotations(included_review)
+            with self.assertRaisesRegex(ValueError, "reviewer_accepts_exclusion must be a boolean"):
+                load_excluded_audit_annotations(excluded_review)
 
     def test_review_lips_manifest_script_prepare_and_summarize(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

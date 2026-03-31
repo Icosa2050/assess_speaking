@@ -53,6 +53,52 @@ class LipsManifestPipelineTests(unittest.TestCase):
         self.assertEqual(report.exclusion_reason_counts["raw_mode_dialogue"], 2)
         self.assertEqual(report.exclusion_reason_counts["placeholder_section"], 1)
 
+    def test_parse_success_ratio_includes_file_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            corpus_dir = Path(tmp_dir) / "corpus"
+            corpus_dir.mkdir()
+            (corpus_dir / "good_B1.txt").write_text(
+                "\n".join(
+                    [
+                        "Data esame: 01/01/2001",
+                        "Livello 1",
+                        "SE 2 giornata tipica M",
+                        (
+                            "C: Questa risposta e abbastanza lunga per superare la soglia minima "
+                            "e mantenere un monologo valido durante il parsing."
+                        ),
+                    ]
+                ),
+                encoding="iso-8859-1",
+            )
+            (corpus_dir / "broken_B1.txt").write_text("nessuna sezione qui\n", encoding="utf-8")
+
+            report = build_lips_manifest(
+                LipsBuildConfig(
+                    input_root=corpus_dir,
+                    output_dir=Path(tmp_dir) / "artifacts",
+                    review_sample_size=1,
+                    min_candidate_tokens=5,
+                )
+            )
+            validation = validate_lips_manifest(
+                report.included_path,
+                report.excluded_path,
+                config=LipsValidationConfig(
+                    min_usable_sections=1,
+                    min_task_families=1,
+                    target_parse_success_ratio=0.75,
+                    require_manual_review=False,
+                ),
+            )
+
+        self.assertEqual(report.file_failures, 1)
+        self.assertAlmostEqual(report.parse_success_ratio, 0.5, places=4)
+        self.assertEqual(report.parse_status_counts["failed"], 1)
+        self.assertAlmostEqual(validation.parse_success_ratio, 0.5, places=4)
+        self.assertEqual(validation.parse_status_counts["failed"], 1)
+        self.assertFalse(validation.parse_target_passed)
+
     def test_validation_requires_manual_review_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             report = build_lips_manifest(

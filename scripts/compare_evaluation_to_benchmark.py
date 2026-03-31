@@ -9,14 +9,11 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
-from benchmarking.synthetic_benchmark_regression import (
-    compare_evaluation_against_benchmark,
-    load_benchmark_and_evaluation,
-    write_regression_report,
-)
+
+def _bootstrap_repo() -> None:
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,6 +28,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    _bootstrap_repo()
+    from benchmarking.synthetic_benchmark_regression import (
+        compare_evaluation_against_benchmark,
+        load_benchmark_and_evaluation,
+        write_regression_report,
+    )
+
     args = parse_args()
     benchmark_suite, evaluation_suite = load_benchmark_and_evaluation(
         args.benchmark_suite,

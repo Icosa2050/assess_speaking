@@ -5,7 +5,7 @@ import ast
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Sequence
 
 ENTRYPOINT_MODULES = frozenset({"assess_speaking", "streamlit_app"})
 MODULE_GROUPS: dict[str, frozenset[str]] = {}

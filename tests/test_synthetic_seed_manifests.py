@@ -155,6 +155,27 @@ class SyntheticSeedManifestTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_seed_manifest(bad_path)
 
+    def test_load_seed_manifest_rejects_non_object_seed_entry(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            bad_path = Path(tmp_dir) / "bad_seed_manifest.json"
+            bad_path.write_text(
+                """
+                {
+                  "manifest_id": "bad",
+                  "language_code": "en",
+                  "task_family": "opinion_monologue",
+                  "version": "x",
+                  "render_defaults": {},
+                  "seeds": [
+                    ["not", "an", "object"]
+                  ]
+                }
+                """,
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "seeds\\[0\\] must be an object"):
+                load_seed_manifest(bad_path)
+
     def test_load_seed_manifest_rejects_invalid_cefr_and_scope_mismatch(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             bad_path = Path(tmp_dir) / "bad_seed_manifest.json"
@@ -212,6 +233,39 @@ class SyntheticSeedManifestTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with self.assertRaises(ValueError):
+                load_seed_manifest(bad_path)
+
+    def test_load_seed_manifest_rejects_non_positive_render_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            bad_path = Path(tmp_dir) / "bad_seed_manifest.json"
+            bad_path.write_text(
+                """
+                {
+                  "manifest_id": "bad",
+                  "language_code": "en",
+                  "task_family": "opinion_monologue",
+                  "version": "x",
+                  "render_defaults": {
+                    "rate_wpm": 0,
+                    "sample_rate_hz": -1,
+                    "channels": 0
+                  },
+                  "seeds": [
+                    {
+                      "seed_id": "bad_render_defaults",
+                      "language_code": "en",
+                      "task_family": "opinion_monologue",
+                      "target_cefr": "B1",
+                      "topic_tag": "travel",
+                      "transcript": "Valid text.",
+                      "source_type": "synthetic_seed"
+                    }
+                  ]
+                }
+                """,
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "render_defaults.rate_wpm must be greater than 0"):
                 load_seed_manifest(bad_path)
 
 

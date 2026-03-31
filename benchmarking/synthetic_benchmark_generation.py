@@ -10,6 +10,7 @@ from assessment_runtime.metrics import metrics_from as transcript_metrics_from
 from pathlib import Path
 import platform
 import re
+import shutil
 import subprocess
 import tempfile
 from typing import Iterable
@@ -220,6 +221,133 @@ def _run_subprocess(command: list[str], *, input_text: str | None = None) -> Non
         raise RuntimeError(f"{command[0]!r} failed: {detail or f'exit code {exc.returncode}'}") from exc
 
 
+def _resolve_target_seeds(
+    manifest: SeedManifest,
+    *,
+    selected_seed_ids: Iterable[str] | None,
+    include_inactive: bool,
+) -> tuple[SyntheticSeed, ...]:
+    selected_ids = {seed_id.strip() for seed_id in (selected_seed_ids or []) if str(seed_id).strip()}
+    available_seeds = manifest.seeds if include_inactive else manifest.active_seeds
+    if not selected_ids:
+        return available_seeds
+
+    known_ids = {seed.seed_id for seed in available_seeds}
+    missing_ids = sorted(selected_ids - known_ids)
+    if missing_ids:
+        raise ValueError(f"Unknown or inactive seed_id values: {missing_ids}")
+    return tuple(seed for seed in available_seeds if seed.seed_id in selected_ids)
+
+
+def _render_seed_item(
+    seed: SyntheticSeed,
+    *,
+    manifest: SeedManifest,
+    audio_dir: Path,
+    transcript_dir: Path,
+    benchmark_root: Path | None,
+    benchmark_case_cache: dict[str, BenchmarkCase],
+) -> dict:
+    config = resolve_render_config(manifest, seed)
+    duration_estimate = estimate_render_duration(text_to_render(seed), config.rate_wpm)
+    if benchmark_root is not None:
+        _validate_seed_benchmark_alignment(
+            seed,
+            duration_estimate=duration_estimate,
+            benchmark_root=benchmark_root,
+            cache=benchmark_case_cache,
+        )
+
+    output_audio_path = audio_dir / f"{seed.seed_id}.{config.output_format}"
+    transcript_path = transcript_dir / f"{seed.seed_id}.txt"
+    with tempfile.NamedTemporaryFile(
+        suffix=".aiff",
+        prefix=f"{seed.seed_id}-",
+        delete=False,
+    ) as handle:
+        intermediate_path = Path(handle.name)
+    try:
+        _run_subprocess(
+            [
+                "say",
+                "-v",
+                config.voice,
+                "-r",
+                str(config.rate_wpm),
+                "-o",
+                str(intermediate_path),
+                "--file-format=AIFF",
+            ],
+            input_text=text_to_render(seed),
+        )
+        _run_subprocess(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-i",
+                str(intermediate_path),
+                "-ac",
+                str(config.channels),
+                "-ar",
+                str(config.sample_rate_hz),
+                str(output_audio_path),
+            ]
+        )
+    finally:
+        intermediate_path.unlink(missing_ok=True)
+
+    transcript_path.write_text(seed.transcript.rstrip("\n") + "\n", encoding="utf-8")
+    return {
+        "seed_id": seed.seed_id,
+        "target_cefr": seed.target_cefr,
+        "topic_tag": seed.topic_tag,
+        "audio_path": f"audio/{output_audio_path.name}",
+        "transcript_path": f"transcripts/{transcript_path.name}",
+        "source_seed_fingerprint": synthetic_seed_fingerprint(seed),
+        "provider": config.provider,
+        "voice": config.voice,
+        "rate_wpm": config.rate_wpm,
+        "output_format": config.output_format,
+        "sample_rate_hz": config.sample_rate_hz,
+        "channels": config.channels,
+        "render_text_used": text_to_render(seed),
+        "target_duration_sec": seed.target_duration_sec,
+        "estimated_speech_word_count": duration_estimate.speech_word_count,
+        "estimated_pause_count": duration_estimate.pause_count,
+        "estimated_pause_total_sec": duration_estimate.pause_total_sec,
+        "estimated_speech_duration_sec": duration_estimate.estimated_speech_duration_sec,
+        "estimated_render_duration_sec": duration_estimate.estimated_total_duration_sec,
+        "duration_alignment_ratio": (
+            round(duration_estimate.estimated_total_duration_sec / seed.target_duration_sec, 3)
+            if seed.target_duration_sec
+            else None
+        ),
+        "seed_tags": list(seed.tags),
+    }
+
+
+def _commit_bundle(staging_bundle_dir: Path, bundle_dir: Path, *, overwrite: bool) -> None:
+    if not bundle_dir.exists():
+        staging_bundle_dir.replace(bundle_dir)
+        return
+    if not overwrite:
+        raise FileExistsError(f"Refusing to overwrite existing bundle: {bundle_dir}")
+
+    backup_dir = Path(tempfile.mkdtemp(prefix=f".{bundle_dir.name}-backup-", dir=bundle_dir.parent))
+    backup_dir.rmdir()
+    bundle_dir.rename(backup_dir)
+    try:
+        staging_bundle_dir.replace(bundle_dir)
+    except Exception:
+        backup_dir.replace(bundle_dir)
+        raise
+    else:
+        shutil.rmtree(backup_dir)
+
+
 def render_seed_manifest(
     manifest: SeedManifest,
     output_root: str | Path,
@@ -229,125 +357,51 @@ def render_seed_manifest(
     overwrite: bool = False,
     benchmark_root: str | Path | None = None,
 ) -> dict:
+    target_seeds = _resolve_target_seeds(
+        manifest,
+        selected_seed_ids=selected_seed_ids,
+        include_inactive=include_inactive,
+    )
     output_root_path = Path(output_root)
     bundle_dir = output_root_path / manifest.manifest_id
-    audio_dir = bundle_dir / "audio"
-    transcript_dir = bundle_dir / "transcripts"
-    audio_dir.mkdir(parents=True, exist_ok=True)
-    transcript_dir.mkdir(parents=True, exist_ok=True)
+    if bundle_dir.exists() and not overwrite:
+        raise FileExistsError(f"Refusing to overwrite existing bundle: {bundle_dir}")
 
-    selected_ids = {seed_id.strip() for seed_id in (selected_seed_ids or []) if str(seed_id).strip()}
-    available_seeds = manifest.seeds if include_inactive else manifest.active_seeds
-    if selected_ids:
-        known_ids = {seed.seed_id for seed in available_seeds}
-        missing_ids = sorted(selected_ids - known_ids)
-        if missing_ids:
-            raise ValueError(f"Unknown or inactive seed_id values: {missing_ids}")
-        target_seeds = tuple(seed for seed in available_seeds if seed.seed_id in selected_ids)
-    else:
-        target_seeds = available_seeds
-
+    output_root_path.mkdir(parents=True, exist_ok=True)
     benchmark_root_path = Path(benchmark_root) if benchmark_root is not None else None
     benchmark_case_cache: dict[str, BenchmarkCase] = {}
-    items: list[dict] = []
-    for seed in target_seeds:
-        config = resolve_render_config(manifest, seed)
-        duration_estimate = estimate_render_duration(text_to_render(seed), config.rate_wpm)
-        if benchmark_root_path is not None:
-            _validate_seed_benchmark_alignment(
+    with tempfile.TemporaryDirectory(prefix=f".{manifest.manifest_id}-staging-", dir=output_root_path) as staging_root:
+        staging_bundle_dir = Path(staging_root) / manifest.manifest_id
+        audio_dir = staging_bundle_dir / "audio"
+        transcript_dir = staging_bundle_dir / "transcripts"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        transcript_dir.mkdir(parents=True, exist_ok=True)
+
+        items = [
+            _render_seed_item(
                 seed,
-                duration_estimate=duration_estimate,
+                manifest=manifest,
+                audio_dir=audio_dir,
+                transcript_dir=transcript_dir,
                 benchmark_root=benchmark_root_path,
-                cache=benchmark_case_cache,
+                benchmark_case_cache=benchmark_case_cache,
             )
-        output_audio_path = audio_dir / f"{seed.seed_id}.{config.output_format}"
-        transcript_path = transcript_dir / f"{seed.seed_id}.txt"
-        if output_audio_path.exists() and not overwrite:
-            raise FileExistsError(f"Refusing to overwrite existing audio: {output_audio_path}")
-
-        with tempfile.NamedTemporaryFile(
-            suffix=".aiff",
-            prefix=f"{seed.seed_id}-",
-            delete=False,
-        ) as handle:
-            intermediate_path = Path(handle.name)
-        try:
-            _run_subprocess(
-                [
-                    "say",
-                    "-v",
-                    config.voice,
-                    "-r",
-                    str(config.rate_wpm),
-                    "-o",
-                    str(intermediate_path),
-                    "--file-format=AIFF",
-                ],
-                input_text=text_to_render(seed),
-            )
-            _run_subprocess(
-                [
-                    "ffmpeg",
-                    "-hide_banner",
-                    "-loglevel",
-                    "error",
-                    "-y",
-                    "-i",
-                    str(intermediate_path),
-                    "-ac",
-                    str(config.channels),
-                    "-ar",
-                    str(config.sample_rate_hz),
-                    str(output_audio_path),
-                ]
-            )
-        finally:
-            intermediate_path.unlink(missing_ok=True)
-
-        transcript_path.write_text(seed.transcript.rstrip("\n") + "\n", encoding="utf-8")
-        items.append(
-            {
-                "seed_id": seed.seed_id,
-                "target_cefr": seed.target_cefr,
-                "topic_tag": seed.topic_tag,
-                "audio_path": f"audio/{output_audio_path.name}",
-                "transcript_path": f"transcripts/{transcript_path.name}",
-                "source_seed_fingerprint": synthetic_seed_fingerprint(seed),
-                "provider": config.provider,
-                "voice": config.voice,
-                "rate_wpm": config.rate_wpm,
-                "output_format": config.output_format,
-                "sample_rate_hz": config.sample_rate_hz,
-                "channels": config.channels,
-                "render_text_used": text_to_render(seed),
-                "target_duration_sec": seed.target_duration_sec,
-                "estimated_speech_word_count": duration_estimate.speech_word_count,
-                "estimated_pause_count": duration_estimate.pause_count,
-                "estimated_pause_total_sec": duration_estimate.pause_total_sec,
-                "estimated_speech_duration_sec": duration_estimate.estimated_speech_duration_sec,
-                "estimated_render_duration_sec": duration_estimate.estimated_total_duration_sec,
-                "duration_alignment_ratio": (
-                    round(duration_estimate.estimated_total_duration_sec / seed.target_duration_sec, 3)
-                    if seed.target_duration_sec
-                    else None
-                ),
-                "seed_tags": list(seed.tags),
-            }
+            for seed in target_seeds
+        ]
+        render_manifest = {
+            "manifest_id": manifest.manifest_id,
+            "seed_manifest_version": manifest.version,
+            "seed_manifest_fingerprint": seed_manifest_fingerprint(manifest),
+            "renderer_version": RENDERER_VERSION,
+            "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+            "platform": platform.platform(),
+            "macos_version": platform.mac_ver()[0],
+            "items": items,
+        }
+        render_manifest_path = staging_bundle_dir / "render_manifest.json"
+        render_manifest_path.write_text(
+            json.dumps(render_manifest, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
         )
-
-    render_manifest = {
-        "manifest_id": manifest.manifest_id,
-        "seed_manifest_version": manifest.version,
-        "seed_manifest_fingerprint": seed_manifest_fingerprint(manifest),
-        "renderer_version": RENDERER_VERSION,
-        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-        "platform": platform.platform(),
-        "macos_version": platform.mac_ver()[0],
-        "items": items,
-    }
-    render_manifest_path = bundle_dir / "render_manifest.json"
-    render_manifest_path.write_text(
-        json.dumps(render_manifest, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    return render_manifest
+        _commit_bundle(staging_bundle_dir, bundle_dir, overwrite=overwrite)
+        return render_manifest

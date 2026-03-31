@@ -57,6 +57,12 @@ class BenchmarkSuite:
     cases: tuple[BenchmarkCase, ...]
 
 
+def _require_object(value: Any, *, field_name: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{field_name} must be an object")
+    return value
+
+
 def _as_range_tuple(value: Any, *, field_name: str) -> tuple[float, float]:
     if not isinstance(value, list | tuple) or len(value) != 2:
         raise ValueError(f"{field_name} must contain exactly two numeric values")
@@ -76,7 +82,10 @@ def _as_tags(value: Any) -> tuple[str, ...]:
 
 
 def load_benchmark_suite(path: str | Path) -> BenchmarkSuite:
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    payload = _require_object(
+        json.loads(Path(path).read_text(encoding="utf-8")),
+        field_name="Benchmark suite root payload",
+    )
     required_root_keys = {
         "suite_id",
         "language_code",
@@ -93,11 +102,11 @@ def load_benchmark_suite(path: str | Path) -> BenchmarkSuite:
     llm_contract_payload = payload.get("llm_contract", {})
     if llm_contract_payload is None:
         llm_contract_payload = {}
-    if not isinstance(llm_contract_payload, dict):
-        raise ValueError("llm_contract must be an object if present")
+    llm_contract_payload = _require_object(llm_contract_payload, field_name="llm_contract")
 
     cases: list[BenchmarkCase] = []
-    for raw_case in payload["cases"]:
+    for index, raw_case_value in enumerate(payload["cases"]):
+        raw_case = _require_object(raw_case_value, field_name=f"cases[{index}]")
         required_case_keys = {
             "case_id",
             "target_level",
@@ -110,24 +119,35 @@ def load_benchmark_suite(path: str | Path) -> BenchmarkSuite:
         missing_case = required_case_keys - set(raw_case)
         if missing_case:
             raise ValueError(f"Benchmark case is missing required keys: {sorted(missing_case)}")
-        expected = raw_case["expected"]
+        case_id = str(raw_case["case_id"])
+        expected = _require_object(raw_case["expected"], field_name=f"{case_id}.expected")
+        required_expected_keys = {"cefr_level", "continuous_range", "dimension_ranges"}
+        missing_expected = required_expected_keys - set(expected)
+        if missing_expected:
+            raise ValueError(f"Benchmark case {case_id} expected is missing keys: {sorted(missing_expected)}")
+        dimension_ranges_payload = _require_object(
+            expected["dimension_ranges"],
+            field_name=f"{case_id}.dimension_ranges",
+        )
         dimension_ranges = {
-            key: _as_range_tuple(value, field_name=f"{raw_case['case_id']}.{key}")
-            for key, value in expected["dimension_ranges"].items()
+            key: _as_range_tuple(value, field_name=f"{case_id}.{key}")
+            for key, value in dimension_ranges_payload.items()
         }
         cases.append(
             BenchmarkCase(
-                case_id=str(raw_case["case_id"]),
+                case_id=case_id,
                 target_level=str(raw_case["target_level"]),
-                metrics=dict(raw_case["metrics"]),
-                checks=dict(raw_case["checks"]),
-                rubric=RubricResult.from_dict(dict(raw_case["rubric"])),
+                metrics=dict(_require_object(raw_case["metrics"], field_name=f"{case_id}.metrics")),
+                checks=dict(_require_object(raw_case["checks"], field_name=f"{case_id}.checks")),
+                rubric=RubricResult.from_dict(
+                    dict(_require_object(raw_case["rubric"], field_name=f"{case_id}.rubric"))
+                ),
                 detected_language_probability=float(raw_case["detected_language_probability"]),
                 expected=BenchmarkExpectation(
                     cefr_level=str(expected["cefr_level"]),
                     continuous_range=_as_range_tuple(
                         expected["continuous_range"],
-                        field_name=f"{raw_case['case_id']}.continuous_range",
+                        field_name=f"{case_id}.continuous_range",
                     ),
                     dimension_ranges=dimension_ranges,
                 ),

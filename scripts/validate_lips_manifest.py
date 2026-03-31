@@ -9,10 +9,11 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
-from corpora.lips_dataset import LipsValidationConfig, validate_lips_manifest
+
+def _bootstrap_repo() -> None:
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -33,6 +34,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    _bootstrap_repo()
+    from corpora.lips_dataset import LipsValidationConfig, validate_lips_manifest
+
     args = build_parser().parse_args()
     included_path = args.artifact_dir / "lips_sections_included.jsonl"
     excluded_path = args.artifact_dir / "lips_sections_excluded.jsonl"

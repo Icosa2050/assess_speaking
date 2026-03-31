@@ -9,13 +9,17 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
-from corpora.lips_dataset import LipsBuildConfig, build_lips_manifest, default_lips_output_dir
+
+def _bootstrap_repo() -> None:
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
 
 
 def build_parser() -> argparse.ArgumentParser:
+    _bootstrap_repo()
+    from corpora.lips_dataset import default_lips_output_dir
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input_root", type=Path, help="Directory containing LIPS .txt transcript files.")
     parser.add_argument(
@@ -32,6 +36,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    _bootstrap_repo()
+    from corpora.lips_dataset import LipsBuildConfig, build_lips_manifest
+
     args = build_parser().parse_args()
     report = build_lips_manifest(
         LipsBuildConfig(

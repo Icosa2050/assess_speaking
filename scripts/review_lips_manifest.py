@@ -9,17 +9,11 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
-from corpora.lips_dataset import (
-    LipsSectionRecord,
-    build_excluded_audit_sample,
-    build_review_sample,
-    read_jsonl,
-    summarize_lips_review,
-    write_jsonl,
-)
+
+def _bootstrap_repo() -> None:
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -43,6 +37,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    _bootstrap_repo()
+    from corpora.lips_dataset import (
+        LipsSectionRecord,
+        build_excluded_audit_sample,
+        build_review_sample,
+        read_jsonl,
+        summarize_lips_review,
+        write_jsonl,
+    )
+
     args = build_parser().parse_args()
     if args.command == "prepare":
         artifact_dir = args.artifact_dir
