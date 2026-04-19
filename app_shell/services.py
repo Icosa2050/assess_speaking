@@ -19,7 +19,11 @@ from app_shell import backend_client
 from app_shell.app_data import build_app_data_paths, resolve_reports_dir
 from app_shell.bootstrap import PROJECT_ROOT, bootstrap_app_environment
 from assessment_runtime.asr import describe_model_availability, ensure_model_downloaded, recommend_model_choice
-from assessment_runtime.llm_client import health_check as llm_health_check, test_connection as test_llm_connection
+from assessment_runtime.llm_client import (
+    LLMClientError,
+    health_check as llm_health_check,
+    test_connection as test_llm_connection,
+)
 import assessment_runtime.theme_library as theme_library_store
 from scripts import progress_dashboard
 from app_shell.runtime_connections import deserialize_connections, ensure_single_default_connection, serialize_connections
@@ -814,7 +818,7 @@ def _validate_local_assessment_runtime(request: dict[str, Any]) -> str | None:
             openrouter_http_referer=str(request.get("openrouter_http_referer") or "").strip() or None,
             openrouter_app_title=str(request.get("openrouter_app_title") or "").strip() or None,
         )
-    except Exception as exc:
+    except LLMClientError as exc:
         return str(exc)
     available_models = _health_payload_models(health_result.get("payload"))
     if available_models and model not in available_models:
