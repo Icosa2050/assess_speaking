@@ -1,7 +1,7 @@
 # Local Desktop UX Refactoring Plan
 
-Last updated: 2026-04-18
-Status: Proposed supporting plan registered under the local desktop planning
+Last updated: 2026-04-19
+Status: Accepted supporting plan registered under the local desktop planning
 hierarchy
 
 ## Summary
@@ -142,9 +142,9 @@ screens above:
 4. `app_shell/review_components.py`
 5. related locale and test files
 
-## Dependencies On The Reviewed Plans
+## Dependencies On The Governing Plans
 
-To reduce churn while the other plans are under review:
+To stay aligned with the governing plans and avoid churn:
 1. do not rewrite UX around hosted auth yet
 2. do not redesign around React routing yet
 3. do not assume support endpoints exist until their backend plan lands

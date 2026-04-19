@@ -1,8 +1,8 @@
 # Planning Alignment Meta-Plan
 
-Last updated: 2026-04-18
-Status: Proposed reconciliation plan for the current desktop, support, hosted,
-and exploratory planning docs
+Last updated: 2026-04-19
+Status: Accepted alignment plan for the current desktop, support, hosted, and
+exploratory planning docs
 
 ## Summary
 
@@ -38,7 +38,6 @@ Current planning lanes:
    - `docs/COACHING_BACKLOG.md`
    - `docs/SPOKEN_CORPUS_CATEGORIZATION_PLAN.md`
    - `docs/SYNTHETIC_BENCHMARK_AUTOMATION.md`
-   - `docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md`
 
 ## Locked Decisions
 
@@ -226,15 +225,13 @@ Deliverables:
 Files:
 1. `docs/SPOKEN_CORPUS_CATEGORIZATION_PLAN.md`
 2. `docs/SYNTHETIC_BENCHMARK_AUTOMATION.md`
-3. `docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md`
 
 Deliverables:
 1. classify each doc as blocking, deferred, or out-of-scope
 2. identify any collisions with `app_backend/contracts.py`, `scripts/`, or
    later hosted work
-3. classify the local desktop UX refactoring doc as a supporting desktop UX
-   plan that remains subordinate to the desktop baseline lane and current
-   collision rules
+3. note whether either doc should feed future backend or automation follow-on
+   tasks
 
 ### Subtask 1: Reconcile docs core
 
