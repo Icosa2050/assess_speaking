@@ -12,6 +12,18 @@ class ThemeLibraryTests(unittest.TestCase):
         self.assertIn("it", library)
         self.assertIn("en", library)
 
+    def test_default_library_covers_b1_b2_c1_for_it_and_en(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            library = theme_library.load_theme_library(Path(tmpdir))
+
+        for language_code in ("it", "en"):
+            with self.subTest(language_code=language_code):
+                levels = {
+                    str(theme.get("level") or "").upper()
+                    for theme in library[language_code]["themes"]
+                }
+                self.assertTrue({"B1", "B2", "C1"}.issubset(levels))
+
     def test_add_theme_supports_new_language(self):
         library = theme_library.add_theme(
             {},
@@ -24,7 +36,7 @@ class ThemeLibraryTests(unittest.TestCase):
         self.assertEqual(library["de"]["label"], "Deutsch")
         self.assertEqual(library["de"]["themes"][0]["level"], "B2")
 
-    def test_save_and_load_dashboard_prefs_roundtrip(self):
+    def test_save_and_load_workspace_prefs_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             log_dir = Path(tmpdir)
             prefs = {
@@ -35,13 +47,13 @@ class ThemeLibraryTests(unittest.TestCase):
                 "cefr_level": "B1",
                 "theme": "Il mio ultimo viaggio all'estero",
             }
-            theme_library.save_dashboard_prefs(log_dir, prefs)
-            loaded = theme_library.load_dashboard_prefs(log_dir)
+            theme_library.save_workspace_prefs(log_dir, prefs)
+            loaded = theme_library.load_workspace_prefs(log_dir)
         self.assertEqual(loaded["speaker_id"], "bern")
         self.assertEqual(loaded["ui_locale"], "de")
         self.assertEqual(loaded["language"], "it")
 
-    def test_save_and_load_dashboard_prefs_preserves_speaker_profiles(self):
+    def test_save_and_load_workspace_prefs_preserves_speaker_profiles(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             log_dir = Path(tmpdir)
             prefs = {
@@ -67,8 +79,8 @@ class ThemeLibraryTests(unittest.TestCase):
                     }
                 },
             }
-            theme_library.save_dashboard_prefs(log_dir, prefs)
-            loaded = theme_library.load_dashboard_prefs(log_dir)
+            theme_library.save_workspace_prefs(log_dir, prefs)
+            loaded = theme_library.load_workspace_prefs(log_dir)
         self.assertEqual(loaded["last_setup"]["cefr_level"], "B1")
         self.assertEqual(loaded["speaker_profiles"]["bern"]["learning_language"], "it")
 

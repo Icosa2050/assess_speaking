@@ -1,0 +1,42 @@
+<svg width="1400" height="320" viewBox="0 0 1400 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="logoBg" x1="52" y1="40" x2="278" y2="266" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#366BFF"/>
+      <stop offset="0.52" stop-color="#20B8E7"/>
+      <stop offset="1" stop-color="#0F1C34"/>
+    </linearGradient>
+    <linearGradient id="logoStroke" x1="108" y1="114" x2="196" y2="190" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7CEDE1"/>
+      <stop offset="1" stop-color="#4F8FFF"/>
+    </linearGradient>
+    <linearGradient id="logoDot" x1="184" y1="160" x2="218" y2="194" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFD76B"/>
+      <stop offset="1" stop-color="#FF9559"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="28" y="28" width="240" height="240" rx="72" fill="url(#logoBg)"/>
+
+  <rect x="72" y="84" width="152" height="94" rx="30" fill="white"/>
+  <path d="M132 178H166L140 210V178H132Z" fill="white"/>
+
+  <path
+    d="M113 116L148 170L183 116"
+    stroke="url(#logoStroke)"
+    stroke-width="16"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <circle cx="184" cy="153" r="10" fill="url(#logoDot)"/>
+
+  <text
+    x="326"
+    y="172"
+    fill="#0F172A"
+    font-family="Avenir Next, Nunito, Inter, SF Pro Display, Segoe UI, Arial, sans-serif"
+    font-size="108"
+    font-weight="800"
+    letter-spacing="-3"
+  >Vostavo</text>
+</svg>

@@ -42,6 +42,11 @@ class AppShellI18nTests(unittest.TestCase):
             for code in KNOWN_LOCALE_CODES:
                 self.assertIn(code, locale_names, f"Locale {locale} is missing locale.{code}")
 
+    def test_home_title_uses_vostavo_in_all_locales(self):
+        for locale in KNOWN_LOCALE_CODES:
+            home = load_locale(locale).get("home", {})
+            self.assertEqual(home.get("title"), "Vostavo", f"Locale {locale} still has stale home.title branding")
+
 
 if __name__ == "__main__":
     unittest.main()

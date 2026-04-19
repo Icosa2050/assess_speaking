@@ -57,7 +57,7 @@ jobs:
           from asr import transcribe
 
           result = transcribe(
-              Path("samples/italian_demo.wav"),
+              Path("samples/cefr/it/B1/travel_story.wav"),
               model_size=os.environ["WHISPER_MODEL"],
               compute_type=os.environ["ASR_COMPUTE_TYPE"],
               fallback_compute_type=os.environ["ASR_FALLBACK_COMPUTE_TYPE"],
@@ -80,7 +80,7 @@ jobs:
         run: |
           set -o pipefail
           python assess_speaking.py \
-            samples/italian_demo.wav \
+            samples/cefr/it/B1/travel_story.wav \
             --whisper "$WHISPER_MODEL" \
             --theme "parla della tua giornata in italiano" \
             --target-duration-sec 60 \

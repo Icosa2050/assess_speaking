@@ -8,7 +8,7 @@ import streamlit as st
 from app_shell.i18n import t
 from app_shell.page_helpers import configure_page, render_page_intro, render_shell_summary
 from app_shell.review_components import render_report_panels
-from app_shell.services import load_history_records, load_report_payload, review_summary
+from app_shell.services import load_history_detail_payload, load_history_records, review_summary
 from assessment_runtime.progress_analysis import format_top_counts, latest_priorities, task_family_progress
 
 RECENT_HISTORY_JUMP_COUNT = 4
@@ -203,7 +203,7 @@ speaker_scope = str(state.draft.speaker_id or "").strip()
 try:
     raw_records = _speaker_scoped_records(load_history_records(state.prefs.log_dir), speaker_scope)
     history_error = ""
-except Exception:  # pragma: no cover - I/O boundary
+except Exception:  # pragma: no cover - I/O boundary  # quality: allow[broad-except] history load failures should degrade to a localized empty/error state
     raw_records = []
     history_error = t("history.error_loading")
 
@@ -244,6 +244,16 @@ else:
     priorities = latest_priorities(records)
 
     with st.container(border=True):
+        latest_record = summary.get("latest")
+        if latest_record is not None:
+            st.caption(
+                t(
+                    "history.details_caption",
+                    session=getattr(latest_record, "session_id", "") or "-",
+                    language=_history_language_label(_normalized_language(getattr(latest_record, "learning_language", ""))),
+                    theme=getattr(latest_record, "theme", "") or "-",
+                )
+            )
         if speaker_scope and selected_language != ALL_HISTORY_LANGUAGES:
             st.caption(
                 t(
@@ -286,17 +296,6 @@ else:
 
     with st.container(border=True):
         st.subheader(t("history.trends_title"))
-        if len(trend_frame.index) >= 2:
-            score_columns = [column for column in ("final_score", "overall") if column in trend_frame.columns and trend_frame[column].notna().any()]
-            if score_columns:
-                st.caption(t("history.score_chart_title"))
-                st.line_chart(trend_frame[score_columns], width="stretch")
-            if "wpm" in trend_frame.columns and trend_frame["wpm"].notna().any():
-                st.caption(t("history.pace_chart_title"))
-                st.line_chart(trend_frame[["wpm"]], width="stretch")
-        else:
-            st.info(t("history.trends_not_enough"))
-
         priority_cols = st.columns(3)
         with priority_cols[0]:
             st.caption(t("history.priority_latest"))
@@ -307,6 +306,17 @@ else:
         with priority_cols[2]:
             st.caption(t("history.priority_resolved"))
             st.write(_list_or_placeholder(priorities.get("resolved", [])))
+
+        if len(trend_frame.index) >= 2:
+            score_columns = [column for column in ("final_score", "overall") if column in trend_frame.columns and trend_frame[column].notna().any()]
+            if score_columns:
+                st.caption(t("history.score_chart_title"))
+                st.line_chart(trend_frame[score_columns], width="stretch")
+            if "wpm" in trend_frame.columns and trend_frame["wpm"].notna().any():
+                st.caption(t("history.pace_chart_title"))
+                st.line_chart(trend_frame[["wpm"]], width="stretch")
+        else:
+            st.info(t("history.trends_not_enough"))
 
     with st.container(border=True):
         st.subheader(t("history.task_family_title"))
@@ -361,7 +371,10 @@ else:
             selected_record = next(
                 record for record in detail_records if str(getattr(record, "report_path", "")) == selected_report_path
             )
-            payload = load_report_payload(selected_report_path)
+            payload, detail_error = load_history_detail_payload(
+                str(getattr(selected_record, "session_id", "") or ""),
+                log_dir=state.prefs.log_dir,
+            )
             if payload is None:
                 st.error(t("history.details_error"))
             else:

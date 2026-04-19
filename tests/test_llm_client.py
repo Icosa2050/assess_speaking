@@ -109,7 +109,7 @@ class LlmClientTests(unittest.TestCase):
             llm_client.os.environ,
             {
                 "OPENROUTER_HTTP_REFERER": "http://localhost:8503",
-                "OPENROUTER_APP_TITLE": "Speaking Studio",
+                "OPENROUTER_APP_TITLE": "Vostavo",
             },
             clear=False,
         ):
@@ -126,7 +126,7 @@ class LlmClientTests(unittest.TestCase):
         self.assertEqual(payload["response_format"], {"type": "json_object"})
         self.assertEqual(headers["Authorization"], "Bearer key")
         self.assertEqual(headers["HTTP-Referer"], "http://localhost:8503")
-        self.assertEqual(headers["X-OpenRouter-Title"], "Speaking Studio")
+        self.assertEqual(headers["X-OpenRouter-Title"], "Vostavo")
 
     @mock.patch("assessment_runtime.llm_client._post_json")
     def test_chat_completion_openrouter_falls_back_without_response_format(self, mock_post):
@@ -303,7 +303,7 @@ class LlmClientTests(unittest.TestCase):
             {
                 "OPENROUTER_API_KEY": "env-key",
                 "OPENROUTER_HTTP_REFERER": "http://localhost:8503",
-                "OPENROUTER_APP_TITLE": "Speaking Studio",
+                "OPENROUTER_APP_TITLE": "Vostavo",
             },
             clear=False,
         ):
@@ -317,8 +317,8 @@ class LlmClientTests(unittest.TestCase):
         headers = mock_get.call_args.args[1]
         self.assertEqual(headers["Authorization"], "Bearer env-key")
         self.assertEqual(headers["HTTP-Referer"], "http://localhost:8503")
-        self.assertEqual(headers["X-OpenRouter-Title"], "Speaking Studio")
-        self.assertEqual(headers["X-Title"], "Speaking Studio")
+        self.assertEqual(headers["X-OpenRouter-Title"], "Vostavo")
+        self.assertEqual(headers["X-Title"], "Vostavo")
 
     @mock.patch("assessment_runtime.llm_client._get_json")
     def test_health_check_uses_native_ollama_tags_endpoint(self, mock_get):
@@ -339,7 +339,7 @@ class LlmClientTests(unittest.TestCase):
             {
                 "OPENROUTER_API_KEY": "env-key",
                 "OPENROUTER_HTTP_REFERER": "http://localhost:8503",
-                "OPENROUTER_APP_TITLE": "Speaking Studio",
+                "OPENROUTER_APP_TITLE": "Vostavo",
             },
             clear=False,
         ):
@@ -352,7 +352,7 @@ class LlmClientTests(unittest.TestCase):
         headers = mock_get.call_args.args[1]
         self.assertEqual(headers["Authorization"], "Bearer env-key")
         self.assertEqual(headers["HTTP-Referer"], "http://localhost:8503")
-        self.assertEqual(headers["X-OpenRouter-Title"], "Speaking Studio")
+        self.assertEqual(headers["X-OpenRouter-Title"], "Vostavo")
 
     @mock.patch("assessment_runtime.llm_client._chat_completion", return_value='{"ok": true}')
     def test_test_connection_reports_preview(self, mock_chat):

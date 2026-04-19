@@ -66,9 +66,10 @@ class ReviewComponentsTests(unittest.TestCase):
 
     def test_render_baseline_renders_dataframe_when_targets_exist(self):
         summary = {
+            "learning_language": "it",
             "baseline": {
                 "level": "B2",
-                "comment": "Stable baseline.",
+                "comment": "Legacy Italian baseline.",
                 "targets": {
                     "grammar": {"expected": "few errors", "actual": "few errors", "ok": True},
                     "coherence": {"expected": "clear structure", "actual": "clear structure", "ok": False},
@@ -81,7 +82,14 @@ class ReviewComponentsTests(unittest.TestCase):
             review_components._render_baseline(summary)
 
         subheader.assert_called_once_with(t("review.baseline_title"))
-        caption.assert_called_once_with(t("review.baseline_caption", level="B2", comment="Stable baseline."))
+        caption.assert_called_once_with(
+            t(
+                "review.baseline_target_caption",
+                level="B2",
+                language=t("locale.it"),
+                comment=t("review.baseline_descriptors.b2"),
+            )
+        )
         dataframe.assert_called_once()
         rendered_frame = dataframe.call_args.args[0]
         self.assertEqual(list(rendered_frame.columns), [

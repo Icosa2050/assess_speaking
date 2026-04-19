@@ -35,20 +35,16 @@ from app_shell.state import (
 
 PROVIDER_CHOICES = {
     "ollama_local": "Ollama local",
-    "ollama": "Ollama local",
     "ollama_cloud": "Ollama cloud",
     "lmstudio_local": "LM Studio local",
-    "lmstudio": "LM Studio local",
     "openrouter": "OpenRouter",
     "openai_compatible": "Generic OpenAI-compatible",
 }
 
 PROVIDER_SUGGESTED_MODELS = {
     "ollama_local": "llama3",
-    "ollama": "llama3",
     "ollama_cloud": "llama3",
     "lmstudio_local": "qwen2.5",
-    "lmstudio": "qwen2.5",
     "openrouter": DEFAULT_MODEL,
     "openai_compatible": "",
 }
@@ -160,12 +156,8 @@ editing_connection = next((item for item in state.prefs.connections if item.conn
 if st.session_state.get("settings_form_connection_id") != selected_connection_id:
     _populate_connection_form(editing_connection, state.prefs.provider)
     st.session_state["settings_form_connection_id"] = selected_connection_id
-legacy_provider_aliases = {"ollama": "ollama_local", "lmstudio": "lmstudio_local"}
 if "settings_provider" in st.session_state and st.session_state["settings_provider"] not in PROVIDER_CHOICES:
-    st.session_state["settings_provider"] = legacy_provider_aliases.get(
-        str(st.session_state["settings_provider"]),
-        _provider_choice_hint(editing_connection, state.prefs.provider),
-    )
+    st.session_state["settings_provider"] = _provider_choice_hint(editing_connection, state.prefs.provider)
 
 with st.container(border=True):
     st.subheader("Saved connections")
@@ -309,7 +301,7 @@ if download_model:
     try:
         result = shell_services.download_whisper_model(whisper_model, progress_callback=_update_download_progress)
         st.session_state["settings_whisper_message"] = t("settings.whisper_downloaded", path=result["cached_path"])
-    except Exception as exc:
+    except Exception as exc:  # quality: allow[broad-except] download boundary should become localized settings feedback
         st.session_state["settings_whisper_error"] = t("settings.whisper_download_failed", detail=str(exc))
     st.rerun()
 
@@ -329,11 +321,13 @@ if test_connection:
         st.session_state["settings_last_test_status"] = "passed"
         st.session_state["settings_last_tested_at"] = str(test_payload.get("tested_at") or "")
         preview = str(test_payload.get("content_preview") or "").strip() or "-"
-        st.session_state["settings_test_message"] = (
-            f"Health check passed at {result['health_endpoint']}. "
-            f"Smoke test reached {result['base_url']}. Preview: {preview}"
+        st.session_state["settings_test_message"] = t(
+            "settings.test_success",
+            provider=PROVIDER_CHOICES.get(provider_choice, provider_choice),
+            base_url=result["base_url"],
+            preview=preview,
         )
-    except Exception as exc:
+    except Exception as exc:  # quality: allow[broad-except] provider test errors should become localized settings feedback
         st.session_state["settings_last_test_status"] = f"failed: {exc}"
         st.session_state["settings_last_tested_at"] = ""
         st.session_state["settings_test_error"] = t("settings.test_failed", detail=str(exc))

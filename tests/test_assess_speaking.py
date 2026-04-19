@@ -1,7 +1,6 @@
 import contextlib
 import io
 import json
-import os
 import subprocess
 import tempfile
 import unittest
@@ -330,8 +329,8 @@ class OllamaHelpersTests(unittest.TestCase):
 
 class SelftestAndTranscribeTests(unittest.TestCase):
     @mock.patch("assess_speaking.call_ollama", return_value="ok")
-    def test_selftest_uses_legacy_ollama_when_model_looks_local(self, mock_call):
-        result = assess_speaking.selftest("llama3.1")
+    def test_selftest_uses_ollama_when_provider_is_selected(self, mock_call):
+        result = assess_speaking.selftest("llama3.1", provider="ollama")
         self.assertEqual(result, "ok")
         self.assertIn("la mia città", mock_call.call_args[0][1])
 
@@ -528,7 +527,7 @@ class RunAssessmentTests(unittest.TestCase):
     def test_resolve_model_uses_pinned_openrouter_rubric_model(self):
         settings = assess_speaking.Settings(openrouter_rubric_model="anthropic/claude-sonnet-4.5")
         self.assertEqual(
-            assess_speaking._resolve_model("openrouter", None, None, settings),
+            assess_speaking._resolve_model("openrouter", None, settings),
             "anthropic/claude-sonnet-4.5",
         )
 
@@ -727,14 +726,14 @@ class RunAssessmentTests(unittest.TestCase):
             ],
         },
     )
-    def test_run_assessment_legacy_ollama_path_still_builds_report(
+    def test_run_assessment_explicit_ollama_path_still_builds_report(
         self,
         _mock_transcribe,
         _mock_audio,
         _mock_call,
         _mock_generate_coaching,
     ):
-        result = assess_speaking.run_assessment(Path("sample.wav"), llm_model="llama3.1")
+        result = assess_speaking.run_assessment(Path("sample.wav"), llm_model="llama3.1", provider="ollama")
         self.assertEqual(result["report"]["input"]["provider"], "ollama")
         self.assertEqual(result["report"]["scores"]["mode"], "hybrid")
         self.assertIsNotNone(result["report"]["coaching"])
@@ -839,7 +838,7 @@ class RunAssessmentTests(unittest.TestCase):
             target_duration_sec=45.0,
         )
         scores = result["report"]["scores"]
-        self.assertEqual(scores["scorer_version"], "legacy_hybrid_v1")
+        self.assertEqual(scores["scorer_version"], "hybrid_language_profile_v1")
         self.assertEqual(scores["language_profile_key"], "en")
         self.assertEqual(scores["language_profile_version"], "language_profile_en_v2")
         self.assertIn("dimensions", scores)
@@ -887,7 +886,7 @@ class MainCliTests(unittest.TestCase):
     def test_main_selftest(self):
         buf = io.StringIO()
         with (
-            mock.patch("sys.argv", ["assess_speaking.py", "--selftest", "--llm", "llama3.1"]),
+            mock.patch("sys.argv", ["assess_speaking.py", "--selftest", "--provider", "ollama", "--llm-model", "llama3.1"]),
             mock.patch.object(assess_speaking, "selftest", return_value='{"ok": true}'),
             contextlib.redirect_stdout(buf),
         ):
@@ -1062,8 +1061,8 @@ class MainCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             history = Path(tmpdir) / "history.csv"
             history.write_text(
-                "timestamp,session_id,schema_version,speaker_id,task_family,theme,audio,whisper,llm,label,target_duration_sec,duration_sec,wpm,word_count,duration_pass,topic_pass,language_pass,fluency,cohesion,accuracy,range,overall,final_score,band,requires_human_review,top_priority_1,top_priority_2,top_priority_3,grammar_error_categories,coherence_issue_categories,report_path\n"
-                "2026-03-01T10:00:00,sess-122,2,bern,travel_narrative,trip,old.wav,large-v3,gemini,week1,180,50,90,75,true,true,true,3,3,3,3,3.0,3.1,3,false,Più connettivi,Meno filler,Più dettagli,preposition_choice,missing_sequence_markers,/tmp/old.json\n",
+                ",".join(assess_speaking.HISTORY_FIELDNAMES) + "\n"
+                "2026-03-01T10:00:00,sess-122,2,bern,it,travel_narrative,trip,old.wav,large-v3,gemini,week1,180,50,90,75,true,true,true,3,3,3,3,3.0,3.1,3,false,Più connettivi,Meno filler,Più dettagli,preposition_choice,missing_sequence_markers,/tmp/old.json\n",
                 encoding="utf-8",
             )
             report = _sample_report()
@@ -1102,53 +1101,54 @@ class MainCliTests(unittest.TestCase):
             self.assertIn("Più dettagli", delta["resolved_priorities"])
             self.assertIn("preposition_choice", delta["repeating_grammar_categories"])
 
-    def test_append_history_upgrades_legacy_header(self):
+    def test_append_history_rejects_legacy_header(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             history = Path(tmpdir) / "history.csv"
             history.write_text(
                 "timestamp,audio,whisper,llm,label,duration_sec,wpm,word_count,overall,report_path\n"
-                "2025-10-06T14:58:01,demo.m4a,large-v3,llama3.1,baseline,43.09,95.9,54,3.5,/path/to/1.json\n",
+                "2025-10-06T14:58:01,travel_story.wav,large-v3,llama3.1,baseline,43.09,95.9,54,3.5,/path/to/1.json\n",
                 encoding="utf-8",
             )
-            assess_speaking.append_history(
-                history,
-                {
-                    "timestamp": "2026-03-07T10:00:00",
-                    "session_id": "sess-123",
-                    "schema_version": 2,
-                    "speaker_id": "bern",
-                    "task_family": "travel_narrative",
-                    "theme": "trip",
-                    "audio": "new.wav",
-                    "whisper": "large-v3",
-                    "llm": "google/gemini-3.1-pro-preview",
-                    "label": "week2",
-                    "target_duration_sec": 180,
-                    "duration_sec": 60,
-                    "wpm": 100,
-                    "word_count": 100,
-                    "duration_pass": True,
-                    "topic_pass": True,
-                    "language_pass": True,
-                    "fluency": 4,
-                    "cohesion": 4,
-                    "accuracy": 4,
-                    "range": 4,
-                    "overall": 4,
-                    "final_score": 4.1,
-                    "band": 4,
-                    "requires_human_review": False,
-                    "top_priority_1": "Più connettivi",
-                    "top_priority_2": "Meno filler",
-                    "top_priority_3": "Più dettagli",
-                    "grammar_error_categories": "preposition_choice",
-                    "coherence_issue_categories": "missing_sequence_markers",
-                    "report_path": "/path/to/2.json",
-                },
-            )
+            with self.assertRaisesRegex(RuntimeError, "Unsupported history.csv schema"):
+                assess_speaking.append_history(
+                    history,
+                    {
+                        "timestamp": "2026-03-07T10:00:00",
+                        "session_id": "sess-123",
+                        "schema_version": 2,
+                        "speaker_id": "bern",
+                        "task_family": "travel_narrative",
+                        "theme": "trip",
+                        "audio": "new.wav",
+                        "whisper": "large-v3",
+                        "llm": "google/gemini-3.1-pro-preview",
+                        "label": "week2",
+                        "target_duration_sec": 180,
+                        "duration_sec": 60,
+                        "wpm": 100,
+                        "word_count": 100,
+                        "duration_pass": True,
+                        "topic_pass": True,
+                        "language_pass": True,
+                        "fluency": 4,
+                        "cohesion": 4,
+                        "accuracy": 4,
+                        "range": 4,
+                        "overall": 4,
+                        "final_score": 4.1,
+                        "band": 4,
+                        "requires_human_review": False,
+                        "top_priority_1": "Più connettivi",
+                        "top_priority_2": "Meno filler",
+                        "top_priority_3": "Più dettagli",
+                        "grammar_error_categories": "preposition_choice",
+                        "coherence_issue_categories": "missing_sequence_markers",
+                        "report_path": "/path/to/2.json",
+                    },
+                )
             body = history.read_text(encoding="utf-8")
-            self.assertIn("session_id", body.splitlines()[0])
-            self.assertEqual(len(body.splitlines()), 3)
+            self.assertEqual(body.splitlines()[0], "timestamp,audio,whisper,llm,label,duration_sec,wpm,word_count,overall,report_path")
+            self.assertEqual(len(body.splitlines()), 2)
 
 
 class ConvertToWavTests(unittest.TestCase):

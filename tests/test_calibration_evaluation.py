@@ -3,6 +3,7 @@ import tempfile
 import unittest
 
 from benchmarking.calibration_evaluation import (
+    _extract_cefr_estimate,
     CalibrationRunConfig,
     evaluate_calibration_manifest,
     load_calibration_evaluation_manifest,
@@ -17,6 +18,13 @@ FIXTURE_PATH = Path(__file__).parent / "fixtures" / "calibration" / "italian_rea
 class CalibrationEvaluationTests(unittest.TestCase):
     def setUp(self):
         self.manifest = load_calibration_manifest(FIXTURE_PATH)
+
+    def test_extract_cefr_estimate_ignores_legacy_keys(self):
+        estimated, continuous = _extract_cefr_estimate(
+            {"cefr_estimate": {"cefr": "B2", "continuous_score": 4.1}}
+        )
+        self.assertIsNone(estimated)
+        self.assertIsNone(continuous)
 
     def test_evaluate_calibration_manifest_uses_live_shadow_profile_and_passes_pair_expectation(self):
         seen_calls: list[dict] = []

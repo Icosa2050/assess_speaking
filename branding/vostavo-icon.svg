@@ -1,0 +1,29 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="vostavoBg" x1="96" y1="72" x2="424" y2="440" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#163B61"/>
+      <stop offset="1" stop-color="#0A1422"/>
+    </linearGradient>
+    <linearGradient id="vostavoMark" x1="182" y1="158" x2="316" y2="318" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#68E1D6"/>
+      <stop offset="1" stop-color="#3B82F6"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#vostavoBg)"/>
+
+  <path
+    d="M141 174C141 140.863 167.863 114 201 114H311C344.137 114 371 140.863 371 174V261C371 294.137 344.137 321 311 321H237.5L186 373V321H201C167.863 321 141 294.137 141 261V174Z"
+    fill="white"
+  />
+
+  <path
+    d="M198 170L255 277L313 170"
+    stroke="url(#vostavoMark)"
+    stroke-width="26"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <circle cx="319" cy="260" r="18" fill="#FF7B5C"/>
+</svg>

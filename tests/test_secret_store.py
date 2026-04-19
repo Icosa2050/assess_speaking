@@ -40,6 +40,31 @@ class SecretStoreTests(unittest.TestCase):
         self.assertFalse(status.persistent)
         self.assertEqual(secret_store.get_secret("account-2"), "saved-key")
 
+    @mock.patch("app_shell.secret_store._load_keyring_module")
+    def test_get_secret_falls_back_to_legacy_service_name(self, mock_load_keyring):
+        mock_load_keyring.return_value = (
+            None,
+            secret_store.SecretStoreStatus(persistent=False, backend_name="unavailable", detail="no keyring"),
+        )
+        secret_store.SessionSecretStore().set_secret(secret_store.LEGACY_SERVICE_NAME, "account-3", "legacy-key")
+
+        self.assertEqual(secret_store.get_secret("account-3"), "legacy-key")
+        self.assertEqual(secret_store.get_secret("account-3", service=secret_store.SERVICE_NAME), "legacy-key")
+
+    @mock.patch("app_shell.secret_store._load_keyring_module")
+    def test_set_secret_mirrors_legacy_entry_when_present(self, mock_load_keyring):
+        mock_load_keyring.return_value = (
+            None,
+            secret_store.SecretStoreStatus(persistent=False, backend_name="unavailable", detail="no keyring"),
+        )
+        session_store = secret_store.SessionSecretStore()
+        session_store.set_secret(secret_store.LEGACY_SERVICE_NAME, "account-4", "old-key")
+
+        secret_store.set_secret("account-4", "new-key")
+
+        self.assertEqual(session_store.get_secret(secret_store.SERVICE_NAME, "account-4"), "new-key")
+        self.assertEqual(session_store.get_secret(secret_store.LEGACY_SERVICE_NAME, "account-4"), "new-key")
+
 
 if __name__ == "__main__":
     unittest.main()

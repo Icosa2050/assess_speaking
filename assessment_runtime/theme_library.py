@@ -1,4 +1,4 @@
-"""Persistent language/theme catalog for the Streamlit dashboard."""
+"""Persistent language/theme catalog and workspace preferences."""
 
 from __future__ import annotations
 
@@ -42,8 +42,8 @@ def theme_library_path(log_dir: Path) -> Path:
     return log_dir / "theme_library.json"
 
 
-def dashboard_prefs_path(log_dir: Path) -> Path:
-    return log_dir / "dashboard_prefs.json"
+def workspace_prefs_path(log_dir: Path) -> Path:
+    return log_dir / "workspace_prefs.json"
 
 
 def _normalize_theme_library(data: dict | None) -> dict:
@@ -111,8 +111,8 @@ def add_theme(
     return updated
 
 
-def load_dashboard_prefs(log_dir: Path) -> dict:
-    path = dashboard_prefs_path(log_dir)
+def load_workspace_prefs(log_dir: Path) -> dict:
+    path = workspace_prefs_path(log_dir)
     if not path.exists():
         return {}
     try:
@@ -122,8 +122,8 @@ def load_dashboard_prefs(log_dir: Path) -> dict:
         return {}
 
 
-def save_dashboard_prefs(log_dir: Path, prefs: dict) -> None:
-    path = dashboard_prefs_path(log_dir)
+def save_workspace_prefs(log_dir: Path, prefs: dict) -> None:
+    path = workspace_prefs_path(log_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(prefs, ensure_ascii=False, indent=2), encoding="utf-8")
 

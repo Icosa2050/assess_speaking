@@ -5,14 +5,19 @@ import hashlib
 import json
 import os
 import re
-import subprocess
-import sys
 import tempfile
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from pydantic import ValidationError
+
+from app_backend.contracts import ErrorResponse
+from app_shell import backend_client
+from app_shell.app_data import build_app_data_paths, resolve_reports_dir
+from app_shell.bootstrap import PROJECT_ROOT, bootstrap_app_environment
 from assessment_runtime.asr import describe_model_availability, ensure_model_downloaded, recommend_model_choice
 from assessment_runtime.llm_client import health_check as llm_health_check, test_connection as test_llm_connection
 import assessment_runtime.theme_library as theme_library_store
@@ -30,8 +35,9 @@ from app_shell.runtime_providers import (
     service_base_url,
 )
 from app_shell.runtime_resolver import active_connection, sync_runtime_fields
-from app_shell.secret_store import SecretStoreStatus, delete_secret, get_secret, secret_store_status, set_secret
+from app_shell.secret_store import SecretStoreStatus, delete_secret, secret_store_status, set_secret
 from app_shell.state import (
+    AssessmentJobState,
     DEFAULT_MODEL,
     DEFAULT_OPENROUTER_APP_TITLE,
     DEFAULT_OPENROUTER_HTTP_REFERER,
@@ -40,9 +46,7 @@ from app_shell.state import (
     DEFAULT_WHISPER_MODEL,
     ProviderConnection,
 )
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-ASSESS_SCRIPT = PROJECT_ROOT / "assess_speaking.py"
-DEFAULT_LOG_DIR = PROJECT_ROOT / "reports"
+DEFAULT_LOG_DIR = build_app_data_paths().reports_dir
 DEFAULT_WHISPER_OPTIONS = ("tiny", "base", "small", "medium", "large-v3")
 NEW_LANGUAGE_OPTION = "__new_language__"
 BOOTSTRAP_KEY = "_app_shell_bootstrapped"
@@ -76,21 +80,19 @@ def _persist_connection_secret(connection: ProviderConnection, api_key: str) -> 
 
 
 def resolve_log_dir(log_dir: str | Path | None = None) -> Path:
-    if log_dir is None:
-        return DEFAULT_LOG_DIR
-    return Path(log_dir).expanduser().resolve()
+    return resolve_reports_dir(log_dir)
 
 
 def load_theme_library(log_dir: str | Path | None = None) -> dict:
     return theme_library_store.load_theme_library(resolve_log_dir(log_dir))
 
 
-def load_dashboard_prefs(log_dir: str | Path | None = None) -> dict:
-    return theme_library_store.load_dashboard_prefs(resolve_log_dir(log_dir))
+def load_workspace_prefs(log_dir: str | Path | None = None) -> dict:
+    return theme_library_store.load_workspace_prefs(resolve_log_dir(log_dir))
 
 
-def save_dashboard_prefs(log_dir: str | Path | None, prefs: dict) -> None:
-    theme_library_store.save_dashboard_prefs(resolve_log_dir(log_dir), prefs)
+def save_workspace_prefs(log_dir: str | Path | None, prefs: dict) -> None:
+    theme_library_store.save_workspace_prefs(resolve_log_dir(log_dir), prefs)
 
 
 def save_theme_library(log_dir: str | Path | None, library: dict) -> None:
@@ -385,22 +387,10 @@ def _explicit_last_setup(prefs: dict[str, Any]) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _legacy_draft_preferences(prefs: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "speaker_id": str(prefs.get("speaker_id") or "").strip(),
-        "learning_language": str(prefs.get("learning_language") or prefs.get("language") or "").strip().lower(),
-        "cefr_level": str(prefs.get("cefr_level") or "").strip().upper(),
-        "theme": str(prefs.get("theme") or "").strip(),
-        "task_family": str(prefs.get("task_family") or "").strip(),
-        "target_duration_sec": prefs.get("target_duration_sec"),
-    }
-
-
 def _draft_preferences_from_state(state) -> dict[str, Any]:
     return {
         "speaker_id": str(state.draft.speaker_id or "").strip(),
         "learning_language": str(state.draft.learning_language or "").strip().lower(),
-        "language": str(state.draft.learning_language or "").strip().lower(),
         "cefr_level": str(state.draft.cefr_level or "").strip().upper(),
         "theme": str(state.draft.theme_label or "").strip(),
         "task_family": str(state.draft.task_family or "").strip(),
@@ -420,7 +410,7 @@ def _speaker_profiles(prefs: dict[str, Any]) -> dict[str, dict[str, Any]]:
             continue
         profiles[speaker_id] = {
             "speaker_id": speaker_id,
-            "learning_language": str(raw_profile.get("learning_language") or raw_profile.get("language") or "").strip().lower(),
+            "learning_language": str(raw_profile.get("learning_language") or "").strip().lower(),
             "cefr_level": str(raw_profile.get("cefr_level") or "").strip().upper(),
             "theme": str(raw_profile.get("theme") or "").strip(),
             "task_family": str(raw_profile.get("task_family") or "").strip(),
@@ -493,12 +483,7 @@ def _resolved_draft_preferences(
         return max(populated, key=_timestamp)
 
     explicit_last_setup = _explicit_last_setup(prefs)
-    legacy = _legacy_draft_preferences(prefs)
-    selected_speaker = (
-        str(current_speaker_id or "").strip()
-        or str(explicit_last_setup.get("speaker_id") or "").strip()
-        or str(legacy.get("speaker_id") or "").strip()
-    )
+    selected_speaker = str(current_speaker_id or "").strip()
     profiles = _speaker_profiles(prefs)
     history_fallback = _latest_history_draft_preferences(log_dir, speaker_id=selected_speaker)
     if selected_speaker and selected_speaker in profiles:
@@ -511,7 +496,7 @@ def _resolved_draft_preferences(
         return history_fallback
     if explicit_last_setup:
         return explicit_last_setup
-    return legacy
+    return {}
 
 
 def _load_runtime_connections(prefs: dict[str, Any]) -> tuple[list[ProviderConnection], str]:
@@ -526,8 +511,10 @@ def hydrate_state_from_storage(state) -> Any:
         return state
     if hasattr(state, "__dict__") and getattr(state, BOOTSTRAP_KEY, False):
         return state
-    prefs = load_dashboard_prefs(getattr(state.prefs, "log_dir", "") or DEFAULT_LOG_DIR)
-    library = load_theme_library(prefs.get("log_dir") or getattr(state.prefs, "log_dir", "") or DEFAULT_LOG_DIR)
+    bootstrap_app_environment(log_dir=getattr(state.prefs, "log_dir", "") or DEFAULT_LOG_DIR)
+    prefs = load_workspace_prefs(getattr(state.prefs, "log_dir", "") or DEFAULT_LOG_DIR)
+    library_log_dir = prefs.get("log_dir") or getattr(state.prefs, "log_dir", "") or DEFAULT_LOG_DIR
+    library = load_theme_library(library_log_dir)
     state.prefs.ui_locale = str(prefs.get("ui_locale") or state.prefs.ui_locale or DEFAULT_UI_LOCALE)
     state.prefs.provider = normalize_provider(prefs.get("provider") or state.prefs.provider or DEFAULT_PROVIDER)
     state.prefs.model = str(prefs.get("model") or state.prefs.model or DEFAULT_MODEL)
@@ -536,7 +523,11 @@ def hydrate_state_from_storage(state) -> Any:
         prefs.get("llm_base_url") or getattr(state.prefs, "llm_base_url", ""),
     )
     state.prefs.whisper_model = str(prefs.get("whisper_model") or state.prefs.whisper_model or DEFAULT_WHISPER_MODEL)
-    state.prefs.whisper_cache_dir = str(prefs.get("whisper_cache_dir") or state.prefs.whisper_cache_dir or "").strip()
+    state.prefs.whisper_cache_dir = str(
+        prefs.get("whisper_cache_dir")
+        or state.prefs.whisper_cache_dir
+        or build_app_data_paths().whisper_cache_dir
+    ).strip()
     state.prefs.llm_api_key = _env_api_key_for_provider(state.prefs.provider)
     state.prefs.openrouter_http_referer = str(
         prefs.get("openrouter_http_referer")
@@ -554,18 +545,20 @@ def hydrate_state_from_storage(state) -> Any:
     state.prefs.connections, state.prefs.active_connection_id = _load_runtime_connections(prefs)
     state.prefs.setup_complete = bool(prefs.get("setup_complete")) or bool(state.prefs.connections)
     state.prefs.log_dir = str(resolve_log_dir(prefs.get("log_dir") or state.prefs.log_dir or DEFAULT_LOG_DIR))
+    bootstrap_app_environment(log_dir=state.prefs.log_dir, whisper_cache_dir=state.prefs.whisper_cache_dir)
     if state.prefs.connections:
         sync_runtime_fields(state.prefs)
 
+    explicit_last_setup = _explicit_last_setup(prefs)
+    last_setup_speaker_id = str(explicit_last_setup.get("speaker_id") or "").strip()
     draft_prefs = _resolved_draft_preferences(
         prefs,
         log_dir=state.prefs.log_dir,
-        current_speaker_id=state.draft.speaker_id,
+        current_speaker_id=str(state.draft.speaker_id or last_setup_speaker_id).strip(),
     )
-    state.draft.speaker_id = str(draft_prefs.get("speaker_id") or state.draft.speaker_id or "")
+    state.draft.speaker_id = str(state.draft.speaker_id or last_setup_speaker_id or "")
     state.draft.learning_language = str(
         draft_prefs.get("learning_language")
-        or draft_prefs.get("language")
         or state.draft.learning_language
         or "it"
     ).strip().lower()
@@ -599,6 +592,7 @@ def hydrate_state_from_storage(state) -> Any:
 
 
 def save_state_preferences(state, *, persist_draft: bool = True) -> SecretStoreStatus:
+    bootstrap_app_environment(log_dir=state.prefs.log_dir, whisper_cache_dir=state.prefs.whisper_cache_dir)
     if state.prefs.connections:
         state.prefs.connections, state.prefs.active_connection_id = ensure_single_default_connection(
             list(state.prefs.connections or []),
@@ -611,7 +605,7 @@ def save_state_preferences(state, *, persist_draft: bool = True) -> SecretStoreS
         secret_status = _persist_connection_secret(active, current_api_key)
     else:
         secret_status = secret_store_status(env_var_names=_secret_env_var_names(state.prefs.provider))
-    stored = load_dashboard_prefs(state.prefs.log_dir or DEFAULT_LOG_DIR)
+    stored = load_workspace_prefs(state.prefs.log_dir or DEFAULT_LOG_DIR)
     prefs = {
         **(stored if isinstance(stored, dict) else {}),
         "ui_locale": state.prefs.ui_locale,
@@ -629,15 +623,25 @@ def save_state_preferences(state, *, persist_draft: bool = True) -> SecretStoreS
     }
     prefs.pop("openrouter_api_key", None)
     prefs.pop("llm_api_key", None)
+    for legacy_key in (
+        "speaker_id",
+        "learning_language",
+        "language",
+        "cefr_level",
+        "theme",
+        "task_family",
+        "target_duration_sec",
+        "updated_at",
+    ):
+        prefs.pop(legacy_key, None)
     if persist_draft:
         draft_prefs = _draft_preferences_from_state(state)
-        prefs.update(draft_prefs)
         prefs["last_setup"] = draft_prefs
         profiles = _speaker_profiles(prefs)
         if draft_prefs["speaker_id"]:
             profiles[draft_prefs["speaker_id"]] = draft_prefs
         prefs["speaker_profiles"] = profiles
-    save_dashboard_prefs(state.prefs.log_dir or DEFAULT_LOG_DIR, prefs)
+    save_workspace_prefs(state.prefs.log_dir or DEFAULT_LOG_DIR, prefs)
     if state.prefs.connections:
         sync_runtime_fields(state.prefs)
     state.prefs.setup_complete = bool(state.prefs.setup_complete or state.prefs.connections)
@@ -794,6 +798,37 @@ def test_runtime_connection(
 test_runtime_connection.__test__ = False
 
 
+def _validate_local_assessment_runtime(request: dict[str, Any]) -> str | None:
+    provider = normalize_provider(request.get("provider"))
+    if provider not in {"ollama", "lmstudio"}:
+        return None
+    model = str(request.get("llm_model") or "").strip()
+    if not model:
+        return "Enter a model name before submitting the assessment."
+    try:
+        health_result = llm_health_check(
+            provider=provider,
+            base_url=request.get("llm_base_url"),
+            api_key=str(request.get("llm_api_key") or "").strip() or None,
+            timeout_sec=10.0,
+            openrouter_http_referer=str(request.get("openrouter_http_referer") or "").strip() or None,
+            openrouter_app_title=str(request.get("openrouter_app_title") or "").strip() or None,
+        )
+    except Exception as exc:
+        return str(exc)
+    available_models = _health_payload_models(health_result.get("payload"))
+    if available_models and model not in available_models:
+        preview = ", ".join(available_models[:5])
+        if len(available_models) > 5:
+            preview = f"{preview}, ..."
+        provider_label = "Ollama" if provider == "ollama" else "LM Studio"
+        return (
+            f"Configured {provider_label} model '{model}' is not currently available."
+            + (f" Available models: {preview}." if preview else "")
+        )
+    return None
+
+
 def parse_cli_json(stdout: str) -> dict | None:
     stdout = stdout.strip()
     try:
@@ -887,71 +922,154 @@ def create_assessment_request(
     }
 
 
-def execute_assessment_request(request: dict[str, Any]) -> tuple[dict | None, str | None]:
-    env = os.environ.copy()
-    env.setdefault("PYTHONPATH", str(PROJECT_ROOT))
-    request_api_key = str(request.get("llm_api_key") or "")
-    if request_api_key:
-        env["LLM_API_KEY"] = request_api_key
-        if request.get("provider") == "openrouter":
-            env["OPENROUTER_API_KEY"] = request_api_key
-        if request.get("provider") == "ollama":
-            env["OLLAMA_API_KEY"] = request_api_key
-    if request.get("openrouter_http_referer"):
-        env["OPENROUTER_HTTP_REFERER"] = str(request["openrouter_http_referer"])
-    if request.get("openrouter_app_title"):
-        env["OPENROUTER_APP_TITLE"] = str(request["openrouter_app_title"])
-    cmd = [
-        sys.executable,
-        str(ASSESS_SCRIPT),
-        request["audio_path"],
-        "--whisper",
-        request["whisper"],
-        "--provider",
-        request["provider"],
-        "--llm-base-url",
-        request.get("llm_base_url") or resolved_base_url(request.get("provider"), ""),
-        "--expected-language",
-        request["expected_language"],
-        "--feedback-language",
-        request.get("feedback_language") or request["expected_language"],
-        "--llm-model",
-        request["llm_model"],
-        "--log-dir",
-        request["log_dir"],
-        "--theme",
-        request["theme"],
-        "--task-family",
-        request["task_family"],
-        "--target-duration-sec",
-        str(float(request["target_duration_sec"])),
-        "--speaker-id",
-        request["speaker_id"],
-    ]
-    if request.get("language_profile_key"):
-        cmd.extend(["--language-profile-key", str(request["language_profile_key"])])
-    if request.get("label"):
-        cmd.extend(["--label", request["label"]])
-    if request.get("notes"):
-        cmd.extend(["--notes", request["notes"]])
-    if request.get("target_cefr"):
-        cmd.extend(["--target-cefr", request["target_cefr"]])
-    if os.getenv("ASSESS_SPEAKING_DRY_RUN") == "1":
-        cmd.append("--dry-run")
+def _backend_assessment_payload(request: dict[str, Any], *, audio_id: str) -> dict[str, Any]:
+    return {
+        "audio_id": audio_id,
+        "whisper": request["whisper"],
+        "provider": request["provider"],
+        "llm_model": request["llm_model"],
+        "expected_language": request["expected_language"],
+        "feedback_language": request.get("feedback_language") or request["expected_language"],
+        "speaker_id": request["speaker_id"],
+        "task_family": request["task_family"],
+        "theme": request["theme"],
+        "target_duration_sec": int(request["target_duration_sec"]),
+        "target_cefr": request.get("target_cefr"),
+        "language_profile_key": request.get("language_profile_key"),
+        "label": request.get("label", ""),
+        "notes": request.get("notes", ""),
+        "llm_base_url": request.get("llm_base_url", ""),
+        "llm_api_key": request.get("llm_api_key", ""),
+        "openrouter_http_referer": request.get("openrouter_http_referer", ""),
+        "openrouter_app_title": request.get("openrouter_app_title", ""),
+    }
 
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=PROJECT_ROOT, env=env)
-    if result.returncode != 0:
-        return None, (result.stderr or result.stdout or "Unknown assessment error").strip()
-    payload = parse_cli_json(result.stdout)
-    if payload is not None and not payload.get("transcript_full"):
-        logged_payload = load_latest_report_payload(request["log_dir"], label=request.get("label", ""))
-        if logged_payload is not None:
-            payload = logged_payload
-    elif payload is None:
-        payload = load_latest_report_payload(request["log_dir"], label=request.get("label", ""))
-    if payload is None:
-        return None, "Assessment completed but no report payload could be loaded."
-    return payload, None
+
+def _job_state_from_backend_status(status: Any) -> AssessmentJobState:
+    raw_progress = getattr(status, "progress", 0.0)
+    try:
+        progress = float(raw_progress or 0.0)
+    except (TypeError, ValueError):
+        progress = 0.0
+    return AssessmentJobState(
+        assessment_id=str(getattr(status, "assessment_id", "") or ""),
+        status=str(getattr(getattr(status, "status", None), "value", getattr(status, "status", "")) or ""),
+        phase=str(getattr(status, "phase", "") or ""),
+        progress=progress,
+        error=str(getattr(getattr(status, "error", None), "detail", "") or ""),
+        report_path=str(getattr(status, "report_path", "") or ""),
+    )
+
+
+def _parse_backend_error_detail(exc: Exception) -> str:
+    try:
+        parsed = ErrorResponse.model_validate_json(str(exc))
+        return parsed.detail
+    except (ValidationError, ValueError, TypeError):
+        return str(exc)
+
+
+def submit_assessment_request(request: dict[str, Any]) -> tuple[AssessmentJobState | None, str | None]:
+    runtime_error = _validate_local_assessment_runtime(request)
+    if runtime_error:
+        return None, runtime_error
+    try:
+        upload = backend_client.upload_audio_path(
+            request["audio_path"],
+            filename=Path(str(request["audio_path"])).name,
+            log_dir=request.get("log_dir"),
+        )
+        created = backend_client.create_assessment(
+            _backend_assessment_payload(request, audio_id=upload.audio_id),
+            log_dir=request.get("log_dir"),
+        )
+        return (
+            AssessmentJobState(
+                assessment_id=created.assessment_id,
+                status=created.status.value,
+                phase=created.status.value,
+                progress=0.0,
+            ),
+            None,
+        )
+    except RuntimeError as exc:
+        return None, _parse_backend_error_detail(exc)
+
+
+def poll_assessment_request(
+    assessment_id: str,
+    *,
+    log_dir: str | Path | None = None,
+) -> tuple[AssessmentJobState | None, dict | None, str | None]:
+    try:
+        status = backend_client.get_assessment_status(assessment_id, log_dir=log_dir)
+    except RuntimeError as exc:
+        return None, None, _parse_backend_error_detail(exc)
+
+    job = _job_state_from_backend_status(status)
+    if job.status == "completed":
+        payload = status.payload
+        if payload is None and job.report_path:
+            payload = load_report_payload(job.report_path)
+        if payload is None:
+            return job, None, "Assessment completed but no report payload could be loaded."
+        return job, payload, None
+    if job.status in {"failed", "cancelled"}:
+        return job, None, job.error or "Assessment did not complete."
+    return job, None, None
+
+
+def prime_assessment_request_status(
+    assessment_id: str,
+    *,
+    log_dir: str | Path | None = None,
+    delays_sec: tuple[float, ...] = (0.0, 0.25, 0.5),
+) -> tuple[AssessmentJobState | None, dict | None, str | None]:
+    last_job: AssessmentJobState | None = None
+    for delay_sec in delays_sec:
+        if delay_sec > 0:
+            time.sleep(delay_sec)
+        job, payload, error = poll_assessment_request(assessment_id, log_dir=log_dir)
+        if job is not None:
+            last_job = job
+            if payload is not None:
+                return job, payload, None
+            if error:
+                return job, None, error
+            if job.status != "queued" or job.progress > 0:
+                return job, None, None
+        elif error:
+            return None, None, error
+    return last_job, None, None
+
+
+def cancel_assessment_request(
+    assessment_id: str,
+    *,
+    log_dir: str | Path | None = None,
+) -> tuple[AssessmentJobState | None, str | None]:
+    try:
+        status = backend_client.cancel_assessment(assessment_id, log_dir=log_dir)
+        return _job_state_from_backend_status(status), None
+    except RuntimeError as exc:
+        return None, _parse_backend_error_detail(exc)
+
+
+def execute_assessment_request(request: dict[str, Any]) -> tuple[dict | None, str | None]:
+    created, error = submit_assessment_request(request)
+    if error:
+        return None, error
+    if created is None:
+        return None, "Assessment could not be submitted."
+    deadline = time.monotonic() + 300.0
+    while time.monotonic() < deadline:
+        _job, payload, error = poll_assessment_request(created.assessment_id, log_dir=request.get("log_dir"))
+        if payload is not None:
+            return payload, None
+        if error:
+            return None, error
+        time.sleep(0.2)
+    return None, "Assessment timed out before the local backend finished."
 
 
 def store_uploaded_audio(
@@ -962,9 +1080,9 @@ def store_uploaded_audio(
     previous_digest: str = "",
     previous_path: str = "",
 ) -> tuple[Path | None, str]:
-    try:
+    if hasattr(uploaded_file, "getvalue"):
         data = uploaded_file.getvalue()
-    except Exception:
+    else:
         data = uploaded_file.getbuffer()
     digest = hashlib.sha1(bytes(data)).hexdigest()
     if digest == previous_digest and previous_path and Path(previous_path).exists():
@@ -1015,9 +1133,77 @@ def history_rows(log_dir: str | Path | None = None) -> list[dict[str, Any]]:
     return rows
 
 
+def load_history_detail_payload(
+    session_id: str,
+    *,
+    log_dir: str | Path | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    try:
+        return backend_client.load_history_detail(session_id, log_dir=log_dir), None
+    except RuntimeError as exc:
+        return None, _parse_backend_error_detail(exc)
+
+
+def _local_sample_trials() -> list[dict[str, Any]]:
+    root = PROJECT_ROOT / "samples" / "cefr"
+    items: list[dict[str, Any]] = []
+    if not root.exists():
+        return items
+    for language_dir in sorted(path for path in root.iterdir() if path.is_dir()):
+        for cefr_dir in sorted(path for path in language_dir.iterdir() if path.is_dir()):
+            for audio_file in sorted(path for path in cefr_dir.iterdir() if path.is_file()):
+                items.append(
+                    {
+                        "sample_id": f"{language_dir.name}_{cefr_dir.name}_{audio_file.stem}",
+                        "language": language_dir.name,
+                        "cefr": cefr_dir.name,
+                        "title": audio_file.stem.replace("_", " "),
+                        "path": str(audio_file.resolve()),
+                    }
+                )
+    return items
+
+
+def list_sample_trials(
+    *,
+    log_dir: str | Path | None = None,
+    language_code: str = "",
+    cefr_level: str = "",
+) -> list[dict[str, Any]]:
+    try:
+        items = backend_client.load_samples(log_dir=log_dir)
+    except RuntimeError:
+        items = _local_sample_trials()
+
+    normalized_language = str(language_code or "").strip().lower()
+    normalized_cefr = str(cefr_level or "").strip().upper()
+    trials: list[dict[str, Any]] = []
+    for item in items:
+        language = str(item.get("language") or "").strip().lower()
+        cefr = str(item.get("cefr") or "").strip().upper()
+        path = Path(str(item.get("path") or ""))
+        if normalized_language and language != normalized_language:
+            continue
+        if normalized_cefr and cefr != normalized_cefr:
+            continue
+        trials.append(
+            {
+                "sample_id": str(item.get("sample_id") or ""),
+                "language": language,
+                "cefr": cefr,
+                "title": str(item.get("title") or "").strip(),
+                "path": str(path),
+                "available": path.exists(),
+            }
+        )
+    return trials
+
+
 def review_summary(payload: dict | None) -> dict[str, Any]:
     payload = payload or {}
+    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
     report = payload.get("report") if isinstance(payload.get("report"), dict) else {}
+    report_input = report.get("input") if isinstance(report.get("input"), dict) else {}
     scores = report.get("scores") if isinstance(report.get("scores"), dict) else {}
     checks = report.get("checks") if isinstance(report.get("checks"), dict) else {}
     coaching = report.get("coaching") if isinstance(report.get("coaching"), dict) else {}
@@ -1030,8 +1216,16 @@ def review_summary(payload: dict | None) -> dict[str, Any]:
     ]
     return {
         "report_id": str(report.get("session_id") or payload.get("report_path") or ""),
+        "label": str(meta.get("label") or payload.get("label") or ""),
         "transcript": str(payload.get("transcript_full") or payload.get("transcript_preview") or report.get("transcript_preview") or ""),
         "notes": str(payload.get("notes") or ""),
+        "learning_language": str(
+            report_input.get("expected_language")
+            or report_input.get("learning_language")
+            or meta.get("learning_language")
+            or payload.get("learning_language")
+            or ""
+        ).strip().lower(),
         "score_overall": scores.get("final"),
         "band": scores.get("band") or "",
         "mode": str(scores.get("mode") or ""),

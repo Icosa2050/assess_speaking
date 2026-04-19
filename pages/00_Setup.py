@@ -38,9 +38,9 @@ PROVIDER_CHOICES = (
 )
 
 PROVIDER_SUGGESTED_MODELS = {
-    "ollama_local": "llama3",
+    "ollama_local": "",
     "ollama_cloud": "llama3",
-    "lmstudio_local": "qwen2.5",
+    "lmstudio_local": "",
     "openrouter": DEFAULT_MODEL,
     "openai_compatible": "",
 }
@@ -72,6 +72,24 @@ def _provider_label(provider_choice: str) -> str:
 
 def _provider_hint(provider_choice: str) -> str:
     return t(f"runtime_setup.provider_options.{provider_choice}.hint")
+
+
+def _visible_provider_choices(show_advanced: bool) -> list[str]:
+    if show_advanced:
+        return list(PROVIDER_CHOICES)
+    return [choice for choice in PROVIDER_CHOICES if choice in LOCAL_PROVIDER_CHOICES]
+
+
+def _friendly_local_runtime_error(provider_choice: str, exc: Exception) -> str | None:
+    detail = str(exc).strip()
+    lowered = detail.lower()
+    provider_label = _provider_label(provider_choice)
+    if provider_choice in LOCAL_PROVIDER_CHOICES:
+        if "connection refused" in lowered or "failed to connect" in lowered or "all connection attempts failed" in lowered:
+            return t("runtime_setup.local_provider_not_running", provider=provider_label)
+        if "timed out" in lowered or "timeout" in lowered:
+            return t("runtime_setup.local_provider_connection_timeout", provider=provider_label)
+    return None
 
 
 def _connection_defaults(provider_choice: str, *, current_connection, fallback_provider: str = "") -> dict[str, str]:
@@ -265,25 +283,43 @@ with st.container(border=True):
         try:
             result = shell_services.download_whisper_model(whisper_model, progress_callback=_update_download_progress)
             st.session_state["runtime_setup_message"] = t("runtime_setup.whisper_ready", path=result["cached_path"])
-        except Exception as exc:
+        except Exception as exc:  # quality: allow[broad-except] download boundary should become localized setup feedback
             st.session_state["runtime_setup_error"] = t("runtime_setup.whisper_download_failed", detail=str(exc))
         st.rerun()
 
 with st.container(border=True):
     st.subheader(t("runtime_setup.section_provider"))
+    st.caption(t("runtime_setup.local_first_intro"))
+    st.session_state.setdefault(
+        "runtime_setup_show_advanced",
+        default_provider_choice not in LOCAL_PROVIDER_CHOICES,
+    )
+    show_advanced = st.checkbox(
+        t("runtime_setup.show_advanced"),
+        key="runtime_setup_show_advanced",
+    )
+    visible_provider_options = _visible_provider_choices(show_advanced)
+    current_provider_choice = str(st.session_state.get("runtime_setup_provider_choice") or default_provider_choice).strip()
+    if current_provider_choice not in visible_provider_options:
+        st.session_state["runtime_setup_provider_choice"] = (
+            default_provider_choice if default_provider_choice in visible_provider_options else visible_provider_options[0]
+        )
+        _sync_provider_dependent_fields(
+            current_connection=current_connection,
+            fallback_provider=state.prefs.provider,
+        )
     provider_choice = st.selectbox(
         t("runtime_setup.provider_label"),
-        options=provider_options,
-        index=_safe_index(provider_options, str(st.session_state.get("runtime_setup_provider_choice") or default_provider_choice)),
+        options=visible_provider_options,
         format_func=_provider_label,
         key="runtime_setup_provider_choice",
         on_change=_sync_provider_dependent_fields,
         kwargs={"current_connection": current_connection, "fallback_provider": state.prefs.provider},
     )
     st.caption(_provider_hint(provider_choice))
-    if provider_choice == "ollama_cloud":
+    if show_advanced and provider_choice == "ollama_cloud":
         st.caption(t("runtime_setup.ollama_cloud_note"))
-    elif provider_choice == "openai_compatible":
+    elif show_advanced and provider_choice == "openai_compatible":
         st.caption(t("runtime_setup.openai_compatible_note"))
 
 with st.container(border=True):
@@ -293,25 +329,32 @@ with st.container(border=True):
         current_connection=current_connection,
         fallback_provider=state.prefs.provider,
     )
-    label = st.text_input(
-        t("runtime_setup.connection_label"),
-        key="runtime_setup_label",
-        placeholder=provider_defaults["label"],
-    )
-    base_url = st.text_input(
-        t("runtime_setup.base_url"),
-        key="runtime_setup_base_url",
-        placeholder=provider_defaults["base_url"] or t("runtime_setup.base_url_placeholder"),
-        help=t("runtime_setup.base_url_help"),
-        on_change=_normalize_base_url_input,
-    )
+    label = str(st.session_state.get("runtime_setup_label") or provider_defaults["label"]).strip() or provider_defaults["label"]
+    if show_advanced:
+        label = st.text_input(
+            t("runtime_setup.connection_label"),
+            key="runtime_setup_label",
+            placeholder=provider_defaults["label"],
+        )
+    else:
+        st.caption(t("runtime_setup.connection_label_auto", value=label))
+    base_url = str(st.session_state.get("runtime_setup_base_url") or provider_defaults["base_url"]).strip()
+    if show_advanced:
+        base_url = st.text_input(
+            t("runtime_setup.base_url"),
+            key="runtime_setup_base_url",
+            placeholder=provider_defaults["base_url"] or t("runtime_setup.base_url_placeholder"),
+            help=t("runtime_setup.base_url_help"),
+            on_change=_normalize_base_url_input,
+        )
     model = st.text_input(
         t("runtime_setup.model"),
         key="runtime_setup_model",
-        placeholder=provider_defaults["model"] or DEFAULT_MODEL,
+        placeholder=provider_defaults["model"] if provider_defaults["model"] or provider_choice not in LOCAL_PROVIDER_CHOICES else "",
         help=_provider_hint(provider_choice),
     )
     if provider_choice in LOCAL_PROVIDER_CHOICES:
+        st.caption(t("runtime_setup.detect_prerequisite", provider=_provider_label(provider_choice)))
         detect_clicked = st.button(t("runtime_setup.detect_local_models"), key="runtime_setup_detect_local_models", width="stretch")
         if detect_clicked:
             try:
@@ -356,11 +399,11 @@ with st.container(border=True):
                         endpoint=detection["health_endpoint"],
                     )
                     st.session_state.pop("runtime_setup_model_detection_error", None)
-            except Exception as exc:
+            except Exception as exc:  # quality: allow[broad-except] local model discovery errors should stay learner-facing
                 _clear_model_discovery_state()
-                st.session_state["runtime_setup_model_detection_error"] = t(
-                    "runtime_setup.detected_local_models_failed",
-                    detail=str(exc),
+                st.session_state["runtime_setup_model_detection_error"] = (
+                    _friendly_local_runtime_error(provider_choice, exc)
+                    or t("runtime_setup.detected_local_models_failed", detail=str(exc))
                 )
         current_signature = _model_discovery_signature(provider_choice, st.session_state.get("runtime_setup_base_url", ""))
         detected_models = (
@@ -386,19 +429,24 @@ with st.container(border=True):
                 on_change=_apply_detected_model_choice,
             )
             st.caption(t("runtime_setup.detected_local_model_selected", model=model_choice))
+            st.caption(t("runtime_setup.detect_success_next_step"))
         else:
             st.caption(t("runtime_setup.detected_local_models_help"))
-    api_key = st.text_input(t("runtime_setup.api_key"), type="password", key="runtime_setup_api_key")
-    openrouter_http_referer = st.text_input(
-        t("runtime_setup.openrouter_http_referer"),
-        disabled=provider_choice != "openrouter",
-        key="runtime_setup_openrouter_http_referer",
-    )
-    openrouter_app_title = st.text_input(
-        t("runtime_setup.openrouter_app_title"),
-        disabled=provider_choice != "openrouter",
-        key="runtime_setup_openrouter_app_title",
-    )
+    api_key = str(st.session_state.get("runtime_setup_api_key") or "").strip()
+    openrouter_http_referer = str(st.session_state.get("runtime_setup_openrouter_http_referer") or "").strip()
+    openrouter_app_title = str(st.session_state.get("runtime_setup_openrouter_app_title") or "").strip()
+    if show_advanced or provider_choice not in LOCAL_PROVIDER_CHOICES:
+        api_key = st.text_input(t("runtime_setup.api_key"), type="password", key="runtime_setup_api_key")
+        openrouter_http_referer = st.text_input(
+            t("runtime_setup.openrouter_http_referer"),
+            disabled=provider_choice != "openrouter",
+            key="runtime_setup_openrouter_http_referer",
+        )
+        openrouter_app_title = st.text_input(
+            t("runtime_setup.openrouter_app_title"),
+            disabled=provider_choice != "openrouter",
+            key="runtime_setup_openrouter_app_title",
+        )
     if provider_defaults["base_url"] or provider_defaults["model"]:
         suggested_parts = [
             t("runtime_setup.suggested_base_url", value=provider_defaults["base_url"])
@@ -467,10 +515,13 @@ if test_clicked:
             model=tested_model,
             preview=preview,
         )
-    except Exception as exc:
+    except Exception as exc:  # quality: allow[broad-except] provider test errors should become setup guidance
         st.session_state["runtime_setup_last_test_status"] = f"failed: {exc}"
         st.session_state["runtime_setup_last_tested_at"] = datetime.now(UTC).isoformat(timespec="seconds")
-        st.session_state["runtime_setup_test_error"] = t("runtime_setup.test_error", detail=str(exc))
+        st.session_state["runtime_setup_test_error"] = (
+            _friendly_local_runtime_error(provider_choice, exc)
+            or t("runtime_setup.test_error", detail=str(exc))
+        )
     st.rerun()
 
 if save_clicked:
@@ -481,8 +532,14 @@ if save_clicked:
         model.strip()
         or str(st.session_state.get("runtime_setup_detected_model_choice") or "").strip()
         or provider_defaults["model"]
-        or DEFAULT_MODEL
     )
+    if not resolved_model:
+        st.session_state["runtime_setup_error"] = (
+            t("runtime_setup.detected_local_models_help")
+            if provider_choice in LOCAL_PROVIDER_CHOICES
+            else _provider_hint(provider_choice)
+        )
+        st.rerun()
     connection = build_provider_connection(
         provider_choice=provider_choice,
         label=label.strip(),

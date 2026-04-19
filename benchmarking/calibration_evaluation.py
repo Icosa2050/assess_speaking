@@ -135,10 +135,8 @@ def _serialize_raw_llm(value: Any) -> str | None:
 
 def _extract_cefr_estimate(scores: dict[str, Any]) -> tuple[str | None, float | None]:
     cefr_estimate = dict(scores.get("cefr_estimate") or {})
-    estimated_cefr = cefr_estimate.get("cefr") or cefr_estimate.get("level")
-    continuous_score = cefr_estimate.get("continuous_score")
-    if continuous_score is None:
-        continuous_score = cefr_estimate.get("continuous")
+    estimated_cefr = cefr_estimate.get("level")
+    continuous_score = cefr_estimate.get("continuous")
     return (
         str(estimated_cefr) if estimated_cefr else None,
         _safe_float(continuous_score),

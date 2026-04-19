@@ -1,11 +1,17 @@
-# assess_speaking – OpenRouter-first assessment core
+# Vostavo
 
-Pipeline: **Transcription (faster-whisper)** -> **Deterministic metrics** -> **schema-validated CEFR-style rubric** via **OpenRouter** (default) or **Ollama** (legacy/local compatibility).
+![Vostavo logo](branding/vostavo-logo-playful.svg)
 
-This branch keeps the old CLI/service shape working while adding a stronger core:
+OpenRouter-first assessment core and local speaking coach app.
+
+Internal repo and module names still use `assess_speaking` in places for compatibility.
+
+Pipeline: **Transcription (faster-whisper)** -> **Deterministic metrics** -> **schema-validated CEFR-style rubric** via **OpenRouter** (default), **Ollama** (local), or a generic **OpenAI-compatible** endpoint.
+
+Current CLI/runtime contract:
 
 1. OpenRouter as the default remote scoring path.
-2. Legacy Ollama support through `--llm` or `--provider ollama`.
+2. Local Ollama support through `--provider ollama --llm-model ...`.
 3. Structured nested `report` output with validated:
    - `input`
    - `metrics`
@@ -52,24 +58,47 @@ macOS wheels for `av`, `ctranslate2`, `onnxruntime`, `praat-parselmouth`, and
 If you do not want to activate the venv manually, use the repo-local launcher:
 `./scripts/python.sh ...`
 
-## 2) Test audio without a microphone
+## 2) Beginner app quick start
+Recommended first path:
+
+1. Install `ffmpeg`.
+2. Optionally install `ollama` and pull a local model such as `llama3.1`.
+3. Launch the app with `./scripts/run_app.py`.
+4. On the Home screen, choose `Set up local AI`.
+5. In `Runtime Setup`, keep the default local path unless you specifically need advanced provider options.
+6. Continue with `Session Setup -> Speak -> Review -> History`.
+
+The app now starts a localhost-only backend automatically and keeps user data under the app-data root instead of depending on the repo working directory.
+
+## 3) Sample audio library
 ```bash
-./scripts/generate_sample.sh         # creates samples/italian_demo.wav
+./scripts/generate_sample.sh --all
+./scripts/generate_sample.sh --language it --cefr B2
 ```
 
-Optional flags `-v/--voice`, `-t/--text`, `-o/--output`, e.g.
+Shipped sample responses now live under `samples/cefr/{it,en}/{B1,B2,C1}/`:
+
+- `samples/cefr/it/B1/travel_story.wav`
+- `samples/cefr/it/B2/remote_work.wav`
+- `samples/cefr/it/C1/public_debate.wav`
+- `samples/cefr/en/B1/travel_story.wav`
+- `samples/cefr/en/B2/remote_work.wav`
+- `samples/cefr/en/C1/public_debate.wav`
+
+Optional flags `-v/--voice`, `-t/--text`, `-o/--output`, `--language`, and `--cefr`, e.g.
 ```bash
-./scripts/generate_sample.sh --voice "Bianca" --text "Questo è un test." --output /tmp/test.wav
+./scripts/generate_sample.sh --language en --cefr C1 --output /tmp/c1-public-debate.wav
+./scripts/generate_sample.sh --voice "Alice" --text "Questo e un test." --output /tmp/test.wav
 ```
 
-## 3) Check models & self-test
+## 4) Check models & self-test
 ```bash
 python assess_speaking.py --list-ollama
 python assess_speaking.py --selftest --provider openrouter --llm-model google/gemini-3.1-pro-preview
-python assess_speaking.py --selftest --llm llama3.1
+python assess_speaking.py --selftest --provider ollama --llm-model llama3.1
 ```
 
-## 4) Run an assessment
+## 5) Run an assessment
 ```bash
 python assess_speaking.py sample.wav \
   --provider openrouter \
@@ -79,9 +108,9 @@ python assess_speaking.py sample.wav \
   --llm-timeout 30 > report.json
 ```
 
-Legacy/local mode:
+Local Ollama mode:
 ```bash
-python assess_speaking.py sample.wav --llm llama3.1 > report.json
+python assess_speaking.py sample.wav --provider ollama --llm-model llama3.1 > report.json
 cat report.json
 ```
 
@@ -89,6 +118,9 @@ Every run is also stored in `reports/` (structured JSON + `history.csv`). Use
 `--label "B1-test"` or `--notes "Morning session"` to tag a run. With
 `--log-dir path/to/reports` you control the destination, `--no-log` disables the
 persistence layer.
+
+If an existing `history.csv` was created with an older header, delete or replace
+it before appending new runs. The CLI no longer rewrites legacy history files.
 
 Top-level CLI output remains backward-compatible for existing scripts:
 
@@ -115,67 +147,65 @@ The CLI dashboard renders the history table (via `rich`) and can export an HTML
 snapshot. It also supports speaker and task-family filters so progress on
 `travel_narrative` is not mixed with unrelated speaking tasks.
 
-### Legacy interactive dashboard (compatibility surface)
-Launch the older all-in-one Streamlit dashboard for uploads, re-runs, and charts:
-```bash
-streamlit run scripts/interactive_dashboard.py -- --log-dir reports
-```
-
-This dashboard is still supported as a compatibility surface, but it is no
-longer the primary UX for the app. New product work should target the multipage
-shell instead. The old dashboard remains useful while migration and archive work
-are in progress.
-
-Simpler launcher from the current worktree:
-```bash
-./scripts/run_dashboard.sh
-./scripts/run_dashboard.sh --dry-run
-./scripts/run_dashboard.sh --port 8504 --log-dir /tmp/assess-speaking-reports
-```
-
-The launcher sets `PYTHONPATH` to the current worktree automatically, so it is
-the easiest way to run the dashboard from a feature worktree or a terminal
-opened by Codex.app.
-
-In the browser you can still upload new audio or reuse existing files, add
-labels, trigger assessments, and inspect metrics/rubrics over time. The trend
-tab supports speaker/task-family filtering plus recurring-issue charts, so
-`travel_narrative` progress can be reviewed independently from other task
-families. Results continue to accumulate in `reports/`.
-
 ### Primary multipage app shell
 
-The primary product-facing UI is now the multipage app shell:
+The primary product-facing UI is now the multipage app shell. The preferred
+launcher is the local bootstrap wrapper:
 
 ```bash
-streamlit run streamlit_app.py
+./scripts/python.sh scripts/run_app.py
+./scripts/python.sh scripts/run_app.py --check
 ```
 
-It introduces separate `Home`, `Runtime Setup`, `Session Setup`, `Speak`,
-`Review`, `History`, `Library`, `Settings`, and `Scoring Guide` screens with
-shared session, runtime, and i18n helpers.
+`streamlit run streamlit_app.py` remains the stable entrypoint, but the launcher
+is better for local product use and later desktop packaging because it resolves
+stable app-data paths, bootstraps cache defaults, and can be run from outside
+the repo root.
 
-Current shell/deprecation status is documented in:
+The learner-facing flow is now optimized for a single local user:
 
-- `docs/MULTIPAGE_APP_SHELL_PLAN.md`
-- `docs/CURRENT_APP_SURFACE_AND_DEPRECATION.md`
+1. `Home`
+2. `Runtime Setup` only when no active connection is configured
+3. `Session Setup`
+4. `Speak`
+5. `Review`
+6. `History`
 
-### Prompt trainer with CEFR baselines
-- `prompts/prompts.json` contains sample prompts (B1/B2/C1) plus matching audio
-  (`prompts/*.wav`). In the Streamlit Prompt-Trainer tab each prompt can be
-  played exactly once—after that only the response window (60–120 s depending on
-  level) remains.
-- Record directly in the browser (WebRTC recorder with single playback) or
-  upload an external recording. The run is compared against the requested CEFR
-  level (`--target-cefr`), so `assess_speaking.py` appends a baseline verdict.
-- Baselines reference the official CEFR global scale (Council of Europe), the
-  EF SET level guides for [B1](https://www.efset.org/cefr/b1/),
-  [B2](https://www.efset.org/cefr/b2/), [C1](https://www.efset.org/cefr/c1/), and
-  conversational speaking rates around 120–150 WPM
-  ([VirtualSpeech](https://virtualspeech.com/blog/average-speaking-rate-words-per-minute)).
-- After submission you’ll see raw metrics, Ollama’s rubric JSON, the baseline
-  comparison (WPM range, filler cap, cohesion/complexity markers), and the trend
-  plots.
+`Library`, `Settings`, and `Scoring Guide` stay available as secondary screens.
+The Home screen now also renders startup diagnostics for app-data writability,
+`ffmpeg`, Whisper cache readiness, runtime configuration, and recorder readiness.
+
+The app shell stores its local data outside the repo by default:
+
+- macOS app data: `~/Library/Application Support/Vostavo`
+- macOS cache: `~/Library/Caches/Vostavo`
+- Windows app data and cache now resolve through `platformdirs` using the app identity `frommherz_it` + `Vostavo`
+- Ubuntu/Linux app data: `~/.local/share/Vostavo` by default, or `$XDG_DATA_HOME/Vostavo` when XDG overrides are set
+- Ubuntu/Linux cache: `~/.cache/Vostavo` by default, or `$XDG_CACHE_HOME/Vostavo` when XDG overrides are set
+- Override roots with `VOSTAVO_HOME` and `VOSTAVO_CACHE_HOME`
+- Legacy roots and env vars from `Speaking Studio` remain supported for existing installs
+- Repo-local app data is no longer used as a default on any platform. It remains available only through explicit developer overrides such as `VOSTAVO_HOME`, `SPEAKING_STUDIO_HOME`, `--app-data-dir`, or `--cache-dir`.
+
+The current app-data layout keeps one per-user root and separates user outputs
+from backend state inside it:
+
+- app-data root:
+  - `backend_state.json`
+  - `jobs/`
+  - `logs/`
+  - `reports/`
+  - `recordings/`
+  - `uploads/`
+  - `tmp/`
+- cache root:
+  - `whisper/`
+  - `huggingface/`
+
+Legacy `reports/jobs/` directories are migrated into the root-level `jobs/`
+directory on backend startup when the new location is still empty.
+
+The wrapper writes reports/history under the app-data root by default, so the
+UI keeps working even when launched from an arbitrary working directory.
 
 ### Tests & CI
 - **Unit tests**: `./scripts/run_tests.sh`
@@ -264,7 +294,7 @@ Current shell/deprecation status is documented in:
 ## Notes
 - Default provider is **OpenRouter**.
 - Use `--llm-timeout` or `LLM_TIMEOUT_SEC` to bound remote rubric requests.
-- Legacy/local compatibility remains available via **Ollama**.
+- **Ollama** remains available as the local provider option.
 - Other local options: `llama3.2:3b` (fast), `qwen2.5:14b` (stronger); pick according
   to RAM and speed requirements.
 - Objective metrics include **WPM**, pauses (≥300 ms), filler count, cohesion

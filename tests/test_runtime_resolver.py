@@ -47,7 +47,7 @@ class RuntimeResolverTests(unittest.TestCase):
                     is_default=True,
                     provider_metadata={
                         "http_referer": "http://localhost:8503",
-                        "app_title": "Speaking Studio",
+                        "app_title": "Vostavo",
                     },
                 )
             ],
@@ -57,7 +57,7 @@ class RuntimeResolverTests(unittest.TestCase):
         self.assertEqual(prefs.provider, "openrouter")
         self.assertEqual(prefs.llm_api_key, "saved-key")
         self.assertEqual(prefs.openrouter_http_referer, "http://localhost:8503")
-        self.assertEqual(prefs.openrouter_app_title, "Speaking Studio")
+        self.assertEqual(prefs.openrouter_app_title, "Vostavo")
 
 
 if __name__ == "__main__":

@@ -68,10 +68,10 @@ def app_shell_clean_server(project_root: Path):
     proc = subprocess.Popen(
         [
             sys.executable,
-            "-m",
-            "streamlit",
-            "run",
-            str(project_root / "streamlit_app.py"),
+            str(project_root / "scripts" / "run_app.py"),
+            "--app-data-dir",
+            str(runtime_root),
+            "--",
             "--server.headless=true",
             f"--server.port={port}",
             "--server.address=127.0.0.1",
@@ -112,7 +112,7 @@ def app_shell_clean_server(project_root: Path):
 def _open_runtime_setup(page: Page, base_url: str) -> None:
     page.set_viewport_size({"width": 390, "height": 844})
     page.goto(f"{base_url}/", wait_until="domcontentloaded")
-    expect(page.get_by_role("heading", name=re.compile(r"^Speaking Studio$", re.I))).to_be_visible(timeout=30000)
+    expect(page.get_by_role("heading", name=re.compile(r"^Vostavo$", re.I))).to_be_visible(timeout=30000)
     page.get_by_role("button", name=re.compile(r"^(Open runtime setup|Runtime-Setup oeffnen)$")).click()
     expect(page.get_by_role("heading", name=re.compile(r"^Runtime setup$", re.I))).to_be_visible(timeout=30000)
 

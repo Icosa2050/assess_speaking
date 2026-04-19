@@ -6,10 +6,11 @@ from typing import Any, Literal, Optional
 from uuid import uuid4
 
 import streamlit as st
-from app_shell.runtime_providers import DEFAULT_PROVIDER, SUPPORTED_PROVIDERS
+from app_shell.app_data import build_app_data_paths
+from app_shell.runtime_providers import DEFAULT_PROVIDER
 
 APP_SHELL_STATE_KEY = "app_shell_state"
-APP_NAME = "Speaking Studio"
+APP_NAME = "Vostavo"
 DEFAULT_UI_LOCALE = "en"
 DEFAULT_MODEL = "google/gemini-3.1-pro-preview"
 DEFAULT_WHISPER_MODEL = "small"
@@ -25,6 +26,14 @@ TASK_FAMILY_OPTIONS = (
     "picture_description",
     "free_monologue",
 )
+
+
+def _default_log_dir() -> str:
+    return str(build_app_data_paths().reports_dir)
+
+
+def _default_whisper_cache_dir() -> str:
+    return str(build_app_data_paths().whisper_cache_dir)
 
 
 class RecordingStatus(str, Enum):
@@ -59,13 +68,13 @@ class AppPreferences:
     llm_base_url: str = ""
     llm_api_key: str = ""
     whisper_model: str = DEFAULT_WHISPER_MODEL
-    whisper_cache_dir: str = ""
+    whisper_cache_dir: str = field(default_factory=_default_whisper_cache_dir)
     openrouter_http_referer: str = DEFAULT_OPENROUTER_HTTP_REFERER
     openrouter_app_title: str = DEFAULT_OPENROUTER_APP_TITLE
     active_connection_id: str = ""
     connections: list[ProviderConnection] = field(default_factory=list)
     setup_complete: bool = False
-    log_dir: str = "reports"
+    log_dir: str = field(default_factory=_default_log_dir)
 
 
 @dataclass
@@ -84,6 +93,16 @@ class DraftSession:
 
 
 @dataclass
+class AssessmentJobState:
+    assessment_id: str = ""
+    status: str = ""
+    phase: str = ""
+    progress: float = 0.0
+    error: str = ""
+    report_path: str = ""
+
+
+@dataclass
 class RecordingState:
     status: RecordingStatus = RecordingStatus.IDLE
     audio_path: str = ""
@@ -93,6 +112,7 @@ class RecordingState:
     error: str = ""
     label_input: str = ""
     notes_input: str = ""
+    job: AssessmentJobState = field(default_factory=AssessmentJobState)
 
 
 @dataclass
@@ -201,6 +221,7 @@ def update_recording(*, audio_path: str, duration_sec: int = 0, input_digest: st
     state.recording.input_digest = input_digest
     state.recording.input_method = input_method
     state.recording.error = ""
+    state.recording.job = AssessmentJobState()
     return state
 
 
@@ -215,13 +236,31 @@ def set_recording_error(message: str) -> AppShellState:
     state = get_app_state()
     state.recording.status = RecordingStatus.IDLE
     state.recording.error = message
+    state.recording.job = AssessmentJobState()
     return state
 
 
-def set_recording_assessing() -> AppShellState:
+def set_recording_assessing(job: AssessmentJobState | None = None) -> AppShellState:
     state = get_app_state()
     state.recording.status = RecordingStatus.ASSESSING
     state.recording.error = ""
+    if job is not None:
+        state.recording.job = job
+    return state
+
+
+def set_recording_job(job: AssessmentJobState) -> AppShellState:
+    state = get_app_state()
+    state.recording.job = job
+    if job.status in {"queued", "running"}:
+        state.recording.status = RecordingStatus.ASSESSING
+        state.recording.error = ""
+    elif job.status == "completed":
+        state.recording.status = RecordingStatus.SUBMITTED
+        state.recording.error = ""
+    elif job.status in {"failed", "cancelled"}:
+        state.recording.status = RecordingStatus.READY if state.recording.audio_path else RecordingStatus.IDLE
+        state.recording.error = job.error
     return state
 
 
@@ -245,6 +284,7 @@ def apply_review_payload(
 ) -> AppShellState:
     state = get_app_state()
     state.recording.status = RecordingStatus.SUBMITTED
+    state.recording.job = AssessmentJobState()
     state.review.report_id = report_id or f"report-{uuid4().hex[:8]}"
     state.review.transcript = transcript
     state.review.score_overall = score_overall

@@ -120,6 +120,11 @@ p, li, label, [data-testid="stCaptionContainer"], [data-testid="stMarkdownContai
     background: rgba(255, 255, 255, 0.72);
 }
 
+[data-testid="stFileUploaderDropzone"],
+[data-testid="stFileUploaderDropzone"] * {
+    cursor: pointer;
+}
+
 .as-kicker {
     margin: 0 0 0.4rem;
     color: var(--as-accent);

@@ -1,7 +1,9 @@
 import unittest
+from pathlib import Path
 
 from unittest import mock
 
+from app_shell.app_data import APP_CACHE_HOME_ENV_VAR, APP_DATA_HOME_ENV_VAR
 from app_shell.state import (
     AppPreferences,
     AppShellState,
@@ -23,6 +25,19 @@ class AppShellStateTests(unittest.TestCase):
         state = build_default_state()
         self.assertTrue(state.draft.session_id.startswith("draft-"))
         self.assertEqual(state.prefs.ui_locale, "en")
+
+    def test_app_preferences_default_paths_follow_app_data_environment(self):
+        with mock.patch.dict(
+            "os.environ",
+            {
+                APP_DATA_HOME_ENV_VAR: "/tmp/speaking-studio-home",
+                APP_CACHE_HOME_ENV_VAR: "/tmp/speaking-studio-cache",
+            },
+            clear=False,
+        ):
+            prefs = AppPreferences()
+        self.assertEqual(prefs.log_dir, str((Path("/tmp/speaking-studio-home") / "reports").resolve()))
+        self.assertEqual(prefs.whisper_cache_dir, str((Path("/tmp/speaking-studio-cache") / "whisper").resolve()))
 
     def test_locale_and_learning_language_are_independent_fields(self):
         state = AppShellState(
