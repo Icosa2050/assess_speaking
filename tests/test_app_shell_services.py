@@ -736,6 +736,24 @@ class AppShellServiceTests(unittest.TestCase):
         self.assertEqual(request["feedback_language"], "en")
         self.assertEqual(request["llm_api_key"], "key-123")
 
+    @mock.patch.dict(os.environ, {"ASSESS_SPEAKING_DRY_RUN": "1"}, clear=False)
+    def test_create_assessment_request_reads_dry_run_from_environment(self):
+        request = create_assessment_request(
+            audio_path=Path("sample.wav"),
+            log_dir="reports",
+            whisper="small",
+            provider="ollama",
+            llm_model="llama3",
+            expected_language="it",
+            feedback_language="en",
+            speaker_id="bern",
+            task_family="travel_narrative",
+            theme="Il mio ultimo viaggio all'estero",
+            target_duration_sec=90,
+        )
+
+        self.assertTrue(request["dry_run"])
+
     @mock.patch("app_shell.services.time.sleep")
     @mock.patch("app_shell.services.backend_client.get_assessment_status")
     @mock.patch("app_shell.services.backend_client.create_assessment")
@@ -883,6 +901,45 @@ class AppShellServiceTests(unittest.TestCase):
         self.assertIn("qwen3.5:latest", error)
         mock_upload.assert_not_called()
         mock_create.assert_not_called()
+
+    @mock.patch("app_shell.services.backend_client.create_assessment")
+    @mock.patch("app_shell.services.backend_client.upload_audio_path")
+    @mock.patch("app_shell.services.llm_health_check")
+    def test_submit_assessment_request_skips_local_validation_for_dry_run(
+        self,
+        mock_health_check,
+        mock_upload,
+        mock_create,
+    ):
+        mock_upload.return_value = mock.Mock(audio_id="aud_1")
+        mock_create.return_value = mock.Mock(
+            assessment_id="asmt_1",
+            status=mock.Mock(value="queued"),
+        )
+
+        job, error = submit_assessment_request(
+            {
+                "audio_path": "sample.wav",
+                "log_dir": "reports",
+                "whisper": "small",
+                "provider": "ollama",
+                "llm_model": "llama3",
+                "llm_base_url": "http://localhost:11434/v1",
+                "expected_language": "it",
+                "feedback_language": "it",
+                "speaker_id": "bern",
+                "task_family": "travel_narrative",
+                "theme": "Il mio ultimo viaggio all'estero",
+                "target_duration_sec": 90,
+                "dry_run": True,
+            }
+        )
+
+        self.assertIsNone(error)
+        self.assertIsNotNone(job)
+        self.assertEqual(job.assessment_id, "asmt_1")
+        mock_health_check.assert_not_called()
+        self.assertTrue(mock_create.call_args.args[0]["dry_run"])
 
     @mock.patch("app_shell.services.backend_client.load_history_detail")
     def test_load_history_detail_payload_returns_backend_payload(self, mock_load_history_detail):

@@ -56,6 +56,20 @@ NEW_LANGUAGE_OPTION = "__new_language__"
 BOOTSTRAP_KEY = "_app_shell_bootstrapped"
 
 
+def _flag_enabled(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return False
+
+
+def _dry_run_requested(request: dict[str, Any]) -> bool:
+    return _flag_enabled(request.get("dry_run"))
+
+
 def _secret_env_var_names(provider: str) -> tuple[str, ...]:
     normalized = normalize_provider(provider)
     if normalized == "openrouter":
@@ -803,6 +817,8 @@ test_runtime_connection.__test__ = False
 
 
 def _validate_local_assessment_runtime(request: dict[str, Any]) -> str | None:
+    if _dry_run_requested(request):
+        return None
     provider = normalize_provider(request.get("provider"))
     if provider not in {"ollama", "lmstudio"}:
         return None
@@ -902,6 +918,7 @@ def create_assessment_request(
     llm_api_key: str = "",
     openrouter_http_referer: str = "",
     openrouter_app_title: str = "",
+    dry_run: bool | None = None,
 ) -> dict[str, Any]:
     return {
         "audio_path": str(audio_path),
@@ -923,6 +940,7 @@ def create_assessment_request(
         "label": label,
         "notes": notes,
         "target_cefr": target_cefr,
+        "dry_run": _flag_enabled(os.getenv("ASSESS_SPEAKING_DRY_RUN")) if dry_run is None else bool(dry_run),
     }
 
 
@@ -946,6 +964,7 @@ def _backend_assessment_payload(request: dict[str, Any], *, audio_id: str) -> di
         "llm_api_key": request.get("llm_api_key", ""),
         "openrouter_http_referer": request.get("openrouter_http_referer", ""),
         "openrouter_app_title": request.get("openrouter_app_title", ""),
+        "dry_run": _dry_run_requested(request),
     }
 
 

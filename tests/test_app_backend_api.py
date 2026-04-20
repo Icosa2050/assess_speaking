@@ -82,11 +82,13 @@ class BackendApiTests(unittest.TestCase):
                         "task_family": "free_monologue",
                         "theme": "travel",
                         "target_duration_sec": 90,
+                        "dry_run": True,
                     },
                 )
                 self.assertEqual(created.status_code, 200)
                 self.assertEqual(created.json()["assessment_id"], "asmt_1")
                 mock_submit.assert_called_once()
+                self.assertTrue(mock_submit.call_args.args[0].dry_run)
 
                 status = client.get("/v1/assessments/asmt_1")
                 self.assertEqual(status.status_code, 200)

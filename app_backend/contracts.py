@@ -86,6 +86,7 @@ class AssessmentCreateRequest(BaseModel):
     llm_api_key: str = ""
     openrouter_http_referer: str = ""
     openrouter_app_title: str = ""
+    dry_run: bool = False
 
 
 class AssessmentCreateResponse(BaseModel):
