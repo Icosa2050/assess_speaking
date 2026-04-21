@@ -125,14 +125,16 @@ def prepare_reports(project_root: Path):
     yield
 
 
-def _stop_streamlit_server(proc: subprocess.Popen[str], stdout_log, stderr_log) -> None:
-    proc.terminate()
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
+def _stop_streamlit_server(proc: subprocess.Popen[str], stdout_log, stderr_log, runtime_root) -> None:
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
     stdout_log.close()
     stderr_log.close()
+    runtime_root.cleanup()
 
 
 def _start_streamlit_server(project_root: Path, *, dry_run: bool, port: int):
@@ -146,7 +148,8 @@ def _start_streamlit_server(project_root: Path, *, dry_run: bool, port: int):
         chosen_model = env.get("ASSESS_SPEAKING_REAL_WHISPER_MODEL", "tiny")
         if "HF_HUB_OFFLINE" not in env and _faster_whisper_cache_exists(chosen_model, env):
             env["HF_HUB_OFFLINE"] = "1"
-    runtime_root = Path(tempfile.mkdtemp(prefix="app-shell-e2e-runtime-"))
+    runtime_root = tempfile.TemporaryDirectory(prefix="app-shell-e2e-runtime-")
+    runtime_root_path = Path(runtime_root.name)
     stdout_log = tempfile.TemporaryFile(mode="w+")
     stderr_log = tempfile.TemporaryFile(mode="w+")
     streamlit_cmd = [
@@ -162,7 +165,7 @@ def _start_streamlit_server(project_root: Path, *, dry_run: bool, port: int):
 
     proc = subprocess.Popen(
         streamlit_cmd,
-        cwd=runtime_root,
+        cwd=runtime_root_path,
         env=env,
         stdout=stdout_log,
         stderr=stderr_log,
@@ -176,8 +179,7 @@ def _start_streamlit_server(project_root: Path, *, dry_run: bool, port: int):
             stderr_log.seek(0)
             stdout_text = stdout_log.read()
             stderr_text = stderr_log.read()
-            stdout_log.close()
-            stderr_log.close()
+            _stop_streamlit_server(proc, stdout_log, stderr_log, runtime_root)
             raise RuntimeError(f"Streamlit failed to start.\nSTDOUT:\n{stdout_text}\nSTDERR:\n{stderr_text}")
         try:
             _wait_for_port("127.0.0.1", port, timeout=2)
@@ -189,15 +191,15 @@ def _start_streamlit_server(project_root: Path, *, dry_run: bool, port: int):
         stderr_log.seek(0)
         stdout_text = stdout_log.read()
         stderr_text = stderr_log.read()
-        _stop_streamlit_server(proc, stdout_log, stderr_log)
+        _stop_streamlit_server(proc, stdout_log, stderr_log, runtime_root)
         raise RuntimeError(f"Streamlit health check failed.\nSTDOUT:\n{stdout_text}\nSTDERR:\n{stderr_text}")
 
-    return proc, stdout_log, stderr_log
+    return proc, stdout_log, stderr_log, runtime_root
 
 
 @pytest.fixture(scope="session")
 def app_shell_server(project_root: Path):
-    proc, stdout_log, stderr_log = _start_streamlit_server(
+    proc, stdout_log, stderr_log, runtime_root = _start_streamlit_server(
         project_root,
         dry_run=True,
         port=APP_SHELL_PORT,
@@ -205,12 +207,12 @@ def app_shell_server(project_root: Path):
 
     yield APP_SHELL_BASE_URL
 
-    _stop_streamlit_server(proc, stdout_log, stderr_log)
+    _stop_streamlit_server(proc, stdout_log, stderr_log, runtime_root)
 
 
 @pytest.fixture(scope="session")
 def app_shell_real_server(project_root: Path):
-    proc, stdout_log, stderr_log = _start_streamlit_server(
+    proc, stdout_log, stderr_log, runtime_root = _start_streamlit_server(
         project_root,
         dry_run=False,
         port=APP_SHELL_REAL_PORT,
@@ -218,4 +220,4 @@ def app_shell_real_server(project_root: Path):
 
     yield APP_SHELL_REAL_BASE_URL
 
-    _stop_streamlit_server(proc, stdout_log, stderr_log)
+    _stop_streamlit_server(proc, stdout_log, stderr_log, runtime_root)

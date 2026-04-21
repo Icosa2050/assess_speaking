@@ -108,6 +108,28 @@ class CheckQualityTests(unittest.TestCase):
 
         self.assertEqual([(finding.check, finding.path) for finding in findings], [("subprocess-shellout", "app_shell/services.py")])
 
+    def test_allow_comment_suppresses_subprocess_shellout(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "app_shell").mkdir()
+            (root / "app_shell" / "services.py").write_text(
+                textwrap.dedent(
+                    """
+                    import subprocess
+
+                    def run():
+                        # quality: allow[subprocess-shellout] backend bootstrap boundary
+                        return subprocess.run(["echo", "hi"])
+                    """
+                ).strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            findings = scan_quality(root, targets=["app_shell/services.py"])
+
+        self.assertEqual(findings, [])
+
     def test_default_targets_include_settings_screen(self):
         self.assertIn("pages/06_Settings.py", DEFAULT_TARGETS)
 

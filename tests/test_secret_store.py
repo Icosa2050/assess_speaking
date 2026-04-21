@@ -65,6 +65,19 @@ class SecretStoreTests(unittest.TestCase):
         self.assertEqual(session_store.get_secret(secret_store.SERVICE_NAME, "account-4"), "new-key")
         self.assertEqual(session_store.get_secret(secret_store.LEGACY_SERVICE_NAME, "account-4"), "new-key")
 
+    @mock.patch("app_shell.secret_store._load_keyring_module")
+    def test_set_secret_does_not_treat_environment_fallback_as_legacy_entry(self, mock_load_keyring):
+        mock_load_keyring.return_value = (
+            None,
+            secret_store.SecretStoreStatus(persistent=False, backend_name="unavailable", detail="no keyring"),
+        )
+        with mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": "env-key"}, clear=False):
+            status = secret_store.set_secret("account-5", "new-key", env_var_names=("OPENROUTER_API_KEY",))
+
+        self.assertFalse(status.persistent)
+        self.assertEqual(secret_store.SessionSecretStore().get_secret(secret_store.SERVICE_NAME, "account-5"), "new-key")
+        self.assertEqual(secret_store.SessionSecretStore().get_secret(secret_store.LEGACY_SERVICE_NAME, "account-5"), "")
+
 
 if __name__ == "__main__":
     unittest.main()

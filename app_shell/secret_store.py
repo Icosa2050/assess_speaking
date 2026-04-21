@@ -152,6 +152,12 @@ def _legacy_secret(account: str, *, env_var_names: tuple[str, ...] = ()) -> str:
     return env_store.get_secret(LEGACY_SERVICE_NAME, account)
 
 
+def _has_legacy_stored_secret(account: str) -> bool:
+    if KeyringSecretStore().get_secret(LEGACY_SERVICE_NAME, account):
+        return True
+    return bool(SessionSecretStore().get_secret(LEGACY_SERVICE_NAME, account))
+
+
 def _copy_secret_to_primary(account: str, value: str, *, env_var_names: tuple[str, ...] = ()) -> None:
     if not value:
         return
@@ -188,7 +194,7 @@ def get_secret(account: str, *, service: str = SERVICE_NAME, env_var_names: tupl
 def set_secret(account: str, value: str, *, service: str = SERVICE_NAME, env_var_names: tuple[str, ...] = ()) -> SecretStoreStatus:
     if not value:
         return delete_secret(account, service=service, env_var_names=env_var_names)
-    legacy_present = _should_use_legacy_fallback(service) and bool(_legacy_secret(account, env_var_names=env_var_names))
+    legacy_present = _should_use_legacy_fallback(service) and _has_legacy_stored_secret(account)
     store, status = _active_secret_store(env_var_names=env_var_names)
     try:
         if isinstance(store, EnvFallbackSecretStore):

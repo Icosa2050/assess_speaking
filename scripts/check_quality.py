@@ -131,7 +131,7 @@ class QualityVisitor(ast.NodeVisitor):
         if (
             _call_matches_subprocess(node)
             and rel_path.startswith(SUBPROCESS_BAN_ROOTS)
-            and not _has_allow_comment(self._source_lines, node.lineno, "subprocess")
+            and not _has_allow_comment(self._source_lines, node.lineno, "subprocess-shellout")
         ):
             self.findings.append(
                 Finding(
