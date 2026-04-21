@@ -9,11 +9,11 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
-from benchmarking.synthetic_benchmark_generation import render_seed_manifest
-from benchmarking.synthetic_seed_manifests import load_seed_manifest
+
+def _bootstrap_repo() -> None:
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -33,6 +33,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    _bootstrap_repo()
+    from benchmarking.synthetic_benchmark_generation import render_seed_manifest
+    from benchmarking.synthetic_seed_manifests import load_seed_manifest
+
     args = build_parser().parse_args()
     manifest = load_seed_manifest(args.manifest)
     result = render_seed_manifest(

@@ -1,11 +1,13 @@
-# Assessment Core Plan
+# Assessment Core And Local App Plan
 
-Last updated: 2026-03-07
-Status: Phase 1 implemented on `codex/openrouter-hardening-20260307`
+Last updated: 2026-04-15
+Status: Assessment core implemented, app shell moved to a local-first desktop-ready flow, local backend and app-data baseline implemented, support and maintenance planning documented, and the next product migration is now defined
 
 ## Goal
 
-Train a learner to speak more fluently in Italian on a given theme for a target duration, using OpenRouter as the primary scoring path and keeping the architecture extensible.
+Train a solo learner to speak more fluently in Italian on a given theme for a
+target duration, using OpenRouter as the primary remote scoring path while
+keeping the local app shell packaging-friendly.
 
 ## Product Direction
 
@@ -13,6 +15,8 @@ Keep:
 1. local ASR and audio metrics
 2. prompt/audio assets
 3. simple report persistence and `history.csv`
+4. local-first app shell with saved runtime connections
+5. cross-platform app-data and cache abstraction
 
 Port from the earlier OpenRouter branch:
 1. provider abstraction
@@ -21,10 +25,27 @@ Port from the earlier OpenRouter branch:
 4. language, duration, and topic gates
 5. explicit degraded-state handling
 
-Defer:
-1. Telegram/Redis service as a product focus
-2. LMS expansion beyond compatibility
-3. dashboard polish as a core requirement
+Current ASR runtime direction:
+1. keep `faster-whisper` as the default provider today
+2. route ASR through a provider/capability layer in `assessment_runtime/asr.py`
+3. support explicit file strategies: `auto`, `native`, and `chunked`
+4. preserve one merged transcript contract with word timestamps even when chunked fallback is used
+5. keep pause-feature extraction and assessment scoring unchanged while making room for future non-Whisper providers
+
+Planned follow-on:
+1. shared React frontend for desktop and hosted delivery
+2. hosted auth, tenancy, and server-side job orchestration
+3. Tauri-based desktop packaging after the shared frontend replaces Streamlit
+
+Related planning docs:
+1. `docs/LOCAL_BACKEND_ARCHITECTURE.md`
+2. `docs/MOBILE_COMPANION_STRATEGY.md`
+3. `docs/SUPPORT_MAINTENANCE_PLAN.md`
+4. `docs/SUPPORT_MAINTENANCE_IMPLEMENTATION_PLAN.md`
+5. `docs/DESKTOP_HOSTED_PRODUCT_PLAN.md`
+6. `docs/PUBLIC_INFERENCE_ARCHITECTURE_PLAN.md`
+7. `docs/SAVED_CONNECTIONS_PRODUCTION_CREDENTIAL_PLAN.md`
+8. `docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md`
 
 ## Phase 1 Scope
 
@@ -37,7 +58,7 @@ Defer:
    - `schemas.py`
    - `scoring.py`
    - `settings.py`
-2. Keep `assess_speaking.py` as the orchestration and compatibility layer.
+2. Keep `assess_speaking.py` as the orchestration entrypoint.
 3. Keep existing top-level CLI JSON fields for scripts and service callers.
 4. Add nested `report` as the new stable contract.
 
@@ -72,8 +93,8 @@ New nested `report`:
 ## Provider Policy
 
 1. CLI default: OpenRouter
-2. Legacy/local compatibility: infer Ollama when `--llm` is used
-3. Programmatic compatibility: callers passing local model names still resolve to Ollama unless they set `provider="openrouter"`
+2. Local Ollama runs must set `--provider ollama` explicitly
+3. `--llm-model` selects the model for the chosen provider and no longer changes providers implicitly
 
 ## Verification
 
@@ -89,7 +110,14 @@ Current status:
 
 ## Next Useful Work
 
-1. calibrate pause heuristics against real Italian recordings
-2. persist richer longitudinal progress summaries
-3. add prompt packs and training loops on top of the new `report` contract
-4. implement the coaching roadmap in [docs/COACHING_BACKLOG.md](../docs/COACHING_BACKLOG.md)
+1. add backend-owned support/export bundle generation with privacy-safe defaults
+2. add backend maintenance APIs for storage summary and safe cleanup actions
+3. add Settings-based `Troubleshooting & Support` controls after PAL review
+4. add cleanup and retention policies for `tmp/`, support bundles, stale jobs, and rotated logs
+5. make the launcher/backend runtime contract explicitly packaging-safe for macOS and Windows
+6. refine the learner-facing review and history coaching surfaces on top of the job-based backend state
+7. calibrate pause heuristics against real Italian recordings
+8. add prompt packs and training loops on top of the new `report` contract
+9. execute `docs/DESKTOP_HOSTED_PRODUCT_PLAN.md` in phases so the shared
+   frontend lands before hosted multi-user backend work
+10. if we add another ASR backend, implement it behind the existing ASR provider/capability layer instead of branching assessment codepaths

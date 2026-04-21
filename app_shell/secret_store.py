@@ -4,7 +4,8 @@ import os
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-SERVICE_NAME = "Speaking Studio"
+SERVICE_NAME = "Vostavo"
+LEGACY_SERVICE_NAME = "Speaking Studio"
 _SESSION_SECRETS: dict[tuple[str, str], str] = {}
 
 
@@ -136,6 +137,40 @@ def secret_store_status(*, env_var_names: tuple[str, ...] = ()) -> SecretStoreSt
     return status
 
 
+def _should_use_legacy_fallback(service: str) -> bool:
+    return service == SERVICE_NAME
+
+
+def _legacy_secret(account: str, *, env_var_names: tuple[str, ...] = ()) -> str:
+    legacy_secret = KeyringSecretStore().get_secret(LEGACY_SERVICE_NAME, account)
+    if legacy_secret:
+        return legacy_secret
+    legacy_secret = SessionSecretStore().get_secret(LEGACY_SERVICE_NAME, account)
+    if legacy_secret:
+        return legacy_secret
+    env_store = EnvFallbackSecretStore(env_var_names)
+    return env_store.get_secret(LEGACY_SERVICE_NAME, account)
+
+
+def _has_legacy_stored_secret(account: str) -> bool:
+    if KeyringSecretStore().get_secret(LEGACY_SERVICE_NAME, account):
+        return True
+    return bool(SessionSecretStore().get_secret(LEGACY_SERVICE_NAME, account))
+
+
+def _copy_secret_to_primary(account: str, value: str, *, env_var_names: tuple[str, ...] = ()) -> None:
+    if not value:
+        return
+    store, _status = _active_secret_store(env_var_names=env_var_names)
+    try:
+        if isinstance(store, EnvFallbackSecretStore):
+            SessionSecretStore().set_secret(SERVICE_NAME, account, value)
+            return
+        store.set_secret(SERVICE_NAME, account, value)
+    except Exception:  # pragma: no cover - backend boundary
+        SessionSecretStore().set_secret(SERVICE_NAME, account, value)
+
+
 def get_secret(account: str, *, service: str = SERVICE_NAME, env_var_names: tuple[str, ...] = ()) -> str:
     keyring_store = KeyringSecretStore()
     secret = keyring_store.get_secret(service, account)
@@ -148,25 +183,37 @@ def get_secret(account: str, *, service: str = SERVICE_NAME, env_var_names: tupl
     secret = env_store.get_secret(service, account)
     if secret:
         return secret
+    if _should_use_legacy_fallback(service):
+        secret = _legacy_secret(account, env_var_names=env_var_names)
+        if secret:
+            _copy_secret_to_primary(account, secret, env_var_names=env_var_names)
+            return secret
     return ""
 
 
 def set_secret(account: str, value: str, *, service: str = SERVICE_NAME, env_var_names: tuple[str, ...] = ()) -> SecretStoreStatus:
     if not value:
         return delete_secret(account, service=service, env_var_names=env_var_names)
+    legacy_present = _should_use_legacy_fallback(service) and _has_legacy_stored_secret(account)
     store, status = _active_secret_store(env_var_names=env_var_names)
     try:
         if isinstance(store, EnvFallbackSecretStore):
             SessionSecretStore().set_secret(service, account, value)
+            if legacy_present:
+                SessionSecretStore().set_secret(LEGACY_SERVICE_NAME, account, value)
             return SecretStoreStatus(
                 persistent=False,
                 backend_name="session",
                 detail="Environment values are read-only here; secret is stored for this session only.",
             )
         store.set_secret(service, account, value)
+        if legacy_present:
+            store.set_secret(LEGACY_SERVICE_NAME, account, value)
         return status
     except Exception as exc:  # pragma: no cover - backend boundary
         SessionSecretStore().set_secret(service, account, value)
+        if legacy_present:
+            SessionSecretStore().set_secret(LEGACY_SERVICE_NAME, account, value)
         return SecretStoreStatus(persistent=False, backend_name=status.backend_name, detail=str(exc))
 
 
@@ -177,7 +224,14 @@ def delete_secret(account: str, *, service: str = SERVICE_NAME, env_var_names: t
         keyring_store.delete_secret(service, account)
     except Exception:
         pass
+    if _should_use_legacy_fallback(service):
+        try:
+            keyring_store.delete_secret(LEGACY_SERVICE_NAME, account)
+        except Exception:
+            pass
     SessionSecretStore().delete_secret(service, account)
+    if _should_use_legacy_fallback(service):
+        SessionSecretStore().delete_secret(LEGACY_SERVICE_NAME, account)
     if not status.persistent:
         store, fallback_status = _active_secret_store(env_var_names=env_var_names)
         if isinstance(store, EnvFallbackSecretStore):

@@ -1,6 +1,5 @@
-import tempfile
 import json
-from datetime import datetime
+import tempfile
 from pathlib import Path
 
 import unittest
@@ -9,12 +8,12 @@ from scripts import progress_dashboard
 
 
 SAMPLE_CSV = """timestamp,audio,whisper,llm,label,duration_sec,wpm,word_count,overall,report_path
-2025-10-06T14:58:01,demo.m4a,large-v3,llama3.1,baseline,43.09,95.9,54,3.5,/path/to/1.json
+2025-10-06T14:58:01,travel_story.wav,large-v3,llama3.1,baseline,43.09,95.9,54,3.5,/path/to/1.json
 2025-10-07T09:12:33,week2.m4a,medium,llama3.2:3b,week2,41.00,110.2,60,3.8,/path/to/2.json
 """
 
 RICH_CSV = """timestamp,session_id,schema_version,speaker_id,learning_language,task_family,theme,audio,whisper,llm,label,target_duration_sec,duration_sec,wpm,word_count,duration_pass,topic_pass,language_pass,fluency,cohesion,accuracy,range,overall,final_score,band,requires_human_review,top_priority_1,top_priority_2,top_priority_3,grammar_error_categories,coherence_issue_categories,report_path
-2025-10-06T14:58:01,s1,2,bern,it,travel_narrative,trip,demo.m4a,large-v3,llama3.1,baseline,180,43.09,95.9,54,true,true,true,3,3,3,3,3.5,3.6,4,false,Più connettivi,Meno filler,Più dettagli,preposition_choice,missing_sequence_markers,/path/to/1.json
+2025-10-06T14:58:01,s1,2,bern,it,travel_narrative,trip,travel_story.wav,large-v3,llama3.1,baseline,180,43.09,95.9,54,true,true,true,3,3,3,3,3.5,3.6,4,false,Più connettivi,Meno filler,Più dettagli,preposition_choice,missing_sequence_markers,/path/to/1.json
 2025-10-07T09:12:33,s2,2,bern,it,travel_narrative,trip,week2.m4a,medium,llama3.2:3b,week2,180,41.00,110.2,60,true,true,true,4,4,4,4,3.8,4.1,4,false,Più dettagli,Più precisione,Meno pause,preposition_choice,missing_sequence_markers,/path/to/2.json
 """
 
@@ -47,7 +46,7 @@ class DashboardTests(unittest.TestCase):
             records = progress_dashboard.load_history(history)
             summary = progress_dashboard.summarise(records)
             html = progress_dashboard.render_html(records, summary)
-            self.assertIn("Speaking Studio", html)
+            self.assertIn("Vostavo", html)
             self.assertIn("week2.m4a", html)
 
     def test_load_history_accepts_extended_schema(self):

@@ -1,4 +1,5 @@
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -195,6 +196,146 @@ class AsrTests(unittest.TestCase):
         self.assertEqual(events[-1]["stage"], "ready")
         downloading_events = [event for event in events if event["stage"] == "downloading"]
         self.assertTrue(any(event.get("current_file") == "model.bin" for event in downloading_events))
+
+    def test_transcribe_rejects_unknown_asr_provider(self):
+        with self.assertRaisesRegex(RuntimeError, "Unsupported ASR provider"):
+            asr.transcribe(Path("sample.wav"), asr_provider="unknown-provider")
+
+    def test_available_asr_providers_lists_chunked_variant(self):
+        providers = asr.available_asr_providers()
+        self.assertIn("faster_whisper", providers)
+        self.assertIn("faster_whisper_chunked", providers)
+
+    def test_normalize_asr_provider_accepts_chunked_alias(self):
+        self.assertEqual(asr._normalize_asr_provider_key("whisper_chunked"), "faster_whisper_chunked")
+
+    def test_transcribe_with_native_strategy_uses_provider_native_path(self):
+        class DummyProvider:
+            provider_id = "dummy"
+            capabilities = asr.ASRCapabilities(
+                supports_native_file_transcription=True,
+                prefers_native_file_transcription=True,
+                supports_chunked_fallback=True,
+            )
+
+            def load_model(self, *, model_size, compute_type, fallback_compute_type):
+                return asr.LoadedASRModel(
+                    model=object(),
+                    compute_type_used=compute_type,
+                    compute_fallback_used=False,
+                )
+
+            def transcribe_file_native(self, loaded_model, path, *, language, time_offset_sec=0.0):
+                return {
+                    "text": f"native:{path.name}",
+                    "words": [{"t0": time_offset_sec, "t1": time_offset_sec + 0.5, "text": "native"}],
+                    "compute_type_used": loaded_model.compute_type_used,
+                    "compute_fallback_used": loaded_model.compute_fallback_used,
+                    "detected_language": language,
+                    "language_probability": 1.0,
+                }
+
+        with mock.patch.object(asr, "_resolve_asr_provider", return_value=DummyProvider()):
+            result = asr.transcribe(
+                Path("sample.wav"),
+                asr_provider="dummy",
+                file_strategy="native",
+                language="it",
+            )
+
+        self.assertEqual(result["text"], "native:sample.wav")
+        self.assertEqual(result["detected_language"], "it")
+
+    def test_transcribe_with_chunked_strategy_merges_chunk_offsets(self):
+        class DummyProvider:
+            provider_id = "dummy"
+            capabilities = asr.ASRCapabilities(
+                supports_native_file_transcription=True,
+                prefers_native_file_transcription=False,
+                supports_chunked_fallback=True,
+            )
+
+            def load_model(self, *, model_size, compute_type, fallback_compute_type):
+                return asr.LoadedASRModel(
+                    model=object(),
+                    compute_type_used="int8",
+                    compute_fallback_used=True,
+                )
+
+            def transcribe_file_native(self, loaded_model, path, *, language, time_offset_sec=0.0):
+                token = path.stem.replace("chunk-", "")
+                return {
+                    "text": f"text-{token}",
+                    "words": [{"t0": time_offset_sec, "t1": time_offset_sec + 0.25, "text": token}],
+                    "compute_type_used": loaded_model.compute_type_used,
+                    "compute_fallback_used": loaded_model.compute_fallback_used,
+                    "detected_language": "it",
+                    "language_probability": 0.91,
+                }
+
+        @contextmanager
+        def fake_chunk_context(_path, *, chunk_duration_sec):
+            self.assertEqual(chunk_duration_sec, 30)
+            yield [Path("chunk-000.wav"), Path("chunk-001.wav")]
+
+        with (
+            mock.patch.object(asr, "_resolve_asr_provider", return_value=DummyProvider()),
+            mock.patch.object(asr, "_chunk_audio_for_asr", fake_chunk_context),
+            mock.patch.object(asr, "_wav_duration_sec", side_effect=[2.0, 3.0]),
+        ):
+            result = asr.transcribe(
+                Path("meeting.mp3"),
+                asr_provider="dummy",
+                file_strategy="chunked",
+                chunk_duration_sec=30,
+            )
+
+        self.assertEqual(result["text"], "text-000 text-001")
+        self.assertEqual(
+            result["words"],
+            [
+                {"t0": 0.0, "t1": 0.25, "text": "000"},
+                {"t0": 2.0, "t1": 2.25, "text": "001"},
+            ],
+        )
+        self.assertEqual(result["compute_type_used"], "int8")
+        self.assertTrue(result["compute_fallback_used"])
+        self.assertEqual(result["detected_language"], "it")
+
+    def test_chunked_provider_uses_chunked_path_in_auto_mode(self):
+        class DummyProvider:
+            provider_id = "faster_whisper_chunked"
+            capabilities = asr.ASRCapabilities(
+                supports_native_file_transcription=True,
+                prefers_native_file_transcription=False,
+                supports_chunked_fallback=True,
+            )
+
+            def load_model(self, *, model_size, compute_type, fallback_compute_type):
+                return asr.LoadedASRModel(
+                    model=object(),
+                    compute_type_used=compute_type,
+                    compute_fallback_used=False,
+                )
+
+            def transcribe_file_native(self, loaded_model, path, *, language, time_offset_sec=0.0):
+                return {
+                    "text": "native",
+                    "words": [],
+                    "compute_type_used": loaded_model.compute_type_used,
+                    "compute_fallback_used": loaded_model.compute_fallback_used,
+                    "detected_language": language,
+                    "language_probability": 1.0,
+                }
+
+        with (
+            mock.patch.object(asr, "_resolve_asr_provider", return_value=DummyProvider()),
+            mock.patch.object(asr, "_transcribe_file_chunked", return_value={"text": "chunked", "words": []}) as mock_chunked,
+        ):
+            result = asr.transcribe(Path("sample.wav"), asr_provider="faster_whisper_chunked")
+
+        self.assertEqual(result["text"], "chunked")
+        mock_chunked.assert_called_once()
 
 
 if __name__ == "__main__":

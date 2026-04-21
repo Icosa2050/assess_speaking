@@ -9,23 +9,11 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
-from corpora.celi_harvest import (
-    analyze_wordlist_bundle,
-    default_harvest_output_dir,
-    download_result_as_dict,
-    frequency_breakdown_as_dict,
-    harvest_export,
-    harvest_frequency_breakdown,
-    harvest_query_matrix,
-    harvest_wordlist_manifest,
-    query_summary_as_dict,
-    wordlist_analysis_report_as_dict,
-    wordlist_bundle_report_as_dict,
-)
-from corpora.celi_wordlists import load_celi_wordlist_manifest
+
+def _bootstrap_repo() -> None:
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -108,6 +96,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    _bootstrap_repo()
+    from corpora.celi_harvest import (
+        analyze_wordlist_bundle,
+        download_result_as_dict,
+        frequency_breakdown_as_dict,
+        harvest_export,
+        harvest_frequency_breakdown,
+        harvest_query_matrix,
+        harvest_wordlist_manifest,
+        query_summary_as_dict,
+        wordlist_analysis_report_as_dict,
+        wordlist_bundle_report_as_dict,
+    )
+    from corpora.celi_wordlists import load_celi_wordlist_manifest
+
     args = build_parser().parse_args()
     if args.command == "query":
         results = harvest_query_matrix(
@@ -193,6 +196,9 @@ def _add_hits_argument(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_output_dir_argument(parser: argparse.ArgumentParser) -> None:
+    _bootstrap_repo()
+    from corpora.celi_harvest import default_harvest_output_dir
+
     parser.add_argument(
         "--output-dir",
         type=Path,

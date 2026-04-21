@@ -9,7 +9,7 @@ from unittest.mock import patch
 from streamlit.testing.v1 import AppTest
 
 from assessment_runtime import theme_library
-from app_shell.state import APP_SHELL_STATE_KEY, AppPreferences, AppShellState, DraftSession, ProviderConnection, RecordingState, RecordingStatus, ReviewState
+from app_shell.state import APP_SHELL_STATE_KEY, AppPreferences, AppShellState, AssessmentJobState, DraftSession, ProviderConnection, RecordingState, RecordingStatus, ReviewState
 
 ROOT = Path(__file__).resolve().parents[1]
 os.environ["APP_SHELL_SKIP_BOOTSTRAP"] = "1"
@@ -43,7 +43,7 @@ def _active_runtime_prefs(
     if provider == "openrouter":
         provider_metadata = {
             "http_referer": "http://localhost:8503",
-            "app_title": "Speaking Studio",
+            "app_title": "Vostavo",
         }
     model = default_models[provider]
     base_url = default_base_urls[provider]
@@ -110,28 +110,72 @@ def _history_record(
 class AppShellPageTests(unittest.TestCase):
     def test_home_renders(self):
         at = _app_test("streamlit_app.py")
-        at.run()
+        with patch("app_shell.diagnostics.collect_startup_diagnostics", return_value=[]):
+            at.run()
         self.assertEqual(at.session_state["_page_id"], "home")
-        self.assertTrue(any(button.label for button in at.button if button.key == "home_start_new"))
+        self.assertTrue(any(button.label for button in at.button if button.key == "home_runtime_setup"))
+        self.assertFalse(any(button.key == "home_start_new" for button in at.button))
         self.assertTrue(any(button.key == "home_guide" for button in at.button))
+        self.assertIn("Startup checks", [item.value for item in at.subheader])
 
     def test_home_renders_with_german_locale(self):
         at = _app_test("streamlit_app.py")
         at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
             prefs=AppPreferences(ui_locale="de")
         )
-        at.run()
-        self.assertTrue(any(button.label == "Neue Session starten" for button in at.button))
+        with patch("app_shell.diagnostics.collect_startup_diagnostics", return_value=[]):
+            at.run()
+        self.assertTrue(any(button.label == "Lokale KI einrichten" for button in at.button))
 
     def test_home_renders_runtime_setup_card_when_needed(self):
         at = _app_test("streamlit_app.py")
         at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
             prefs=AppPreferences(ui_locale="de")
         )
-        with patch("app_shell.services.needs_runtime_setup", return_value=True):
+        with patch("app_shell.diagnostics.collect_startup_diagnostics", return_value=[]), patch(
+            "app_shell.services.needs_runtime_setup", return_value=True
+        ):
             at.run()
-        self.assertIn("Runtime-Setup", [item.value for item in at.subheader])
-        self.assertTrue(any(button.label == "Runtime-Setup oeffnen" for button in at.button))
+        self.assertIn("Lokale KI einrichten", [item.value for item in at.subheader])
+        self.assertTrue(any(button.label == "Lokale KI einrichten" for button in at.button))
+
+    def test_home_runtime_setup_routes_to_setup_when_needed(self):
+        at = _app_test("streamlit_app.py")
+        with patch("app_shell.diagnostics.collect_startup_diagnostics", return_value=[]), patch(
+            "app_shell.services.needs_runtime_setup", return_value=True
+        ):
+            at.run()
+            at.button(key="home_runtime_setup").click()
+            at.run()
+
+        self.assertEqual(at.session_state["_next_page"], "pages/00_Setup.py")
+
+    def test_home_start_new_routes_to_session_setup_when_runtime_ready(self):
+        at = _app_test("streamlit_app.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=_active_runtime_prefs(ui_locale="en", provider="ollama")
+        )
+        with patch("app_shell.diagnostics.collect_startup_diagnostics", return_value=[]):
+            at.run()
+            at.button(key="home_start_new").click()
+            at.run()
+
+        self.assertEqual(at.session_state["_next_page"], "pages/01_Session_Setup.py")
+
+    def test_home_runtime_setup_routes_to_setup_for_existing_draft_when_needed(self):
+        at = _app_test("streamlit_app.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=AppPreferences(ui_locale="en"),
+            draft=DraftSession(session_id="draft-1", speaker_id="bern"),
+        )
+        with patch("app_shell.diagnostics.collect_startup_diagnostics", return_value=[]), patch(
+            "app_shell.services.needs_runtime_setup", return_value=True
+        ):
+            at.run()
+            at.button(key="home_runtime_setup").click()
+            at.run()
+
+        self.assertEqual(at.session_state["_next_page"], "pages/00_Setup.py")
 
     def test_runtime_setup_page_renders(self):
         at = _app_test("pages/00_Setup.py")
@@ -186,7 +230,7 @@ class AppShellPageTests(unittest.TestCase):
 
         self.assertEqual(at.text_input(key="runtime_setup_label").value, "Ollama Local")
         self.assertEqual(at.text_input(key="runtime_setup_base_url").value, "http://localhost:11434")
-        self.assertEqual(at.text_input(key="runtime_setup_model").value, "llama3")
+        self.assertEqual(at.text_input(key="runtime_setup_model").value, "")
         self.assertTrue(at.text_input(key="runtime_setup_openrouter_http_referer").disabled)
 
     def test_runtime_setup_provider_switch_supports_lmstudio_and_openai_compatible(self):
@@ -205,7 +249,7 @@ class AppShellPageTests(unittest.TestCase):
         at.selectbox(key="runtime_setup_provider_choice").set_value("lmstudio_local")
         at.run()
         self.assertEqual(at.text_input(key="runtime_setup_base_url").value, "http://localhost:1234/v1")
-        self.assertEqual(at.text_input(key="runtime_setup_model").value, "qwen2.5")
+        self.assertEqual(at.text_input(key="runtime_setup_model").value, "")
         self.assertTrue(any(button.key == "runtime_setup_detect_local_models" for button in at.button))
 
         at.selectbox(key="runtime_setup_provider_choice").set_value("openai_compatible")
@@ -237,6 +281,35 @@ class AppShellPageTests(unittest.TestCase):
         self.assertFalse(any("Runtime setup is already complete." in item.value for item in at.success))
         self.assertTrue(any("An active connection is already configured." in item.value for item in at.caption))
 
+    def test_runtime_setup_prefills_provider_choice_from_active_connection(self):
+        at = _app_test("pages/00_Setup.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=AppPreferences(
+                ui_locale="en",
+                provider="ollama",
+                setup_complete=True,
+                active_connection_id="primary",
+                connections=[
+                    ProviderConnection(
+                        connection_id="primary",
+                        provider_kind="ollama",
+                        label="Ollama Local",
+                        base_url="http://localhost:11434",
+                        default_model="qwen3.5:latest",
+                        is_default=True,
+                        is_local=True,
+                        provider_metadata={"deployment": "local"},
+                    )
+                ],
+            )
+        )
+        at.session_state["runtime_setup_show_advanced"] = True
+
+        at.run()
+
+        self.assertEqual(at.selectbox(key="runtime_setup_provider_choice").value, "ollama_local")
+        self.assertEqual(at.text_input(key="runtime_setup_model").value, "qwen3.5:latest")
+
     def test_runtime_setup_explains_that_save_activates_connection(self):
         at = _app_test("pages/00_Setup.py")
         at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
@@ -248,8 +321,7 @@ class AppShellPageTests(unittest.TestCase):
         self.assertTrue(any(button.key == "runtime_setup_save_connection" and button.label == "Save and use connection" for button in at.button))
         self.assertTrue(
             any(
-                "Saving also makes this the active connection." in item.value
-                and "recommended but never block save" in item.value
+                "move on to speaking practice" in item.value
                 for item in at.caption
             )
         )
@@ -342,6 +414,8 @@ class AppShellPageTests(unittest.TestCase):
                 prefs=AppPreferences(ui_locale="en", log_dir=tmpdir)
             )
             at.run()
+            at.checkbox(key="runtime_setup_show_advanced").check()
+            at.run()
             at.selectbox(key="runtime_setup_provider_choice").set_value("openrouter")
             at.text_input(key="runtime_setup_model").set_value("google/gemini-3.1-pro-preview")
             at.text_input(key="runtime_setup_api_key").set_value("key-123")
@@ -354,6 +428,48 @@ class AppShellPageTests(unittest.TestCase):
             self.assertEqual(state.prefs.connections[0].provider_kind, "openrouter")
             self.assertEqual(state.prefs.connections[0].default_model, "google/gemini-3.1-pro-preview")
             self.assertEqual(state.prefs.llm_api_key, "key-123")
+
+    def test_runtime_setup_test_connection_uses_blank_local_model_for_discovery_fallback(self):
+        at = _app_test("pages/00_Setup.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=AppPreferences(ui_locale="en", provider="openrouter")
+        )
+        with patch(
+            "app_shell.services.test_runtime_connection",
+            return_value={
+                "provider": "ollama",
+                "base_url": "http://localhost:11434/v1",
+                "health_endpoint": "http://localhost:11434/api/tags",
+                "test_payload": {
+                    "model": "mistral:latest",
+                    "content_preview": "ok",
+                },
+            },
+        ) as mock_test_runtime_connection:
+            at.run()
+            at.selectbox(key="runtime_setup_provider_choice").set_value("ollama_local")
+            at.run()
+            at.button(key="runtime_setup_test_connection").click()
+            at.run()
+
+        self.assertEqual(mock_test_runtime_connection.call_args.kwargs["model"], "")
+        self.assertTrue(any("mistral:latest" in item.value for item in at.success))
+
+    def test_runtime_setup_save_requires_model_choice_for_local_provider(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            at = _app_test("pages/00_Setup.py")
+            at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+                prefs=AppPreferences(ui_locale="en", log_dir=tmpdir, provider="openrouter")
+            )
+            at.run()
+            at.selectbox(key="runtime_setup_provider_choice").set_value("ollama_local")
+            at.run()
+            at.button(key="runtime_setup_save_connection").click()
+            at.run()
+
+            state = at.session_state[APP_SHELL_STATE_KEY]
+            self.assertEqual(len(state.prefs.connections), 0)
+            self.assertTrue(any("Local model discovery can populate this field" in item.value for item in at.error))
 
     def test_speak_guard_renders_without_setup(self):
         at = _app_test("pages/02_Speak.py")
@@ -484,6 +600,18 @@ class AppShellPageTests(unittest.TestCase):
         self.assertEqual(at.session_state["_next_page"], "pages/02_Speak.py")
         self.assertEqual(len(at.exception), 0)
 
+    def test_setup_requires_speaker_id_before_continuing(self):
+        at = _app_test("pages/01_Session_Setup.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=AppPreferences(ui_locale="en")
+        )
+        at.run()
+        at.button(key="setup_continue").click()
+        at.run()
+
+        self.assertTrue(any(error.value == "Speaker ID is required." for error in at.error))
+        self.assertNotIn("_next_page", at.session_state)
+
     def test_setup_submit_can_save_custom_theme_for_reuse(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             at = _app_test("pages/01_Session_Setup.py")
@@ -534,7 +662,9 @@ class AppShellPageTests(unittest.TestCase):
         at.run()
         self.assertEqual(
             [warning.value for warning in at.warning],
-            ["Configure Whisper and at least one inference connection before using the full runtime flow."],
+            [
+                "Before your first assessment, download Whisper and connect one local AI option. Cloud providers stay available later under advanced settings."
+            ],
         )
         self.assertTrue(any(button.key == "guard::pages/00_Setup.py" for button in at.button))
 
@@ -820,7 +950,7 @@ class AppShellPageTests(unittest.TestCase):
         self.assertEqual(speak_again.text_input(key="speak_label").value, "Morning run")
         self.assertEqual(speak_again.text_area(key="speak_notes").value, "Mention two concrete examples.")
 
-    def test_speak_assessing_success_applies_review_and_marks_next_page(self):
+    def test_speak_submit_creates_backend_job_and_completed_poll_applies_review(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             audio_path = Path(tmpdir) / "attempt.wav"
             audio_path.write_bytes(b"fake-audio")
@@ -845,7 +975,7 @@ class AppShellPageTests(unittest.TestCase):
                     prompt_text="Give your opinion on working from home.",
                 ),
                 recording=RecordingState(
-                    status=RecordingStatus.ASSESSING,
+                    status=RecordingStatus.READY,
                     audio_path=str(audio_path),
                     input_method="upload",
                     label_input="Morning run",
@@ -864,7 +994,27 @@ class AppShellPageTests(unittest.TestCase):
                 },
             }
             with patch("app_shell.services.create_assessment_request", return_value={"ok": True}) as create_request, \
-                    patch("app_shell.services.execute_assessment_request", return_value=(payload, None)):
+                    patch(
+                        "app_shell.services.submit_assessment_request",
+                        return_value=(AssessmentJobState(assessment_id="asmt-1", status="queued", phase="queued"), None),
+                    ), \
+                    patch(
+                        "app_shell.services.prime_assessment_request_status",
+                        return_value=(
+                            AssessmentJobState(
+                                assessment_id="asmt-1",
+                                status="completed",
+                                phase="done",
+                                progress=1.0,
+                                report_path=str(Path(tmpdir) / "report.json"),
+                            ),
+                            payload,
+                            None,
+                        ),
+                    ):
+                at.run()
+                at.button(key="speak_submit").click()
+                at.run()
                 at.run()
 
             kwargs = create_request.call_args.kwargs
@@ -876,6 +1026,108 @@ class AppShellPageTests(unittest.TestCase):
             self.assertEqual(state.review.report_id, "report-1")
             self.assertEqual(state.review.transcript, "Working from home can be efficient.")
             self.assertEqual(state.review.band, "B2")
+
+    def test_speak_submit_primes_job_status_before_next_render(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            audio_path = Path(tmpdir) / "attempt.wav"
+            audio_path.write_bytes(b"fake-audio")
+            at = _app_test("pages/02_Speak.py")
+            at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+                prefs=_active_runtime_prefs(ui_locale="en", provider="ollama", log_dir=tmpdir),
+                draft=DraftSession(
+                    session_id="draft-123",
+                    speaker_id="bern",
+                    learning_language="en",
+                    learning_language_label="English",
+                    cefr_level="B2",
+                    theme_id="work-home",
+                    theme_label="The pros and cons of working from home",
+                    task_family="opinion_monologue",
+                    duration_sec=120,
+                    prompt_id="work-home-b2",
+                    prompt_text="Give your opinion on working from home.",
+                ),
+                recording=RecordingState(
+                    status=RecordingStatus.READY,
+                    audio_path=str(audio_path),
+                    input_method="upload",
+                ),
+            )
+            at.session_state["speak_input_method"] = "upload"
+            running_job = AssessmentJobState(
+                assessment_id="asmt-1",
+                status="running",
+                phase="transcribing",
+                progress=0.0,
+            )
+            with patch("app_shell.services.create_assessment_request", return_value={"ok": True}), \
+                    patch(
+                        "app_shell.services.submit_assessment_request",
+                        return_value=(AssessmentJobState(assessment_id="asmt-1", status="queued", phase="queued"), None),
+                    ), \
+                    patch(
+                        "app_shell.services.prime_assessment_request_status",
+                        return_value=(running_job, None, None),
+                    ), \
+                    patch(
+                        "app_shell.services.poll_assessment_request",
+                        return_value=(running_job, None, None),
+                    ):
+                at.run()
+                at.button(key="speak_submit").click()
+                at.run()
+
+            state = at.session_state[APP_SHELL_STATE_KEY]
+            self.assertEqual(state.recording.status, RecordingStatus.ASSESSING)
+            self.assertEqual(state.recording.job.status, "running")
+            self.assertEqual(state.recording.job.phase, "transcribing")
+            self.assertAlmostEqual(state.recording.job.progress, 0.0)
+
+    def test_speak_assessing_openrouter_status_mentions_provider_and_model(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            audio_path = Path(tmpdir) / "attempt.wav"
+            audio_path.write_bytes(b"fake-audio")
+            at = _app_test("pages/02_Speak.py")
+            at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+                prefs=_active_runtime_prefs(ui_locale="en", provider="openrouter", log_dir=tmpdir),
+                draft=DraftSession(
+                    session_id="draft-123",
+                    speaker_id="bern",
+                    learning_language="en",
+                    learning_language_label="English",
+                    cefr_level="B2",
+                    theme_id="work-home",
+                    theme_label="The pros and cons of working from home",
+                    task_family="opinion_monologue",
+                    duration_sec=120,
+                    prompt_id="work-home-b2",
+                    prompt_text="Give your opinion on working from home.",
+                ),
+                recording=RecordingState(
+                    status=RecordingStatus.ASSESSING,
+                    audio_path=str(audio_path),
+                    input_method="upload",
+                    job=AssessmentJobState(assessment_id="asmt-1", status="running", phase="transcribing", progress=0.0),
+                ),
+            )
+            at.session_state["speak_input_method"] = "upload"
+            running_job = AssessmentJobState(
+                assessment_id="asmt-1",
+                status="running",
+                phase="transcribing",
+                progress=0.0,
+            )
+            with patch(
+                "app_shell.services.poll_assessment_request",
+                return_value=(running_job, None, None),
+            ):
+                at.run()
+
+            self.assertEqual(len(at.exception), 0)
+            self.assertEqual(
+                at.status[0].label,
+                "Your assessment is running via OpenRouter with model `google/gemini-3.1-pro-preview`.",
+            )
 
     def test_speak_assessing_error_sets_recording_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -901,22 +1153,165 @@ class AppShellPageTests(unittest.TestCase):
                     status=RecordingStatus.ASSESSING,
                     audio_path=str(audio_path),
                     input_method="upload",
+                    job=AssessmentJobState(assessment_id="asmt-1", status="running", phase="transcribing", progress=0.0),
                 ),
             )
             at.session_state["speak_input_method"] = "upload"
-            with patch("app_shell.services.create_assessment_request", return_value={"ok": True}), \
-                    patch("app_shell.services.execute_assessment_request", return_value=(None, "boom")):
+            with patch(
+                "app_shell.services.poll_assessment_request",
+                return_value=(
+                    AssessmentJobState(assessment_id="asmt-1", status="failed", phase="failed", error="boom"),
+                    None,
+                    "boom",
+                ),
+            ):
                 at.run()
 
             state = at.session_state[APP_SHELL_STATE_KEY]
             self.assertEqual(state.recording.error, "boom")
-            self.assertEqual(state.recording.status, RecordingStatus.IDLE)
+            self.assertEqual(state.recording.status, RecordingStatus.READY)
+
+    def test_speak_assessing_completed_poll_applies_review_without_manual_refresh(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            audio_path = Path(tmpdir) / "attempt.wav"
+            audio_path.write_bytes(b"fake-audio")
+            at = _app_test("pages/02_Speak.py")
+            at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+                prefs=_active_runtime_prefs(ui_locale="en", provider="ollama", log_dir=tmpdir),
+                draft=DraftSession(
+                    session_id="draft-123",
+                    speaker_id="bern",
+                    learning_language="en",
+                    learning_language_label="English",
+                    cefr_level="B2",
+                    theme_id="work-home",
+                    theme_label="The pros and cons of working from home",
+                    task_family="opinion_monologue",
+                    duration_sec=120,
+                    prompt_id="work-home-b2",
+                    prompt_text="Give your opinion on working from home.",
+                ),
+                recording=RecordingState(
+                    status=RecordingStatus.ASSESSING,
+                    audio_path=str(audio_path),
+                    input_method="upload",
+                    job=AssessmentJobState(assessment_id="asmt-1", status="running", phase="transcribing", progress=0.0),
+                ),
+            )
+            payload = {
+                "meta": {"label": "Morning run"},
+                "notes": "Mention two examples.",
+                "transcript_full": "Working from home can be efficient.",
+                "report": {
+                    "session_id": "report-1",
+                    "scores": {"final": 4.1, "band": "B2"},
+                    "checks": {"language_pass": True, "topic_pass": True, "duration_pass": True, "min_words_pass": True},
+                    "coaching": {"coach_summary": "Clear structure."},
+                },
+            }
+            at.session_state["speak_input_method"] = "upload"
+            with patch(
+                "app_shell.services.poll_assessment_request",
+                return_value=(
+                    AssessmentJobState(
+                        assessment_id="asmt-1",
+                        status="completed",
+                        phase="done",
+                        progress=1.0,
+                        report_path=str(Path(tmpdir) / "report.json"),
+                    ),
+                    payload,
+                    None,
+                ),
+            ):
+                at.run()
+
+            self.assertEqual(at.session_state["_next_page"], "pages/03_Review.py")
+            state = at.session_state[APP_SHELL_STATE_KEY]
+            self.assertEqual(state.review.report_id, "report-1")
+            self.assertEqual(state.review.transcript, "Working from home can be efficient.")
+            self.assertEqual(state.review.band, "B2")
 
     def test_review_guard_renders_without_attempt(self):
         at = _app_test("pages/03_Review.py")
         at.run()
         self.assertEqual(at.session_state["_page_id"], "review")
         self.assertEqual(len(at.warning), 1)
+
+    def test_review_guard_points_back_to_speak_while_assessment_is_running(self):
+        at = _app_test("pages/03_Review.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            draft=DraftSession(session_id="draft-123", speaker_id="bern"),
+            recording=RecordingState(
+                status=RecordingStatus.ASSESSING,
+                audio_path="demo://attempt.wav",
+                job=AssessmentJobState(assessment_id="asmt-1", status="running", phase="transcribing", progress=0.0),
+            ),
+        )
+        with patch(
+            "app_shell.services.poll_assessment_request",
+            return_value=(
+                AssessmentJobState(assessment_id="asmt-1", status="running", phase="transcribing", progress=0.0),
+                None,
+                None,
+            ),
+        ):
+            at.run()
+        self.assertTrue(any("still processing" in item.value.lower() for item in at.warning))
+
+    def test_review_recovers_completed_job_payload_before_guard(self):
+        at = _app_test("pages/03_Review.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=AppPreferences(ui_locale="en"),
+            draft=DraftSession(
+                session_id="draft-123",
+                speaker_id="bern",
+                learning_language="en",
+                learning_language_label="English",
+                cefr_level="B2",
+                theme_id="work-home",
+                theme_label="The pros and cons of working from home",
+                task_family="opinion_monologue",
+                duration_sec=120,
+                prompt_id="work-home-b2",
+                prompt_text="Give your opinion on working from home.",
+            ),
+            recording=RecordingState(
+                status=RecordingStatus.ASSESSING,
+                audio_path="demo://attempt.wav",
+                job=AssessmentJobState(assessment_id="asmt-1", status="running", phase="transcribing", progress=0.0),
+            ),
+        )
+        payload = {
+            "meta": {"label": "Morning run"},
+            "notes": "Mention two examples.",
+            "transcript_full": "Working from home can be efficient.",
+            "report": {
+                "session_id": "report-1",
+                "scores": {"final": 4.1, "band": "B2"},
+                "checks": {
+                    "language_pass": True,
+                    "topic_pass": True,
+                    "duration_pass": True,
+                    "min_words_pass": True,
+                },
+                "coaching": {"coach_summary": "Clear structure."},
+            },
+        }
+        with patch(
+            "app_shell.services.poll_assessment_request",
+            return_value=(
+                AssessmentJobState(assessment_id="asmt-1", status="completed", phase="done", progress=1.0),
+                payload,
+                None,
+            ),
+        ):
+            at.run()
+
+        self.assertEqual(len(at.warning), 0)
+        self.assertEqual(at.text_input(key="review_saved_label_view").value, "Morning run")
+        self.assertEqual(at.text_area(key="review_saved_notes_view").value, "Mention two examples.")
+        self.assertEqual(at.text_area(key="review_transcript_view").value, "Working from home can be efficient.")
 
     def test_review_renders_metrics_with_attempt(self):
         at = _app_test("pages/03_Review.py")
@@ -960,8 +1355,68 @@ class AppShellPageTests(unittest.TestCase):
         self.assertEqual(len(at.warning), 0)
         self.assertGreaterEqual(len(at.metric), 8)
         self.assertEqual(len(at.tabs), 0)
+        subheaders = [item.value for item in at.subheader]
+        self.assertIn("Current result", subheaders)
+        self.assertIn("Why", subheaders)
+        self.assertIn("What to do next", subheaders)
         self.assertEqual(at.text_area(key="review_transcript_view").value, "Parla del tuo ultimo viaggio.")
         self.assertTrue(any(button.key == "review_open_scoring_guide" for button in at.button))
+
+    def test_review_translates_coaching_fallback_warning(self):
+        at = _app_test("pages/03_Review.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=AppPreferences(ui_locale="en"),
+            draft=DraftSession(
+                session_id="draft-123",
+                speaker_id="bern",
+                learning_language="it",
+                learning_language_label="Italiano",
+                cefr_level="B2",
+                theme_id="remote-work",
+                theme_label="I vantaggi e gli svantaggi del lavoro da casa",
+                task_family="opinion_monologue",
+                duration_sec=120,
+                prompt_id="remote-work-b2",
+                prompt_text="Parla dei vantaggi e degli svantaggi del lavoro da casa.",
+            ),
+            review=ReviewState(
+                report_id="report-1",
+                transcript="Transcript.",
+                score_overall=4.0,
+                band="B2",
+                summary="Placeholder summary.",
+                payload={
+                    "report": {
+                        "session_id": "report-1",
+                        "scores": {"final": 4.0, "band": "B2"},
+                        "checks": {
+                            "language_pass": True,
+                            "topic_pass": True,
+                            "duration_pass": True,
+                            "min_words_pass": True,
+                        },
+                        "warnings": ["coaching_unavailable"],
+                        "coaching": {
+                            "coach_summary": "Clear structure.",
+                            "strengths": ["Stayed on topic."],
+                            "top_3_priorities": ["Use more connectors.", "Speak longer.", "Add detail."],
+                            "next_focus": "Use more connectors.",
+                            "next_exercise": "Repeat the topic with more connectors.",
+                        },
+                    }
+                },
+            ),
+        )
+
+        at.run()
+
+        self.assertTrue(
+            any(
+                "AI coaching was unavailable for this run, so standard coaching guidance is shown instead."
+                in item.value
+                for item in at.warning
+            )
+        )
 
     def test_scoring_guide_page_renders_sections(self):
         at = _app_test("pages/07_Scoring_Guide.py")
@@ -978,7 +1433,7 @@ class AppShellPageTests(unittest.TestCase):
         self.assertIn("Validation gates", subheaders)
         self.assertIn("Provisional CEFR estimate", subheaders)
 
-    def test_review_renders_saved_notes_and_full_transcript(self):
+    def test_review_renders_saved_label_notes_and_full_transcript(self):
         at = _app_test("pages/03_Review.py")
         at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
             prefs=AppPreferences(ui_locale="en"),
@@ -1002,6 +1457,7 @@ class AppShellPageTests(unittest.TestCase):
                 band="B2",
                 summary="Placeholder summary.",
                 payload={
+                    "meta": {"label": "Morning run"},
                     "notes": "Ricordati di confrontare vantaggi e svantaggi.",
                     "transcript_full": "Testo completo della trascrizione.",
                     "report": {
@@ -1019,6 +1475,7 @@ class AppShellPageTests(unittest.TestCase):
             ),
         )
         at.run()
+        self.assertEqual(at.text_input(key="review_saved_label_view").value, "Morning run")
         self.assertEqual(at.text_area(key="review_saved_notes_view").value, "Ricordati di confrontare vantaggi e svantaggi.")
         self.assertEqual(at.text_area(key="review_transcript_view").value, "Testo completo della trascrizione.")
 
@@ -1216,15 +1673,18 @@ class AppShellPageTests(unittest.TestCase):
             },
         }
         with patch("app_shell.services.load_history_records", return_value=records), patch(
-            "app_shell.services.load_report_payload",
-            return_value=payload,
+            "app_shell.services.load_history_detail_payload",
+            return_value=(payload, None),
         ) as mock_load_report:
             at.run()
         self.assertEqual(len(at.exception), 0)
         self.assertEqual(at.selectbox(key="history_detail_report").value, "/tmp/report-2.json")
         self.assertEqual(at.text_area(key="history_saved_notes_view").value, "Remember to compare both sides.")
         self.assertEqual(at.text_area(key="history_transcript_view").value, "Full saved transcript for the selected attempt.")
-        mock_load_report.assert_called_with("/tmp/report-2.json")
+        mock_load_report.assert_called_with(
+            "sess-2",
+            log_dir=at.session_state[APP_SHELL_STATE_KEY].prefs.log_dir,
+        )
 
     def test_history_recent_jump_buttons_render_newest_first(self):
         at = _app_test("pages/04_History.py")
@@ -1292,8 +1752,8 @@ class AppShellPageTests(unittest.TestCase):
             }
 
         with patch("app_shell.services.load_history_records", return_value=records), patch(
-            "app_shell.services.load_report_payload",
-            side_effect=_payload_for,
+            "app_shell.services.load_history_detail_payload",
+            side_effect=lambda session_id, log_dir=None: (_payload_for(session_id), None),
         ):
             at.run()
 
@@ -1352,8 +1812,8 @@ class AppShellPageTests(unittest.TestCase):
             },
         }
         with patch("app_shell.services.load_history_records", return_value=records), patch(
-            "app_shell.services.load_report_payload",
-            return_value=payload,
+            "app_shell.services.load_history_detail_payload",
+            return_value=(payload, None),
         ):
             at.run()
 
@@ -1414,8 +1874,8 @@ class AppShellPageTests(unittest.TestCase):
             },
         }
         with patch("app_shell.services.load_history_records", return_value=records), patch(
-            "app_shell.services.load_report_payload",
-            return_value=payload,
+            "app_shell.services.load_history_detail_payload",
+            return_value=(payload, None),
         ) as mock_load_report:
             at.run()
 
@@ -1426,7 +1886,10 @@ class AppShellPageTests(unittest.TestCase):
         )
         self.assertEqual(list(attempts_frame["Session"]), ["sess-en"])
         self.assertEqual(at.selectbox(key="history_detail_report").value, "/tmp/report-en.json")
-        mock_load_report.assert_called_with("/tmp/report-en.json")
+        mock_load_report.assert_called_with(
+            "sess-en",
+            log_dir=at.session_state[APP_SHELL_STATE_KEY].prefs.log_dir,
+        )
 
     def test_history_handles_missing_saved_report_payload(self):
         at = _app_test("pages/04_History.py")
@@ -1450,8 +1913,8 @@ class AppShellPageTests(unittest.TestCase):
             ),
         ]
         with patch("app_shell.services.load_history_records", return_value=records), patch(
-            "app_shell.services.load_report_payload",
-            return_value=None,
+            "app_shell.services.load_history_detail_payload",
+            return_value=(None, "missing"),
         ):
             at.run()
         self.assertEqual(len(at.exception), 0)
@@ -1581,6 +2044,76 @@ class AppShellPageTests(unittest.TestCase):
             self.assertEqual(at.session_state["library_filter_language"], "it")
             self.assertEqual(at.selectbox(key="library_filter_language").value, "it")
 
+    def test_library_sample_trial_prefills_setup_when_session_is_missing(self):
+        at = _app_test("pages/05_Library.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=AppPreferences(ui_locale="en"),
+        )
+        sample = {
+            "sample_id": "en_B2_remote_work",
+            "language": "en",
+            "cefr": "B2",
+            "title": "remote work",
+            "path": "/tmp/remote-work.wav",
+            "available": True,
+        }
+        with patch("app_shell.services.list_sample_trials", return_value=[sample]), patch(
+            "app_shell.services.load_theme_library",
+            return_value={"en": {"label": "English", "themes": []}},
+        ):
+            at.run()
+            at.button(key="library_sample_0").click()
+            at.run()
+
+        state = at.session_state[APP_SHELL_STATE_KEY]
+        self.assertEqual(state.draft.learning_language, "en")
+        self.assertEqual(state.draft.learning_language_label, "English")
+        self.assertEqual(state.draft.cefr_level, "B2")
+        self.assertEqual(state.draft.theme_label, "Remote Work")
+        self.assertEqual(state.draft.task_family, "opinion_monologue")
+        self.assertEqual(at.session_state["_next_page"], "pages/01_Session_Setup.py")
+
+    def test_library_sample_trial_attaches_audio_when_session_exists(self):
+        at = _app_test("pages/05_Library.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=AppPreferences(ui_locale="en"),
+            draft=DraftSession(
+                session_id="draft-123",
+                speaker_id="bern",
+                learning_language="it",
+                learning_language_label="Italiano",
+                cefr_level="B1",
+                theme_id="viaggio",
+                theme_label="Il mio ultimo viaggio all'estero",
+                task_family="travel_narrative",
+                duration_sec=90,
+                prompt_id="viaggio-b1",
+                prompt_text="Parla del tuo ultimo viaggio.",
+            ),
+        )
+        sample = {
+            "sample_id": "en_B2_remote_work",
+            "language": "en",
+            "cefr": "B2",
+            "title": "remote work",
+            "path": "/tmp/remote-work.wav",
+            "available": True,
+        }
+        with patch("app_shell.services.list_sample_trials", return_value=[sample]), patch(
+            "app_shell.services.load_theme_library",
+            return_value={"en": {"label": "English", "themes": []}},
+        ):
+            at.run()
+            at.button(key="library_sample_0").click()
+            at.run()
+
+        state = at.session_state[APP_SHELL_STATE_KEY]
+        self.assertEqual(state.draft.learning_language, "en")
+        self.assertEqual(state.draft.cefr_level, "B2")
+        self.assertEqual(state.recording.audio_path, "/tmp/remote-work.wav")
+        self.assertEqual(state.recording.input_method, "upload")
+        self.assertEqual(at.session_state["_next_page"], "pages/02_Speak.py")
+
     def test_settings_tolerates_invalid_saved_options(self):
         at = _app_test("pages/06_Settings.py")
         at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
@@ -1589,6 +2122,15 @@ class AppShellPageTests(unittest.TestCase):
         at.run()
         self.assertEqual(at.session_state["_page_id"], "settings")
         self.assertEqual(len(at.exception), 0)
+
+    def test_settings_replaces_stale_provider_choice_with_current_hint(self):
+        at = _app_test("pages/06_Settings.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=AppPreferences(ui_locale="en", provider="openrouter")
+        )
+        at.session_state["settings_provider"] = "ollama"
+        at.run()
+        self.assertEqual(at.selectbox(key="settings_provider").value, "openrouter")
 
     def test_settings_enables_openrouter_fields_immediately_when_provider_changes(self):
         at = _app_test("pages/06_Settings.py")
@@ -1689,7 +2231,7 @@ class AppShellPageTests(unittest.TestCase):
             )
             at.session_state[APP_SHELL_STATE_KEY].nav.return_to = "library"
             at.run()
-            at.selectbox(key="settings_provider").set_value("ollama")
+            at.selectbox(key="settings_provider").set_value("ollama_local")
             at.text_input(key="settings_model").set_value("llama3")
             at.selectbox(key="settings_whisper_model").set_value("base")
             at.button(key="settings_save").click()
@@ -1713,7 +2255,7 @@ class AppShellPageTests(unittest.TestCase):
                 prefs=AppPreferences(ui_locale="en", log_dir=tmpdir),
             )
             at.run()
-            at.selectbox(key="settings_provider").set_value("lmstudio")
+            at.selectbox(key="settings_provider").set_value("lmstudio_local")
             at.text_input(key="settings_model").set_value("qwen2.5")
             at.text_input(key="settings_base_url").set_value("http://localhost:1234/v1")
             at.text_input(key="settings_api_key").set_value("token-123")
@@ -1764,6 +2306,36 @@ class AppShellPageTests(unittest.TestCase):
         self.assertEqual(len(at.exception), 0)
         self.assertTrue(any("/tmp/small" in item.value for item in at.success))
 
+    def test_settings_test_connection_uses_localized_success_message(self):
+        at = _app_test("pages/06_Settings.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=AppPreferences(ui_locale="en"),
+        )
+        with patch(
+            "app_shell.services.test_runtime_connection",
+            return_value={
+                "health_endpoint": "http://127.0.0.1:11434/health",
+                "base_url": "http://127.0.0.1:11434/v1",
+                "test_payload": {
+                    "tested_at": "2026-04-02T12:00:00",
+                    "content_preview": "All good",
+                    "model": "llama3",
+                },
+            },
+        ):
+            at.run()
+            at.button(key="settings_test_connection").click()
+            at.run()
+
+        self.assertEqual(len(at.exception), 0)
+        self.assertTrue(
+            any(
+                "Connection test succeeded for OpenRouter via http://127.0.0.1:11434/v1." in item.value
+                and "All good" in item.value
+                for item in at.success
+            )
+        )
+
     def test_settings_save_persists_openrouter_credentials_and_identifier(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             at = _app_test("pages/06_Settings.py")
@@ -1775,7 +2347,7 @@ class AppShellPageTests(unittest.TestCase):
             at.text_input(key="settings_model").set_value("google/gemini-3.1-pro-preview")
             at.text_input(key="settings_api_key").set_value("key-123")
             at.text_input(key="settings_openrouter_http_referer").set_value("http://localhost:8503")
-            at.text_input(key="settings_openrouter_app_title").set_value("Speaking Studio")
+            at.text_input(key="settings_openrouter_app_title").set_value("Vostavo")
             at.button(key="settings_save").click()
             at.run()
 
@@ -1783,7 +2355,7 @@ class AppShellPageTests(unittest.TestCase):
             self.assertEqual(state.prefs.provider, "openrouter")
             self.assertEqual(state.prefs.llm_api_key, "key-123")
             self.assertEqual(state.prefs.openrouter_http_referer, "http://localhost:8503")
-            self.assertEqual(state.prefs.openrouter_app_title, "Speaking Studio")
+            self.assertEqual(state.prefs.openrouter_app_title, "Vostavo")
 
 
 if __name__ == "__main__":

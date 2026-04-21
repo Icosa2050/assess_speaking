@@ -1,0 +1,546 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": "1",
+        "title": "Stabilize runner extraction",
+        "description": "Finish validating the reusable assessment runner and keep CLI behavior intact.",
+        "details": "Files: assess_speaking.py, assessment_runtime/runner.py. Acceptance: CLI delegates to runner cleanly, no report-shape drift, no duplicate orchestration left between CLI and runner.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-02T12:28:46.159Z"
+      },
+      {
+        "id": "2",
+        "title": "Stabilize backend contracts",
+        "description": "Lock backend config and API contract models for the local FastAPI backend.",
+        "details": "Files: app_backend/config.py, app_backend/contracts.py. Acceptance: app-data rooted config is stable, error taxonomy includes backend/provider/dependency failures, request and response models cover health, diagnostics, runtime, uploads, assessments, history, and samples.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [
+          "1"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-02T12:28:47.929Z"
+      },
+      {
+        "id": "3",
+        "title": "Stabilize backend core",
+        "description": "Harden the FastAPI app and job manager for local assessment execution.",
+        "details": "Files: app_backend/app.py, app_backend/jobs.py. Acceptance: endpoints work, diagnostics are reused instead of duplicated, jobs support queued/running/completed/failed/cancelled, restart and stale-job handling are explicit.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [
+          "2"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-02T12:28:49.723Z"
+      },
+      {
+        "id": "4",
+        "title": "Finalize backend lifecycle launcher",
+        "description": "Make the launcher and lifecycle manager reliably start or reuse one localhost backend per app-data root.",
+        "details": "Files: app_backend/lifecycle.py, scripts/run_app.py. Acceptance: health handshake works, stale backend recovery is explicit, dry-run/check behavior stays predictable, backend state file lifecycle is correct.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [
+          "3"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-02T12:28:51.477Z"
+      },
+      {
+        "id": "5",
+        "title": "Migrate app shell to backend client",
+        "description": "Route app-shell assessment work through the backend with a temporary internal fallback flag.",
+        "details": "Files: app_shell/backend_client.py, app_shell/services.py. Acceptance: upload, assessment submission, polling, report loading, and history loading use the backend path by default; CLI subprocess fallback is isolated behind the internal feature flag only.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [
+          "4"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-02T12:28:53.265Z"
+      },
+      {
+        "id": "6",
+        "title": "Cover backend seam with tests",
+        "description": "Add and stabilize targeted backend, runner, launcher, and services regression tests.",
+        "details": "Files: tests/test_assessment_runner.py, tests/test_app_backend_api.py. Acceptance: runner, backend API, backend/client services path, and launcher behavior are covered and green; failure branches are exercised.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [
+          "5"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-02T12:28:55.048Z"
+      },
+      {
+        "id": "7",
+        "title": "Beginner-first Home flow",
+        "description": "Simplify the home screen so a first-time learner sees one dominant local setup path and diagnostics as secondary guidance.",
+        "details": "Files: streamlit_app.py, app_shell/page_helpers.py. Acceptance: one obvious CTA for local guided setup, secondary readiness checklist, no duplicated readiness logic. Requires PAL review before implementation.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [
+          "6"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-02T12:36:45.117Z"
+      },
+      {
+        "id": "8",
+        "title": "Guided local setup flow",
+        "description": "Reshape runtime setup into a beginner-friendly local-first flow centered on Ollama, with advanced provider options tucked away.",
+        "details": "Files: pages/00_Setup.py, app_shell/services.py. Acceptance: Ollama is the recommended first path, local discovery is automatic or one-click, advanced cloud/base URL/API key controls are hidden by default. Requires PAL review before implementation.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [
+          "5",
+          "7"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-02T12:36:46.920Z"
+      },
+      {
+        "id": "9",
+        "title": "Localize beginner setup copy",
+        "description": "Add beginner-first setup copy and documentation for the guided local flow.",
+        "details": "Files: locales/en.json, locales/it.json. Acceptance: new setup strings are localized, actionable dependency guidance exists, and follow-on locale passes can mirror the same keys.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [
+          "8"
+        ],
+        "priority": "medium",
+        "subtasks": [],
+        "updatedAt": "2026-04-02T12:36:48.690Z"
+      },
+      {
+        "id": "10",
+        "title": "Adopt backend job states in learner flow",
+        "description": "Update learner-facing screens to consume backend job states and backend-backed results instead of local execution assumptions.",
+        "details": "Files: pages/02_Speak.py, pages/03_Review.py. Acceptance: Speak shows ready/uploading/queued/running/completed/failed, Review reads backend-backed results cleanly, and learner messaging stays localized. Requires PAL review before implementation.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [
+          "5",
+          "8"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-02T14:03:25.577Z"
+      },
+      {
+        "id": "11",
+        "title": "Polish history and sample trial flow",
+        "description": "Make history and sample browsing fit the beginner backend-backed flow.",
+        "details": "Files: pages/04_History.py, pages/05_Library.py. Acceptance: history reads backend-backed reports cleanly and a beginner can try shipped EN/IT B1/B2/C1 samples without setup confusion. Requires PAL review before implementation.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [
+          "10"
+        ],
+        "priority": "medium",
+        "subtasks": [],
+        "updatedAt": "2026-04-02T14:36:28.784Z"
+      },
+      {
+        "id": "12",
+        "title": "Add quality gates and final doc alignment",
+        "description": "Enforce duplication and error-handling checks in CI and align the architecture docs with shipped behavior.",
+        "details": "Files: .github/workflows/ci.yml, scripts/check_quality.py. Acceptance: quality checks flag broad exception handling and leftover direct CLI shell-outs, and final docs reflect implemented backend behavior after rollout.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [
+          "6",
+          "11"
+        ],
+        "priority": "medium",
+        "subtasks": [],
+        "updatedAt": "2026-04-02T14:36:28.784Z"
+      },
+      {
+        "id": "13",
+        "title": "Triage supporting docs set A",
+        "description": "Classify the first group of planning docs before implementation starts.",
+        "details": "Files: docs/REPO_CLEANUP_PLAN.md, docs/RECORDER_UX_WIREFRAME.md, docs/MULTILINGUAL_CEFR_ASSESSMENT_PLAN.md, docs/COACHING_BACKLOG.md. Acceptance: each doc is classified as blocking, deferred, or out-of-scope for the current desktop baseline, and collisions with cleanup, recorder UX, localization, or review surfaces are noted.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T14:05:14.000Z"
+      },
+      {
+        "id": "14",
+        "title": "Triage supporting docs set B and UX support plan",
+        "description": "Classify the second group of planning docs and formally place the local desktop UX plan in the hierarchy before implementation starts.",
+        "details": "Files: docs/SPOKEN_CORPUS_CATEGORIZATION_PLAN.md, docs/SYNTHETIC_BENCHMARK_AUTOMATION.md, docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md. Acceptance: each doc is classified as blocking, deferred, or out-of-scope where appropriate; the Local Desktop UX Refactoring plan is explicitly classified as a supporting desktop UX plan rather than a governing product plan; and collisions with app_backend/contracts.py, scripts/, app_shell/page_helpers.py, and later hosted work are noted.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T14:05:14.000Z"
+      },
+      {
+        "id": "15",
+        "title": "Reconcile core planning docs",
+        "description": "Align the core desktop planning docs so they stop disagreeing about storage, runtime metadata, and Settings work.",
+        "details": "Files: docs/IMPLEMENTATION_PLAN.md, docs/LOCAL_BACKEND_ARCHITECTURE.md, docs/SUPPORT_MAINTENANCE_PLAN.md, docs/SUPPORT_MAINTENANCE_IMPLEMENTATION_PLAN.md. Acceptance: jobs/ is the only canonical owner of job metadata, runtime metadata wording is aligned, packaging-target wording is aligned, support endpoints are called out as local-desktop extensions, and Task 6 in the support implementation plan reflects the later page_helpers.py Settings pass.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "13",
+          "14"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T12:00:00.000Z"
+      },
+      {
+        "id": "16",
+        "title": "Reconcile boundary and follow-on planning docs",
+        "description": "Align the hosted, mobile, inference, and credential planning boundaries with the meta-plan.",
+        "details": "Files: docs/DESKTOP_HOSTED_PRODUCT_PLAN.md, docs/PUBLIC_INFERENCE_ARCHITECTURE_PLAN.md, docs/MOBILE_COMPANION_STRATEGY.md, docs/SAVED_CONNECTIONS_PRODUCTION_CREDENTIAL_PLAN.md. Acceptance: the hosted product plan remains the only approved product migration path, public inference is explicitly separate from the canonical product API, mobile stays non-blocking, credential rules remain compatible with later optional desktop sign-in, and Linux is described as no-regression rather than first-class packaging.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "13",
+          "14"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T12:00:00.000Z"
+      },
+      {
+        "id": "17",
+        "title": "Unify runtime metadata foundation",
+        "description": "Add one authoritative runtime metadata shape before support or hosted work grows new variants.",
+        "details": "Files: app_shell/bootstrap.py, app_backend/lifecycle.py, scripts/run_app.py, tests/test_run_app.py. Acceptance: RuntimeMetadata is defined authoritatively in app_shell/bootstrap.py and consumed elsewhere; deployment_mode, launch_mode, packaging_safe, and auth_mode are explicit; and current local desktop behavior is unchanged. Decision gate is modeled in Task 30 so runtime metadata implementation stays blocked until auth_mode ownership, auth_mode mutability, and packaging_safe semantics are explicitly resolved.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "15",
+          "16",
+          "30"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T14:05:14.000Z"
+      },
+      {
+        "id": "18",
+        "title": "Lock secure credential core",
+        "description": "Retire app-shell env-var credential fallback and keep secure-store behavior explicit and recoverable.",
+        "details": "Files: app_shell/secret_store.py, app_shell/runtime_resolver.py, tests/test_secret_store.py, tests/test_runtime_resolver.py. Acceptance: app-shell credential resolution ignores environment variables, secure-store migration remains supported, missing secure secrets produce a recoverable state, and environment-fallback secret resolution is explicitly retired in secret_store.py for app-shell runtime.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "17"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T12:00:00.000Z"
+      },
+      {
+        "id": "19",
+        "title": "Update app-shell credential surfaces",
+        "description": "Move service and diagnostics reporting to saved-secret-only runtime behavior.",
+        "details": "Files: app_shell/services.py, app_shell/diagnostics.py, tests/test_app_shell_diagnostics.py, tests/test_app_shell_services.py. Acceptance: diagnostics report saved-credential state only, env-fallback messaging is removed from app-shell runtime behavior, credentials-missing is explicit and localized, and the shell-side snapshot shape is ready for later support-bundle use. This pass owns the first serialized updates to app_shell/services.py, app_shell/diagnostics.py, tests/test_app_shell_diagnostics.py, and tests/test_app_shell_services.py. Decision gate is modeled in Task 31 so client_snapshot scope is resolved before downstream support-bundle and UX work depends on it.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "18",
+          "31"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T14:05:14.000Z"
+      },
+      {
+        "id": "20",
+        "title": "Implement credential screen pass after PAL review",
+        "description": "Update Setup, Settings, and Speak for saved-secret-only runtime behavior after reviewing the screen approach with PAL.",
+        "details": "Files: pages/00_Setup.py, pages/06_Settings.py, pages/02_Speak.py, tests/test_app_shell_pages.py. Acceptance: forms no longer prefill secrets, blank secret submission preserves the existing stored secret, explicit clear-key flow exists, Speak warnings reference saved credentials only, and screen changes have been reviewed with PAL before implementation. Use docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md as supporting input for Setup, Speak, and credential-Settings expectations instead of creating separate executable UX tasks for those same surfaces. PAL review is modeled in Task 32.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "19",
+          "32"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T14:05:14.000Z"
+      },
+      {
+        "id": "21",
+        "title": "Add backend support and maintenance APIs",
+        "description": "Add the backend contract and client plumbing for storage summaries, cleanup, and support bundles.",
+        "details": "Files: app_backend/contracts.py, app_backend/app.py, app_shell/backend_client.py, tests/test_app_backend_api.py. Acceptance: storage summary, cleanup, and support-bundle create/download endpoints exist; validation and success-path API coverage is in place; and backend_client.py exposes explicit support methods rather than ad hoc call sites. This task can start after Task 19 because it stays on backend and client contract surfaces rather than PAL-reviewed screen files. It owns the first serialized support pass on app_backend/contracts.py, app_backend/app.py, and app_shell/backend_client.py before later hosted-seam work reopens those files.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "19"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T14:05:14.000Z"
+      },
+      {
+        "id": "22",
+        "title": "Build support bundle generation and redaction",
+        "description": "Create the support-bundle generator and pass sanitized shell context into it.",
+        "details": "Files: app_backend/support_bundle.py [CREATE], app_shell/services.py, app_shell/diagnostics.py, tests/test_app_shell_services.py. Acceptance: default bundles exclude reports, recordings, and uploads; secret values and secret_ref values are redacted; sanitized client and runtime context comes from the shell; and directory exclusion rules are named explicitly against canonical app-data directories. This task follows the serialized services, diagnostics, and tests/test_app_shell_services.py work from Task 19 and the backend/client API work from Task 21. The redaction decision is modeled in Task 33 so secret_ref handling is resolved before implementation proceeds.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "19",
+          "21",
+          "33"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T14:05:14.000Z"
+      },
+      {
+        "id": "23",
+        "title": "Add cleanup engine and retention rules",
+        "description": "Create the cleanup engine and encode safe retention rules for transient and support-generated data.",
+        "details": "Files: app_backend/maintenance.py [CREATE], app_backend/config.py, app_backend/jobs.py, tests/test_app_backend_config.py. Acceptance: tmp/ can be safely purged, support bundles expire, stale completed/failed/cancelled jobs are pruned, and reports/recordings/uploads are never auto-deleted. This task owns the first serialized support pass on app_backend/config.py and app_backend/jobs.py before hosted-seam work reopens those files. The retention-window and all_safe decisions are modeled in Task 34 so cleanup semantics are locked before implementation proceeds.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "22",
+          "34"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T14:05:14.000Z"
+      },
+      {
+        "id": "24",
+        "title": "Wire cleanup into backend startup",
+        "description": "Run safe cleanup during backend startup without regressing launch behavior.",
+        "details": "Files: app_backend/lifecycle.py, scripts/run_backend.py, tests/test_run_backend.py, tests/test_app_backend_lifecycle.py. Acceptance: cleanup runs during backend startup, the active backend log is preserved, repo-local overrides still work, and this pass happens only after runtime metadata work is complete because both passes touch app_backend/lifecycle.py.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "17",
+          "23"
+        ],
+        "priority": "medium",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T12:00:00.000Z"
+      },
+      {
+        "id": "25",
+        "title": "Add diagnostics maintenance warnings",
+        "description": "Teach diagnostics and page helpers to surface maintenance warnings that route learners back to Settings.",
+        "details": "Files: app_shell/diagnostics.py, app_shell/page_helpers.py, tests/test_app_shell_diagnostics.py, tests/test_app_shell_page_helpers.py. Acceptance: diagnostics warn about oversized or stale tmp/, stale or excessive jobs/, and oversized logs, and all warnings direct the user to Settings instead of a separate workflow. This task follows the earlier serialized diagnostics work from Task 19 and folds maintenance-warning expectations from docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md into the shared diagnostics and page-helper layer instead of creating a parallel screen task.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "24"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T14:05:14.000Z"
+      },
+      {
+        "id": "26",
+        "title": "Implement Settings support surface after PAL review",
+        "description": "Add the Troubleshooting & Support section in Settings after the support layout is reviewed with PAL.",
+        "details": "Files: pages/06_Settings.py, app_shell/page_helpers.py, tests/test_app_shell_pages.py, tests/test_app_shell_page_helpers.py. Acceptance: the Settings support section is localized, shows storage usage, wires cleanup actions and support-bundle generation through backend APIs, and builds on the maintenance warnings added in the prior task. Use docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md as supporting input for Settings terminology and safety expectations. The final Settings PAL-review decision is modeled in Task 35 so this pass does not start until the screen strategy is explicitly confirmed.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "20",
+          "25",
+          "35"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T14:05:14.000Z"
+      },
+      {
+        "id": "27",
+        "title": "Localize credential and support flows batch 1",
+        "description": "Add the first locale batch for the credential and support work.",
+        "details": "Files: locales/en.json, locales/it.json, locales/de.json, tests/test_app_shell_i18n.py. Acceptance: new credential and support strings are localized and no hardcoded strings remain in the touched UI flows. This task owns the serialized locales/en.json and tests/test_app_shell_i18n.py surfaces before any follow-on Review or History UX cleanup reopens them.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "26"
+        ],
+        "priority": "medium",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T14:05:14.000Z"
+      },
+      {
+        "id": "28",
+        "title": "Finish locale batch and docs follow-up",
+        "description": "Complete locale parity and document the final support and runtime behavior.",
+        "details": "Files: locales/fr.json, locales/es.json, README.md, docs/LOCAL_BACKEND_ARCHITECTURE.md. Acceptance: locale parity is restored for the affected flows, README documents privacy-safe bundle defaults, and the architecture docs reflect the final cleanup and runtime behavior.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "27"
+        ],
+        "priority": "medium",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T12:00:00.000Z"
+      },
+      {
+        "id": "29",
+        "title": "Add hosted deployment seams after desktop baseline stabilizes",
+        "description": "Prepare hosted-mode interfaces only after the local desktop baseline and support work are stable.",
+        "details": "Files: app_backend/contracts.py, app_backend/config.py, app_backend/app.py, app_backend/jobs.py. Acceptance: storage and job interfaces split by runtime mode, hosted code stops depending on local paths and history.csv, and the stable local desktop API behavior remains unchanged. These shared backend files must follow the earlier support and maintenance passes rather than reopening in parallel. This task is deferred until all prior local desktop work is complete.",
+        "testStrategy": "",
+        "status": "deferred",
+        "dependencies": [
+          "28"
+        ],
+        "priority": "low",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T14:05:14.000Z"
+      },
+      {
+        "id": "30",
+        "title": "Runtime metadata decision gate",
+        "description": "Resolve the remaining runtime metadata ownership questions before the unified schema is implemented.",
+        "details": "Files: docs/PLANNING_ALIGNMENT_META_PLAN.md, docs/SUPPORT_MAINTENANCE_IMPLEMENTATION_PLAN.md, docs/DESKTOP_HOSTED_PRODUCT_PLAN.md, app_shell/bootstrap.py. Acceptance: auth_mode ownership is decided, auth_mode mutability is decided, packaging_safe is classified as derived or explicitly stored, and the downstream runtime metadata implementation can proceed without re-opening those questions.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "15",
+          "16"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T14:05:14.000Z"
+      },
+      {
+        "id": "31",
+        "title": "client_snapshot decision gate",
+        "description": "Decide the shell-side snapshot scope before credential-surface work is finalized.",
+        "details": "Files: docs/PLANNING_ALIGNMENT_META_PLAN.md, docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md, app_shell/services.py, app_shell/diagnostics.py. Acceptance: it is explicit whether client_snapshot includes credential-state summary fields or only non-credential runtime context, and downstream shell and support-bundle work can rely on that decision.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "18"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T14:05:14.000Z"
+      },
+      {
+        "id": "32",
+        "title": "PAL Gate A",
+        "description": "Review the credential-related Setup, Speak, and first-Settings screen approach with PAL before screen implementation begins.",
+        "details": "Files: pages/00_Setup.py, pages/02_Speak.py, pages/06_Settings.py, docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md. Acceptance: PAL has reviewed the learner-facing approach for Setup, Speak, and the first Settings pass; the supporting UX plan's PAL requirement is satisfied without opening a parallel screen review track; and the current expectation around one shared vs two Settings PAL reviews is recorded for the later Settings support pass.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "19"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T14:05:14.000Z"
+      },
+      {
+        "id": "33",
+        "title": "Support bundle redaction decision gate",
+        "description": "Resolve secret_ref redaction semantics before support-bundle implementation begins.",
+        "details": "Files: docs/PLANNING_ALIGNMENT_META_PLAN.md, app_shell/services.py, app_shell/diagnostics.py, app_backend/support_bundle.py. Acceptance: it is explicit whether secret_ref is fully redacted or replaced with a presence-indicating mask, and support-bundle work can proceed without ambiguity.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "19",
+          "21"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T14:05:14.000Z"
+      },
+      {
+        "id": "34",
+        "title": "Cleanup policy decision gate",
+        "description": "Lock cleanup retention policy before the cleanup engine is implemented.",
+        "details": "Files: docs/PLANNING_ALIGNMENT_META_PLAN.md, app_backend/maintenance.py, app_backend/config.py, app_backend/jobs.py. Acceptance: the retention window for completed, failed, and cancelled jobs is decided, the exact scope of all_safe is decided, and cleanup implementation can proceed without reopening those policy questions.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "22"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T14:05:14.000Z"
+      },
+      {
+        "id": "35",
+        "title": "Settings PAL strategy gate",
+        "description": "Confirm whether the Settings support pass reuses the first PAL review or needs a second dedicated review.",
+        "details": "Files: pages/06_Settings.py, app_shell/page_helpers.py, docs/PLANNING_ALIGNMENT_META_PLAN.md, docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md. Acceptance: the Settings support pass has an explicit PAL-review strategy, and the default remains one shared review unless Task 25 materially changes the Settings information architecture enough to justify a second dedicated review.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "20",
+          "25"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T14:05:14.000Z"
+      },
+      {
+        "id": "36",
+        "title": "Review hierarchy UX cleanup",
+        "description": "Keep the Review-screen UX cleanup visible as a follow-on local-desktop task after the baseline support work.",
+        "details": "Files: pages/03_Review.py, app_shell/review_components.py, locales/en.json, tests/test_app_shell_review_components.py. Acceptance: the Review screen follows a summary-first layout, warnings and degraded states are placed explicitly, score and priorities outrank transcript and evidence in the hierarchy, and docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md is used as supporting input without creating a parallel governing lane.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "28"
+        ],
+        "priority": "medium",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T14:05:14.000Z"
+      },
+      {
+        "id": "37",
+        "title": "History triage and reopen UX cleanup",
+        "description": "Keep the History-screen reopen and comparison UX cleanup visible as a follow-on local-desktop task after the baseline support work.",
+        "details": "Files: pages/04_History.py, app_shell/page_helpers.py, locales/en.json, tests/test_app_shell_pages.py. Acceptance: recent sessions are easier to scan, degraded vs complete sessions are clearer, reopen and compare affordances are stronger, row-level metadata noise is reduced, and docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md is used as supporting input while respecting the serialized page_helpers and tests/test_app_shell_pages.py chain.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          "26",
+          "28"
+        ],
+        "priority": "medium",
+        "subtasks": [],
+        "updatedAt": "2026-04-18T14:05:14.000Z"
+      }
+    ],
+    "metadata": {
+      "version": "1.0.0",
+      "lastModified": "2026-04-18T14:05:14.000Z",
+      "taskCount": 37,
+      "completedCount": 12,
+      "tags": [
+        "master"
+      ]
+    }
+  }
+}

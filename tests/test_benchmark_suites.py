@@ -1,8 +1,10 @@
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
 from assess_core.language_profiles import require_resolved_language_profile
-from benchmarking.benchmark_suites import discover_benchmark_suites, evaluate_benchmark_case
+from benchmarking.benchmark_suites import discover_benchmark_suites, evaluate_benchmark_case, load_benchmark_suite
 
 
 LEVEL_ORDER = {"B1": 1, "B2": 2, "C1": 3, "C2": 4}
@@ -102,6 +104,115 @@ class BenchmarkSuiteTests(unittest.TestCase):
     def test_discovery_rejects_invalid_tag_match_mode(self):
         with self.assertRaises(ValueError):
             discover_benchmark_suites(self.fixtures_dir, tags={"english"}, tag_match="invalid")
+
+    def test_load_benchmark_suite_rejects_non_object_root_payload(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            bad_path = Path(tmp_dir) / "bad_suite.json"
+            bad_path.write_text('["not", "an", "object"]', encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "Benchmark suite root payload must be an object"):
+                load_benchmark_suite(bad_path)
+
+    def test_load_benchmark_suite_rejects_non_object_case_entry(self):
+        payload = {
+            "suite_id": "bad_suite",
+            "language_code": "en",
+            "task_family": "opinion_monologue",
+            "suite_type": "progression",
+            "scorer_version": "v1",
+            "cases": ["not-an-object"],
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            bad_path = Path(tmp_dir) / "bad_suite.json"
+            bad_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "cases\\[0\\] must be an object"):
+                load_benchmark_suite(bad_path)
+
+    def test_load_benchmark_suite_rejects_non_object_expected_payload(self):
+        payload = {
+            "suite_id": "bad_suite",
+            "language_code": "en",
+            "task_family": "opinion_monologue",
+            "suite_type": "progression",
+            "scorer_version": "v1",
+            "cases": [
+                {
+                    "case_id": "case1",
+                    "target_level": "B1",
+                    "metrics": {},
+                    "checks": {},
+                    "rubric": {},
+                    "detected_language_probability": 0.9,
+                    "expected": [],
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            bad_path = Path(tmp_dir) / "bad_suite.json"
+            bad_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "case1.expected must be an object"):
+                load_benchmark_suite(bad_path)
+
+    def test_load_benchmark_suite_rejects_missing_dimension_ranges(self):
+        payload = {
+            "suite_id": "bad_suite",
+            "language_code": "en",
+            "task_family": "opinion_monologue",
+            "suite_type": "progression",
+            "scorer_version": "v1",
+            "cases": [
+                {
+                    "case_id": "case1",
+                    "target_level": "B1",
+                    "metrics": {},
+                    "checks": {},
+                    "rubric": {},
+                    "detected_language_probability": 0.9,
+                    "expected": {
+                        "cefr_level": "B1",
+                        "continuous_range": [1.0, 2.0],
+                    },
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            bad_path = Path(tmp_dir) / "bad_suite.json"
+            bad_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "Benchmark case case1 expected is missing keys"):
+                load_benchmark_suite(bad_path)
+
+    def test_load_benchmark_suite_rejects_non_object_dimension_ranges(self):
+        payload = {
+            "suite_id": "bad_suite",
+            "language_code": "en",
+            "task_family": "opinion_monologue",
+            "suite_type": "progression",
+            "scorer_version": "v1",
+            "cases": [
+                {
+                    "case_id": "case1",
+                    "target_level": "B1",
+                    "metrics": {},
+                    "checks": {},
+                    "rubric": {},
+                    "detected_language_probability": 0.9,
+                    "expected": {
+                        "cefr_level": "B1",
+                        "continuous_range": [1.0, 2.0],
+                        "dimension_ranges": [],
+                    },
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            bad_path = Path(tmp_dir) / "bad_suite.json"
+            bad_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "case1.dimension_ranges must be an object"):
+                load_benchmark_suite(bad_path)
 
 
 if __name__ == "__main__":

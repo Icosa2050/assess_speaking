@@ -9,15 +9,11 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
-from benchmarking.calibration_evaluation import (
-    CalibrationRunConfig,
-    evaluate_calibration_manifest,
-    write_calibration_evaluation_manifest,
-)
-from benchmarking.calibration_manifests import load_calibration_manifest
+
+def _bootstrap_repo() -> None:
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -37,6 +33,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    _bootstrap_repo()
+    from benchmarking.calibration_evaluation import (
+        CalibrationRunConfig,
+        evaluate_calibration_manifest,
+        write_calibration_evaluation_manifest,
+    )
+    from benchmarking.calibration_manifests import load_calibration_manifest
+
     args = build_parser().parse_args()
     manifest = load_calibration_manifest(args.manifest)
     evaluation = evaluate_calibration_manifest(

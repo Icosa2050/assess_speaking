@@ -76,7 +76,7 @@ class SyntheticBenchmarkEvaluationTests(unittest.TestCase):
                     "prompt_version": "rubric_multilingual_v1",
                     "rubric_prompt_version": "rubric_multilingual_v1",
                     "coaching_prompt_version": "coaching_multilingual_v1",
-                    "scoring_model_version": "legacy_hybrid_v1",
+                    "scoring_model_version": "hybrid_language_profile_v1",
                     "language_profile": expected_language,
                     "language_profile_key": expected_language,
                     "language_profile_version": f"language_profile_{expected_language}_v1",
@@ -151,7 +151,7 @@ class SyntheticBenchmarkEvaluationTests(unittest.TestCase):
             self.assertEqual(payload["cases"][0]["llm_contract"]["response_parser"], "extract_json_object")
             self.assertEqual(payload["cases"][0]["llm_contract"]["language_profile_key"], "en")
 
-    def test_evaluate_rendered_audio_contract_suite_supports_legacy_cefr_estimate_keys(self):
+    def test_evaluate_rendered_audio_contract_suite_ignores_legacy_cefr_estimate_keys(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             contract_suite = self._build_contract_suite(tmp_dir)
 
@@ -169,8 +169,8 @@ class SyntheticBenchmarkEvaluationTests(unittest.TestCase):
                 runner=legacy_runner,
             )
             case = evaluated.cases[0]
-            self.assertEqual(case.estimated_cefr, "B2")
-            self.assertEqual(case.continuous_score, 4.05)
+            self.assertIsNone(case.estimated_cefr)
+            self.assertIsNone(case.continuous_score)
 
     def test_evaluate_rendered_audio_contract_suite_prefers_case_target_duration(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -12,12 +12,15 @@ from app_shell.services import (
     delete_provider_connection,
     execute_assessment_request,
     hydrate_state_from_storage,
+    list_sample_trials,
+    load_history_detail_payload,
     load_report_payload,
     parse_cli_json,
     review_summary,
     sanitize_setup_base_url,
     set_default_provider_connection,
     store_uploaded_audio,
+    submit_assessment_request,
     test_runtime_connection,
     theme_entry_id,
     whisper_model_status,
@@ -44,7 +47,7 @@ class AppShellServiceTests(unittest.TestCase):
     )
     @mock.patch("app_shell.services.load_history_records")
     @mock.patch("app_shell.services.load_theme_library")
-    @mock.patch("app_shell.services.load_dashboard_prefs")
+    @mock.patch("app_shell.services.load_workspace_prefs")
     def test_hydrate_state_from_storage_restores_openrouter_preferences_without_legacy_key(
         self,
         mock_load_prefs,
@@ -94,7 +97,7 @@ class AppShellServiceTests(unittest.TestCase):
     )
     @mock.patch("app_shell.services.load_history_records")
     @mock.patch("app_shell.services.load_theme_library")
-    @mock.patch("app_shell.services.load_dashboard_prefs")
+    @mock.patch("app_shell.services.load_workspace_prefs")
     def test_hydrate_state_from_storage_preserves_explicit_openrouter_app_title(
         self,
         mock_load_prefs,
@@ -125,7 +128,7 @@ class AppShellServiceTests(unittest.TestCase):
     )
     @mock.patch("app_shell.services.load_history_records")
     @mock.patch("app_shell.services.load_theme_library")
-    @mock.patch("app_shell.services.load_dashboard_prefs")
+    @mock.patch("app_shell.services.load_workspace_prefs")
     def test_hydrate_state_from_storage_ignores_legacy_plaintext_key(
         self,
         mock_load_prefs,
@@ -148,7 +151,7 @@ class AppShellServiceTests(unittest.TestCase):
     @mock.patch("app_shell.services.load_report_payload")
     @mock.patch("app_shell.services.load_history_records")
     @mock.patch("app_shell.services.load_theme_library")
-    @mock.patch("app_shell.services.load_dashboard_prefs")
+    @mock.patch("app_shell.services.load_workspace_prefs")
     def test_hydrate_state_from_storage_backfills_draft_from_latest_history_for_speaker(
         self,
         mock_load_prefs,
@@ -157,12 +160,6 @@ class AppShellServiceTests(unittest.TestCase):
         mock_load_report_payload,
     ):
         mock_load_prefs.return_value = {
-            "speaker_id": "bern",
-            "learning_language": "en",
-            "cefr_level": "B2",
-            "theme": "The pros and cons of working from home",
-            "task_family": "opinion_monologue",
-            "target_duration_sec": 120,
             "log_dir": "reports",
         }
         mock_load_library.return_value = {
@@ -201,6 +198,93 @@ class AppShellServiceTests(unittest.TestCase):
             },
         }
 
+        hydrated = hydrate_state_from_storage(
+            AppShellState(
+                prefs=AppPreferences(),
+                draft=DraftSession(speaker_id="bern"),
+            )
+        )
+
+        self.assertEqual(hydrated.draft.speaker_id, "bern")
+        self.assertEqual(hydrated.draft.learning_language, "it")
+        self.assertEqual(hydrated.draft.learning_language_label, "Italiano")
+        self.assertEqual(hydrated.draft.cefr_level, "B1")
+        self.assertEqual(hydrated.draft.theme_label, "Il mio ultimo viaggio all'estero")
+        self.assertEqual(hydrated.draft.task_family, "travel_narrative")
+        self.assertEqual(hydrated.draft.duration_sec, 90)
+
+    @mock.patch.dict(os.environ, {"APP_SHELL_SKIP_BOOTSTRAP": ""}, clear=False)
+    @mock.patch("app_shell.services.load_report_payload")
+    @mock.patch("app_shell.services.load_history_records")
+    @mock.patch("app_shell.services.load_theme_library")
+    @mock.patch("app_shell.services.load_workspace_prefs")
+    def test_hydrate_state_from_storage_prefills_speaker_id_from_last_setup(
+        self,
+        mock_load_prefs,
+        mock_load_library,
+        mock_load_history,
+        mock_load_report_payload,
+    ):
+        mock_load_prefs.return_value = {
+            "last_setup": {
+                "speaker_id": "bern",
+                "learning_language": "it",
+                "cefr_level": "B1",
+                "theme": "Il mio ultimo viaggio all'estero",
+                "task_family": "travel_narrative",
+                "target_duration_sec": 90,
+                "updated_at": "2026-03-20T15:20:00+00:00",
+            },
+            "speaker_profiles": {
+                "bern": {
+                    "speaker_id": "bern",
+                    "learning_language": "it",
+                    "cefr_level": "B1",
+                    "theme": "Il mio ultimo viaggio all'estero",
+                    "task_family": "travel_narrative",
+                    "target_duration_sec": 90,
+                    "updated_at": "2026-03-20T15:20:00+00:00",
+                }
+            },
+            "log_dir": "reports",
+        }
+        mock_load_library.return_value = {
+            "it": {
+                "label": "Italiano",
+                "themes": [
+                    {
+                        "title": "Il mio ultimo viaggio all'estero",
+                        "level": "B1",
+                        "task_family": "travel_narrative",
+                    }
+                ],
+            },
+            "en": {"label": "English", "themes": []},
+        }
+        mock_load_history.return_value = [
+            mock.Mock(
+                speaker_id="bern",
+                learning_language="it",
+                theme="Il mio ultimo viaggio all'estero",
+                task_family="travel_narrative",
+                target_duration_sec=90,
+                timestamp=mock.Mock(isoformat=mock.Mock(return_value="2026-03-20T15:25:00")),
+                report_path="reports/latest.json",
+            )
+        ]
+        mock_load_report_payload.return_value = {
+            "baseline_comparison": {"level": "B1"},
+            "report": {
+                "input": {
+                    "speaker_id": "bern",
+                    "expected_language": "it",
+                    "theme": "Il mio ultimo viaggio all'estero",
+                    "task_family": "travel_narrative",
+                    "target_duration_sec": 90,
+                }
+            },
+        }
+
         hydrated = hydrate_state_from_storage(AppShellState(prefs=AppPreferences()))
 
         self.assertEqual(hydrated.draft.speaker_id, "bern")
@@ -215,7 +299,7 @@ class AppShellServiceTests(unittest.TestCase):
     @mock.patch("app_shell.services.load_report_payload")
     @mock.patch("app_shell.services.load_history_records")
     @mock.patch("app_shell.services.load_theme_library")
-    @mock.patch("app_shell.services.load_dashboard_prefs")
+    @mock.patch("app_shell.services.load_workspace_prefs")
     def test_hydrate_state_from_storage_handles_mixed_naive_and_aware_updated_at(
         self,
         mock_load_prefs,
@@ -224,11 +308,9 @@ class AppShellServiceTests(unittest.TestCase):
         mock_load_report_payload,
     ):
         mock_load_prefs.return_value = {
-            "speaker_id": "bern",
             "last_setup": {
                 "speaker_id": "bern",
                 "learning_language": "en",
-                "language": "en",
                 "cefr_level": "B2",
                 "theme": "The pros and cons of working from home",
                 "task_family": "opinion_monologue",
@@ -239,7 +321,6 @@ class AppShellServiceTests(unittest.TestCase):
                 "bern": {
                     "speaker_id": "bern",
                     "learning_language": "en",
-                    "language": "en",
                     "cefr_level": "B2",
                     "theme": "The pros and cons of working from home",
                     "task_family": "opinion_monologue",
@@ -295,7 +376,7 @@ class AppShellServiceTests(unittest.TestCase):
     def test_save_state_preferences_preserves_saved_setup_when_only_app_settings_change(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             log_dir = Path(tmpdir)
-            log_dir.joinpath("dashboard_prefs.json").write_text(
+            log_dir.joinpath("workspace_prefs.json").write_text(
                 """
 {
   "speaker_id": "bern",
@@ -308,7 +389,6 @@ class AppShellServiceTests(unittest.TestCase):
   "last_setup": {
     "speaker_id": "bern",
     "learning_language": "it",
-    "language": "it",
     "cefr_level": "B1",
     "theme": "Il mio ultimo viaggio all'estero",
     "task_family": "travel_narrative",
@@ -318,7 +398,6 @@ class AppShellServiceTests(unittest.TestCase):
     "bern": {
       "speaker_id": "bern",
       "learning_language": "it",
-      "language": "it",
       "cefr_level": "B1",
       "theme": "Il mio ultimo viaggio all'estero",
       "task_family": "travel_narrative",
@@ -345,13 +424,14 @@ class AppShellServiceTests(unittest.TestCase):
             from app_shell.services import save_state_preferences
 
             save_state_preferences(state, persist_draft=False)
-            stored = load_report_payload(log_dir / "dashboard_prefs.json")
+            stored = load_report_payload(log_dir / "workspace_prefs.json")
 
         self.assertEqual(stored["ui_locale"], "de")
         self.assertEqual(stored["model"], "test-model")
-        self.assertEqual(stored["speaker_id"], "bern")
-        self.assertEqual(stored["learning_language"], "it")
-        self.assertEqual(stored["cefr_level"], "B1")
+        self.assertNotIn("speaker_id", stored)
+        self.assertNotIn("learning_language", stored)
+        self.assertNotIn("language", stored)
+        self.assertNotIn("cefr_level", stored)
         self.assertEqual(stored["last_setup"]["learning_language"], "it")
         self.assertEqual(stored["speaker_profiles"]["bern"]["learning_language"], "it")
 
@@ -374,10 +454,11 @@ class AppShellServiceTests(unittest.TestCase):
             from app_shell.services import save_state_preferences
 
             save_state_preferences(state)
-            stored = load_report_payload(log_dir / "dashboard_prefs.json")
+            stored = load_report_payload(log_dir / "workspace_prefs.json")
 
-        self.assertEqual(stored["speaker_id"], "bern")
-        self.assertEqual(stored["learning_language"], "it")
+        self.assertNotIn("speaker_id", stored)
+        self.assertNotIn("learning_language", stored)
+        self.assertNotIn("language", stored)
         self.assertEqual(stored["last_setup"]["cefr_level"], "B1")
         self.assertEqual(stored["speaker_profiles"]["bern"]["task_family"], "travel_narrative")
 
@@ -396,7 +477,7 @@ class AppShellServiceTests(unittest.TestCase):
             from app_shell.services import save_state_preferences
 
             save_state_preferences(state, persist_draft=False)
-            stored = load_report_payload(log_dir / "dashboard_prefs.json")
+            stored = load_report_payload(log_dir / "workspace_prefs.json")
 
         self.assertNotIn("openrouter_api_key", stored)
         self.assertNotIn("llm_api_key", stored)
@@ -649,18 +730,48 @@ class AppShellServiceTests(unittest.TestCase):
             target_duration_sec=180,
             llm_api_key="key-123",
             openrouter_http_referer="http://localhost:8503",
-            openrouter_app_title="Speaking Studio",
+            openrouter_app_title="Vostavo",
         )
         self.assertEqual(request["expected_language"], "it")
         self.assertEqual(request["feedback_language"], "en")
         self.assertEqual(request["llm_api_key"], "key-123")
 
-    @mock.patch("app_shell.services.subprocess.run")
-    def test_execute_assessment_request_passes_language_profile_key_to_cli(self, mock_run):
-        mock_run.return_value = mock.Mock(
-            returncode=0,
-            stdout='{"report": {"session_id": "sess-1"}, "transcript_full": "ciao", "transcript_preview": "ciao"}',
-            stderr="",
+    @mock.patch.dict(os.environ, {"ASSESS_SPEAKING_DRY_RUN": "1"}, clear=False)
+    def test_create_assessment_request_reads_dry_run_from_environment(self):
+        request = create_assessment_request(
+            audio_path=Path("sample.wav"),
+            log_dir="reports",
+            whisper="small",
+            provider="ollama",
+            llm_model="llama3",
+            expected_language="it",
+            feedback_language="en",
+            speaker_id="bern",
+            task_family="travel_narrative",
+            theme="Il mio ultimo viaggio all'estero",
+            target_duration_sec=90,
+        )
+
+        self.assertTrue(request["dry_run"])
+
+    @mock.patch("app_shell.services.time.sleep")
+    @mock.patch("app_shell.services.backend_client.get_assessment_status")
+    @mock.patch("app_shell.services.backend_client.create_assessment")
+    @mock.patch("app_shell.services.backend_client.upload_audio_path")
+    def test_execute_assessment_request_uses_backend_and_keeps_language_profile_key(
+        self,
+        mock_upload,
+        mock_create,
+        mock_status,
+        _mock_sleep,
+    ):
+        mock_upload.return_value = mock.Mock(audio_id="aud_1")
+        mock_create.return_value = mock.Mock(assessment_id="asmt_1")
+        mock_status.return_value = mock.Mock(
+            status=mock.Mock(value="completed"),
+            payload={"report": {"session_id": "sess-1"}, "transcript_full": "ciao", "transcript_preview": "ciao"},
+            report_path=None,
+            error=None,
         )
         payload, error = execute_assessment_request(
             {
@@ -680,16 +791,28 @@ class AppShellServiceTests(unittest.TestCase):
         )
         self.assertIsNone(error)
         self.assertEqual(payload["report"]["session_id"], "sess-1")
-        command = mock_run.call_args.args[0]
-        self.assertIn("--language-profile-key", command)
-        self.assertIn("en", command)
+        request = mock_create.call_args.args[0]
+        self.assertEqual(request["audio_id"], "aud_1")
+        self.assertEqual(request["language_profile_key"], "en")
 
-    @mock.patch("app_shell.services.subprocess.run")
-    def test_execute_assessment_request_passes_feedback_language_to_cli(self, mock_run):
-        mock_run.return_value = mock.Mock(
-            returncode=0,
-            stdout='{"report": {"session_id": "sess-1"}, "transcript_full": "ciao", "transcript_preview": "ciao"}',
-            stderr="",
+    @mock.patch("app_shell.services.time.sleep")
+    @mock.patch("app_shell.services.backend_client.get_assessment_status")
+    @mock.patch("app_shell.services.backend_client.create_assessment")
+    @mock.patch("app_shell.services.backend_client.upload_audio_path")
+    def test_execute_assessment_request_returns_backend_failure_detail(
+        self,
+        mock_upload,
+        mock_create,
+        mock_status,
+        _mock_sleep,
+    ):
+        mock_upload.return_value = mock.Mock(audio_id="aud_1")
+        mock_create.return_value = mock.Mock(assessment_id="asmt_1")
+        mock_status.return_value = mock.Mock(
+            status=mock.Mock(value="failed"),
+            payload=None,
+            report_path=None,
+            error=mock.Mock(detail="provider offline"),
         )
         payload, error = execute_assessment_request(
             {
@@ -702,41 +825,26 @@ class AppShellServiceTests(unittest.TestCase):
                 "feedback_language": "en",
                 "llm_api_key": "key-123",
                 "openrouter_http_referer": "http://localhost:8503",
-                "openrouter_app_title": "Speaking Studio",
+                "openrouter_app_title": "Vostavo",
                 "speaker_id": "bern",
                 "task_family": "travel_narrative",
                 "theme": "Il mio ultimo viaggio all'estero",
                 "target_duration_sec": 180,
             }
         )
-        self.assertIsNone(error)
-        self.assertEqual(payload["report"]["session_id"], "sess-1")
-        command = mock_run.call_args.args[0]
-        env = mock_run.call_args.kwargs["env"]
-        self.assertIn("--feedback-language", command)
-        self.assertIn("en", command)
-        self.assertEqual(env["OPENROUTER_API_KEY"], "key-123")
-        self.assertEqual(env["OPENROUTER_HTTP_REFERER"], "http://localhost:8503")
-        self.assertEqual(env["OPENROUTER_APP_TITLE"], "Speaking Studio")
+        self.assertIsNone(payload)
+        self.assertEqual(error, "provider offline")
+        request = mock_create.call_args.args[0]
+        self.assertEqual(request["feedback_language"], "en")
+        self.assertEqual(request["llm_api_key"], "key-123")
+        self.assertEqual(request["openrouter_http_referer"], "http://localhost:8503")
+        self.assertEqual(request["openrouter_app_title"], "Vostavo")
 
-    @mock.patch("app_shell.services.load_latest_report_payload")
-    @mock.patch("app_shell.services.subprocess.run")
-    def test_execute_assessment_request_prefers_logged_payload_when_stdout_only_has_preview(
+    @mock.patch("app_shell.services.backend_client.upload_audio_path", side_effect=RuntimeError('{"code":"backend_unavailable","detail":"offline"}'))
+    def test_execute_assessment_request_returns_backend_unavailable_error(
         self,
-        mock_run,
-        mock_load_latest,
+        _mock_upload,
     ):
-        mock_run.return_value = mock.Mock(
-            returncode=0,
-            stdout='{"report": {"session_id": "sess-1"}, "transcript_preview": "Short preview"}',
-            stderr="",
-        )
-        mock_load_latest.return_value = {
-            "report": {"session_id": "sess-1"},
-            "transcript_full": "Long full transcript",
-            "transcript_preview": "Short preview",
-        }
-
         payload, error = execute_assessment_request(
             {
                 "audio_path": "sample.wav",
@@ -753,10 +861,161 @@ class AppShellServiceTests(unittest.TestCase):
             }
         )
 
+        self.assertIsNone(payload)
+        self.assertEqual(error, "offline")
+
+    @mock.patch("app_shell.services.backend_client.create_assessment")
+    @mock.patch("app_shell.services.backend_client.upload_audio_path")
+    @mock.patch("app_shell.services.llm_health_check")
+    def test_submit_assessment_request_rejects_missing_local_model_before_upload(
+        self,
+        mock_health_check,
+        mock_upload,
+        mock_create,
+    ):
+        mock_health_check.return_value = {
+            "provider": "ollama",
+            "endpoint": "http://localhost:11434/api/tags",
+            "payload": {"models": [{"name": "qwen3.5:latest"}, {"name": "qwen3:latest"}]},
+        }
+
+        job, error = submit_assessment_request(
+            {
+                "audio_path": "sample.wav",
+                "log_dir": "reports",
+                "whisper": "small",
+                "provider": "ollama",
+                "llm_model": "llama3",
+                "llm_base_url": "http://localhost:11434/v1",
+                "expected_language": "it",
+                "feedback_language": "it",
+                "speaker_id": "bern",
+                "task_family": "travel_narrative",
+                "theme": "Il mio ultimo viaggio all'estero",
+                "target_duration_sec": 90,
+            }
+        )
+
+        self.assertIsNone(job)
+        self.assertIn("Configured Ollama model 'llama3' is not currently available.", error)
+        self.assertIn("qwen3.5:latest", error)
+        mock_upload.assert_not_called()
+        mock_create.assert_not_called()
+
+    @mock.patch("app_shell.services.backend_client.create_assessment")
+    @mock.patch("app_shell.services.backend_client.upload_audio_path")
+    @mock.patch("app_shell.services.llm_health_check")
+    def test_submit_assessment_request_skips_local_validation_for_dry_run(
+        self,
+        mock_health_check,
+        mock_upload,
+        mock_create,
+    ):
+        mock_upload.return_value = mock.Mock(audio_id="aud_1")
+        mock_create.return_value = mock.Mock(
+            assessment_id="asmt_1",
+            status=mock.Mock(value="queued"),
+        )
+
+        job, error = submit_assessment_request(
+            {
+                "audio_path": "sample.wav",
+                "log_dir": "reports",
+                "whisper": "small",
+                "provider": "ollama",
+                "llm_model": "llama3",
+                "llm_base_url": "http://localhost:11434/v1",
+                "expected_language": "it",
+                "feedback_language": "it",
+                "speaker_id": "bern",
+                "task_family": "travel_narrative",
+                "theme": "Il mio ultimo viaggio all'estero",
+                "target_duration_sec": 90,
+                "dry_run": True,
+            }
+        )
+
         self.assertIsNone(error)
-        self.assertEqual(payload["transcript_full"], "Long full transcript")
-        self.assertEqual(payload["transcript_preview"], "Short preview")
-        mock_load_latest.assert_called_once_with("reports", label="")
+        self.assertIsNotNone(job)
+        self.assertEqual(job.assessment_id, "asmt_1")
+        mock_health_check.assert_not_called()
+        self.assertTrue(mock_create.call_args.args[0]["dry_run"])
+
+    @mock.patch("app_shell.services.backend_client.load_history_detail")
+    def test_load_history_detail_payload_returns_backend_payload(self, mock_load_history_detail):
+        mock_load_history_detail.return_value = {"report": {"session_id": "sess-1"}}
+
+        payload, error = load_history_detail_payload("sess-1", log_dir="reports")
+
+        self.assertIsNone(error)
+        self.assertEqual(payload, {"report": {"session_id": "sess-1"}})
+        mock_load_history_detail.assert_called_once_with("sess-1", log_dir="reports")
+
+    @mock.patch(
+        "app_shell.services.backend_client.load_history_detail",
+        side_effect=RuntimeError('{"code":"validation_error","detail":"missing"}'),
+    )
+    def test_load_history_detail_payload_returns_error_detail(self, _mock_load_history_detail):
+        payload, error = load_history_detail_payload("sess-missing", log_dir="reports")
+
+        self.assertIsNone(payload)
+        self.assertEqual(error, "missing")
+
+    @mock.patch("app_shell.services.backend_client.load_samples")
+    def test_list_sample_trials_filters_language_and_level(self, mock_load_samples):
+        mock_load_samples.return_value = [
+            {
+                "sample_id": "en_B1_travel_story",
+                "language": "en",
+                "cefr": "B1",
+                "title": "travel story",
+                "path": "/tmp/en-b1.wav",
+            },
+            {
+                "sample_id": "it_B2_remote_work",
+                "language": "it",
+                "cefr": "B2",
+                "title": "remote work",
+                "path": "/tmp/it-b2.wav",
+            },
+        ]
+
+        with mock.patch("app_shell.services.Path.exists", return_value=False):
+            trials = list_sample_trials(log_dir="reports", language_code="it", cefr_level="B2")
+
+        self.assertEqual(
+            trials,
+            [
+                {
+                    "sample_id": "it_B2_remote_work",
+                    "language": "it",
+                    "cefr": "B2",
+                    "title": "remote work",
+                    "path": "/tmp/it-b2.wav",
+                    "available": False,
+                }
+            ],
+        )
+
+    @mock.patch("app_shell.services.backend_client.load_samples", side_effect=RuntimeError("offline"))
+    def test_list_sample_trials_falls_back_to_local_samples(self, _mock_load_samples):
+        with mock.patch("app_shell.services._local_sample_trials", return_value=[{"sample_id": "en_B1_travel_story", "language": "en", "cefr": "B1", "title": "travel story", "path": "/tmp/en.wav"}]), \
+                mock.patch("app_shell.services.Path.exists", return_value=True):
+            trials = list_sample_trials(language_code="en", cefr_level="B1")
+
+        self.assertEqual(
+            trials,
+            [
+                {
+                    "sample_id": "en_B1_travel_story",
+                    "language": "en",
+                    "cefr": "B1",
+                    "title": "travel story",
+                    "path": "/tmp/en.wav",
+                    "available": True,
+                }
+            ],
+        )
 
     def test_review_summary_extracts_coaching(self):
         summary = review_summary(
@@ -772,6 +1031,7 @@ class AppShellServiceTests(unittest.TestCase):
                 },
                 "report": {
                     "session_id": "report-1",
+                    "input": {"expected_language": "it"},
                     "scores": {"final": 4.0, "band": "B2"},
                     "checks": {
                         "language_pass": True,
@@ -799,6 +1059,7 @@ class AppShellServiceTests(unittest.TestCase):
         self.assertEqual(summary["notes"], "Remember to add examples.")
         self.assertEqual(summary["strengths"], ["Clear sequencing"])
         self.assertEqual(summary["priorities"], ["More detail"])
+        self.assertEqual(summary["learning_language"], "it")
         self.assertEqual(summary["baseline"]["level"], "B2")
         self.assertEqual(summary["progress_items"][0]["kind"], "previous_session")
 

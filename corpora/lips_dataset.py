@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 import random
 import re
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterable
 
 
 MANIFEST_VERSION = "lips_v1_monologue_only"
@@ -247,6 +247,262 @@ class LipsReviewSummaryReport:
         return asdict(self)
 
 
+TaskFamilyMapping = tuple[str, str, str]
+
+
+@dataclass(frozen=True)
+class LipsScaffoldingRule:
+    name: str
+    raw_mode: str | None = None
+    exact_topic: str | None = None
+    topic_keywords: tuple[str, ...] = ()
+    min_candidate_turns: int | None = None
+    max_candidate_turns: int | None = None
+    max_examiner_turns: int | None = None
+    min_candidate_tokens: int | None = None
+    max_examiner_tokens: int | None = None
+    max_examiner_ratio: float | None = None
+
+
+PICTURE_TOPIC_KEYWORDS = ("foto", "immagine", "figura", "descrivi", "descrizione")
+PICTURE_CANDIDATE_KEYWORDS = (
+    "questa immagine",
+    "in questa immagine",
+    "dell'immagine",
+    "della foto",
+    "questa foto",
+)
+ABSTRACT_IMAGE_PHRASES = (
+    "immagine che abbiamo",
+    "immagine che hanno",
+    "tipica immagine",
+)
+GIORNI_DI_FESTA_PERSONAL_CUES = ("per me", "mi piace", "trascorro", "quando sono libera")
+PERSONAL_EXACT_TOPICS = (
+    "la persona più importante nella propria vita",
+    "letture preferite",
+)
+OPINION_EXACT_TOPICS = (
+    "italia",
+    "reality shows",
+    "turismo ecologico",
+)
+PERSONAL_TOPIC_PHRASES = (
+    "differenze tra la lingua del candidato e quella italiana",
+    "amici",
+    "aspetto fisico",
+    "città o campagna",
+    "cucina tipica",
+    "il luogo che ami di più",
+    "lingua italiana",
+    "motivo per il quale è in italia",
+    "paese di origine",
+    "paese d'origine",
+    "una persona cara",
+    "feste tradizionali",
+    "tradizioni popolari del paese",
+    "abitudini alimentari del paese nativo",
+    "università brasiliana",
+    "vacanze di natale",
+    "proprio padre",
+    "soggiorno in italia",
+    "la tua città e il tuo paese",
+    "esami della vita",
+    "insegnante",
+    "insegnante di italiano",
+    "italia e la lingua italiana",
+    "amici conosciuti in italia",
+    "il modo in cui il candidato ha imparato la lingua italiana",
+    "giornata tipica",
+    "vita ideale",
+    "intervista a personaggio famoso",
+    "rapporti con gli italiani",
+    "descrivere se stessi",
+    "descrizione personale",
+)
+OPINION_TOPIC_PHRASES = (
+    "auto condivisa",
+    "aspetti dell'italia",
+    "artista e pubblico",
+    "argomento le lingue e le certificazioni",
+    "beni culturali del proprio paese",
+    "conoscenza lingue",
+    "il caldo in italia",
+    "la cultura italiana",
+    "la musica e lo sport",
+    "le lingue",
+    "le letture preferite",
+    "buoni motivi per viaggiare in italia",
+    "creatività nella scuola",
+    "cura del corpo",
+    "11 settembre",
+    "fallaci",
+    "gli italiani",
+    "moodi per rilassarsi",
+    "modi per rilassarsi",
+    "passaggio millennio",
+    "paranormale",
+    "rapporto tra italiani e stranieri",
+    "donne single",
+    "possibilità di svolgere un lavoro part time",
+    "personaggio pubblico",
+    "integrazione interculturale nelle scuole",
+)
+TRAVEL_KEYWORDS = ("viaggio", "vacanza", "vacanze", "turismo", "itinerario", "spostamento")
+PERSONAL_KEYWORDS = (
+    "esperienza",
+    "ricordo",
+    "famiglia",
+    "infanzia",
+    "hobby",
+    "musica",
+    "sport",
+    "amicizia",
+    "amico",
+    "amica",
+    "tempo libero",
+    "migliore amico",
+    "migliore amica",
+    "progetti futuri",
+    "propria città",
+    "mia città",
+    "libro",
+    "lettura",
+    "studio",
+    "studi",
+    "lavoro",
+    "carattere",
+)
+OPINION_TOPIC_KEYWORDS = (
+    "opinione",
+    "vantaggi",
+    "svantaggi",
+    "inquinamento",
+    "pubblicità",
+    "televisione",
+    "tv",
+    "programmi televisivi",
+    "computer",
+    "tecnologie",
+    "tecnologia",
+    "nuove tecnologie",
+    "genitori",
+    "figli",
+    "giovani",
+    "comportamenti giovanili",
+    "calo delle nascite",
+    "calo demografico",
+    "problemi mondiali",
+    "educazione",
+    "costo della vita",
+    "tolleranza",
+    "clima",
+    "medicina naturale",
+    "realtà degli anziani",
+)
+OPINION_CANDIDATE_KEYWORDS = (
+    "penso",
+    "credo",
+    "secondo me",
+    "sono d'accordo",
+    "non sono d'accordo",
+    "a mio parere",
+    "ritengo",
+    "mi sembra giusto",
+    "necessità",
+    "problema",
+)
+LIPS_SCAFFOLDING_RULES = (
+    LipsScaffoldingRule(
+        name="piazza_picture_prompt",
+        exact_topic="foto: descrizione piazza",
+        max_candidate_turns=4,
+        max_examiner_turns=4,
+        min_candidate_tokens=140,
+        max_examiner_tokens=30,
+        max_examiner_ratio=0.25,
+    ),
+    LipsScaffoldingRule(
+        name="short_monologue_backchannels",
+        raw_mode="M",
+        max_candidate_turns=3,
+        max_examiner_turns=4,
+        max_examiner_tokens=50,
+        max_examiner_ratio=0.2,
+    ),
+    LipsScaffoldingRule(
+        name="medium_monologue_backchannels",
+        raw_mode="M",
+        max_candidate_turns=5,
+        max_examiner_turns=6,
+        min_candidate_tokens=40,
+        max_examiner_tokens=50,
+        max_examiner_ratio=0.2,
+    ),
+    LipsScaffoldingRule(
+        name="single_turn_long_response",
+        raw_mode="M",
+        min_candidate_turns=1,
+        max_candidate_turns=1,
+        max_examiner_turns=2,
+        min_candidate_tokens=120,
+        max_examiner_tokens=100,
+        max_examiner_ratio=0.3,
+    ),
+    LipsScaffoldingRule(
+        name="single_turn_very_long_response",
+        raw_mode="M",
+        min_candidate_turns=1,
+        max_candidate_turns=1,
+        max_examiner_turns=4,
+        min_candidate_tokens=300,
+        max_examiner_tokens=80,
+        max_examiner_ratio=0.2,
+    ),
+    LipsScaffoldingRule(
+        name="two_turn_long_response",
+        raw_mode="M",
+        min_candidate_turns=1,
+        max_candidate_turns=2,
+        max_examiner_turns=2,
+        min_candidate_tokens=300,
+        max_examiner_tokens=100,
+        max_examiner_ratio=0.3,
+    ),
+    LipsScaffoldingRule(
+        name="long_multi_turn_monologue",
+        raw_mode="M",
+        min_candidate_turns=5,
+        max_candidate_turns=8,
+        max_examiner_turns=8,
+        min_candidate_tokens=250,
+        max_examiner_tokens=70,
+        max_examiner_ratio=0.17,
+    ),
+    LipsScaffoldingRule(
+        name="vacanze_di_natale_topic",
+        raw_mode="M",
+        exact_topic="vacanze di natale",
+        max_candidate_turns=8,
+        max_examiner_turns=8,
+        min_candidate_tokens=200,
+        max_examiner_tokens=60,
+        max_examiner_ratio=0.3,
+    ),
+    LipsScaffoldingRule(
+        name="generic_picture_prompt",
+        raw_mode="M",
+        topic_keywords=PICTURE_TOPIC_KEYWORDS,
+        min_candidate_turns=1,
+        max_candidate_turns=1,
+        max_examiner_turns=2,
+        min_candidate_tokens=60,
+        max_examiner_tokens=50,
+        max_examiner_ratio=0.6,
+    ),
+)
+
+
 def default_lips_output_dir() -> Path:
     return Path(__file__).resolve().parents[1] / "tmp" / "lips_manifest"
 
@@ -257,11 +513,16 @@ def read_jsonl(path: str | Path) -> list[dict[str, Any]]:
     if not path_obj.exists():
         return rows
     with path_obj.open("r", encoding="utf-8") as handle:
-        for line in handle:
+        for line_number, line in enumerate(handle, start=1):
             line = line.strip()
             if not line:
                 continue
-            rows.append(json.loads(line))
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"Malformed JSONL at {path_obj.name}:{line_number}: {exc.msg}"
+                ) from exc
     return rows
 
 
@@ -273,6 +534,12 @@ def write_jsonl(path: str | Path, rows: Iterable[dict[str, Any]]) -> Path:
             handle.write(json.dumps(row, ensure_ascii=False))
             handle.write("\n")
     return path_obj
+
+
+def _require_boolean(value: Any, *, field_name: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a boolean")
+    return value
 
 
 def parse_lips_file(path: str | Path) -> LipsFileParseResult:
@@ -371,10 +638,14 @@ def build_lips_manifest(config: LipsBuildConfig) -> LipsBuildReport:
     counts_by_raw_mode = _count_values(item.raw_mode or "UNKNOWN" for item in (*included, *excluded))
     counts_by_turn_structure = _count_values(item.turn_structure_flag for item in (*included, *excluded))
     exclusion_reason_counts = _count_values(item.exclusion_reason for item in excluded if item.exclusion_reason)
-    parse_status_counts = _count_values(item.parse_status for item in (*included, *excluded))
+    parse_status_counts = _count_values(
+        [item.parse_status for item in (*included, *excluded)]
+        + [failure.parse_status for failure in file_failures]
+    )
     successful_sections = sum(1 for item in (*included, *excluded) if item.parse_status in {"full", "partial_metadata"})
     total_sections = len(included) + len(excluded)
-    parse_success_ratio = successful_sections / total_sections if total_sections else 0.0
+    total_parse_attempts = total_sections + len(file_failures)
+    parse_success_ratio = successful_sections / total_parse_attempts if total_parse_attempts else 0.0
 
     report = LipsBuildReport(
         manifest_version=MANIFEST_VERSION,
@@ -532,7 +803,10 @@ def load_review_annotations(path: str | Path) -> tuple[LipsReviewAnnotation, ...
             LipsReviewAnnotation(
                 source_file=str(row["source_file"]),
                 section_id=str(row["section_id"]),
-                reviewer_accepts_mapping=bool(accepts),
+                reviewer_accepts_mapping=_require_boolean(
+                    accepts,
+                    field_name="reviewer_accepts_mapping",
+                ),
                 reviewer_task_family=(
                     str(row["reviewer_task_family"]) if row.get("reviewer_task_family") is not None else None
                 ),
@@ -554,7 +828,10 @@ def load_excluded_audit_annotations(path: str | Path) -> tuple[LipsExcludedAudit
             LipsExcludedAuditAnnotation(
                 source_file=str(row["source_file"]),
                 section_id=str(row["section_id"]),
-                reviewer_accepts_exclusion=bool(accepts),
+                reviewer_accepts_exclusion=_require_boolean(
+                    accepts,
+                    field_name="reviewer_accepts_exclusion",
+                ),
                 reviewer_suggested_task_family=(
                     str(row["reviewer_suggested_task_family"])
                     if row.get("reviewer_suggested_task_family") is not None
@@ -659,6 +936,8 @@ def validate_lips_manifest(
     config = config or LipsValidationConfig()
     included_rows = read_jsonl(included_path)
     excluded_rows = read_jsonl(excluded_path)
+    file_failures_path = Path(excluded_path).with_name("lips_file_failures.jsonl")
+    file_failure_rows = read_jsonl(file_failures_path) if file_failures_path.exists() else []
     all_rows = [*included_rows, *excluded_rows]
 
     usable_section_count = len(included_rows)
@@ -667,11 +946,14 @@ def validate_lips_manifest(
     )
     task_family_coverage = len(counts_by_family)
     parse_status_counts = _count_values(
-        str(row.get("parse_status") or "failed")
-        for row in all_rows
+        [
+            *(str(row.get("parse_status") or "failed") for row in all_rows),
+            *(str(row.get("parse_status") or "failed") for row in file_failure_rows),
+        ]
     )
     successful_sections = parse_status_counts.get("full", 0) + parse_status_counts.get("partial_metadata", 0)
-    parse_success_ratio = successful_sections / len(all_rows) if all_rows else 0.0
+    total_parse_attempts = len(all_rows) + len(file_failure_rows)
+    parse_success_ratio = successful_sections / total_parse_attempts if total_parse_attempts else 0.0
     counts_by_cefr = _count_values(str(row["cefr_level"]) for row in included_rows if row.get("cefr_level"))
     exclusion_reason_counts = _count_values(
         str(row["exclusion_reason"]) for row in excluded_rows if row.get("exclusion_reason")
@@ -783,6 +1065,45 @@ def _apply_phase_one_rules(
     )
 
 
+def _matches_int_range(value: int, *, minimum: int | None = None, maximum: int | None = None) -> bool:
+    if minimum is not None and value < minimum:
+        return False
+    if maximum is not None and value > maximum:
+        return False
+    return True
+
+
+def _matches_scaffolding_rule(
+    record: LipsSectionRecord,
+    *,
+    prompt_topic: str,
+    examiner_tokens: int,
+    examiner_ratio: float,
+    rule: LipsScaffoldingRule,
+) -> bool:
+    if rule.raw_mode is not None and record.raw_mode != rule.raw_mode:
+        return False
+    if rule.exact_topic is not None and prompt_topic != rule.exact_topic:
+        return False
+    if rule.topic_keywords and not any(keyword in prompt_topic for keyword in rule.topic_keywords):
+        return False
+    if not _matches_int_range(
+        record.candidate_turn_count,
+        minimum=rule.min_candidate_turns,
+        maximum=rule.max_candidate_turns,
+    ):
+        return False
+    if not _matches_int_range(record.examiner_turn_count, maximum=rule.max_examiner_turns):
+        return False
+    if rule.min_candidate_tokens is not None and record.candidate_token_count < rule.min_candidate_tokens:
+        return False
+    if rule.max_examiner_tokens is not None and examiner_tokens > rule.max_examiner_tokens:
+        return False
+    if rule.max_examiner_ratio is not None and examiner_ratio > rule.max_examiner_ratio:
+        return False
+    return True
+
+
 def _has_light_examiner_scaffolding(record: LipsSectionRecord) -> bool:
     if record.turn_structure_flag == "monologue_like":
         return False
@@ -798,96 +1119,16 @@ def _has_light_examiner_scaffolding(record: LipsSectionRecord) -> bool:
         return False
     examiner_ratio = examiner_tokens / record.candidate_token_count
     prompt_topic = (record.prompt_topic or "").casefold()
-    picture_keywords = ("foto", "immagine", "figura", "descrivi", "descrizione")
-
-    if (
-        prompt_topic == "foto: descrizione piazza"
-        and record.candidate_turn_count <= 4
-        and record.examiner_turn_count <= 4
-        and record.candidate_token_count >= 140
-        and examiner_tokens <= 30
-        and examiner_ratio <= 0.25
-    ):
-        return True
-
-    if record.raw_mode != "M":
-        return False
-
-    if (
-        record.candidate_turn_count <= 3
-        and record.examiner_turn_count <= 4
-        and examiner_tokens <= 50
-        and examiner_ratio <= 0.2
-    ):
-        return True
-
-    if (
-        record.candidate_token_count >= 40
-        and record.candidate_turn_count <= 5
-        and record.examiner_turn_count <= 6
-        and examiner_tokens <= 50
-        and examiner_ratio <= 0.2
-    ):
-        return True
-
-    if (
-        record.candidate_turn_count == 1
-        and record.examiner_turn_count <= 2
-        and record.candidate_token_count >= 120
-        and examiner_tokens <= 100
-        and examiner_ratio <= 0.3
-    ):
-        return True
-
-    if (
-        record.candidate_turn_count == 1
-        and record.examiner_turn_count <= 4
-        and record.candidate_token_count >= 300
-        and examiner_tokens <= 80
-        and examiner_ratio <= 0.2
-    ):
-        return True
-
-    if (
-        1 <= record.candidate_turn_count <= 2
-        and record.examiner_turn_count <= 2
-        and record.candidate_token_count >= 300
-        and examiner_tokens <= 100
-        and examiner_ratio <= 0.3
-    ):
-        return True
-
-    if (
-        5 <= record.candidate_turn_count <= 8
-        and record.examiner_turn_count <= 8
-        and record.candidate_token_count >= 250
-        and examiner_tokens <= 70
-        and examiner_ratio <= 0.17
-    ):
-        return True
-
-    if (
-        prompt_topic == "vacanze di natale"
-        and record.raw_mode == "M"
-        and record.candidate_turn_count <= 8
-        and record.examiner_turn_count <= 8
-        and record.candidate_token_count >= 200
-        and examiner_tokens <= 60
-        and examiner_ratio <= 0.3
-    ):
-        return True
-
-    if (
-        any(keyword in prompt_topic for keyword in picture_keywords)
-        and record.candidate_turn_count == 1
-        and record.examiner_turn_count <= 2
-        and record.candidate_token_count >= 60
-        and examiner_tokens <= 50
-        and examiner_ratio <= 0.6
-    ):
-        return True
-
-    return False
+    return any(
+        _matches_scaffolding_rule(
+            record,
+            prompt_topic=prompt_topic,
+            examiner_tokens=examiner_tokens,
+            examiner_ratio=examiner_ratio,
+            rule=rule,
+        )
+        for rule in LIPS_SCAFFOLDING_RULES
+    )
 
 
 def _parse_section(
@@ -1090,6 +1331,62 @@ def _clean_candidate_text(text: str) -> str:
     return cleaned
 
 
+def _map_exact_task_family(topic: str, candidate: str) -> TaskFamilyMapping | None:
+    del candidate
+    if topic in PERSONAL_EXACT_TOPICS:
+        return "personal_experience", "heuristic_v2", "medium"
+    if topic in OPINION_EXACT_TOPICS:
+        return "opinion_monologue", "heuristic_v2", "medium"
+    return None
+
+
+def _map_giorni_di_festa(topic: str, candidate: str) -> TaskFamilyMapping | None:
+    if "giorni di festa" not in topic and "giorni festivi" not in topic:
+        return None
+    if "secondo me" in candidate:
+        return "opinion_monologue", "heuristic_v2", "medium"
+    if any(phrase in candidate for phrase in GIORNI_DI_FESTA_PERSONAL_CUES):
+        return "personal_experience", "heuristic_v2", "medium"
+    return None
+
+
+def _map_topic_phrase_task_family(topic: str, candidate: str) -> TaskFamilyMapping | None:
+    del candidate
+    if any(phrase in topic for phrase in PERSONAL_TOPIC_PHRASES):
+        return "personal_experience", "heuristic_v2", "medium"
+    if any(phrase in topic for phrase in OPINION_TOPIC_PHRASES):
+        return "opinion_monologue", "heuristic_v2", "medium"
+    return None
+
+
+def _map_picture_task_family(topic: str, candidate: str) -> TaskFamilyMapping | None:
+    if any(keyword in topic for keyword in PICTURE_TOPIC_KEYWORDS):
+        return "picture_description", "heuristic_v1", "high"
+    if any(keyword in candidate for keyword in PICTURE_CANDIDATE_KEYWORDS) and not any(
+        phrase in candidate for phrase in ABSTRACT_IMAGE_PHRASES
+    ):
+        return "picture_description", "heuristic_v2", "medium"
+    return None
+
+
+def _map_missing_topic_future_plan(topic: str, candidate: str) -> TaskFamilyMapping | None:
+    if not topic and "vorrei fare un corso" in candidate and "vorrei lavorare" in candidate:
+        return "personal_experience", "heuristic_v2", "medium"
+    return None
+
+
+def _map_keyword_task_family(topic: str, candidate: str) -> TaskFamilyMapping | None:
+    if any(keyword in topic for keyword in OPINION_TOPIC_KEYWORDS):
+        return "opinion_monologue", "heuristic_v1", "high"
+    if any(keyword in topic for keyword in TRAVEL_KEYWORDS):
+        return "travel_narrative", "heuristic_v1", "medium"
+    if any(keyword in topic for keyword in PERSONAL_KEYWORDS):
+        return "personal_experience", "heuristic_v1", "medium"
+    if any(keyword in candidate for keyword in OPINION_CANDIDATE_KEYWORDS):
+        return "opinion_monologue", "heuristic_v1", "medium"
+    return None
+
+
 def _map_task_family(
     prompt_topic: str | None,
     *,
@@ -1099,197 +1396,18 @@ def _map_task_family(
     candidate = (candidate_text or "").casefold()
     if not topic and not candidate:
         return None, None, None
-
-    personal_exact_topics = (
-        "la persona più importante nella propria vita",
-        "letture preferite",
+    resolvers = (
+        _map_exact_task_family,
+        _map_giorni_di_festa,
+        _map_topic_phrase_task_family,
+        _map_picture_task_family,
+        _map_missing_topic_future_plan,
+        _map_keyword_task_family,
     )
-    opinion_exact_topics = (
-        "italia",
-        "reality shows",
-        "turismo ecologico",
-    )
-    personal_topic_phrases = (
-        "differenze tra la lingua del candidato e quella italiana",
-        "amici",
-        "aspetto fisico",
-        "città o campagna",
-        "cucina tipica",
-        "il luogo che ami di più",
-        "lingua italiana",
-        "motivo per il quale è in italia",
-        "paese di origine",
-        "paese d'origine",
-        "una persona cara",
-        "feste tradizionali",
-        "tradizioni popolari del paese",
-        "abitudini alimentari del paese nativo",
-        "università brasiliana",
-        "vacanze di natale",
-        "proprio padre",
-        "soggiorno in italia",
-        "la tua città e il tuo paese",
-        "esami della vita",
-        "insegnante",
-        "insegnante di italiano",
-        "italia e la lingua italiana",
-        "amici conosciuti in italia",
-        "il modo in cui il candidato ha imparato la lingua italiana",
-        "giornata tipica",
-        "vita ideale",
-        "intervista a personaggio famoso",
-        "rapporti con gli italiani",
-        "descrivere se stessi",
-        "descrizione personale",
-    )
-    opinion_topic_phrases = (
-        "auto condivisa",
-        "aspetti dell'italia",
-        "artista e pubblico",
-        "argomento le lingue e le certificazioni",
-        "beni culturali del proprio paese",
-        "conoscenza lingue",
-        "il caldo in italia",
-        "la cultura italiana",
-        "la musica e lo sport",
-        "le lingue",
-        "le letture preferite",
-        "buoni motivi per viaggiare in italia",
-        "creatività nella scuola",
-        "cura del corpo",
-        "11 settembre",
-        "fallaci",
-        "gli italiani",
-        "moodi per rilassarsi",
-        "modi per rilassarsi",
-        "passaggio millennio",
-        "paranormale",
-        "rapporto tra italiani e stranieri",
-        "donne single",
-        "possibilità di svolgere un lavoro part time",
-        "personaggio pubblico",
-        "integrazione interculturale nelle scuole",
-    )
-    picture_keywords = (
-        "foto",
-        "immagine",
-        "figura",
-        "descrivi",
-        "descrizione",
-    )
-    picture_candidate_keywords = (
-        "questa immagine",
-        "in questa immagine",
-        "dell'immagine",
-        "della foto",
-        "questa foto",
-    )
-    abstract_image_phrases = (
-        "immagine che abbiamo",
-        "immagine che hanno",
-        "tipica immagine",
-    )
-    travel_keywords = (
-        "viaggio",
-        "vacanza",
-        "vacanze",
-        "turismo",
-        "itinerario",
-        "spostamento",
-    )
-    personal_keywords = (
-        "esperienza",
-        "ricordo",
-        "famiglia",
-        "infanzia",
-        "hobby",
-        "musica",
-        "sport",
-        "amicizia",
-        "amico",
-        "amica",
-        "tempo libero",
-        "migliore amico",
-        "migliore amica",
-        "progetti futuri",
-        "propria città",
-        "mia città",
-        "libro",
-        "lettura",
-        "studio",
-        "studi",
-        "lavoro",
-        "carattere",
-    )
-    opinion_topic_keywords = (
-        "opinione",
-        "vantaggi",
-        "svantaggi",
-        "inquinamento",
-        "pubblicità",
-        "televisione",
-        "tv",
-        "programmi televisivi",
-        "computer",
-        "tecnologie",
-        "tecnologia",
-        "nuove tecnologie",
-        "genitori",
-        "figli",
-        "giovani",
-        "comportamenti giovanili",
-        "calo delle nascite",
-        "calo demografico",
-        "problemi mondiali",
-        "educazione",
-        "costo della vita",
-        "tolleranza",
-        "clima",
-        "medicina naturale",
-        "realtà degli anziani",
-    )
-    opinion_candidate_keywords = (
-        "penso",
-        "credo",
-        "secondo me",
-        "sono d'accordo",
-        "non sono d'accordo",
-        "a mio parere",
-        "ritengo",
-        "mi sembra giusto",
-        "necessità",
-        "problema",
-    )
-
-    if topic in personal_exact_topics:
-        return "personal_experience", "heuristic_v2", "medium"
-    if topic in opinion_exact_topics:
-        return "opinion_monologue", "heuristic_v2", "medium"
-    if "giorni di festa" in topic or "giorni festivi" in topic:
-        if "secondo me" in candidate:
-            return "opinion_monologue", "heuristic_v2", "medium"
-        if any(phrase in candidate for phrase in ("per me", "mi piace", "trascorro", "quando sono libera")):
-            return "personal_experience", "heuristic_v2", "medium"
-    if any(phrase in topic for phrase in personal_topic_phrases):
-        return "personal_experience", "heuristic_v2", "medium"
-    if any(phrase in topic for phrase in opinion_topic_phrases):
-        return "opinion_monologue", "heuristic_v2", "medium"
-    if any(keyword in topic for keyword in picture_keywords):
-        return "picture_description", "heuristic_v1", "high"
-    if any(keyword in candidate for keyword in picture_candidate_keywords) and not any(
-        phrase in candidate for phrase in abstract_image_phrases
-    ):
-        return "picture_description", "heuristic_v2", "medium"
-    if not topic and "vorrei fare un corso" in candidate and "vorrei lavorare" in candidate:
-        return "personal_experience", "heuristic_v2", "medium"
-    if any(keyword in topic for keyword in opinion_topic_keywords):
-        return "opinion_monologue", "heuristic_v1", "high"
-    if any(keyword in topic for keyword in travel_keywords):
-        return "travel_narrative", "heuristic_v1", "medium"
-    if any(keyword in topic for keyword in personal_keywords):
-        return "personal_experience", "heuristic_v1", "medium"
-    if any(keyword in candidate for keyword in opinion_candidate_keywords):
-        return "opinion_monologue", "heuristic_v1", "medium"
+    for resolver in resolvers:
+        mapping = resolver(topic, candidate)
+        if mapping is not None:
+            return mapping
     if topic or candidate:
         return "free_monologue", "heuristic_v1", "low"
     return None, None, None

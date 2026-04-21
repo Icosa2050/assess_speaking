@@ -34,6 +34,23 @@ def _as_text_list(value: object) -> list[str]:
     return []
 
 
+def _warning_message(value: str) -> str:
+    warning_key = str(value or "").strip()
+    if not warning_key:
+        return ""
+    mapping = {
+        "coaching_unavailable": "review.warning_codes.coaching_unavailable",
+        "llm_unavailable": "review.warning_codes.llm_unavailable",
+        "llm_skipped_low_word_count": "review.warning_codes.llm_skipped_low_word_count",
+        "llm_invalid_schema": "review.warning_codes.llm_invalid_schema",
+        "asr_pause_mismatch": "review.warning_codes.asr_pause_mismatch",
+    }
+    locale_key = mapping.get(warning_key)
+    if locale_key:
+        return t(locale_key)
+    return warning_key.replace("_", " ")
+
+
 def _gate_status(value: bool | None) -> str:
     if value is True:
         return t("review.gate_pass")
@@ -93,12 +110,43 @@ def _render_progress_items(summary: dict) -> None:
         st.markdown(f"- {item}")
 
 
+def _localized_cefr_descriptor(level: str) -> str:
+    normalized = str(level or "").strip().lower()
+    if not normalized:
+        return ""
+    key = f"review.baseline_descriptors.{normalized}"
+    translated = t(key)
+    return "" if translated == f"[{key}]" else translated
+
+
+def _localized_language_label(language_code: str) -> str:
+    normalized = str(language_code or "").strip().lower()
+    if not normalized:
+        return ""
+    key = f"locale.{normalized}"
+    translated = t(key)
+    return normalized.upper() if translated == f"[{key}]" else translated
+
+
+def _baseline_caption(summary: dict, baseline: dict) -> str:
+    level = str(baseline.get("level") or "").strip().upper()
+    descriptor = _localized_cefr_descriptor(level)
+    language_label = _localized_language_label(str(summary.get("learning_language") or ""))
+    if language_label and descriptor:
+        return t("review.baseline_target_caption", level=level, language=language_label, comment=descriptor)
+    if language_label:
+        return t("review.baseline_target_caption_no_comment", level=level, language=language_label)
+    if descriptor:
+        return t("review.baseline_level_caption", level=level, comment=descriptor)
+    return t("review.baseline_level_caption_no_comment", level=level)
+
+
 def _render_baseline(summary: dict) -> None:
     baseline = summary.get("baseline")
     if not isinstance(baseline, dict):
         return
     st.subheader(t("review.baseline_title"))
-    st.caption(t("review.baseline_caption", level=baseline.get("level", "-"), comment=baseline.get("comment", "")))
+    st.caption(_baseline_caption(summary, baseline))
     rows = []
     for metric, entry in (baseline.get("targets") or {}).items():
         rows.append(
@@ -115,6 +163,48 @@ def _render_baseline(summary: dict) -> None:
 
 def render_report_panels(summary: dict, *, transcript: str = "", notes: str = "", key_prefix: str = "review") -> None:
     render_report_status(summary)
+
+    with st.container(border=True):
+        render_kicker(t("review.answers_title"))
+        answer_cols = st.columns(3)
+        with answer_cols[0]:
+            st.subheader(t("review.answer_result_title"))
+            score = summary.get("score_overall")
+            if summary.get("requires_human_review"):
+                st.write(t("review.answer_result_review"))
+            elif isinstance(score, (int, float)):
+                st.write(
+                    t(
+                        "review.answer_result_value",
+                        score=f"{score:.1f}",
+                        band=str(summary.get("band") or "-"),
+                    )
+                )
+            else:
+                st.write(t("review.answer_result_pending"))
+        with answer_cols[1]:
+            st.subheader(t("review.answer_why_title"))
+            failed_gates = summary.get("failed_gates") or []
+            strengths = _as_text_list(summary.get("strengths"))
+            if failed_gates:
+                st.write(t("review.answer_why_gates", value=", ".join(_gate_label(item) for item in failed_gates)))
+            elif strengths:
+                st.write(t("review.answer_why_strength", value=strengths[0]))
+            else:
+                st.write(summary.get("coach_summary") or t("review.answer_why_placeholder"))
+        with answer_cols[2]:
+            st.subheader(t("review.answer_next_title"))
+            next_focus = str(summary.get("next_focus") or "").strip()
+            next_exercise = str(summary.get("next_exercise") or "").strip()
+            priorities = _as_text_list(summary.get("priorities"))
+            if next_focus:
+                st.write(t("review.answer_next_focus", value=next_focus))
+            elif next_exercise:
+                st.write(t("review.answer_next_exercise", value=next_exercise))
+            elif priorities:
+                st.write(t("review.answer_next_priority", value=priorities[0]))
+            else:
+                st.write(t("review.answer_next_placeholder"))
 
     with st.container(border=True):
         render_kicker(t("review.summary_title"))
@@ -174,7 +264,13 @@ def render_report_panels(summary: dict, *, transcript: str = "", notes: str = ""
                 st.info(t("review.next_exercise", value=summary["next_exercise"]))
             warnings = _as_text_list(summary.get("warnings"))
             if warnings:
-                st.warning(t("review.warnings", value=", ".join(warnings)))
+                warning_messages: list[str] = []
+                for item in warnings:
+                    message = _warning_message(item)
+                    if message:
+                        warning_messages.append(message)
+                if warning_messages:
+                    st.warning(t("review.warnings", value=" ".join(warning_messages)))
             issue_cols = st.columns(2)
             with issue_cols[0]:
                 st.caption(t("review.recurring_grammar_title"))
@@ -190,6 +286,14 @@ def render_report_panels(summary: dict, *, transcript: str = "", notes: str = ""
     with transcript_col:
         with st.container(border=True):
             render_kicker(t("review.transcript_tab"))
+            st.subheader(t("review.label_title"))
+            st.text_input(
+                t("review.label_title"),
+                value=str(summary.get("label") or "").strip() or t("review.label_placeholder"),
+                key=f"{key_prefix}_saved_label_view",
+                disabled=True,
+                label_visibility="collapsed",
+            )
             st.subheader(t("review.notes_title"))
             st.text_area(
                 t("review.notes_title"),

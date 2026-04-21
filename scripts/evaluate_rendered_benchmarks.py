@@ -9,16 +9,11 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
-from benchmarking.synthetic_audio_contracts import build_rendered_audio_contract_suite
-from benchmarking.synthetic_benchmark_evaluation import (
-    EvaluationRunConfig,
-    evaluate_rendered_audio_contract_suite,
-    write_evaluation_manifest,
-)
-from benchmarking.synthetic_seed_manifests import load_seed_manifest
+
+def _bootstrap_repo() -> None:
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
 
 
 def parse_args() -> argparse.Namespace:
@@ -59,6 +54,15 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    _bootstrap_repo()
+    from benchmarking.synthetic_audio_contracts import build_rendered_audio_contract_suite
+    from benchmarking.synthetic_benchmark_evaluation import (
+        EvaluationRunConfig,
+        evaluate_rendered_audio_contract_suite,
+        write_evaluation_manifest,
+    )
+    from benchmarking.synthetic_seed_manifests import load_seed_manifest
+
     args = parse_args()
     seed_manifest = load_seed_manifest(args.seed_manifest)
     contract_suite = build_rendered_audio_contract_suite(seed_manifest, args.render_manifest)

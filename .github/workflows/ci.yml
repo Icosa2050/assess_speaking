@@ -7,7 +7,31 @@ on:
   workflow_dispatch:
 
 jobs:
+  quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run backend rollout quality checks
+        run: python scripts/check_quality.py
+
+      - name: Run duplication checks
+        run: npx --yes jscpd app_backend app_shell pages streamlit_app.py --reporters console --min-lines 12 --min-tokens 80 --threshold 1
+
   tests:
+    needs: quality
     runs-on: ubuntu-latest
 
     steps:

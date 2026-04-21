@@ -6,8 +6,9 @@ from pathlib import Path
 import streamlit as st
 from streamlit.errors import StreamlitAPIException
 
+from app_shell.bootstrap import PROJECT_ROOT, bootstrap_app_environment
 from app_shell.i18n import t
-from app_shell.services import hydrate_state_from_storage, load_dashboard_prefs, resolve_log_dir
+from app_shell.services import hydrate_state_from_storage, load_workspace_prefs, resolve_log_dir
 from app_shell.state import (
     APP_NAME,
     AppShellState,
@@ -19,15 +20,20 @@ from app_shell.state import (
 )
 from app_shell.visual_system import inject_visual_system
 
+BRANDING_DIR = PROJECT_ROOT / "branding"
+BRAND_ICON_PATH = BRANDING_DIR / "vostavo-icon-playful.svg"
+BRAND_LOGO_PATH = BRANDING_DIR / "vostavo-logo-playful.svg"
+
 
 def resolve_page_title_locale(log_dir: str | os.PathLike[str] | None = None) -> str:
+    bootstrap_app_environment(log_dir=log_dir)
     resolved_log_dir = resolve_log_dir(log_dir)
-    prefs = load_dashboard_prefs(resolved_log_dir)
+    prefs = load_workspace_prefs(resolved_log_dir)
     nested_log_dir = str(prefs.get("log_dir") or "").strip()
     if nested_log_dir:
         nested_resolved = resolve_log_dir(nested_log_dir)
         if nested_resolved != resolved_log_dir:
-            nested_prefs = load_dashboard_prefs(nested_resolved)
+            nested_prefs = load_workspace_prefs(nested_resolved)
             nested_locale = str(nested_prefs.get("ui_locale") or "").strip().lower()
             if nested_locale in SUPPORTED_UI_LOCALES:
                 return nested_locale
@@ -38,6 +44,11 @@ def resolve_page_title_locale(log_dir: str | os.PathLike[str] | None = None) -> 
 
 
 def configure_page(page_id: str, title_key: str, *, icon: str) -> AppShellState:
+    state = get_app_state()
+    bootstrap_app_environment(
+        log_dir=getattr(getattr(state, "prefs", None), "log_dir", None),
+        whisper_cache_dir=getattr(getattr(state, "prefs", None), "whisper_cache_dir", None),
+    )
     page_title_locale = resolve_page_title_locale()
     st.set_page_config(
         page_title=f"{APP_NAME} · {t(title_key, locale=page_title_locale)}",
@@ -45,8 +56,19 @@ def configure_page(page_id: str, title_key: str, *, icon: str) -> AppShellState:
         layout="wide",
     )
     inject_visual_system()
+    render_brand_mark()
     state = set_current_page(page_id)
     return hydrate_state_from_storage(state)
+
+
+def render_brand_mark(*, width: int = 88) -> None:
+    if BRAND_ICON_PATH.exists():
+        st.sidebar.image(str(BRAND_ICON_PATH), width=width)
+
+
+def render_brand_logo(*, width: int = 340) -> None:
+    if BRAND_LOGO_PATH.exists():
+        st.image(str(BRAND_LOGO_PATH), width=width)
 
 
 def render_page_intro(title_key: str, body_key: str | None = None) -> None:
@@ -66,6 +88,40 @@ def render_shell_summary(state: AppShellState) -> None:
             speaker_id=state.draft.speaker_id or "—",
         )
     )
+
+
+def render_startup_diagnostics(
+    diagnostics: list[object],
+    *,
+    title_key: str = "diagnostics.title",
+    body_key: str = "diagnostics.body",
+    render_mode: str = "alerts",
+) -> None:
+    with st.container(border=True):
+        st.subheader(t(title_key))
+        st.caption(t(body_key))
+        status_renderers = {
+            "ok": st.success,
+            "warning": st.warning,
+            "error": st.error,
+            "info": st.info,
+        }
+        checklist_icons = {
+            "ok": "OK",
+            "warning": "Warn",
+            "error": "Fix",
+            "info": "Info",
+        }
+        for item in diagnostics:
+            status = str(getattr(item, "status", "info"))
+            title = t(getattr(item, "title_key"))
+            detail = t(getattr(item, "detail_key"), **dict(getattr(item, "detail_args", {}) or {}))
+            if render_mode == "checklist":
+                icon = checklist_icons.get(status, checklist_icons["info"])
+                st.markdown(f"**[{icon}] {title}**  \n{detail}")
+                continue
+            render = status_renderers.get(status, st.info)
+            render(f"{title}: {detail}")
 
 
 def format_byte_count(num_bytes: int | float | None) -> str:

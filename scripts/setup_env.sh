@@ -104,7 +104,7 @@ Activate it with:
   source "$venv_abs/bin/activate"
 
 Run the self-test once models are available:
-  ./scripts/python.sh assess_speaking.py --selftest --llm llama3.1
+  ./scripts/python.sh assess_speaking.py --selftest --provider ollama --llm-model llama3.1
 
 Run the unit tests with the project interpreter:
   ./scripts/run_tests.sh

@@ -1,14 +1,34 @@
 import csv
 import json
+import os
 import re
 import time
 from pathlib import Path
+from urllib import error, request
 
 import pytest
 from playwright.sync_api import expect
 
 
 APP_SHELL_E2E_LOCALES = ("en", "it")
+DEFAULT_SAMPLE_AUDIO = Path("cefr/it/B1/travel_story.wav")
+
+
+def _seeded_ollama_model() -> str:
+    env_model = str(os.getenv("E2E_OLLAMA_MODEL") or "").strip()
+    if env_model:
+        return env_model
+    try:
+        with request.urlopen("http://localhost:11434/api/tags", timeout=2.0) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, ValueError, error.URLError):
+        return "llama3"
+    for item in payload.get("models", []):
+        if isinstance(item, dict):
+            candidate = str(item.get("name") or item.get("model") or "").strip()
+            if candidate:
+                return candidate
+    return "llama3"
 
 
 def _seed_app_shell_runtime(project_root: Path, *, ui_locale: str) -> None:
@@ -17,7 +37,7 @@ def _seed_app_shell_runtime(project_root: Path, *, ui_locale: str) -> None:
     # Session Setup -> Speak -> Review instead of being redirected to Runtime Setup.
     reports_dir = project_root / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
-    (reports_dir / "dashboard_prefs.json").write_text(
+    (reports_dir / "workspace_prefs.json").write_text(
         json.dumps(
             {
                 "ui_locale": ui_locale,
@@ -30,7 +50,7 @@ def _seed_app_shell_runtime(project_root: Path, *, ui_locale: str) -> None:
                         "provider_kind": "ollama",
                         "label": "E2E Ollama",
                         "base_url": "http://localhost:11434/v1",
-                        "default_model": "llama3",
+                        "default_model": _seeded_ollama_model(),
                         "auth_mode": "none",
                         "secret_ref": "",
                         "is_default": True,
@@ -98,6 +118,19 @@ def _attach_audio_for_review(page, app_shell_text, ui_locale: str, *, sample_pat
     expect(page.get_by_text(re.compile(re.escape(app_shell_text(ui_locale, "speak.status_ready"))))).to_be_visible(timeout=30000)
 
 
+def _submit_and_wait_for_review(page, app_shell_text, ui_locale: str, *, timeout: float = 120.0) -> None:
+    review_heading = page.get_by_role("heading", name=app_shell_text(ui_locale, "review.title"))
+    submit_button = page.get_by_role("button", name=app_shell_text(ui_locale, "speak.submit"))
+    submit_button.click()
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        page.wait_for_load_state("networkidle")
+        if review_heading.is_visible():
+            return
+        page.wait_for_timeout(500)
+    expect(review_heading).to_be_visible(timeout=5000)
+
+
 @pytest.mark.parametrize("ui_locale", APP_SHELL_E2E_LOCALES)
 def test_app_shell_upload_reaches_review(page, app_shell_server, app_shell_text, project_root: Path, samples_dir: Path, ui_locale: str):
     _seed_app_shell_runtime(project_root, ui_locale=ui_locale)
@@ -118,12 +151,32 @@ def test_app_shell_upload_reaches_review(page, app_shell_server, app_shell_text,
     page.locator('label[data-baseweb="radio"]').filter(
         has_text=re.compile(re.escape(app_shell_text(ui_locale, "speak.input_method_upload")))
     ).click()
-    page.locator('input[type="file"]').set_input_files(str(samples_dir / "demo.m4a"))
+    page.locator('input[type="file"]').set_input_files(str(samples_dir / DEFAULT_SAMPLE_AUDIO))
     expect(page.get_by_text(re.compile(re.escape(app_shell_text(ui_locale, "speak.status_ready"))))).to_be_visible(timeout=30000)
 
-    page.get_by_role("button", name=app_shell_text(ui_locale, "speak.submit")).click()
-    expect(page.get_by_role("heading", name=app_shell_text(ui_locale, "review.title"))).to_be_visible(timeout=120000)
+    _submit_and_wait_for_review(page, app_shell_text, ui_locale)
+    expect(page.get_by_role("heading", name=app_shell_text(ui_locale, "review.title"))).to_be_visible(timeout=30000)
     expect(page.get_by_text(re.compile(rf"^{re.escape(app_shell_text(ui_locale, 'review.score'))}$"))).to_be_visible(timeout=30000)
+
+
+@pytest.mark.parametrize("ui_locale", APP_SHELL_E2E_LOCALES)
+def test_app_shell_browse_files_button_attaches_audio(
+    page,
+    app_shell_server,
+    app_shell_text,
+    project_root: Path,
+    samples_dir: Path,
+    ui_locale: str,
+):
+    _seed_app_shell_runtime(project_root, ui_locale=ui_locale)
+    _start_app_shell_session(page, app_shell_server, app_shell_text, ui_locale, speaker_id=f"playwright-browse-{ui_locale}")
+    _set_upload_mode(page, app_shell_text, ui_locale)
+
+    with page.expect_file_chooser() as chooser_info:
+        page.get_by_role("button", name="Browse files").click()
+    chooser_info.value.set_files(str(samples_dir / DEFAULT_SAMPLE_AUDIO))
+
+    expect(page.get_by_text(re.compile(re.escape(app_shell_text(ui_locale, "speak.status_ready"))))).to_be_visible(timeout=30000)
 
 
 @pytest.mark.parametrize("ui_locale", APP_SHELL_E2E_LOCALES)
@@ -144,12 +197,12 @@ def test_app_shell_complete_journey_reaches_history_in_english_and_italian(
     second_notes = f"Second {ui_locale} review pass."
 
     _start_app_shell_session(page, app_shell_server, app_shell_text, ui_locale, speaker_id=speaker_id)
-    _attach_audio_for_review(page, app_shell_text, ui_locale, sample_path=samples_dir / "demo.m4a")
+    _attach_audio_for_review(page, app_shell_text, ui_locale, sample_path=samples_dir / DEFAULT_SAMPLE_AUDIO)
     page.get_by_role("textbox", name=app_shell_text(ui_locale, "speak.label")).fill(first_label)
     page.get_by_role("textbox", name=app_shell_text(ui_locale, "speak.notes")).fill(first_notes)
-    page.get_by_role("button", name=app_shell_text(ui_locale, "speak.submit")).click()
+    _submit_and_wait_for_review(page, app_shell_text, ui_locale)
 
-    expect(page.get_by_role("heading", name=app_shell_text(ui_locale, "review.title"))).to_be_visible(timeout=120000)
+    expect(page.get_by_role("heading", name=app_shell_text(ui_locale, "review.title"))).to_be_visible(timeout=30000)
     expect(page.get_by_role("button", name=app_shell_text(ui_locale, "review.try_again"))).to_be_visible(timeout=30000)
     expect(page.get_by_role("button", name=app_shell_text(ui_locale, "review.view_history"))).to_be_visible(timeout=30000)
     expect(page.get_by_role("textbox", name=app_shell_text(ui_locale, "review.notes_title"))).to_have_value(first_notes)
@@ -166,12 +219,12 @@ def test_app_shell_complete_journey_reaches_history_in_english_and_italian(
     page.get_by_role("button", name=app_shell_text(ui_locale, "review.try_again")).click()
     expect(page.get_by_role("heading", name=app_shell_text(ui_locale, "speak.title"))).to_be_visible(timeout=30000)
 
-    _attach_audio_for_review(page, app_shell_text, ui_locale, sample_path=samples_dir / "demo.m4a")
+    _attach_audio_for_review(page, app_shell_text, ui_locale, sample_path=samples_dir / DEFAULT_SAMPLE_AUDIO)
     page.get_by_role("textbox", name=app_shell_text(ui_locale, "speak.label")).fill(second_label)
     page.get_by_role("textbox", name=app_shell_text(ui_locale, "speak.notes")).fill(second_notes)
-    page.get_by_role("button", name=app_shell_text(ui_locale, "speak.submit")).click()
+    _submit_and_wait_for_review(page, app_shell_text, ui_locale)
 
-    expect(page.get_by_role("heading", name=app_shell_text(ui_locale, "review.title"))).to_be_visible(timeout=120000)
+    expect(page.get_by_role("heading", name=app_shell_text(ui_locale, "review.title"))).to_be_visible(timeout=30000)
     expect(page.get_by_role("heading", name=app_shell_text(ui_locale, "review.progress_title"))).to_be_visible(timeout=30000)
     expect(page.get_by_role("textbox", name=app_shell_text(ui_locale, "review.notes_title"))).to_have_value(second_notes)
 
@@ -219,7 +272,7 @@ def test_app_shell_remove_recording_returns_to_idle_in_english_and_italian(
     speaker_id = f"playwright-shell-remove-{ui_locale}"
 
     _start_app_shell_session(page, app_shell_server, app_shell_text, ui_locale, speaker_id=speaker_id)
-    _attach_audio_for_review(page, app_shell_text, ui_locale, sample_path=samples_dir / "demo.m4a")
+    _attach_audio_for_review(page, app_shell_text, ui_locale, sample_path=samples_dir / DEFAULT_SAMPLE_AUDIO)
 
     remove_button = page.get_by_role("button", name=app_shell_text(ui_locale, "speak.remove_recording"))
     expect(remove_button).to_be_visible(timeout=30000)

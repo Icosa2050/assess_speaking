@@ -4,17 +4,25 @@ import pandas as pd
 import streamlit as st
 
 from app_shell.i18n import t
-from app_shell.page_helpers import configure_page, render_page_intro, render_shell_summary
+from app_shell.page_helpers import configure_page, go_to, render_page_intro, render_shell_summary
 from app_shell.services import (
     NEW_LANGUAGE_OPTION,
     add_theme,
     language_codes,
     language_label,
+    list_sample_trials,
     load_theme_library,
     save_theme_library,
-    theme_option_label,
     validate_theme_submission,
 )
+from app_shell.state import has_setup, update_recording
+
+SAMPLE_TASK_FAMILY_BY_SLUG = {
+    "travel_story": "travel_narrative",
+    "remote_work": "opinion_monologue",
+    "public_debate": "opinion_monologue",
+}
+SAMPLE_DURATION_BY_CEFR = {"B1": 90, "B2": 120, "C1": 180}
 
 
 def _safe_index(options: list[str], value: str, default: int = 0) -> int:
@@ -31,6 +39,32 @@ def _task_family_label(value: object) -> str:
     if localized.startswith("[") and localized.endswith("]"):
         return raw.replace("_", " ")
     return localized
+
+
+def _sample_task_family(sample_id: str) -> str:
+    slug = str(sample_id or "").split("_", 2)[-1]
+    return SAMPLE_TASK_FAMILY_BY_SLUG.get(slug, "free_monologue")
+
+
+def _sample_title_label(sample: dict[str, object]) -> str:
+    title = str(sample.get("title") or "").strip()
+    return title.title() if title else t("library.none")
+
+
+def _apply_sample_trial_defaults(state, library: dict, sample: dict[str, object]) -> None:
+    language_code = str(sample.get("language") or "").strip().lower()
+    title = _sample_title_label(sample)
+    state.draft.learning_language = language_code or state.draft.learning_language
+    state.draft.learning_language_label = (
+        language_label(library, language_code) if language_code in library else (language_code.upper() or state.draft.learning_language_label)
+    )
+    state.draft.cefr_level = str(sample.get("cefr") or state.draft.cefr_level or "B1").upper()
+    state.draft.theme_id = str(sample.get("sample_id") or "").strip() or state.draft.theme_id
+    state.draft.theme_label = title
+    state.draft.task_family = _sample_task_family(str(sample.get("sample_id") or ""))
+    state.draft.duration_sec = SAMPLE_DURATION_BY_CEFR.get(state.draft.cefr_level, state.draft.duration_sec or 90)
+    state.draft.prompt_id = state.draft.theme_id
+    state.draft.prompt_text = title
 
 
 state = configure_page("library", "nav.library", icon="📚")
@@ -73,6 +107,42 @@ if codes:
     )
 else:
     st.info(t("library.empty_library"))
+
+sample_language = selected_language or str(state.draft.learning_language or "").strip().lower()
+sample_cefr = state.draft.cefr_level if has_setup(state) else ""
+sample_trials = list_sample_trials(
+    log_dir=state.prefs.log_dir,
+    language_code=sample_language,
+    cefr_level=sample_cefr,
+)
+
+with st.container(border=True):
+    st.subheader(t("library.samples_title"))
+    st.caption(t("library.samples_body"))
+    if not sample_trials:
+        st.info(t("library.samples_empty"))
+    else:
+        for index, sample in enumerate(sample_trials):
+            with st.container(border=True):
+                st.caption(
+                    t(
+                        "library.sample_caption",
+                        language=str(sample.get("language") or "").upper(),
+                        cefr=str(sample.get("cefr") or "").upper(),
+                    )
+                )
+                st.write(_sample_title_label(sample))
+                if not bool(sample.get("available")):
+                    st.warning(t("library.sample_missing", theme=_sample_title_label(sample)))
+                    continue
+                button_key = f"library_sample_{index}"
+                button_label = t("library.sample_use_now") if has_setup(state) else t("library.sample_prepare")
+                if st.button(button_label, key=button_key, width="stretch"):
+                    _apply_sample_trial_defaults(state, library, sample)
+                    if has_setup(state):
+                        update_recording(audio_path=str(sample.get("path") or ""), input_method="upload")
+                        go_to("pages/02_Speak.py", return_to="library")
+                    go_to("pages/01_Session_Setup.py", return_to="library")
 
 theme_rows = library.get(selected_language, {}).get("themes", [])
 with st.container(border=True):

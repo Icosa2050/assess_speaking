@@ -1,0 +1,49 @@
+<svg width="1400" height="360" viewBox="0 0 1400 360" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="logoBg" x1="58" y1="46" x2="282" y2="302" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#163B61"/>
+      <stop offset="1" stop-color="#0A1422"/>
+    </linearGradient>
+    <linearGradient id="logoMark" x1="120" y1="118" x2="212" y2="232" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#68E1D6"/>
+      <stop offset="1" stop-color="#3B82F6"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="28" y="28" width="272" height="272" rx="68" fill="url(#logoBg)"/>
+
+  <path
+    d="M82 122C82 97.6995 101.7 78 126 78H202C226.301 78 246 97.6995 246 122V186C246 210.301 226.301 230 202 230H153L122 261V230H126C101.7 230 82 210.301 82 186V122Z"
+    fill="white"
+  />
+
+  <path
+    d="M124 119L164 194L204 119"
+    stroke="url(#logoMark)"
+    stroke-width="18"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <circle cx="208" cy="182" r="12" fill="#FF7B5C"/>
+
+  <text
+    x="366"
+    y="188"
+    fill="#0F172A"
+    font-family="Avenir Next, Inter, SF Pro Display, Segoe UI, Arial, sans-serif"
+    font-size="116"
+    font-weight="700"
+    letter-spacing="-3"
+  >Vostavo</text>
+
+  <text
+    x="374"
+    y="246"
+    fill="#5B6777"
+    font-family="Avenir Next, Inter, SF Pro Display, Segoe UI, Arial, sans-serif"
+    font-size="28"
+    font-weight="500"
+    letter-spacing="1.6"
+  >AI speaking coach</text>
+</svg>

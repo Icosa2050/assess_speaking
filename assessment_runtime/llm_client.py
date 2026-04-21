@@ -10,7 +10,7 @@ from typing import Any
 from urllib import error, request
 
 from assess_core.schemas import CoachingSummary, RubricResult, SchemaValidationError
-from app_shell.runtime_providers import default_base_url, normalize_provider, resolved_base_url, runtime_base_url, service_base_url
+from app_shell.runtime_providers import normalize_provider, runtime_base_url, service_base_url
 
 
 class LLMClientError(RuntimeError):

@@ -146,7 +146,7 @@ def build_concordance_url(term: str, *, level: str | None = None, hits_per_page:
     encoded_term = quote(term, safe="")
     parts = [
         f"https://apps.unistrapg.it/cqpweb/celi/concordance.php?theData={encoded_term}",
-        f"qmode=sq_nocase",
+        "qmode=sq_nocase",
         f"pp={hits_per_page}",
         "del=begin",
     ]
@@ -726,12 +726,22 @@ def _analyze_term_rows(
 
 def _sorted_skew_rows(rows: list[CeliTermSkewRow], *, sort_by: str, ascending: bool) -> list[CeliTermSkewRow]:
     if sort_by == "cefr_center":
-        key = lambda row: (row.cefr_center, row.peak_gap, row.term)
-    elif sort_by == "peak_gap":
-        key = lambda row: (row.peak_gap, row.directional_skew, row.term)
-    else:
-        key = lambda row: (row.directional_skew, row.peak_gap, row.term)
-    return sorted(rows, key=key, reverse=not ascending)
+        return sorted(
+            rows,
+            key=lambda row: (row.cefr_center, row.peak_gap, row.term),
+            reverse=not ascending,
+        )
+    if sort_by == "peak_gap":
+        return sorted(
+            rows,
+            key=lambda row: (row.peak_gap, row.directional_skew, row.term),
+            reverse=not ascending,
+        )
+    return sorted(
+        rows,
+        key=lambda row: (row.directional_skew, row.peak_gap, row.term),
+        reverse=not ascending,
+    )
 
 
 def _term_row_for_tsv(row: CeliTermSkewRow, *, level_order: tuple[str, ...]) -> dict[str, object]:

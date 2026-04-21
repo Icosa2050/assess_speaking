@@ -59,17 +59,29 @@ class SeedManifest:
 VALID_CEFR_LEVELS = {"A1", "A2", "B1", "B2", "C1", "C2"}
 
 
+def _require_object(value: Any, *, field_name: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{field_name} must be an object")
+    return value
+
+
 def _parse_render_defaults(payload: dict[str, Any], *, field_prefix: str) -> RenderDefaults:
     return RenderDefaults(
         provider=payload.get("provider"),
         voice=payload.get("voice"),
-        rate_wpm=_as_int_or_none(payload.get("rate_wpm"), field_name=f"{field_prefix}.rate_wpm"),
+        rate_wpm=_as_positive_int_or_none(
+            payload.get("rate_wpm"),
+            field_name=f"{field_prefix}.rate_wpm",
+        ),
         output_format=payload.get("output_format"),
-        sample_rate_hz=_as_int_or_none(
+        sample_rate_hz=_as_positive_int_or_none(
             payload.get("sample_rate_hz"),
             field_name=f"{field_prefix}.sample_rate_hz",
         ),
-        channels=_as_int_or_none(payload.get("channels"), field_name=f"{field_prefix}.channels"),
+        channels=_as_positive_int_or_none(
+            payload.get("channels"),
+            field_name=f"{field_prefix}.channels",
+        ),
         notes=payload.get("notes"),
     )
 
@@ -89,6 +101,15 @@ def _as_int_or_none(value: Any, *, field_name: str) -> int | None:
         return int(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{field_name} must be an integer") from exc
+
+
+def _as_positive_int_or_none(value: Any, *, field_name: str) -> int | None:
+    parsed = _as_int_or_none(value, field_name=field_name)
+    if parsed is None:
+        return None
+    if parsed <= 0:
+        raise ValueError(f"{field_name} must be greater than 0")
+    return parsed
 
 
 def _as_positive_float_or_none(value: Any, *, field_name: str) -> float | None:
@@ -127,7 +148,8 @@ def load_seed_manifest(path: str | Path) -> SeedManifest:
 
     seeds: list[SyntheticSeed] = []
     seen_seed_ids: set[str] = set()
-    for raw_seed in payload["seeds"]:
+    for index, raw_seed_value in enumerate(payload["seeds"]):
+        raw_seed = _require_object(raw_seed_value, field_name=f"seeds[{index}]")
         required_seed_keys = {
             "seed_id",
             "language_code",

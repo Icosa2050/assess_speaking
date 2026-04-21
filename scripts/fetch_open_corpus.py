@@ -9,16 +9,11 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
-from corpora.open_corpus_catalog import (
-    download_open_corpus,
-    list_open_corpus_sources,
-    open_corpus_catalog_as_dicts,
-    resolve_open_corpus_source,
-)
-from corpora.rita_dataset import load_rita_archive, rita_summary_as_dict
+
+def _bootstrap_repo() -> None:
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -46,6 +41,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    _bootstrap_repo()
+    from corpora.open_corpus_catalog import (
+        download_open_corpus,
+        list_open_corpus_sources,
+        open_corpus_catalog_as_dicts,
+        resolve_open_corpus_source,
+    )
+    from corpora.rita_dataset import load_rita_archive, rita_summary_as_dict
+
     args = build_parser().parse_args()
     if args.command == "list":
         sources = list_open_corpus_sources()

@@ -206,7 +206,7 @@ def render_terminal(
         console.print("[bold yellow]Keine Einträge in history.csv gefunden.[/bold yellow]")
         return
 
-    console.print("\n[bold underline]Speaking Studio - Verlauf[/bold underline]\n")
+    console.print("\n[bold underline]Vostavo - Verlauf[/bold underline]\n")
     meta_line = []
     if summary.get("count"):
         meta_line.append(f"Runs: {summary['count']}")
@@ -409,7 +409,7 @@ def render_html(
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Speaking Studio - Verlauf</title>
+<title>Vostavo - Verlauf</title>
 <style>
  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 2rem; background: #f8f9fb; color: #222; }}
  h1 {{ margin-bottom: 0.2rem; }}
@@ -424,7 +424,7 @@ def render_html(
 </style>
 </head>
 <body>
-<h1>Speaking Studio - Verlauf</h1>
+<h1>Vostavo - Verlauf</h1>
 <div class="meta">{' &nbsp;|&nbsp; '.join(summary_html) if summary_html else 'Keine Daten.'}</div>
 <table>
 <thead>

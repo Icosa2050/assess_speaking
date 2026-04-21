@@ -92,7 +92,7 @@ def test_app_shell_real_upload_review_history_progression(page, app_shell_real_s
     page.set_viewport_size({"width": 1440, "height": 960})
     page.goto(f"{app_shell_real_server}/", wait_until="domcontentloaded")
 
-    expect(page.get_by_role("heading", name=localized_pattern("Speaking Studio", exact=False))).to_be_visible()
+    expect(page.get_by_role("heading", name=localized_pattern("Vostavo", exact=False))).to_be_visible()
     page.get_by_role("button", name=localized_pattern("Start new session", "Neue Session starten", "Nuova sessione")).click()
 
     expect(

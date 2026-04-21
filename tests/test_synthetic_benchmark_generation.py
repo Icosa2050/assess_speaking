@@ -141,6 +141,62 @@ class SyntheticBenchmarkGenerationTests(unittest.TestCase):
                     selected_seed_ids=["en_b1_favorite_place"],
                 )
 
+    def test_render_seed_manifest_cleans_up_partial_bundle_on_mid_batch_failure(self):
+        call_count = 0
+
+        def fake_run(command: list[str], *, input_text: str | None = None) -> None:
+            nonlocal call_count
+            call_count += 1
+            if command[0] == "say":
+                Path(command[5]).write_bytes(b"AIFF")
+            elif command[0] == "ffmpeg":
+                if call_count >= 4:
+                    raise RuntimeError("ffmpeg failed on second seed")
+                Path(command[-1]).write_bytes(b"WAV")
+
+        with tempfile.TemporaryDirectory() as tmp_dir, mock.patch(
+            "benchmarking.synthetic_benchmark_generation._run_subprocess",
+            side_effect=fake_run,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "ffmpeg failed on second seed"):
+                render_seed_manifest(
+                    self.manifest,
+                    tmp_dir,
+                    selected_seed_ids=["en_b1_favorite_place", "en_b2_remote_work"],
+                )
+
+            bundle_dir = Path(tmp_dir) / self.manifest.manifest_id
+            self.assertFalse(bundle_dir.exists())
+
+    def test_render_seed_manifest_overwrite_replaces_existing_bundle(self):
+        def fake_run(command: list[str], *, input_text: str | None = None) -> None:
+            if command[0] == "say":
+                Path(command[5]).write_bytes(b"AIFF")
+            elif command[0] == "ffmpeg":
+                Path(command[-1]).write_bytes(b"WAV")
+
+        with tempfile.TemporaryDirectory() as tmp_dir, mock.patch(
+            "benchmarking.synthetic_benchmark_generation._run_subprocess",
+            side_effect=fake_run,
+        ):
+            bundle_dir = Path(tmp_dir) / self.manifest.manifest_id
+            old_audio_dir = bundle_dir / "audio"
+            old_audio_dir.mkdir(parents=True, exist_ok=True)
+            (old_audio_dir / "legacy.wav").write_bytes(b"old")
+            (bundle_dir / "render_manifest.json").write_text("{}", encoding="utf-8")
+
+            result = render_seed_manifest(
+                self.manifest,
+                tmp_dir,
+                selected_seed_ids=["en_b1_favorite_place"],
+                overwrite=True,
+            )
+
+            self.assertEqual(len(result["items"]), 1)
+            self.assertFalse((old_audio_dir / "legacy.wav").exists())
+            self.assertTrue((bundle_dir / "audio" / "en_b1_favorite_place.wav").exists())
+            self.assertTrue((bundle_dir / "render_manifest.json").exists())
+
     def test_render_seed_manifest_can_include_inactive_seed_when_requested(self):
         inactive_seed = replace(self.manifest.seeds[0], active=False)
         manifest = replace(self.manifest, seeds=(inactive_seed, *self.manifest.seeds[1:]))
