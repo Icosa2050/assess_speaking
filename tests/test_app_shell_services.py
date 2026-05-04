@@ -6,11 +6,15 @@ from unittest import mock
 
 from app_shell.services import (
     NEW_LANGUAGE_OPTION,
+    build_client_snapshot,
+    build_support_bundle_request,
     create_assessment_request,
+    create_support_bundle_archive,
     discover_runtime_models,
     download_whisper_model,
     delete_provider_connection,
     execute_assessment_request,
+    export_support_bundle_archive,
     hydrate_state_from_storage,
     list_sample_trials,
     load_history_detail_payload,
@@ -26,6 +30,7 @@ from app_shell.services import (
     whisper_model_status,
     validate_theme_submission,
 )
+from app_shell.diagnostics import StartupDiagnostic
 from app_shell.state import AppPreferences, AppShellState, ProviderConnection
 from app_shell.state import DraftSession
 
@@ -139,6 +144,31 @@ class AppShellServiceTests(unittest.TestCase):
         mock_load_prefs.return_value = {
             "provider": "openrouter",
             "openrouter_api_key": "saved-key",
+            "log_dir": "reports",
+        }
+        mock_load_library.return_value = {"it": {"label": "Italiano", "themes": []}}
+
+        hydrated = hydrate_state_from_storage(AppShellState(prefs=AppPreferences()))
+
+        self.assertEqual(hydrated.prefs.llm_api_key, "")
+
+    @mock.patch.dict(
+        os.environ,
+        {"APP_SHELL_SKIP_BOOTSTRAP": "", "OPENROUTER_API_KEY": "env-key", "LLM_API_KEY": ""},
+        clear=False,
+    )
+    @mock.patch("app_shell.services.load_history_records")
+    @mock.patch("app_shell.services.load_theme_library")
+    @mock.patch("app_shell.services.load_workspace_prefs")
+    def test_hydrate_state_from_storage_ignores_environment_api_key(
+        self,
+        mock_load_prefs,
+        mock_load_library,
+        mock_load_history,
+    ):
+        mock_load_history.return_value = []
+        mock_load_prefs.return_value = {
+            "provider": "openrouter",
             "log_dir": "reports",
         }
         mock_load_library.return_value = {"it": {"label": "Italiano", "themes": []}}
@@ -482,6 +512,197 @@ class AppShellServiceTests(unittest.TestCase):
         self.assertNotIn("openrouter_api_key", stored)
         self.assertNotIn("llm_api_key", stored)
         mock_set_secret.assert_not_called()
+
+    @mock.patch("app_shell.services.secret_store_status")
+    @mock.patch("app_shell.services.resolve_connection_runtime")
+    def test_build_client_snapshot_marks_missing_saved_credentials(
+        self,
+        mock_resolve_runtime,
+        mock_secret_status,
+    ):
+        mock_resolve_runtime.return_value = mock.Mock(
+            provider="openrouter",
+            model="google/gemini-3.1-pro-preview",
+            api_key="",
+        )
+        mock_secret_status.return_value = mock.Mock(persistent=True)
+        state = AppShellState(
+            prefs=AppPreferences(
+                connections=[
+                    ProviderConnection(
+                        connection_id="primary",
+                        provider_kind="openrouter",
+                        label="Primary",
+                        base_url="https://openrouter.ai/api/v1",
+                        default_model="google/gemini-3.1-pro-preview",
+                        secret_ref="connection:primary",
+                        is_default=True,
+                    )
+                ],
+                active_connection_id="primary",
+            )
+        )
+
+        snapshot = build_client_snapshot(state)
+
+        self.assertTrue(snapshot["has_active_connection"])
+        self.assertTrue(snapshot["provider_requires_auth"])
+        self.assertFalse(snapshot["has_saved_secret"])
+        self.assertTrue(snapshot["credentials_missing"])
+        self.assertEqual(snapshot["credential_state"], "missing")
+
+    @mock.patch("app_shell.services.secret_store_status")
+    @mock.patch("app_shell.services.resolve_connection_runtime")
+    def test_build_client_snapshot_marks_saved_credentials_available(
+        self,
+        mock_resolve_runtime,
+        mock_secret_status,
+    ):
+        mock_resolve_runtime.return_value = mock.Mock(
+            provider="openrouter",
+            model="google/gemini-3.1-pro-preview",
+            api_key="saved-key",
+        )
+        mock_secret_status.return_value = mock.Mock(persistent=True)
+        state = AppShellState(
+            prefs=AppPreferences(
+                connections=[
+                    ProviderConnection(
+                        connection_id="primary",
+                        provider_kind="openrouter",
+                        label="Primary",
+                        base_url="https://openrouter.ai/api/v1",
+                        default_model="google/gemini-3.1-pro-preview",
+                        secret_ref="connection:primary",
+                        is_default=True,
+                    )
+                ],
+                active_connection_id="primary",
+            )
+        )
+
+        snapshot = build_client_snapshot(state)
+
+        self.assertTrue(snapshot["has_saved_secret"])
+        self.assertFalse(snapshot["credentials_missing"])
+        self.assertEqual(snapshot["credential_state"], "saved")
+
+    @mock.patch("app_shell.diagnostics.collect_startup_diagnostics")
+    @mock.patch("app_shell.services.secret_store_status")
+    @mock.patch("app_shell.services.resolve_connection_runtime")
+    def test_build_support_bundle_request_keeps_only_sanitized_snapshot_and_diagnostics(
+        self,
+        mock_resolve_runtime,
+        mock_secret_status,
+        mock_collect_startup_diagnostics,
+    ):
+        mock_resolve_runtime.return_value = mock.Mock(
+            provider="openrouter",
+            model="google/gemini-3.1-pro-preview",
+            api_key="saved-key",
+        )
+        mock_secret_status.return_value = mock.Mock(persistent=True)
+        mock_collect_startup_diagnostics.return_value = [
+            StartupDiagnostic(
+                key="runtime_api_key",
+                status="error",
+                title_key="diagnostics.runtime_api_key_title",
+                detail_key="diagnostics.runtime_api_key_error_detail",
+                detail_args={
+                    "provider": "openrouter",
+                    "api_key": "diag-secret",
+                    "secret_ref": "connection:primary",
+                    "nested": {
+                        "llm_api_key": "nested-secret",
+                    },
+                },
+            )
+        ]
+        state = AppShellState(
+            prefs=AppPreferences(
+                connections=[
+                    ProviderConnection(
+                        connection_id="primary",
+                        provider_kind="openrouter",
+                        label="Primary",
+                        base_url="https://openrouter.ai/api/v1",
+                        default_model="google/gemini-3.1-pro-preview",
+                        secret_ref="connection:primary",
+                        is_default=True,
+                    )
+                ],
+                active_connection_id="primary",
+                log_dir="/tmp/vostavo-support",
+            )
+        )
+
+        request = build_support_bundle_request(state)
+
+        self.assertFalse(request["include_reports"])
+        self.assertFalse(request["include_recordings"])
+        self.assertFalse(request["include_uploads"])
+        self.assertTrue(request["client_snapshot"]["has_saved_secret"])
+        self.assertNotIn("secret_ref", request["client_snapshot"])
+        self.assertEqual(request["client_diagnostics"][0]["detail_args"]["api_key"], "[redacted]")
+        self.assertNotIn("secret_ref", request["client_diagnostics"][0]["detail_args"])
+        self.assertEqual(
+            request["client_diagnostics"][0]["detail_args"]["nested"]["llm_api_key"],
+            "[redacted]",
+        )
+        mock_collect_startup_diagnostics.assert_called_once_with(state, include_runtime_health=False)
+
+    @mock.patch("app_shell.services.backend_client.create_support_bundle")
+    @mock.patch("app_shell.services.build_support_bundle_request")
+    def test_create_support_bundle_archive_uses_backend_client_with_log_dir(
+        self,
+        mock_build_request,
+        mock_create_support_bundle,
+    ):
+        mock_build_request.return_value = {"client_snapshot": {"has_active_connection": True}}
+        mock_create_support_bundle.return_value = mock.Mock(bundle_id="bundle_123")
+        state = AppShellState(prefs=AppPreferences(log_dir="/tmp/vostavo-support"))
+
+        created = create_support_bundle_archive(state, include_reports=True)
+
+        self.assertEqual(created.bundle_id, "bundle_123")
+        mock_build_request.assert_called_once_with(
+            state,
+            include_reports=True,
+            include_recordings=False,
+            include_uploads=False,
+            include_runtime_health=False,
+        )
+        mock_create_support_bundle.assert_called_once_with(
+            mock_build_request.return_value,
+            log_dir="/tmp/vostavo-support",
+        )
+
+    @mock.patch("app_shell.services.backend_client.download_support_bundle")
+    @mock.patch("app_shell.services.create_support_bundle_archive")
+    def test_export_support_bundle_archive_downloads_created_bundle(
+        self,
+        mock_create_support_bundle_archive,
+        mock_download_support_bundle,
+    ):
+        mock_create_support_bundle_archive.return_value = mock.Mock(bundle_id="bundle_456")
+        mock_download_support_bundle.return_value = Path("/tmp/support-bundle.zip")
+        state = AppShellState(prefs=AppPreferences(log_dir="/tmp/vostavo-support"))
+
+        exported = export_support_bundle_archive(state, destination="/tmp/downloads")
+
+        self.assertEqual(exported, Path("/tmp/support-bundle.zip"))
+        mock_create_support_bundle_archive.assert_called_once_with(
+            state,
+            include_reports=False,
+            include_recordings=False,
+            include_uploads=False,
+            include_runtime_health=False,
+        )
+        mock_download_support_bundle.assert_called_once_with(
+            "bundle_456",
+            destination="/tmp/downloads",
+            log_dir="/tmp/vostavo-support",
+        )
 
     def test_set_default_provider_connection_promotes_requested_connection(self):
         with tempfile.TemporaryDirectory() as tmpdir:

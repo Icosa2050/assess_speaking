@@ -1,7 +1,7 @@
 # Desktop And Hosted Product Plan
 
-Last updated: 2026-04-15
-Status: Approved migration direction; implementation not started
+Last updated: 2026-05-01
+Status: Approved migration direction; phase-2 local guest implementation recovered and ready for final parity cleanup
 
 ## Summary
 
@@ -23,6 +23,10 @@ Locked decisions:
 This keeps the current local-first desktop story intact while creating a
 deliberate second deployment mode for hosted users instead of pretending the
 existing local backend can simply be deployed as-is.
+
+For the current migration sequence:
+1. macOS and Windows remain the first-class desktop packaging targets
+2. Linux remains a no-regression target until the shared frontend is stable
 
 ## Product Shape
 
@@ -150,8 +154,9 @@ Goal:
 
 Required changes:
 1. treat the current `/v1/*` endpoints as the stable local API contract
-2. add runtime-mode metadata so code can distinguish local desktop mode from
-   hosted mode
+2. add shared runtime metadata with `deployment_mode`, `launch_mode`,
+   `packaging_safe`, and `auth_mode` so code can distinguish local desktop mode
+   from hosted mode without inventing parallel schemas
 3. extract interfaces around history, report, upload, and job persistence
 4. keep local implementations backed by the current app-data layout
 5. keep local mode auth-free
@@ -178,6 +183,18 @@ Required changes:
    - History
 4. preserve the current local app-data layout and backend bootstrap behavior
 5. keep localization parity with the existing locale files
+
+Implementation status as of 2026-05-01:
+1. the shared React shell is live against the phase-2 local FastAPI contract
+2. Tauri can launch the shared frontend and start or reuse the local backend
+3. local guest browser lanes now cover the shared frontend smoke path plus
+   History, Settings, Settings -> Runtime Setup return-flow, and support-bundle
+   runtime-health regression flows
+4. Runtime Setup and Settings share the local runtime-management API for saved
+   connections, secret-state preservation, UI locale, Whisper model persistence,
+   connection testing, default/delete actions, and model download state
+5. hosted auth, hosted persistence, and signed-in desktop behavior remain out of
+   scope for this phase and are still tracked in later phases
 
 Done when:
 1. the shared frontend can fully replace the current Streamlit desktop shell
@@ -293,6 +310,8 @@ The plan assumes these stable product contracts:
    job abstractions
 5. mobile remains a later follow-on and should consume stable backend contracts,
    not UI exports
-6. this plan does not replace `docs/PUBLIC_INFERENCE_ARCHITECTURE_PLAN.md`;
+6. provider credentials stored through app-shell `secret_ref` remain separate
+   from any future optional desktop sign-in tokens or hosted identity material
+7. this plan does not replace `docs/PUBLIC_INFERENCE_ARCHITECTURE_PLAN.md`;
    that document remains a separate hosted inference beta option rather than the
    default end-user product architecture

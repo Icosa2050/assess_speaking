@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 import json
 import os
 import tempfile
@@ -6,15 +7,20 @@ from pathlib import Path
 from unittest.mock import patch
 
 import app_shell.page_helpers as page_helpers
+from app_shell.diagnostics import StartupDiagnostic
 from app_shell.app_data import APP_CACHE_HOME_ENV_VAR, APP_DATA_HOME_ENV_VAR
 from app_shell.page_helpers import (
     BRAND_ICON_PATH,
     BRAND_LOGO_PATH,
+    diagnostic_action_label_key,
+    diagnostic_target_page,
     describe_whisper_download_event,
     format_byte_count,
     render_brand_logo,
     render_brand_mark,
+    render_startup_diagnostics,
     resolve_page_title_locale,
+    storage_area_rows,
 )
 from app_shell.state import AppShellState
 from streamlit.errors import StreamlitAPIException
@@ -39,6 +45,22 @@ class PageHelpersTests(unittest.TestCase):
         self.assertEqual(format_byte_count(512), "512 B")
         self.assertEqual(format_byte_count(1536), "1.5 KB")
         self.assertEqual(format_byte_count(5 * 1024 * 1024), "5.0 MB")
+
+    def test_storage_area_rows_orders_and_formats_known_areas(self):
+        rows = storage_area_rows(
+            {
+                "areas": {
+                    "logs": {"path": "/tmp/logs", "size_bytes": 1536, "file_count": 2},
+                    "custom": {"path": "/tmp/custom", "size_bytes": 10, "file_count": 1},
+                    "tmp": {"path": "/tmp/tmp", "size_bytes": 512, "file_count": 3},
+                }
+            }
+        )
+
+        self.assertEqual([row["area"] for row in rows], ["tmp", "logs", "custom"])
+        self.assertEqual(rows[0]["label_key"], "settings.storage_area_tmp")
+        self.assertEqual(rows[0]["size_label"], "512 B")
+        self.assertEqual(rows[1]["size_label"], "1.5 KB")
 
     def test_describe_whisper_download_event_reports_progress(self):
         status = describe_whisper_download_event(
@@ -156,6 +178,40 @@ class PageHelpersTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "stop"):
                 page_helpers.render_guard("review.guard_missing_review", "review.go_speak", "pages/02_Speak.py")
         go_to.assert_called_once_with("pages/02_Speak.py")
+
+    def test_diagnostic_target_page_reads_settings_route(self):
+        item = StartupDiagnostic(
+            key="maintenance_tmp",
+            status="warning",
+            title_key="diagnostics.maintenance_tmp_title",
+            detail_key="diagnostics.maintenance_tmp_warning_detail",
+            detail_args={"target_page": "pages/06_Settings.py"},
+        )
+
+        self.assertEqual(diagnostic_target_page(item), "pages/06_Settings.py")
+        self.assertEqual(diagnostic_action_label_key(item), "diagnostics.maintenance_open_settings")
+
+    def test_render_startup_diagnostics_routes_maintenance_warning_to_settings(self):
+        item = StartupDiagnostic(
+            key="maintenance_jobs",
+            status="warning",
+            title_key="diagnostics.maintenance_jobs_title",
+            detail_key="diagnostics.maintenance_jobs_warning_detail",
+            detail_args={"target_page": "pages/06_Settings.py"},
+        )
+
+        with patch.object(page_helpers.st, "container", return_value=nullcontext()), \
+                patch.object(page_helpers.st, "subheader"), \
+                patch.object(page_helpers.st, "caption"), \
+                patch.object(page_helpers.st, "warning") as warning, \
+                patch.object(page_helpers.st, "button", return_value=True) as button, \
+                patch.object(page_helpers, "go_to") as go_to, \
+                patch.object(page_helpers, "t", side_effect=lambda key, **_kwargs: key):
+            render_startup_diagnostics([item])
+
+        warning.assert_called_once()
+        button.assert_called_once_with("diagnostics.maintenance_open_settings", key="diagnostic::maintenance_jobs")
+        go_to.assert_called_once_with("pages/06_Settings.py")
 
 
 if __name__ == "__main__":

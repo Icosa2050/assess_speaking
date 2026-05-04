@@ -1,6 +1,6 @@
 # Public Inference Architecture Plan
 
-Last updated: 2026-04-14
+Last updated: 2026-04-21
 Status: Exploratory rollout plan; not part of the current shipped desktop-first baseline
 
 ## Summary
@@ -29,6 +29,9 @@ This means:
 2. hosted inference is treated as a separate beta service
 3. the public edge owns auth, quotas, abuse controls, and degradation behavior
 4. raw `llama.cpp`, `MLX-LM`, or `whisper.cpp` ports stay private
+5. any `/v1/*` routes in this document live on that separate beta-service
+   boundary and do not redefine the canonical product backend namespace used by
+   the desktop baseline and approved hosted product plan
 
 ## Recommended Architecture
 
@@ -121,6 +124,11 @@ The public edge should expose a tiny stable contract:
 3. `POST /v1/responses` only if we decide to mirror that style
 4. `GET /v1/jobs/{id}` for queued long-running work
 5. `GET /v1/health`
+
+These routes belong to the exploratory hosted inference service only. They are
+not additions to the current product backend contract centered on
+`/v1/health`, `/v1/diagnostics`, `/v1/runtime`, `/v1/uploads`,
+`/v1/assessments`, `/v1/history`, and `/v1/samples`.
 
 Recommended request policy:
 1. synchronous for short text completions

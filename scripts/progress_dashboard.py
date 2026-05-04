@@ -37,6 +37,9 @@ class Record:
     duration_sec: Optional[float]
     wpm: Optional[float]
     word_count: Optional[int]
+    duration_pass: Optional[bool]
+    topic_pass: Optional[bool]
+    language_pass: Optional[bool]
     overall: Optional[float]
     final_score: Optional[float]
     band: Optional[int]
@@ -140,6 +143,9 @@ def load_history(history_path: Path) -> List[Record]:
                     duration_sec=parse_float(row.get("duration_sec", "")),
                     wpm=parse_float(row.get("wpm", "")),
                     word_count=parse_int(row.get("word_count", "")),
+                    duration_pass=parse_bool(row.get("duration_pass", "")),
+                    topic_pass=parse_bool(row.get("topic_pass", "")),
+                    language_pass=parse_bool(row.get("language_pass", "")),
                     overall=parse_float(row.get("overall", "")),
                     final_score=parse_float(row.get("final_score", "")),
                     band=parse_int(row.get("band", "")),

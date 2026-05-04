@@ -1,6 +1,6 @@
 # Local Backend Architecture
 
-Last updated: 2026-04-15
+Last updated: 2026-04-21
 Status: Implemented baseline for the desktop app
 
 ## Summary
@@ -72,6 +72,7 @@ Decisions:
 3. keep backend job metadata under `jobs/`, not under `reports/`
 4. keep transient processing files under `tmp/`, not under `reports/`
 5. migrate legacy `reports/jobs/` into `jobs/` on backend startup when the new job directory is still empty
+6. keep generated support bundles under `tmp/support-bundles/` so they can expire through safe cleanup
 
 ## Decision
 
@@ -99,7 +100,8 @@ Do not adopt these models now:
 1. keep the Python assessment core intact
 2. decouple the UI process from long-running assessment work
 3. make progress, failure, and cancellation states explicit
-4. make desktop packaging easier on macOS, Windows, and Linux
+4. make desktop packaging easiest on macOS and Windows while keeping Linux on
+   a no-regression basis
 5. create a stable local API that can later support a companion mobile app
 
 ## Non-Goals
@@ -109,9 +111,35 @@ Do not adopt these models now:
 3. do not rewrite the assessment engine in another language
 4. do not pick the final desktop framework in this document
 
+## Runtime Metadata
+
+The launcher and backend should converge on one shared runtime metadata shape:
+1. `deployment_mode`
+   - `local`
+   - `hosted`
+2. `launch_mode`
+   - `repo`
+   - `packaged`
+3. `packaging_safe`
+   - `true`
+   - `false`
+4. `auth_mode`
+   - `guest`
+   - `optional`
+   - `required`
+
+The authoritative definition belongs in `app_shell/bootstrap.py`, and the
+backend should consume that exported shape instead of re-declaring a local
+variant.
+
 ## Backend Contract
 
 The backend should expose a deliberately small API surface.
+
+Local desktop support work may add local-only support extensions such as
+`/v1/maintenance/storage`, `/v1/maintenance/cleanup`, and
+`/v1/support-bundles`, but those do not redefine the canonical product API
+surface for future hosted work.
 
 ### Health
 
@@ -174,6 +202,85 @@ Example response:
   "base_url": "https://openrouter.ai/api/v1",
   "requires_api_key": true,
   "has_api_key": true
+}
+```
+
+### Maintenance
+
+`GET /v1/maintenance/storage`
+
+Purpose:
+1. return app-data and cache storage summaries for Settings
+2. keep storage accounting in the backend process
+3. avoid exposing secret values or runtime credentials
+
+`POST /v1/maintenance/cleanup`
+
+Purpose:
+1. preview or run cleanup for safe local targets
+2. remove temporary files, expired support bundles, stale job metadata, and rotated logs
+3. preserve reports, recordings, uploads, and the active backend log
+
+Request shape:
+
+```json
+{
+  "target": "all_safe",
+  "dry_run": true
+}
+```
+
+Response:
+
+```json
+{
+  "target": "all_safe",
+  "dry_run": true,
+  "deleted_file_count": 2,
+  "freed_bytes": 2048,
+  "warnings": []
+}
+```
+
+### Support Bundles
+
+`POST /v1/support-bundles`
+
+Purpose:
+1. create a local ZIP for troubleshooting
+2. include sanitized app and backend state by default
+3. require explicit opt-in for reports, recordings, uploads, and live runtime health checks
+
+Privacy policy:
+1. `secret_ref` fields are fully removed from bundle payloads
+2. secret-looking values are redacted
+3. credential state is represented by sanitized client snapshot booleans such as `has_saved_secret` and `credentials_missing`
+4. default bundle creation excludes learner artifacts: reports, recordings, and uploads
+
+Request shape:
+
+```json
+{
+  "include_reports": false,
+  "include_recordings": false,
+  "include_uploads": false,
+  "client_snapshot": {
+    "has_active_connection": true,
+    "has_saved_secret": true,
+    "credentials_missing": false
+  },
+  "client_diagnostics": []
+}
+```
+
+Response:
+
+```json
+{
+  "bundle_id": "bundle_123",
+  "filename": "vostavo-support-bundle_123.zip",
+  "size_bytes": 4096,
+  "expires_at": "2026-04-23T12:00:00Z"
 }
 ```
 
@@ -417,17 +524,21 @@ Use the existing app-data abstraction and extend it, not a separate ad hoc
 filesystem layout.
 
 Expected responsibilities:
-1. `reports_dir`
+1. `jobs_dir`
+   - backend job metadata
+   - recovery state for queued, running, completed, failed, and cancelled jobs
+2. `reports_dir`
    - report JSON
    - `history.csv`
-   - backend job metadata if persisted
-2. `recordings_dir`
+3. `recordings_dir`
    - microphone captures
-3. `uploads_dir`
+4. `uploads_dir`
    - imported user audio
-4. `temp_dir`
+5. `temp_dir`
    - transient conversion and processing files
-5. `cache_root`
+6. `logs_dir`
+   - backend log files and rotated backups
+7. `cache_root`
    - Whisper and provider-related caches
 
 ## Implementation Phases

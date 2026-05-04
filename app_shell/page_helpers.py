@@ -116,12 +116,34 @@ def render_startup_diagnostics(
             status = str(getattr(item, "status", "info"))
             title = t(getattr(item, "title_key"))
             detail = t(getattr(item, "detail_key"), **dict(getattr(item, "detail_args", {}) or {}))
+            target_page = diagnostic_target_page(item)
+            action_label_key = diagnostic_action_label_key(item)
             if render_mode == "checklist":
                 icon = checklist_icons.get(status, checklist_icons["info"])
                 st.markdown(f"**[{icon}] {title}**  \n{detail}")
                 continue
             render = status_renderers.get(status, st.info)
             render(f"{title}: {detail}")
+            if target_page and action_label_key and st.button(
+                t(action_label_key),
+                key=f"diagnostic::{getattr(item, 'key', 'item')}",
+            ):
+                go_to(target_page)
+
+
+def diagnostic_target_page(item: object) -> str | None:
+    detail_args = dict(getattr(item, "detail_args", {}) or {})
+    target_page = str(detail_args.get("target_page") or "").strip()
+    return target_page or None
+
+
+def diagnostic_action_label_key(item: object) -> str | None:
+    target_page = diagnostic_target_page(item)
+    if not target_page:
+        return None
+    detail_args = dict(getattr(item, "detail_args", {}) or {})
+    action_label_key = str(detail_args.get("action_label_key") or "diagnostics.maintenance_open_settings").strip()
+    return action_label_key or None
 
 
 def format_byte_count(num_bytes: int | float | None) -> str:
@@ -138,6 +160,41 @@ def format_byte_count(num_bytes: int | float | None) -> str:
     if unit_index == 0:
         return f"{int(value)} {units[unit_index]}"
     return f"{value:.1f} {units[unit_index]}"
+
+
+STORAGE_AREA_ORDER = ("tmp", "jobs", "logs", "reports", "recordings", "uploads", "cache")
+
+
+def _summary_value(summary: object, key: str, default: object = "") -> object:
+    if isinstance(summary, dict):
+        return summary.get(key, default)
+    return getattr(summary, key, default)
+
+
+def storage_area_rows(storage_summary: object) -> list[dict[str, object]]:
+    if isinstance(storage_summary, dict):
+        raw_areas = storage_summary.get("areas", {})
+    else:
+        raw_areas = getattr(storage_summary, "areas", {})
+    areas = dict(raw_areas or {})
+    ordered_keys = [key for key in STORAGE_AREA_ORDER if key in areas]
+    ordered_keys.extend(sorted(key for key in areas if key not in set(ordered_keys)))
+    rows: list[dict[str, object]] = []
+    for area_key in ordered_keys:
+        summary = areas[area_key]
+        file_count = int(_summary_value(summary, "file_count", 0) or 0)
+        size_bytes = int(_summary_value(summary, "size_bytes", 0) or 0)
+        rows.append(
+            {
+                "area": area_key,
+                "label_key": f"settings.storage_area_{area_key}",
+                "path": str(_summary_value(summary, "path", "") or ""),
+                "file_count": file_count,
+                "size_bytes": size_bytes,
+                "size_label": format_byte_count(size_bytes),
+            }
+        )
+    return rows
 
 
 def describe_whisper_download_event(event: dict[str, object]) -> dict[str, object]:

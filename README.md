@@ -157,10 +157,10 @@ launcher is the local bootstrap wrapper:
 ./scripts/python.sh scripts/run_app.py --check
 ```
 
-`streamlit run streamlit_app.py` remains the stable entrypoint, but the launcher
-is better for local product use and later desktop packaging because it resolves
-stable app-data paths, bootstraps cache defaults, and can be run from outside
-the repo root.
+`streamlit run streamlit_app.py` remains a supported fallback while the shared
+React frontend completes the desktop replacement lane. The launcher is better
+for local product use and desktop packaging because it resolves stable app-data
+paths, bootstraps cache defaults, and can be run from outside the repo root.
 
 The learner-facing flow is now optimized for a single local user:
 
@@ -207,10 +207,40 @@ directory on backend startup when the new location is still empty.
 The wrapper writes reports/history under the app-data root by default, so the
 UI keeps working even when launched from an arbitrary working directory.
 
+Settings includes a `Troubleshooting and support` section for local desktop
+maintenance:
+
+- `Saved Connections`, `Runtime Defaults`, and `Runtime Setup` now read and
+  persist through the localhost runtime-management API rather than browser
+  `localStorage`, so saved connection state, secret presence, UI locale, and
+  Whisper model choice stay consistent across the shared frontend.
+- `Refresh storage usage` reads the backend storage summary without scanning from
+  the Streamlit process.
+- `Preview cleanup` and `Run safe cleanup` target temporary files, expired
+  support bundles, stale job metadata, and rotated logs. Reports, recordings,
+  and uploaded audio are preserved.
+- `Create support bundle` creates a local ZIP with sanitized app state,
+  diagnostics, storage summary, backend logs, and recent sanitized job metadata.
+  Saved reports, recordings, uploads, and live runtime health checks are excluded
+  by default and require explicit opt-in.
+
+Support bundles fully remove `secret_ref` fields and redact secret-looking
+values. Credential state is represented by sanitized booleans such as whether a
+saved secret exists, never by copying keys or secret references into the bundle.
+
 ### Tests & CI
 - **Unit tests**: `./scripts/run_tests.sh`
 - **Source coverage**: `./scripts/run_coverage.sh`
 - **Full coverage (including tests)**: `./scripts/run_coverage.sh --full`
+- **Shared-frontend browser lanes**:
+  `cd frontend && npm install --package-lock=false && npx --yes playwright install chromium && npx --yes playwright test -c playwright.config.ts`
+- Focused local-guest smoke:
+  `cd frontend && npx --yes playwright test -c playwright.config.ts tests/e2e/smokeLocalGuest.spec.ts`
+- Full local-guest regression:
+  `cd frontend && npx --yes playwright test -c playwright.config.ts tests/e2e/smokeLocalGuest.spec.ts tests/e2e/localGuestFlow.spec.ts tests/e2e/settingsSupportFlow.spec.ts`
+- The Playwright config starts the shared frontend on `127.0.0.1:4173` and the
+  localhost-only backend on `127.0.0.1:8800`, so the browser lanes exercise the
+  same local guest desktop stack the Tauri shell uses.
 - The test and coverage wrappers always use the repo-local `.venv` via
   `./scripts/python.sh`, so they stay consistent even when a global `pytest` or
   `coverage` installation points at a different Python.
@@ -221,6 +251,13 @@ UI keeps working even when launched from an arbitrary working directory.
   `RUN_OPENROUTER_INTEGRATION=1 ./scripts/python.sh -m unittest tests.test_integration_openrouter -v`
 - **Optional sample-audio integration test (no microphone required)**:
   `RUN_AUDIO_INTEGRATION=1 WHISPER_MODEL=tiny ./scripts/python.sh -m unittest tests.test_sample_integration`
+
+The shared-frontend lanes boot a clean localhost backend on port `8800` and the
+Vite frontend on port `4173`. The smoke lane covers Home -> Runtime Setup; the
+full local-guest regression also covers Home -> History -> Settings,
+origin-preserving Settings return/setup navigation, and support bundles with
+the live runtime-health opt-in.
+
 - **Self-hosted real-ASR lane**:
   `.github/workflows/real-asr-selfhosted.yml` runs the sample-audio integration on a
   self-hosted Apple Silicon runner with labels `self-hosted`, `macOS`, `ARM64`,

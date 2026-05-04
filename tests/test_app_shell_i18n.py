@@ -30,6 +30,19 @@ class AppShellI18nTests(unittest.TestCase):
         self.assertIn("bern", translated)
         self.assertIn("Italiano", translated)
 
+    def test_support_bundle_summary_interpolates_in_first_locale_batch(self):
+        for locale in ("en", "de", "it"):
+            translated = t(
+                "settings.support_bundle_success",
+                locale=locale,
+                filename="bundle.zip",
+                size="2.0 KB",
+                expires_at="2026-04-23T12:00:00",
+            )
+            self.assertIn("bundle.zip", translated)
+            self.assertIn("2.0 KB", translated)
+            self.assertNotIn("[settings.support_bundle_success]", translated)
+
     def test_prepared_locales_track_english_keys(self):
         baseline = flatten_keys(load_locale("en"))
         for locale in PREPARED_UI_LOCALES:

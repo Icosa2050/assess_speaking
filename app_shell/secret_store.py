@@ -75,31 +75,6 @@ class KeyringSecretStore:
         return self.status.persistent
 
 
-class EnvFallbackSecretStore:
-    def __init__(self, env_var_names: tuple[str, ...]) -> None:
-        self.env_var_names = tuple(name for name in env_var_names if name)
-
-    def get_secret(self, service: str, account: str) -> str:
-        del service, account
-        for env_name in self.env_var_names:
-            value = str(os.getenv(env_name) or "").strip()
-            if value:
-                return value
-        return ""
-
-    def set_secret(self, service: str, account: str, value: str) -> None:
-        del service, account, value
-        # Environment fallback is read-only from the app's perspective.
-        return None
-
-    def delete_secret(self, service: str, account: str) -> None:
-        del service, account
-        return None
-
-    def is_persistent_supported(self) -> bool:
-        return False
-
-
 class SessionSecretStore:
     def get_secret(self, service: str, account: str) -> str:
         return _SESSION_SECRETS.get((service, account), "")
@@ -117,76 +92,67 @@ class SessionSecretStore:
         return False
 
 
-def _active_secret_store(*, env_var_names: tuple[str, ...] = ()) -> tuple[SecretStore, SecretStoreStatus]:
+def _active_secret_store() -> tuple[SecretStore, SecretStoreStatus]:
     keyring_store = KeyringSecretStore()
-    if keyring_store.is_persistent_supported():
-        return keyring_store, keyring_store.status
-    env_store = EnvFallbackSecretStore(env_var_names)
-    if env_store.get_secret(SERVICE_NAME, "__probe__"):
-        detail = ", ".join(env_var_names)
-        return env_store, SecretStoreStatus(persistent=False, backend_name="environment", detail=f"Using environment fallback: {detail}")
-    return SessionSecretStore(), SecretStoreStatus(
-        persistent=False,
-        backend_name="session",
-        detail=keyring_store.status.detail or "Secure storage unavailable; using session-only secrets.",
+    return keyring_store, keyring_store.status
+
+
+def _configured_env_keys(env_var_names: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(name for name in env_var_names if str(os.getenv(name) or "").strip())
+
+
+def _status_with_env_hint(status: SecretStoreStatus, *, env_var_names: tuple[str, ...] = ()) -> SecretStoreStatus:
+    configured = _configured_env_keys(env_var_names)
+    if not configured:
+        return status
+    detail_prefix = f"{status.detail} " if status.detail else ""
+    return SecretStoreStatus(
+        persistent=status.persistent,
+        backend_name=status.backend_name,
+        detail=f"{detail_prefix}Environment variables are present but ignored in the desktop app: {', '.join(configured)}",
     )
 
 
 def secret_store_status(*, env_var_names: tuple[str, ...] = ()) -> SecretStoreStatus:
-    _store, status = _active_secret_store(env_var_names=env_var_names)
-    return status
+    _store, status = _active_secret_store()
+    return _status_with_env_hint(status, env_var_names=env_var_names)
 
 
 def _should_use_legacy_fallback(service: str) -> bool:
     return service == SERVICE_NAME
 
 
-def _legacy_secret(account: str, *, env_var_names: tuple[str, ...] = ()) -> str:
+def _legacy_secret(account: str) -> str:
     legacy_secret = KeyringSecretStore().get_secret(LEGACY_SERVICE_NAME, account)
-    if legacy_secret:
-        return legacy_secret
-    legacy_secret = SessionSecretStore().get_secret(LEGACY_SERVICE_NAME, account)
-    if legacy_secret:
-        return legacy_secret
-    env_store = EnvFallbackSecretStore(env_var_names)
-    return env_store.get_secret(LEGACY_SERVICE_NAME, account)
+    return legacy_secret if legacy_secret else ""
 
 
 def _has_legacy_stored_secret(account: str) -> bool:
-    if KeyringSecretStore().get_secret(LEGACY_SERVICE_NAME, account):
-        return True
-    return bool(SessionSecretStore().get_secret(LEGACY_SERVICE_NAME, account))
+    return bool(KeyringSecretStore().get_secret(LEGACY_SERVICE_NAME, account))
 
 
-def _copy_secret_to_primary(account: str, value: str, *, env_var_names: tuple[str, ...] = ()) -> None:
+def _copy_secret_to_primary(account: str, value: str) -> None:
     if not value:
         return
-    store, _status = _active_secret_store(env_var_names=env_var_names)
+    store, status = _active_secret_store()
+    if not status.persistent:
+        return
     try:
-        if isinstance(store, EnvFallbackSecretStore):
-            SessionSecretStore().set_secret(SERVICE_NAME, account, value)
-            return
         store.set_secret(SERVICE_NAME, account, value)
-    except Exception:  # pragma: no cover - backend boundary
-        SessionSecretStore().set_secret(SERVICE_NAME, account, value)
+    except Exception:
+        return
 
 
 def get_secret(account: str, *, service: str = SERVICE_NAME, env_var_names: tuple[str, ...] = ()) -> str:
+    del env_var_names
     keyring_store = KeyringSecretStore()
     secret = keyring_store.get_secret(service, account)
     if secret:
         return secret
-    secret = SessionSecretStore().get_secret(service, account)
-    if secret:
-        return secret
-    env_store = EnvFallbackSecretStore(env_var_names)
-    secret = env_store.get_secret(service, account)
-    if secret:
-        return secret
     if _should_use_legacy_fallback(service):
-        secret = _legacy_secret(account, env_var_names=env_var_names)
+        secret = _legacy_secret(account)
         if secret:
-            _copy_secret_to_primary(account, secret, env_var_names=env_var_names)
+            _copy_secret_to_primary(account, secret)
             return secret
     return ""
 
@@ -195,25 +161,15 @@ def set_secret(account: str, value: str, *, service: str = SERVICE_NAME, env_var
     if not value:
         return delete_secret(account, service=service, env_var_names=env_var_names)
     legacy_present = _should_use_legacy_fallback(service) and _has_legacy_stored_secret(account)
-    store, status = _active_secret_store(env_var_names=env_var_names)
+    store, status = _active_secret_store()
+    if not status.persistent:
+        return _status_with_env_hint(status, env_var_names=env_var_names)
     try:
-        if isinstance(store, EnvFallbackSecretStore):
-            SessionSecretStore().set_secret(service, account, value)
-            if legacy_present:
-                SessionSecretStore().set_secret(LEGACY_SERVICE_NAME, account, value)
-            return SecretStoreStatus(
-                persistent=False,
-                backend_name="session",
-                detail="Environment values are read-only here; secret is stored for this session only.",
-            )
         store.set_secret(service, account, value)
         if legacy_present:
             store.set_secret(LEGACY_SERVICE_NAME, account, value)
         return status
     except Exception as exc:  # pragma: no cover - backend boundary
-        SessionSecretStore().set_secret(service, account, value)
-        if legacy_present:
-            SessionSecretStore().set_secret(LEGACY_SERVICE_NAME, account, value)
         return SecretStoreStatus(persistent=False, backend_name=status.backend_name, detail=str(exc))
 
 
@@ -232,8 +188,4 @@ def delete_secret(account: str, *, service: str = SERVICE_NAME, env_var_names: t
     SessionSecretStore().delete_secret(service, account)
     if _should_use_legacy_fallback(service):
         SessionSecretStore().delete_secret(LEGACY_SERVICE_NAME, account)
-    if not status.persistent:
-        store, fallback_status = _active_secret_store(env_var_names=env_var_names)
-        if isinstance(store, EnvFallbackSecretStore):
-            return fallback_status
-    return status
+    return _status_with_env_hint(status, env_var_names=env_var_names)

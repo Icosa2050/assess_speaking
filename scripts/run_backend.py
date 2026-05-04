@@ -21,6 +21,8 @@ from app_backend.config import (
     BACKEND_LOG_MAX_BYTES,
     build_backend_runtime_config,
 )
+from app_backend.contracts import CleanupTarget
+from app_backend.maintenance import execute_cleanup
 from app_shell.app_data import APP_CACHE_HOME_ENV_VAR, APP_DATA_HOME_ENV_VAR
 
 
@@ -88,6 +90,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _run_startup_cleanup(config) -> None:
+    execute_cleanup(config, CleanupTarget.ALL_SAFE, dry_run=False)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     if args.app_data_dir:
@@ -101,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
         port=args.port,
         host=args.host,
     )
+    _run_startup_cleanup(config)
     _configure_backend_logging(config.log_file)
     uvicorn.run(create_app(config), host=config.host, port=config.port, log_level="warning", log_config=None)
     return 0

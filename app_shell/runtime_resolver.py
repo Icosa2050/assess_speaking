@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -22,29 +21,12 @@ class RuntimeConfig:
     provider_metadata: dict[str, Any] = field(default_factory=dict)
 
 
-def _provider_env_vars(provider: str) -> tuple[str, ...]:
-    normalized = normalize_provider(provider)
-    if normalized == "openrouter":
-        return ("OPENROUTER_API_KEY", "LLM_API_KEY")
-    if normalized == "ollama":
-        return ("OLLAMA_API_KEY", "LLM_API_KEY")
-    return ("LLM_API_KEY",)
-
-
-def _env_secret(provider: str) -> str:
-    for env_name in _provider_env_vars(provider):
-        value = str(os.getenv(env_name) or "").strip()
-        if value:
-            return value
-    return ""
-
-
 def _connection_api_key(connection: ProviderConnection) -> str:
     if connection.secret_ref:
-        secret = get_secret(connection.secret_ref, env_var_names=_provider_env_vars(connection.provider_kind))
+        secret = get_secret(connection.secret_ref)
         if secret:
             return secret
-    return _env_secret(connection.provider_kind)
+    return ""
 
 
 def active_connection(prefs: AppPreferences) -> ProviderConnection | None:

@@ -31,6 +31,46 @@ class ReviewComponentsTests(unittest.TestCase):
         info.assert_called_once_with(t("review.status_unstable", gates="Theme, Duration"))
         success.assert_called_once_with(t("review.status_done"))
 
+    def test_report_status_banner_promotes_degraded_warning_codes(self):
+        level, message = review_components._report_status_banner(
+            {"warnings": ["llm_unavailable"]}
+        )
+
+        self.assertEqual(level, "warning")
+        self.assertIn(t("review.status_done"), message)
+        self.assertIn(t("review.warning_codes.llm_unavailable"), message)
+
+    def test_answer_helpers_prioritize_score_and_next_action(self):
+        self.assertEqual(
+            review_components._answer_result_text({"score_overall": 4.25, "band": "B2"}),
+            t("review.answer_result_value", score="4.2", band="B2"),
+        )
+        self.assertEqual(
+            review_components._answer_result_text({"requires_human_review": True, "score_overall": 4.25}),
+            t("review.answer_result_review"),
+        )
+        self.assertEqual(
+            review_components._answer_why_text({"failed_gates": ["topic_pass"]}),
+            t("review.answer_why_gates", value=t("review.gate_theme")),
+        )
+        self.assertEqual(
+            review_components._answer_why_text({"strengths": ["clear structure"]}),
+            t("review.answer_why_strength", value="clear structure"),
+        )
+        self.assertEqual(
+            review_components._answer_next_text({"next_focus": "use connectors"}),
+            t("review.answer_next_focus", value="use connectors"),
+        )
+        self.assertEqual(
+            review_components._answer_next_text({"priorities": ["agreement"]}),
+            t("review.answer_next_priority", value="agreement"),
+        )
+
+    def test_review_section_labels_are_summary_first(self):
+        self.assertEqual(t("review.answers_title"), "Outcome summary")
+        self.assertEqual(t("review.details_tab"), "Evidence")
+        self.assertEqual(t("review.details_title"), "Assessment evidence")
+
     def test_render_progress_items_renders_all_supported_kinds(self):
         summary = {
             "progress_items": [

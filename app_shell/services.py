@@ -34,11 +34,12 @@ from app_shell.runtime_providers import (
     default_setup_base_url,
     normalize_provider,
     provider_kind_from_choice,
+    requires_api_key,
     resolved_base_url,
     runtime_base_url,
     service_base_url,
 )
-from app_shell.runtime_resolver import active_connection, sync_runtime_fields
+from app_shell.runtime_resolver import active_connection, resolve_connection_runtime, sync_runtime_fields
 from app_shell.secret_store import SecretStoreStatus, delete_secret, secret_store_status, set_secret
 from app_shell.state import (
     AssessmentJobState,
@@ -77,18 +78,6 @@ def _secret_env_var_names(provider: str) -> tuple[str, ...]:
     if normalized == "ollama":
         return ("OLLAMA_API_KEY", "LLM_API_KEY")
     return ("LLM_API_KEY",)
-
-
-def _env_api_key_for_provider(provider: str) -> str:
-    normalized = normalize_provider(provider)
-    if os.getenv("LLM_API_KEY"):
-        return str(os.getenv("LLM_API_KEY") or "")
-    if normalized == "openrouter":
-        return str(os.getenv("OPENROUTER_API_KEY") or "")
-    if normalized == "ollama":
-        return str(os.getenv("OLLAMA_API_KEY") or "")
-    return ""
-
 
 def _persist_connection_secret(connection: ProviderConnection, api_key: str) -> SecretStoreStatus:
     connection.secret_ref = str(connection.secret_ref or connection_secret_ref(connection.connection_id)).strip()
@@ -354,49 +343,14 @@ def build_practice_brief(
 ) -> dict[str, Any]:
     theme = (theme or "").strip()
     minutes = round(float(target_duration_sec) / 60.0, 1)
-    prompts = {
-        "it": {
-            "travel_narrative": f"Parla del tema '{theme}' seguendo una sequenza chiara: inizio, sviluppo, conclusione.",
-            "personal_experience": f"Racconta il tema '{theme}' come un'esperienza personale con dettagli concreti.",
-            "opinion_monologue": f"Esprimi la tua opinione sul tema '{theme}' con almeno due argomenti distinti.",
-            "free_monologue": f"Parla in italiano del tema '{theme}' con una struttura semplice ma chiara.",
-            "picture_description": f"Descrivi il tema '{theme}', interpreta il contesto e ipotizza cosa succede dopo.",
-            "default_duration": f"Punta a parlare per circa {minutes} minuti." if minutes >= 1 else f"Punta a parlare per circa {target_duration_sec} secondi.",
-            "success_focus": [
-                "Usa connettivi chiari tra le idee.",
-                "Chiudi con una breve riflessione personale.",
-            ],
-        },
-        "en": {
-            "travel_narrative": f"Speak about '{theme}' in a clear sequence: beginning, development, and ending.",
-            "personal_experience": f"Explain '{theme}' as a personal experience with concrete details.",
-            "opinion_monologue": f"Give your opinion about '{theme}' with at least two distinct arguments.",
-            "free_monologue": f"Speak in English about '{theme}' with a simple but clear structure.",
-            "picture_description": f"Describe '{theme}', explain the context, and suggest what could happen next.",
-            "default_duration": f"Aim to speak for about {minutes} minutes." if minutes >= 1 else f"Aim to speak for about {target_duration_sec} seconds.",
-            "success_focus": [
-                "Link ideas with clear connectors.",
-                "Finish with one personal takeaway.",
-            ],
-        },
-        "de": {
-            "travel_narrative": f"Sprich ueber '{theme}' in einer klaren Reihenfolge: Anfang, Entwicklung, Schluss.",
-            "personal_experience": f"Erzaehle '{theme}' als persoenliche Erfahrung mit konkreten Details.",
-            "opinion_monologue": f"Beziehe zu '{theme}' Stellung und stuetze deine Meinung mit mindestens zwei Argumenten.",
-            "free_monologue": f"Sprich auf Deutsch ueber '{theme}' mit einer einfachen, klaren Struktur.",
-            "picture_description": f"Beschreibe '{theme}', erklaere den Kontext und vermute, was danach passiert.",
-            "default_duration": f"Sprich etwa {minutes} Minuten." if minutes >= 1 else f"Sprich etwa {target_duration_sec} Sekunden.",
-            "success_focus": [
-                "Verbinde deine Ideen mit klaren Uebergaengen.",
-                "Beende den Beitrag mit einer kurzen Reflexion.",
-            ],
-        },
-    }
+    prompts = theme_library_store.practice_brief_templates()
     localized = prompts.get(language_code, prompts["en"])
-    prompt = localized.get(task_family) or localized["free_monologue"]
+    prompt_template = str(localized.get(task_family) or localized["free_monologue"])
+    default_duration_key = "default_duration_minutes" if minutes >= 1 else "default_duration_seconds"
+    default_duration = str(localized[default_duration_key]).format(minutes=minutes, seconds=target_duration_sec)
     return {
-        "prompt": prompt,
-        "success_focus": [localized["default_duration"], *localized["success_focus"]],
+        "prompt": prompt_template.format(theme=theme),
+        "success_focus": [default_duration, *localized["success_focus"]],
     }
 
 
@@ -524,6 +478,103 @@ def _load_runtime_connections(prefs: dict[str, Any]) -> tuple[list[ProviderConne
     return connections, active_connection_id
 
 
+def build_client_snapshot(state) -> dict[str, Any]:
+    connection = active_connection(state.prefs)
+    if connection is None:
+        return {
+            "has_active_connection": False,
+            "provider_requires_auth": False,
+            "has_saved_secret": False,
+            "credentials_missing": False,
+            "secure_storage_persistent": secret_store_status().persistent,
+            "credential_state": "no_connection",
+        }
+
+    runtime = resolve_connection_runtime(connection)
+    provider_requires_auth = requires_api_key(runtime.provider)
+    has_saved_secret = bool(runtime.api_key)
+    credentials_missing = provider_requires_auth and not has_saved_secret
+    credential_state = "not_required"
+    if provider_requires_auth:
+        credential_state = "saved" if has_saved_secret else "missing"
+    return {
+        "has_active_connection": True,
+        "provider_requires_auth": provider_requires_auth,
+        "has_saved_secret": has_saved_secret,
+        "credentials_missing": credentials_missing,
+        "secure_storage_persistent": secret_store_status(
+            env_var_names=_secret_env_var_names(connection.provider_kind)
+        ).persistent,
+        "credential_state": credential_state,
+    }
+
+
+def build_support_bundle_request(
+    state,
+    *,
+    include_reports: bool = False,
+    include_recordings: bool = False,
+    include_uploads: bool = False,
+    include_runtime_health: bool = False,
+) -> dict[str, Any]:
+    from app_shell.diagnostics import collect_support_bundle_diagnostics
+
+    return {
+        "include_reports": bool(include_reports),
+        "include_recordings": bool(include_recordings),
+        "include_uploads": bool(include_uploads),
+        "client_snapshot": build_client_snapshot(state),
+        "client_diagnostics": collect_support_bundle_diagnostics(
+            state,
+            include_runtime_health=include_runtime_health,
+        ),
+    }
+
+
+def create_support_bundle_archive(
+    state,
+    *,
+    include_reports: bool = False,
+    include_recordings: bool = False,
+    include_uploads: bool = False,
+    include_runtime_health: bool = False,
+):
+    request = build_support_bundle_request(
+        state,
+        include_reports=include_reports,
+        include_recordings=include_recordings,
+        include_uploads=include_uploads,
+        include_runtime_health=include_runtime_health,
+    )
+    return backend_client.create_support_bundle(
+        request,
+        log_dir=getattr(state.prefs, "log_dir", "") or None,
+    )
+
+
+def export_support_bundle_archive(
+    state,
+    *,
+    destination: str | Path,
+    include_reports: bool = False,
+    include_recordings: bool = False,
+    include_uploads: bool = False,
+    include_runtime_health: bool = False,
+) -> Path:
+    created = create_support_bundle_archive(
+        state,
+        include_reports=include_reports,
+        include_recordings=include_recordings,
+        include_uploads=include_uploads,
+        include_runtime_health=include_runtime_health,
+    )
+    return backend_client.download_support_bundle(
+        created.bundle_id,
+        destination=destination,
+        log_dir=getattr(state.prefs, "log_dir", "") or None,
+    )
+
+
 def hydrate_state_from_storage(state) -> Any:
     if os.environ.get("APP_SHELL_SKIP_BOOTSTRAP") == "1":
         return state
@@ -546,7 +597,7 @@ def hydrate_state_from_storage(state) -> Any:
         or state.prefs.whisper_cache_dir
         or build_app_data_paths().whisper_cache_dir
     ).strip()
-    state.prefs.llm_api_key = _env_api_key_for_provider(state.prefs.provider)
+    state.prefs.llm_api_key = ""
     state.prefs.openrouter_http_referer = str(
         prefs.get("openrouter_http_referer")
         or state.prefs.openrouter_http_referer
@@ -1149,6 +1200,17 @@ def history_rows(log_dir: str | Path | None = None) -> list[dict[str, Any]]:
                 "learning_language": getattr(record, "learning_language", ""),
                 "theme": getattr(record, "theme", ""),
                 "task_family": getattr(record, "task_family", ""),
+                "overall": getattr(record, "overall", ""),
+                "wpm": getattr(record, "wpm", ""),
+                "report_path": getattr(record, "report_path", ""),
+                "requires_human_review": getattr(record, "requires_human_review", ""),
+                "duration_pass": getattr(record, "duration_pass", ""),
+                "topic_pass": getattr(record, "topic_pass", ""),
+                "language_pass": getattr(record, "language_pass", ""),
+                "min_words_pass": getattr(record, "min_words_pass", ""),
+                "top_priorities": list(getattr(record, "top_priorities", ()) or ()),
+                "grammar_error_categories": list(getattr(record, "grammar_error_categories", ()) or ()),
+                "coherence_issue_categories": list(getattr(record, "coherence_issue_categories", ()) or ()),
                 "final_score": getattr(record, "final_score", ""),
                 "band": getattr(record, "band", ""),
             }

@@ -30,8 +30,39 @@ jobs:
       - name: Run duplication checks
         run: npx --yes jscpd app_backend app_shell pages streamlit_app.py --reporters console --min-lines 12 --min-tokens 80 --threshold 1
 
-  tests:
+  frontend-smoke:
     needs: quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install smoke-lane dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          cd frontend
+          npm install --package-lock=false
+
+      - name: Install Playwright browser
+        run: npx --yes playwright install --with-deps chromium
+
+      - name: Run shared-frontend smoke lane
+        run: npx --yes playwright test -c frontend/playwright.config.ts frontend/tests/e2e/smokeLocalGuest.spec.ts
+
+  tests:
+    needs: [quality, frontend-smoke]
     runs-on: ubuntu-latest
 
     steps:

@@ -1,3 +1,4 @@
+import os
 import unittest
 from unittest import mock
 
@@ -58,6 +59,27 @@ class RuntimeResolverTests(unittest.TestCase):
         self.assertEqual(prefs.llm_api_key, "saved-key")
         self.assertEqual(prefs.openrouter_http_referer, "http://localhost:8503")
         self.assertEqual(prefs.openrouter_app_title, "Vostavo")
+
+    @mock.patch("app_shell.runtime_resolver.get_secret", return_value="")
+    def test_resolve_runtime_config_ignores_environment_fallback(self, _mock_get_secret):
+        prefs = AppPreferences(
+            connections=[
+                ProviderConnection(
+                    connection_id="conn-3",
+                    provider_kind="openrouter",
+                    label="OpenRouter",
+                    base_url="https://openrouter.ai/api/v1",
+                    default_model="google/gemini-3.1-pro-preview",
+                    secret_ref="connection:conn-3",
+                    is_default=True,
+                )
+            ],
+            active_connection_id="conn-3",
+        )
+        with mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": "env-key"}, clear=False):
+            runtime = resolve_runtime_config(prefs)
+
+        self.assertEqual(runtime.api_key, "")
 
 
 if __name__ == "__main__":

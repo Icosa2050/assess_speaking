@@ -121,7 +121,12 @@ class BackendLifecycleTests(unittest.TestCase):
         ) as mock_clear:
             result = get_backend_state()
 
-        self.assertEqual(result, healthy_state)
+        self.assertEqual(result["base_url"], healthy_state["base_url"])
+        self.assertEqual(result["pid"], healthy_state["pid"])
+        self.assertEqual(result["deployment_mode"], "local")
+        self.assertEqual(result["launch_mode"], "repo")
+        self.assertEqual(result["auth_mode"], "guest")
+        self.assertIn("packaging_safe", result)
         mock_terminate.assert_not_called()
         mock_clear.assert_not_called()
 
@@ -165,7 +170,12 @@ class BackendLifecycleTests(unittest.TestCase):
                     startup_timeout_sec=15.0,
                 )
 
-        self.assertEqual(result, ready_state)
+        self.assertEqual(result["base_url"], ready_state["base_url"])
+        self.assertEqual(result["pid"], ready_state["pid"])
+        self.assertEqual(result["deployment_mode"], "local")
+        self.assertEqual(result["launch_mode"], "repo")
+        self.assertEqual(result["auth_mode"], "guest")
+        self.assertIn("packaging_safe", result)
         mock_popen.assert_called_once()
         self.assertEqual(mock_popen.call_args.kwargs["cwd"], str(PROJECT_ROOT))
         env = mock_popen.call_args.kwargs["env"]

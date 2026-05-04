@@ -1,6 +1,6 @@
 # Planning Alignment Meta-Plan
 
-Last updated: 2026-04-19
+Last updated: 2026-04-21
 Status: Accepted alignment plan for the current desktop, support, hosted, and
 exploratory planning docs
 
@@ -31,7 +31,9 @@ Current planning lanes:
    - `docs/DESKTOP_HOSTED_PRODUCT_PLAN.md`
 5. supporting UX lane
    - `docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md`
-6. supporting docs that must be triaged before implementation drift grows:
+6. supporting browser automation lane
+   - `docs/PLAYWRIGHT_FLOW_EXPANSION_PLAN.md`
+7. supporting docs that must be triaged before implementation drift grows:
    - `docs/REPO_CLEANUP_PLAN.md`
    - `docs/RECORDER_UX_WIREFRAME.md`
    - `docs/MULTILINGUAL_CEFR_ASSESSMENT_PLAN.md`
@@ -74,6 +76,9 @@ Current planning lanes:
     of redefining it.
 11. PAL review is a blocking gate before the credential screen pass and before
     the Settings support pass.
+12. Playwright remains the primary browser E2E tool for the current Streamlit
+    app shell. Any Maestro evaluation belongs to a later companion or
+    mobile-oriented stage, not the current desktop-baseline phase.
 
 ## Discrepancies To Resolve In Docs
 
@@ -101,6 +106,64 @@ Current planning lanes:
 8. `docs/PUBLIC_INFERENCE_ARCHITECTURE_PLAN.md` must explicitly state that its
    `/v1/*` routes live on a separate service boundary and do not redefine the
    canonical product backend namespace.
+
+## Supporting Doc Triage Outcomes
+
+### Set A
+
+1. `docs/REPO_CLEANUP_PLAN.md`
+   - classification: deferred
+   - rationale: repo hygiene and package-boundary cleanup should not run in
+     parallel with the current runtime, credential, and support-baseline work
+   - collisions to note later: root import moves, package reshaping, and any
+     cleanup that reopens app-data or launcher files while the baseline chain is
+     still settling
+2. `docs/RECORDER_UX_WIREFRAME.md`
+   - classification: deferred
+   - rationale: it is a useful supporting input for a later PAL-reviewed Speak
+     pass, but it does not block the current desktop-baseline credential and
+     support work
+   - collisions to note later: `pages/02_Speak.py`, localized recorder state
+     copy, and any screen-flow changes that would need PAL review
+3. `docs/MULTILINGUAL_CEFR_ASSESSMENT_PLAN.md`
+   - classification: deferred
+   - rationale: it is a scoring and calibration research lane, not a blocker
+     for the current desktop-baseline runtime, credential, or support tasks
+   - collisions to note later: localization, assessment scoring contracts,
+     benchmark expectations, and follow-on model calibration work
+4. `docs/COACHING_BACKLOG.md`
+   - classification: deferred
+   - rationale: it should feed later Review and History follow-on work rather
+     than the current baseline chain
+   - collisions to note later: review surfaces, history payload evolution, and
+     any report-shape changes that would reopen the shipped learner flow
+
+### Set B
+
+1. `docs/SPOKEN_CORPUS_CATEGORIZATION_PLAN.md`
+   - classification: out-of-scope for the current desktop baseline
+   - rationale: keep it as analysis-only corpus work until the current baseline
+     lands; it must not reshape the runtime task taxonomy, scorer behavior, or
+     canonical backend contracts in this phase
+   - collisions to note later: `app_backend/contracts.py`, future dataset
+     manifests, and any follow-on automation or benchmark work
+2. `docs/SYNTHETIC_BENCHMARK_AUTOMATION.md`
+   - classification: deferred
+   - rationale: it is a future automation and benchmarking lane, not a blocker
+     for the current desktop-baseline implementation chain
+   - collisions to note later: `scripts/`, `benchmarking/`, and future provider
+     or scoring regression harnesses
+
+### Supporting Plan Placement
+
+1. `docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md`
+   - classification: accepted supporting desktop UX plan
+   - hierarchy rule: subordinate to this meta-plan for execution order and
+     collision rules, and subordinate to the desktop-baseline planning docs for
+     product direction and credential/runtime rules
+   - collisions to note later: `app_shell/page_helpers.py`, PAL-reviewed screen
+     files, and any follow-on Review or History cleanup that must wait for the
+     serialized baseline passes
 
 ## Shared Runtime Metadata Contract
 
@@ -603,6 +666,10 @@ Task Master rule:
 4. Any shared-file work called out in the collision rules is serialized.
 5. This meta-plan should be updated again when the repo begins the React or
    Tauri migration for real.
+6. `docs/PLAYWRIGHT_FLOW_EXPANSION_PLAN.md` stays subordinate to the desktop
+   baseline lane and must be re-baselined after any phase that materially
+   rewrites app-shell navigation, localized labels, or screen information
+   architecture before new browser flows are added.
 
 ## Decision Gates To Raise During Implementation
 

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass
 import os
 import sys
 from pathlib import Path
+from typing import Literal
 
 from app_shell.app_data import (
     APP_CACHE_HOME_ENV_VAR,
@@ -18,6 +20,24 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ASSESS_SCRIPT = PROJECT_ROOT / "assess_speaking.py"
 STREAMLIT_ENTRYPOINT = PROJECT_ROOT / "streamlit_app.py"
 BACKEND_ENTRYPOINT = PROJECT_ROOT / "scripts" / "run_backend.py"
+DEPLOYMENT_MODE_ENV_VAR = "VOSTAVO_DEPLOYMENT_MODE"
+LAUNCH_MODE_ENV_VAR = "VOSTAVO_LAUNCH_MODE"
+AUTH_MODE_ENV_VAR = "VOSTAVO_AUTH_MODE"
+
+DeploymentMode = Literal["local", "hosted"]
+LaunchMode = Literal["repo", "packaged"]
+RuntimeAuthMode = Literal["guest", "optional", "required"]
+
+
+@dataclass(frozen=True)
+class RuntimeMetadata:
+    deployment_mode: DeploymentMode
+    launch_mode: LaunchMode
+    packaging_safe: bool
+    auth_mode: RuntimeAuthMode
+
+    def as_dict(self) -> dict[str, str | bool]:
+        return asdict(self)
 
 
 def _set_default_env(name: str, value: str) -> None:
@@ -61,6 +81,50 @@ def is_within_project_checkout(path: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _resolve_env_choice[T: str](env_name: str, *, allowed: tuple[T, ...], default: T) -> T:
+    raw = str(os.environ.get(env_name) or "").strip().lower()
+    return raw if raw in allowed else default
+
+
+def _resolved_writable_roots(paths: AppDataPaths) -> tuple[Path, ...]:
+    return (
+        paths.root,
+        paths.cache_root,
+        paths.reports_dir,
+        paths.jobs_dir,
+        paths.logs_dir,
+        paths.recordings_dir,
+        paths.uploads_dir,
+        paths.temp_dir,
+        paths.whisper_cache_dir,
+    )
+
+
+def build_runtime_metadata(paths: AppDataPaths) -> RuntimeMetadata:
+    deployment_mode = _resolve_env_choice(
+        DEPLOYMENT_MODE_ENV_VAR,
+        allowed=("local", "hosted"),
+        default="local",
+    )
+    launch_mode = _resolve_env_choice(
+        LAUNCH_MODE_ENV_VAR,
+        allowed=("repo", "packaged"),
+        default="repo",
+    )
+    auth_mode = _resolve_env_choice(
+        AUTH_MODE_ENV_VAR,
+        allowed=("guest", "optional", "required"),
+        default="guest",
+    )
+    packaging_safe = not any(is_within_project_checkout(path) for path in _resolved_writable_roots(paths))
+    return RuntimeMetadata(
+        deployment_mode=deployment_mode,
+        launch_mode=launch_mode,
+        packaging_safe=packaging_safe,
+        auth_mode=auth_mode,
+    )
 
 
 def _guard_default_root_outside_project(path: Path, *, explicit_override: bool, label: str) -> None:

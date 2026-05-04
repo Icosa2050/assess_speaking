@@ -9,7 +9,7 @@ from app_shell.i18n import t
 from app_shell.page_helpers import describe_whisper_download_event, go_to, render_shell_summary, resolve_page_title_locale
 from app_shell.runtime_providers import default_connection_label, default_setup_base_url
 from app_shell.runtime_resolver import active_connection, resolve_connection_runtime
-from app_shell.secret_store import secret_store_status
+from app_shell.secret_store import delete_secret, secret_store_status
 from app_shell.services import (
     DEFAULT_WHISPER_OPTIONS,
     build_provider_connection,
@@ -96,7 +96,6 @@ def _connection_defaults(provider_choice: str, *, current_connection, fallback_p
     selected_choice = str(provider_choice or "").strip()
     current_choice = _default_provider_choice(current_connection, fallback_provider)
     using_current_connection = current_connection is not None and selected_choice == current_choice
-    runtime = resolve_connection_runtime(current_connection) if using_current_connection else None
     metadata = dict(current_connection.provider_metadata or {}) if using_current_connection else {}
     return {
         "label": str(
@@ -108,7 +107,7 @@ def _connection_defaults(provider_choice: str, *, current_connection, fallback_p
             else shell_services.sanitize_setup_base_url(selected_choice, default_setup_base_url(selected_choice))
         ).strip(),
         "model": _suggested_model(selected_choice, current_connection=current_connection),
-        "api_key": str(runtime.api_key or "").strip() if runtime is not None else "",
+        "api_key": "",
         "referer": str(
             metadata.get("http_referer")
             or DEFAULT_OPENROUTER_HTTP_REFERER
@@ -138,6 +137,8 @@ def _seed_form_state(*, current_connection, fallback_provider: str = "") -> None
         st.session_state["runtime_setup_openrouter_app_title"] = defaults["app_title"]
         st.session_state["runtime_setup_last_provider_choice"] = default_choice
         st.session_state["runtime_setup_seed_signature"] = connection_signature
+        st.session_state.pop("runtime_setup_clear_secret_confirmation", None)
+        st.session_state.pop("runtime_setup_clear_secret_requested", None)
         return
     defaults = _connection_defaults(selected_choice, current_connection=current_connection, fallback_provider=fallback_provider)
     st.session_state.setdefault("runtime_setup_provider_choice", selected_choice)
@@ -216,7 +217,10 @@ def _sync_provider_dependent_fields(*, current_connection, fallback_provider: st
         previous_value = str(previous_defaults[default_key] or "").strip()
         if not current_value or current_value == previous_value:
             st.session_state[field_key] = next_defaults[default_key]
+    st.session_state["runtime_setup_api_key"] = ""
     st.session_state["runtime_setup_last_provider_choice"] = selected_choice
+    st.session_state.pop("runtime_setup_clear_secret_confirmation", None)
+    st.session_state.pop("runtime_setup_clear_secret_requested", None)
     _clear_model_discovery_state()
 
 
@@ -328,6 +332,23 @@ with st.container(border=True):
         provider_choice,
         current_connection=current_connection,
         fallback_provider=state.prefs.provider,
+    )
+    current_provider_choice = _default_provider_choice(current_connection, state.prefs.provider) if current_connection is not None else ""
+    same_provider_as_existing = current_connection is not None and provider_choice == current_provider_choice
+    existing_runtime = resolve_connection_runtime(current_connection) if same_provider_as_existing and current_connection is not None else None
+    existing_secret_available = bool(existing_runtime and existing_runtime.api_key)
+    existing_secret_missing = bool(
+        current_connection is not None and same_provider_as_existing and current_connection.secret_ref and not existing_secret_available
+    )
+    clear_secret_requested = bool(
+        current_connection is not None
+        and same_provider_as_existing
+        and st.session_state.get("runtime_setup_clear_secret_requested") == current_connection.connection_id
+    )
+    clear_secret_confirmation = bool(
+        current_connection is not None
+        and same_provider_as_existing
+        and st.session_state.get("runtime_setup_clear_secret_confirmation") == current_connection.connection_id
     )
     label = str(st.session_state.get("runtime_setup_label") or provider_defaults["label"]).strip() or provider_defaults["label"]
     if show_advanced:
@@ -447,6 +468,43 @@ with st.container(border=True):
             disabled=provider_choice != "openrouter",
             key="runtime_setup_openrouter_app_title",
         )
+    api_key_value = str(api_key or "").strip()
+    effective_api_key = "" if clear_secret_requested else api_key_value
+    if not effective_api_key and same_provider_as_existing and not clear_secret_requested and existing_runtime is not None:
+        effective_api_key = str(existing_runtime.api_key or "").strip()
+    if clear_secret_requested:
+        st.warning(t("runtime_setup.secret_clear_pending"))
+    elif existing_secret_available:
+        st.caption(t("runtime_setup.secret_saved_state"))
+        st.caption(t("runtime_setup.secret_keep_blank_hint"))
+    elif existing_secret_missing:
+        st.warning(t("runtime_setup.secret_missing_state"))
+    if same_provider_as_existing and current_connection is not None and current_connection.secret_ref:
+        if clear_secret_confirmation:
+            st.warning(t("runtime_setup.clear_saved_key_confirm"))
+            confirm_col, cancel_col = st.columns(2)
+            if confirm_col.button(
+                t("runtime_setup.clear_saved_key_confirm_button"),
+                key="runtime_setup_clear_saved_key_confirm",
+                width="stretch",
+            ):
+                st.session_state["runtime_setup_clear_secret_requested"] = current_connection.connection_id
+                st.session_state.pop("runtime_setup_clear_secret_confirmation", None)
+                st.rerun()
+            if cancel_col.button(
+                t("runtime_setup.clear_saved_key_cancel"),
+                key="runtime_setup_clear_saved_key_cancel",
+                width="stretch",
+            ):
+                st.session_state.pop("runtime_setup_clear_secret_confirmation", None)
+                st.rerun()
+        elif clear_secret_requested:
+            if st.button(t("runtime_setup.clear_saved_key_undo"), key="runtime_setup_clear_saved_key_undo", width="stretch"):
+                st.session_state.pop("runtime_setup_clear_secret_requested", None)
+                st.rerun()
+        elif st.button(t("runtime_setup.clear_saved_key"), key="runtime_setup_clear_saved_key", width="stretch"):
+            st.session_state["runtime_setup_clear_secret_confirmation"] = current_connection.connection_id
+            st.rerun()
     if provider_defaults["base_url"] or provider_defaults["model"]:
         suggested_parts = [
             t("runtime_setup.suggested_base_url", value=provider_defaults["base_url"])
@@ -497,7 +555,7 @@ if test_clicked:
                 provider_choice=provider_choice,
                 model=model.strip(),
                 base_url=sanitized_base_url,
-                api_key=api_key.strip(),
+                api_key=effective_api_key,
                 openrouter_http_referer=openrouter_http_referer.strip() or DEFAULT_OPENROUTER_HTTP_REFERER,
                 openrouter_app_title=openrouter_app_title.strip() or DEFAULT_OPENROUTER_APP_TITLE,
             )
@@ -540,19 +598,23 @@ if save_clicked:
             else _provider_hint(provider_choice)
         )
         st.rerun()
+    if current_connection is not None and current_connection.secret_ref and (clear_secret_requested or (not api_key_value and not same_provider_as_existing)):
+        delete_secret(current_connection.secret_ref)
     connection = build_provider_connection(
         provider_choice=provider_choice,
         label=label.strip(),
         model=resolved_model,
         base_url=sanitized_base_url,
-        api_key=api_key.strip(),
+        api_key=effective_api_key,
         openrouter_http_referer=openrouter_http_referer.strip() or DEFAULT_OPENROUTER_HTTP_REFERER,
         openrouter_app_title=openrouter_app_title.strip() or DEFAULT_OPENROUTER_APP_TITLE,
         existing_connection=current_connection if current_connection and current_connection.connection_id == getattr(state.prefs, "active_connection_id", "") else None,
     )
     connection.last_test_status = str(st.session_state.get("runtime_setup_last_test_status") or "")
     connection.last_tested_at = str(st.session_state.get("runtime_setup_last_tested_at") or "")
-    secret_status = save_provider_connection(state, connection, api_key=api_key.strip(), persist_draft=False)
+    secret_status = save_provider_connection(state, connection, api_key=effective_api_key, persist_draft=False)
+    st.session_state.pop("runtime_setup_clear_secret_confirmation", None)
+    st.session_state.pop("runtime_setup_clear_secret_requested", None)
     if secret_status.persistent:
         st.session_state["runtime_setup_message"] = t("runtime_setup.save_success")
     else:

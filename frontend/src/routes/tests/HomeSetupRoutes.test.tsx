@@ -1,0 +1,276 @@
+import "@testing-library/jest-dom/vitest";
+
+import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { renderWithProviders } from "@/test/renderWithProviders";
+
+vi.mock("@/lib/api/client", () => ({
+  apiClient: {
+    getDiagnostics: vi.fn(),
+    getRuntime: vi.fn(),
+    getRuntimeSettings: vi.fn(),
+    getWhisperModelStatus: vi.fn(),
+    postWhisperModelDownload: vi.fn(),
+    postRuntimeSettingsTestConnection: vi.fn(),
+    putRuntimeSettings: vi.fn(),
+  },
+}));
+
+import { apiClient } from "@/lib/api/client";
+import { AppFrame } from "@/App";
+
+const mockedGetRuntime = vi.mocked(apiClient.getRuntime);
+const mockedGetDiagnostics = vi.mocked(apiClient.getDiagnostics);
+const mockedGetRuntimeSettings = vi.mocked(apiClient.getRuntimeSettings);
+const mockedGetWhisperModelStatus = vi.mocked(apiClient.getWhisperModelStatus);
+const mockedPostWhisperModelDownload = vi.mocked(apiClient.postWhisperModelDownload);
+const mockedPostRuntimeSettingsTestConnection = vi.mocked(apiClient.postRuntimeSettingsTestConnection);
+const mockedPutRuntimeSettings = vi.mocked(apiClient.putRuntimeSettings);
+
+describe("Home and Runtime Setup routes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedGetDiagnostics.mockResolvedValue({
+      items: [
+        {
+          key: "whisper",
+          status: "warning",
+          title_key: "diagnostics.whisper_title",
+          detail_key: "diagnostics.whisper_warning_detail",
+          detail_args: {
+            model: "small",
+            path: "/tmp/whisper",
+          },
+        },
+        {
+          key: "runtime",
+          status: "warning",
+          title_key: "diagnostics.runtime_title",
+          detail_key: "diagnostics.runtime_warning_detail",
+          detail_args: {},
+        },
+      ],
+    });
+    mockedGetWhisperModelStatus.mockResolvedValue({
+      model: "medium",
+      repo_id: "systran/faster-whisper-medium",
+      cached: false,
+      cached_path: "",
+      recommended: true,
+      recommendation_reason: "Practice tier",
+    });
+    mockedPostWhisperModelDownload.mockResolvedValue({
+      model: "medium",
+      repo_id: "systran/faster-whisper-medium",
+      cached: true,
+      cached_path: "/tmp/medium",
+      recommended: true,
+      recommendation_reason: "Practice tier",
+    });
+  });
+
+  it("shows the runtime setup branch on Home and renders interactive runtime controls", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: false,
+      provider: "",
+      model: "",
+      base_url: "",
+      requires_api_key: false,
+      has_api_key: false,
+    });
+    mockedGetRuntimeSettings.mockResolvedValue({
+      ui_locale: "en",
+      whisper_model: "medium",
+      active_connection_id: "",
+      connections: [],
+    });
+    mockedPostRuntimeSettingsTestConnection.mockResolvedValue({
+      provider: "ollama",
+      base_url: "http://localhost:11434/v1",
+      service_base_url: "http://localhost:11434",
+      health_endpoint: "http://localhost:11434/api/tags",
+      discovered_models: ["llama3.2:3b", "qwen2.5"],
+      tested_at: "2026-04-30T12:00:00+00:00",
+      content_preview: "ok",
+    });
+    mockedPutRuntimeSettings.mockResolvedValue({
+      ui_locale: "en",
+      whisper_model: "medium",
+      active_connection_id: "conn-ollama",
+      connections: [
+        {
+          connection_id: "conn-ollama",
+          provider_key: "ollama",
+          provider_choice: "ollama_local",
+          provider_label: "Ollama local",
+          label: "Ollama local",
+          model: "llama3.2:3b",
+          base_url: "http://localhost:11434",
+          is_default: true,
+          is_local: true,
+          requires_api_key: false,
+          has_api_key: false,
+          secret_state: "absent",
+          last_test_status: "",
+          last_tested_at: "",
+          openrouter_http_referer: "",
+          openrouter_app_title: "",
+          provider_metadata: {},
+        },
+      ],
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/"],
+      locale: "en",
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Set up local AI" }));
+
+    expect(await screen.findByTestId("runtime_setup.screen")).toBeVisible();
+    expect(screen.getByTestId("runtime_connection.form")).toBeVisible();
+
+    fireEvent.click(screen.getByTestId("runtime_setup.detect_local_models"));
+
+    await waitFor(() => {
+      expect(mockedPostRuntimeSettingsTestConnection).toHaveBeenCalled();
+    });
+    expect(screen.getByText("Detected 2 local model(s) via http://localhost:11434/api/tags.")).toBeVisible();
+
+    fireEvent.change(screen.getByTestId("runtime_connection.model"), {
+      target: { value: "llama3.2:3b" },
+    });
+    fireEvent.click(screen.getByTestId("runtime_connection.save_connection"));
+
+    await waitFor(() => {
+      expect(mockedPutRuntimeSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ui_locale: "en",
+          whisper_model: "medium",
+          connection: expect.objectContaining({
+            provider_choice: "ollama_local",
+            model: "llama3.2:3b",
+          }),
+        }),
+      );
+    });
+    expect(screen.getByText("Connection saved and set as active.")).toBeVisible();
+  });
+
+  it("preserves saved-secret clear confirmation and save flow for existing connections", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true,
+      provider: "openrouter",
+      model: "google/gemini-3.1-pro-preview",
+      base_url: "https://openrouter.ai/api/v1",
+      requires_api_key: true,
+      has_api_key: true,
+    });
+    mockedGetRuntimeSettings.mockResolvedValue({
+      ui_locale: "en",
+      whisper_model: "large-v3",
+      active_connection_id: "conn-primary",
+      connections: [
+        {
+          connection_id: "conn-primary",
+          provider_key: "openrouter",
+          provider_choice: "openrouter",
+          provider_label: "OpenRouter",
+          label: "Primary cloud",
+          model: "google/gemini-3.1-pro-preview",
+          base_url: "https://openrouter.ai/api/v1",
+          is_default: true,
+          is_local: false,
+          requires_api_key: true,
+          has_api_key: true,
+          secret_state: "present",
+          last_test_status: "passed",
+          last_tested_at: "2026-04-30T12:00:00+00:00",
+          openrouter_http_referer: "https://example.test/app",
+          openrouter_app_title: "Vostavo Desktop",
+          provider_metadata: {
+            http_referer: "https://example.test/app",
+            app_title: "Vostavo Desktop",
+          },
+        },
+      ],
+    });
+    mockedPostRuntimeSettingsTestConnection.mockResolvedValue({
+      provider: "openrouter",
+      base_url: "https://openrouter.ai/api/v1",
+      service_base_url: "https://openrouter.ai/api",
+      health_endpoint: "https://openrouter.ai/api/v1/models",
+      discovered_models: ["google/gemini-3.1-pro-preview"],
+      tested_at: "2026-04-30T12:00:00+00:00",
+      content_preview: "ok",
+    });
+    mockedPutRuntimeSettings.mockResolvedValue({
+      ui_locale: "en",
+      whisper_model: "large-v3",
+      active_connection_id: "conn-primary",
+      connections: [
+        {
+          connection_id: "conn-primary",
+          provider_key: "openrouter",
+          provider_choice: "openrouter",
+          provider_label: "OpenRouter",
+          label: "Primary cloud",
+          model: "google/gemini-3.1-pro-preview",
+          base_url: "https://openrouter.ai/api/v1",
+          is_default: true,
+          is_local: false,
+          requires_api_key: true,
+          has_api_key: false,
+          secret_state: "missing",
+          last_test_status: "passed",
+          last_tested_at: "2026-04-30T12:00:00+00:00",
+          openrouter_http_referer: "https://example.test/app",
+          openrouter_app_title: "Vostavo Desktop",
+          provider_metadata: {
+            http_referer: "https://example.test/app",
+            app_title: "Vostavo Desktop",
+          },
+        },
+      ],
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/runtime-setup"],
+      locale: "en",
+      appState: {
+        preferences: {
+          activeConnectionId: "conn-primary",
+          setupComplete: true,
+        },
+      },
+    });
+
+    expect(
+      await screen.findAllByText("A saved key is already available for this connection."),
+    ).toHaveLength(2);
+
+    fireEvent.click(screen.getByTestId("runtime_connection.clear_saved_key"));
+    expect(
+      screen.getByText("Confirm that the saved key should be removed from this connection."),
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByTestId("runtime_connection.clear_saved_key_confirm"));
+    expect(screen.getByText("The saved key will be removed when you save this connection.")).toBeVisible();
+
+    fireEvent.click(screen.getByTestId("runtime_connection.save_connection"));
+
+    await waitFor(() => {
+      expect(mockedPutRuntimeSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clear_saved_secret: true,
+          connection: expect.objectContaining({
+            connection_id: "conn-primary",
+            provider_choice: "openrouter",
+          }),
+        }),
+      );
+    });
+    expect(screen.getByText("Connection saved and set as active.")).toBeVisible();
+  });
+});

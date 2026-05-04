@@ -43,6 +43,10 @@ class RunAppTests(unittest.TestCase):
         self.assertEqual(payload["backend_base_url"], "http://127.0.0.1:9000")
         self.assertFalse(payload["repo_local_override_active"])
         self.assertEqual(payload["repo_local_override_targets"], [])
+        self.assertEqual(payload["deployment_mode"], "local")
+        self.assertEqual(payload["launch_mode"], "repo")
+        self.assertTrue(payload["packaging_safe"])
+        self.assertEqual(payload["auth_mode"], "guest")
         self.assertEqual(payload["command"][-1], str(run_app.STREAMLIT_ENTRYPOINT))
 
     def test_main_prints_json_for_dry_run(self):
@@ -60,6 +64,28 @@ class RunAppTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(payload["app_data_root"], str(Path(app_dir).resolve()))
         self.assertIn("-m", payload["command"])
+
+    def test_main_prints_desktop_bootstrap_env(self):
+        with mock.patch(
+            "scripts.run_app.build_desktop_bootstrap_env",
+            return_value={
+                "VOSTAVO_DESKTOP_API_BASE_URL": "http://127.0.0.1:9000",
+                "VOSTAVO_DEPLOYMENT_MODE": "local",
+                "VOSTAVO_LAUNCH_MODE": "repo",
+                "VOSTAVO_DESKTOP_PACKAGING_SAFE": "true",
+                "VOSTAVO_AUTH_MODE": "guest",
+            },
+        ), mock.patch("sys.stdout.write") as mock_write, mock.patch(
+            "scripts.run_app.subprocess.run"
+        ) as mock_run:
+            exit_code = run_app.main(["--desktop-bootstrap"])
+
+        written = "".join(call.args[0] for call in mock_write.call_args_list)
+        self.assertEqual(exit_code, 0)
+        self.assertIn("VOSTAVO_DESKTOP_API_BASE_URL=http://127.0.0.1:9000", written)
+        self.assertIn("VOSTAVO_LAUNCH_MODE=repo", written)
+        self.assertIn("VOSTAVO_DESKTOP_PACKAGING_SAFE=true", written)
+        mock_run.assert_not_called()
 
     def test_main_launches_streamlit_command(self):
         with mock.patch(
@@ -182,6 +208,26 @@ class RunAppTests(unittest.TestCase):
 
         self.assertTrue(payload["repo_local_override_active"])
         self.assertEqual(payload["repo_local_override_targets"], ["app_data", "cache"])
+        self.assertFalse(payload["packaging_safe"])
+
+    def test_launcher_payload_supports_packaged_launch_mode_override(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir, mock.patch.dict(
+            os.environ,
+            {
+                "VOSTAVO_LAUNCH_MODE": "packaged",
+                "VOSTAVO_DEPLOYMENT_MODE": "local",
+                "VOSTAVO_AUTH_MODE": "guest",
+            },
+            clear=False,
+        ):
+            args = run_app._parse_args(["--app-data-dir", app_dir, "--cache-dir", cache_dir, "--dry-run"])
+            with mock.patch("scripts.run_app.get_backend_state", return_value={"base_url": "http://127.0.0.1:9000"}):
+                payload = run_app._launcher_payload(args)
+
+        self.assertEqual(payload["launch_mode"], "packaged")
+        self.assertEqual(payload["deployment_mode"], "local")
+        self.assertEqual(payload["auth_mode"], "guest")
+        self.assertTrue(payload["packaging_safe"])
 
 
 if __name__ == "__main__":

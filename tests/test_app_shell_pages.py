@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -8,7 +8,16 @@ from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
 
+from app_backend.contracts import (
+    CleanupTarget,
+    MaintenanceCleanupResponse,
+    MaintenanceStorageResponse,
+    StorageAreaSummary,
+    SupportBundleCreateResponse,
+)
 from assessment_runtime import theme_library
+from app_shell.i18n import t
+from app_shell.secret_store import SecretStoreStatus
 from app_shell.state import APP_SHELL_STATE_KEY, AppPreferences, AppShellState, AssessmentJobState, DraftSession, ProviderConnection, RecordingState, RecordingStatus, ReviewState
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -88,6 +97,10 @@ def _history_record(
     grammar_error_categories: list[str] | None = None,
     coherence_issue_categories: list[str] | None = None,
     report_path: str = "",
+    requires_human_review: bool | None = False,
+    duration_pass: bool | None = True,
+    topic_pass: bool | None = True,
+    language_pass: bool | None = True,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         timestamp=datetime.fromisoformat(timestamp),
@@ -104,7 +117,40 @@ def _history_record(
         grammar_error_categories=grammar_error_categories or [],
         coherence_issue_categories=coherence_issue_categories or [],
         report_path=report_path,
+        requires_human_review=requires_human_review,
+        duration_pass=duration_pass,
+        topic_pass=topic_pass,
+        language_pass=language_pass,
     )
+
+
+def _fake_secret_storage(initial: dict[str, str] | None = None):
+    store = dict(initial or {})
+
+    def _get_secret(account: str, *, service: str = "Vostavo", env_var_names: tuple[str, ...] = ()) -> str:
+        del service, env_var_names
+        return store.get(account, "")
+
+    def _delete_secret(account: str, *, service: str = "Vostavo", env_var_names: tuple[str, ...] = ()) -> SecretStoreStatus:
+        del service, env_var_names
+        store.pop(account, None)
+        return SecretStoreStatus(persistent=True, backend_name="memory")
+
+    def _set_secret(
+        account: str,
+        value: str,
+        *,
+        service: str = "Vostavo",
+        env_var_names: tuple[str, ...] = (),
+    ) -> SecretStoreStatus:
+        del service, env_var_names
+        if value:
+            store[account] = value
+        else:
+            store.pop(account, None)
+        return SecretStoreStatus(persistent=True, backend_name="memory")
+
+    return store, _get_secret, _delete_secret, _set_secret
 
 
 class AppShellPageTests(unittest.TestCase):
@@ -428,6 +474,71 @@ class AppShellPageTests(unittest.TestCase):
             self.assertEqual(state.prefs.connections[0].provider_kind, "openrouter")
             self.assertEqual(state.prefs.connections[0].default_model, "google/gemini-3.1-pro-preview")
             self.assertEqual(state.prefs.llm_api_key, "key-123")
+
+    def test_runtime_setup_does_not_prefill_saved_api_key(self):
+        at = _app_test("pages/00_Setup.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=_active_runtime_prefs(ui_locale="en", provider="openrouter", secret_ref="saved-openrouter")
+        )
+        with patch("app_shell.runtime_resolver.get_secret", return_value="saved-key"):
+            at.run()
+        self.assertEqual(at.text_input(key="runtime_setup_api_key").value, "")
+
+    def test_runtime_setup_blank_save_preserves_saved_api_key(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store, fake_get_secret, fake_delete_secret, fake_set_secret = _fake_secret_storage(
+                {"saved-openrouter": "saved-key"}
+            )
+            at = _app_test("pages/00_Setup.py")
+            at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+                prefs=_active_runtime_prefs(
+                    ui_locale="en",
+                    provider="openrouter",
+                    log_dir=tmpdir,
+                    secret_ref="saved-openrouter",
+                )
+            )
+            with patch("app_shell.runtime_resolver.get_secret", side_effect=fake_get_secret), \
+                    patch("app_shell.services.delete_secret", side_effect=fake_delete_secret), \
+                    patch("app_shell.services.set_secret", side_effect=fake_set_secret), \
+                    patch("app_shell.secret_store.delete_secret", side_effect=fake_delete_secret):
+                at.run()
+                at.button(key="runtime_setup_save_connection").click()
+                at.run()
+
+            state = at.session_state[APP_SHELL_STATE_KEY]
+            self.assertEqual(state.prefs.llm_api_key, "saved-key")
+            self.assertEqual(store["saved-openrouter"], "saved-key")
+
+    def test_runtime_setup_clear_saved_key_requires_confirmation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store, fake_get_secret, fake_delete_secret, fake_set_secret = _fake_secret_storage(
+                {"saved-openrouter": "saved-key"}
+            )
+            at = _app_test("pages/00_Setup.py")
+            at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+                prefs=_active_runtime_prefs(
+                    ui_locale="en",
+                    provider="openrouter",
+                    log_dir=tmpdir,
+                    secret_ref="saved-openrouter",
+                )
+            )
+            with patch("app_shell.runtime_resolver.get_secret", side_effect=fake_get_secret), \
+                    patch("app_shell.services.delete_secret", side_effect=fake_delete_secret), \
+                    patch("app_shell.services.set_secret", side_effect=fake_set_secret), \
+                    patch("app_shell.secret_store.delete_secret", side_effect=fake_delete_secret):
+                at.run()
+                at.button(key="runtime_setup_clear_saved_key").click()
+                at.run()
+                at.button(key="runtime_setup_clear_saved_key_confirm").click()
+                at.run()
+                at.button(key="runtime_setup_save_connection").click()
+                at.run()
+
+            state = at.session_state[APP_SHELL_STATE_KEY]
+            self.assertEqual(state.prefs.llm_api_key, "")
+            self.assertEqual(store, {})
 
     def test_runtime_setup_test_connection_uses_blank_local_model_for_discovery_fallback(self):
         at = _app_test("pages/00_Setup.py")
@@ -840,7 +951,7 @@ class AppShellPageTests(unittest.TestCase):
             self.assertFalse(audio_path.exists())
             self.assertEqual([item.value for item in at.info], ["No recording is attached yet."])
 
-    def test_speak_warns_when_openrouter_is_selected_without_any_key(self):
+    def test_speak_warns_when_openrouter_is_selected_without_saved_credentials(self):
         at = _app_test("pages/02_Speak.py")
         at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
             prefs=_active_runtime_prefs(ui_locale="en", provider="openrouter"),
@@ -858,10 +969,9 @@ class AppShellPageTests(unittest.TestCase):
                 prompt_text="Give your opinion on working from home.",
             ),
         )
-        with patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}, clear=False):
-            at.run()
+        at.run()
         self.assertIn(
-            "OpenRouter is selected, but no API key is configured in Settings and no OPENROUTER_API_KEY is available in the environment.",
+            "OpenRouter is selected, but this saved connection is missing its API key. Open Runtime Setup or Settings to add one.",
             [warning.value for warning in at.warning],
         )
 
@@ -883,15 +993,14 @@ class AppShellPageTests(unittest.TestCase):
                 prompt_text="Give your opinion on working from home.",
             ),
         )
-        with patch("app_shell.runtime_resolver.get_secret", return_value="saved-key"), \
-                patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}, clear=False):
+        with patch("app_shell.runtime_resolver.get_secret", return_value="saved-key"):
             at.run()
         self.assertNotIn(
-            "OpenRouter is selected, but no API key is configured in Settings and no OPENROUTER_API_KEY is available in the environment.",
+            "OpenRouter is selected, but this saved connection is missing its API key. Open Runtime Setup or Settings to add one.",
             [warning.value for warning in at.warning],
         )
 
-    def test_speak_skips_openrouter_warning_when_environment_key_exists(self):
+    def test_speak_still_warns_when_only_environment_key_exists(self):
         at = _app_test("pages/02_Speak.py")
         at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
             prefs=_active_runtime_prefs(ui_locale="en", provider="openrouter"),
@@ -911,8 +1020,8 @@ class AppShellPageTests(unittest.TestCase):
         )
         with patch.dict(os.environ, {"OPENROUTER_API_KEY": "env-key"}, clear=False):
             at.run()
-        self.assertNotIn(
-            "OpenRouter is selected, but no API key is configured in Settings and no OPENROUTER_API_KEY is available in the environment.",
+        self.assertIn(
+            "OpenRouter is selected, but this saved connection is missing its API key. Open Runtime Setup or Settings to add one.",
             [warning.value for warning in at.warning],
         )
 
@@ -1718,6 +1827,7 @@ class AppShellPageTests(unittest.TestCase):
                 overall=4.0,
                 wpm=132.0,
                 report_path="/tmp/report-2.json",
+                topic_pass=False,
             ),
             _history_record(
                 timestamp="2026-03-14T09:30:00",
@@ -1731,6 +1841,7 @@ class AppShellPageTests(unittest.TestCase):
                 overall=4.1,
                 wpm=126.0,
                 report_path="/tmp/report-3.json",
+                requires_human_review=True,
             ),
         ]
 
@@ -1758,9 +1869,29 @@ class AppShellPageTests(unittest.TestCase):
             at.run()
 
         self.assertEqual(len(at.exception), 0)
-        self.assertEqual(at.button(key="history_jump_0").label, "DE · 03-14 09:30 · Picture description")
-        self.assertEqual(at.button(key="history_jump_1").label, "EN · 03-13 08:15 · Opinion monologue")
-        self.assertEqual(at.button(key="history_jump_2").label, "IT · 03-12 20:00 · Personal experience")
+        self.assertEqual(
+            at.button(key="history_jump_0").label,
+            f"DE · 03-14 09:30 · {t('review.status_short_review', locale='en')} · Score 4.4 · Band 4 · Theme three · Picture description",
+        )
+        self.assertEqual(
+            at.button(key="history_jump_1").label,
+            f"EN · 03-13 08:15 · {t('review.status_short_unstable', locale='en')} · Score 4.2 · Band 4 · Theme two · Opinion monologue",
+        )
+        self.assertEqual(
+            at.button(key="history_jump_2").label,
+            f"IT · 03-12 20:00 · {t('review.status_short_done', locale='en')} · Score 3.8 · Band 3 · Theme one · Personal experience",
+        )
+        attempts_frame = next(
+            dataframe.value for dataframe in at.dataframe if "Timestamp" in getattr(dataframe.value, "columns", [])
+        )
+        self.assertEqual(
+            list(attempts_frame["Status"]),
+            [
+                t("review.status_short_review", locale="en"),
+                t("review.status_short_unstable", locale="en"),
+                t("review.status_short_done", locale="en"),
+            ],
+        )
 
     def test_history_attempts_table_shows_latest_attempt_first(self):
         at = _app_test("pages/04_History.py")
@@ -1819,10 +1950,17 @@ class AppShellPageTests(unittest.TestCase):
 
         self.assertEqual(len(at.exception), 0)
         attempts_frame = next(
-            dataframe.value for dataframe in at.dataframe if "Session" in getattr(dataframe.value, "columns", [])
+            dataframe.value for dataframe in at.dataframe if "Timestamp" in getattr(dataframe.value, "columns", [])
         )
-        self.assertEqual(list(attempts_frame["Session"]), ["sess-2", "sess-1"])
+        self.assertEqual(list(attempts_frame["Theme"]), ["Theme two", "Theme one"])
         self.assertEqual(list(attempts_frame["Language"]), ["IT", "IT"])
+        self.assertEqual(
+            list(attempts_frame["Status"]),
+            [t("review.status_short_done", locale="en"), t("review.status_short_done", locale="en")],
+        )
+        self.assertNotIn("Session", attempts_frame.columns)
+        self.assertNotIn("Speaker", attempts_frame.columns)
+        self.assertNotIn("Task family", attempts_frame.columns)
 
     def test_history_defaults_to_current_learning_language_filter(self):
         at = _app_test("pages/04_History.py")
@@ -1882,9 +2020,10 @@ class AppShellPageTests(unittest.TestCase):
         self.assertEqual(len(at.exception), 0)
         self.assertEqual(at.selectbox(key="history_learning_language").value, "en")
         attempts_frame = next(
-            dataframe.value for dataframe in at.dataframe if "Session" in getattr(dataframe.value, "columns", [])
+            dataframe.value for dataframe in at.dataframe if "Timestamp" in getattr(dataframe.value, "columns", [])
         )
-        self.assertEqual(list(attempts_frame["Session"]), ["sess-en"])
+        self.assertEqual(list(attempts_frame["Language"]), ["EN"])
+        self.assertEqual(list(attempts_frame["Theme"]), ["Theme two"])
         self.assertEqual(at.selectbox(key="history_detail_report").value, "/tmp/report-en.json")
         mock_load_report.assert_called_with(
             "sess-en",
@@ -2146,6 +2285,71 @@ class AppShellPageTests(unittest.TestCase):
         self.assertFalse(at.text_input(key="settings_openrouter_http_referer").disabled)
         self.assertFalse(at.text_input(key="settings_openrouter_app_title").disabled)
 
+    def test_settings_does_not_prefill_saved_api_key(self):
+        at = _app_test("pages/06_Settings.py")
+        at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+            prefs=_active_runtime_prefs(ui_locale="en", provider="openrouter", secret_ref="saved-openrouter")
+        )
+        with patch("app_shell.runtime_resolver.get_secret", return_value="saved-key"):
+            at.run()
+        self.assertEqual(at.text_input(key="settings_api_key").value, "")
+
+    def test_settings_blank_save_preserves_saved_api_key(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store, fake_get_secret, fake_delete_secret, fake_set_secret = _fake_secret_storage(
+                {"saved-openrouter": "saved-key"}
+            )
+            at = _app_test("pages/06_Settings.py")
+            at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+                prefs=_active_runtime_prefs(
+                    ui_locale="en",
+                    provider="openrouter",
+                    log_dir=tmpdir,
+                    secret_ref="saved-openrouter",
+                )
+            )
+            with patch("app_shell.runtime_resolver.get_secret", side_effect=fake_get_secret), \
+                    patch("app_shell.services.delete_secret", side_effect=fake_delete_secret), \
+                    patch("app_shell.services.set_secret", side_effect=fake_set_secret), \
+                    patch("app_shell.secret_store.delete_secret", side_effect=fake_delete_secret):
+                at.run()
+                at.button(key="settings_save").click()
+                at.run()
+
+            state = at.session_state[APP_SHELL_STATE_KEY]
+            self.assertEqual(state.prefs.llm_api_key, "saved-key")
+            self.assertEqual(store["saved-openrouter"], "saved-key")
+
+    def test_settings_clear_saved_key_requires_confirmation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store, fake_get_secret, fake_delete_secret, fake_set_secret = _fake_secret_storage(
+                {"saved-openrouter": "saved-key"}
+            )
+            at = _app_test("pages/06_Settings.py")
+            at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+                prefs=_active_runtime_prefs(
+                    ui_locale="en",
+                    provider="openrouter",
+                    log_dir=tmpdir,
+                    secret_ref="saved-openrouter",
+                )
+            )
+            with patch("app_shell.runtime_resolver.get_secret", side_effect=fake_get_secret), \
+                    patch("app_shell.services.delete_secret", side_effect=fake_delete_secret), \
+                    patch("app_shell.services.set_secret", side_effect=fake_set_secret), \
+                    patch("app_shell.secret_store.delete_secret", side_effect=fake_delete_secret):
+                at.run()
+                at.button(key="settings_clear_saved_key").click()
+                at.run()
+                at.button(key="settings_clear_saved_key_confirm").click()
+                at.run()
+                at.button(key="settings_save").click()
+                at.run()
+
+            state = at.session_state[APP_SHELL_STATE_KEY]
+            self.assertEqual(state.prefs.llm_api_key, "")
+            self.assertEqual(store, {})
+
     def test_settings_can_make_another_connection_default(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             at = _app_test("pages/06_Settings.py")
@@ -2277,6 +2481,87 @@ class AppShellPageTests(unittest.TestCase):
         at.button(key="settings_back").click()
         at.run()
         self.assertEqual(at.session_state["_next_page"], "streamlit_app.py")
+
+    def test_settings_support_storage_and_cleanup_use_backend_api(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            at = _app_test("pages/06_Settings.py")
+            at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+                prefs=AppPreferences(ui_locale="en", log_dir=tmpdir),
+            )
+            storage_response = MaintenanceStorageResponse(
+                app_data_root=tmpdir,
+                cache_root=str(Path(tmpdir) / "cache"),
+                areas={
+                    "logs": StorageAreaSummary(path=str(Path(tmpdir) / "logs"), size_bytes=1536, file_count=2),
+                    "tmp": StorageAreaSummary(path=str(Path(tmpdir) / "tmp"), size_bytes=512, file_count=3),
+                },
+            )
+            cleanup_response = MaintenanceCleanupResponse(
+                target=CleanupTarget.ALL_SAFE,
+                dry_run=True,
+                deleted_file_count=2,
+                freed_bytes=2048,
+            )
+
+            with patch("app_shell.backend_client.get_maintenance_storage", return_value=storage_response) as get_storage, \
+                    patch("app_shell.backend_client.post_maintenance_cleanup", return_value=cleanup_response) as cleanup:
+                at.run()
+                get_storage.assert_not_called()
+                cleanup.assert_not_called()
+
+                at.button(key="settings_support_refresh_storage").click()
+                at.run()
+
+                get_storage.assert_called_once_with(log_dir=tmpdir)
+                self.assertTrue(any("1.5 KB" in item.value for item in at.markdown))
+
+                at.button(key="settings_support_cleanup_preview").click()
+                at.run()
+
+                cleanup.assert_called_once_with(
+                    {"target": "all_safe", "dry_run": True},
+                    log_dir=tmpdir,
+                )
+
+                cleanup.reset_mock()
+                at.button(key="settings_support_cleanup_run").click()
+                at.run()
+
+                cleanup.assert_called_once_with(
+                    {"target": "all_safe", "dry_run": False},
+                    log_dir=tmpdir,
+                )
+
+    def test_settings_support_bundle_defaults_are_privacy_safe(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            at = _app_test("pages/06_Settings.py")
+            at.session_state[APP_SHELL_STATE_KEY] = AppShellState(
+                prefs=AppPreferences(ui_locale="en", log_dir=tmpdir),
+            )
+            response = SupportBundleCreateResponse(
+                bundle_id="bundle_123",
+                filename="support-default.zip",
+                size_bytes=2048,
+                expires_at=datetime(2026, 4, 23, 12, 0, tzinfo=UTC),
+            )
+
+            with patch("app_shell.services.create_support_bundle_archive", return_value=response) as create_bundle:
+                at.run()
+                at.button(key="settings_support_create_bundle").click()
+                at.run()
+
+            args, kwargs = create_bundle.call_args
+            self.assertIs(args[0], at.session_state[APP_SHELL_STATE_KEY])
+            self.assertEqual(
+                kwargs,
+                {
+                    "include_reports": False,
+                    "include_recordings": False,
+                    "include_uploads": False,
+                    "include_runtime_health": False,
+                },
+            )
+            self.assertTrue(any("support-default.zip" in item.value for item in at.success))
 
     def test_settings_download_shows_success_after_progress_callback(self):
         def _fake_download(_model_name, progress_callback=None):

@@ -14,10 +14,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app_shell.app_data import APP_CACHE_HOME_ENV_VAR, APP_DATA_HOME_ENV_VAR
-from app_backend.lifecycle import ensure_local_backend, get_backend_state
+from app_backend.lifecycle import build_desktop_bootstrap_env, ensure_local_backend, get_backend_state
 from app_shell.bootstrap import (
     STREAMLIT_ENTRYPOINT,
     bootstrap_app_environment,
+    build_runtime_metadata,
     build_streamlit_launch_command,
     is_within_project_checkout,
 )
@@ -29,6 +30,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--cache-dir", default="", help="Override the local cache root.")
     parser.add_argument("--log-dir", default="", help="Override the reports/history directory.")
     parser.add_argument("--check", action="store_true", help="Print launcher diagnostics as JSON and exit.")
+    parser.add_argument(
+        "--desktop-bootstrap",
+        action="store_true",
+        help="Start or reuse the local backend and print desktop bridge env vars for the Tauri shell.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print the launch command as JSON and exit.")
     args, streamlit_args = parser.parse_known_args(argv)
     args.streamlit_args = list(streamlit_args)
@@ -56,6 +62,7 @@ def _launcher_payload(args: argparse.Namespace) -> dict[str, object]:
         app_data_dir=args.app_data_dir or None,
         cache_dir=args.cache_dir or None,
     )
+    runtime_metadata = build_runtime_metadata(paths).as_dict()
     backend_state = (
         get_backend_state(
             log_dir=args.log_dir or None,
@@ -84,6 +91,7 @@ def _launcher_payload(args: argparse.Namespace) -> dict[str, object]:
         "repo_local_override_targets": repo_local_override_targets,
         "ffmpeg_available": bool(shutil.which("ffmpeg")),
         "backend_base_url": str(backend_state.get("base_url") or ""),
+        **runtime_metadata,
         "entrypoint": str(STREAMLIT_ENTRYPOINT),
         "command": build_streamlit_launch_command(extra_args=getattr(args, "streamlit_args", [])),
     }
@@ -91,6 +99,19 @@ def _launcher_payload(args: argparse.Namespace) -> dict[str, object]:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
+    if args.desktop_bootstrap:
+        bootstrap_env = build_desktop_bootstrap_env(
+            log_dir=args.log_dir or None,
+            app_data_dir=args.app_data_dir or None,
+            cache_dir=args.cache_dir or None,
+        )
+        print(
+            "\n".join(
+                f"{key}={value}"
+                for key, value in bootstrap_env.items()
+            )
+        )
+        return 0
     payload = _launcher_payload(args)
     if args.check or args.dry_run:
         print(json.dumps(payload, ensure_ascii=False, indent=2))

@@ -7,7 +7,7 @@ import streamlit as st
 
 from app_shell.i18n import t
 from app_shell.page_helpers import configure_page, render_page_intro, render_shell_summary
-from app_shell.review_components import render_report_panels
+from app_shell.review_components import render_report_panels, report_status_summary
 from app_shell.services import load_history_detail_payload, load_history_records, review_summary
 from assessment_runtime.progress_analysis import format_top_counts, latest_priorities, task_family_progress
 
@@ -139,19 +139,35 @@ def _task_family_frame(records: list[object]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _record_failed_gates(record: object) -> list[str]:
+    return [
+        gate
+        for gate in ("language_pass", "topic_pass", "duration_pass", "min_words_pass")
+        if getattr(record, gate, None) is False
+    ]
+
+
+def _record_status_label(record: object) -> str:
+    status = report_status_summary(
+        {
+            "requires_human_review": getattr(record, "requires_human_review", None) is True,
+            "failed_gates": _record_failed_gates(record),
+        }
+    )
+    return status.short_label
+
+
 def _attempts_frame(records: list[object]) -> pd.DataFrame:
     rows = []
     for record in reversed(records):
         rows.append(
             {
                 t("history.table_timestamp"): getattr(record, "timestamp", None),
-                t("history.table_session"): getattr(record, "session_id", ""),
-                t("history.table_speaker"): getattr(record, "speaker_id", ""),
                 t("history.table_language"): _history_language_label(_normalized_language(getattr(record, "learning_language", ""))),
                 t("history.table_theme"): getattr(record, "theme", ""),
-                t("history.table_task_family"): _task_family_label(getattr(record, "task_family", "")),
                 t("history.table_score"): getattr(record, "final_score", None),
                 t("history.table_band"): getattr(record, "band", None),
+                t("history.table_status"): _record_status_label(record),
             }
         )
     return pd.DataFrame(rows)
@@ -178,6 +194,13 @@ def _detail_option_label(record: object) -> str:
     return f"{timestamp_label} · {language} · {theme} · {family}"
 
 
+def _score_band_label(record: object) -> str:
+    score = _safe_float(getattr(record, "final_score", None))
+    score_label = f"{score:.1f}" if score is not None else t("history.none")
+    band = str(getattr(record, "band", "") or "").strip() or t("history.none")
+    return f"{t('history.table_score')} {score_label} · {t('history.table_band')} {band}"
+
+
 def _recent_jump_label(record: object) -> str:
     timestamp = getattr(record, "timestamp", None)
     if hasattr(timestamp, "strftime"):
@@ -186,7 +209,8 @@ def _recent_jump_label(record: object) -> str:
         timestamp_label = str(timestamp or "-")
     language = _history_language_label(_normalized_language(getattr(record, "learning_language", "")))
     family = str(_task_family_label(getattr(record, "task_family", "")) or "-")
-    return f"{language} · {timestamp_label} · {family}"
+    theme = str(getattr(record, "theme", "") or "-")
+    return f"{language} · {timestamp_label} · {_record_status_label(record)} · {_score_band_label(record)} · {theme} · {family}"
 
 
 def _set_history_detail_report(report_path: str) -> None:

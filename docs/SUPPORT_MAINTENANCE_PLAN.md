@@ -1,6 +1,6 @@
 # Support, Cleanup, And Packaging-Safe Maintenance Plan
 
-Last updated: 2026-04-10
+Last updated: 2026-04-21
 Status: Proposed
 
 ## Summary
@@ -12,7 +12,8 @@ The goal is to add:
 1. a dedicated support/export bundle feature
 2. deeper cleanup and retention policies for transient backend artifacts
 3. a localized support surface in Settings
-4. packaging-safe behavior for macOS and Windows
+4. packaging-safe behavior for macOS and Windows first-class delivery, with
+   Linux kept on a no-regression basis
 
 The plan explicitly does **not** change the current app-data architecture to
 separate OS-level state or log roots.
@@ -75,10 +76,17 @@ The packager choice is still deferred, but these features must work both:
 That means:
 1. no support feature may require writable repo paths
 2. no cleanup logic may assume the checkout is the runtime location
-3. launcher/backend runtime mode must be explicit enough to support both repo
-   and packaged operation later
+3. launcher/backend runtime metadata must be explicit enough to support both
+   repo and packaged operation later
+4. support code should reuse the shared `RuntimeMetadata` shape with
+   `deployment_mode`, `launch_mode`, `packaging_safe`, and `auth_mode` rather
+   than inventing a support-only variant
 
 ## Public Backend Additions
+
+These endpoints are local-desktop support extensions layered on top of the
+canonical shared product API. They do not redefine the stable `/v1/*` product
+surface used by the current desktop baseline and future hosted product work.
 
 Add the following endpoints:
 
@@ -133,7 +141,8 @@ Downloads the generated zip bundle.
 4. current backend logs
 5. recent job metadata
 6. storage summary
-7. platform, version, and runtime-mode metadata
+7. platform, version, and runtime metadata including `deployment_mode`,
+   `launch_mode`, `packaging_safe`, and `auth_mode`
 
 ### Exclude by default
 
@@ -202,7 +211,8 @@ made to the screen.
 
 ## Packaging Notes
 
-This plan is macOS and Windows aware, but still packaging-contract first.
+This plan is packaging-contract first with macOS and Windows as the first-class
+targets for this pass and Linux kept on a no-regression basis.
 
 Requirements for later delivery:
 1. support/export must work whether the app is launched from the repo or from a

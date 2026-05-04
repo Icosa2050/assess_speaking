@@ -13,8 +13,11 @@ from app_shell.bootstrap import bootstrap_app_environment
 BACKEND_STATE_FILENAME = "backend_state.json"
 BACKEND_LOG_FILENAME = "backend.log"
 BACKEND_JOBS_DIRNAME = "jobs"
+SUPPORT_BUNDLE_DIRNAME = "support-bundles"
 BACKEND_LOG_MAX_BYTES = 1_000_000
 BACKEND_LOG_BACKUP_COUNT = 3
+DEFAULT_SUPPORT_BUNDLE_RETENTION_HOURS = 24
+DEFAULT_JOB_METADATA_RETENTION_DAYS = 30
 DEFAULT_BACKEND_HOST = "127.0.0.1"
 DEFAULT_BACKEND_STARTUP_TIMEOUT_SEC = 15.0
 
@@ -44,6 +47,10 @@ def resolve_jobs_dir(log_dir: str | Path | None = None) -> Path:
 
 def resolve_backend_log_file(log_dir: str | Path | None = None) -> Path:
     return build_app_data_paths(log_dir).logs_dir / BACKEND_LOG_FILENAME
+
+
+def resolve_support_bundle_dir(log_dir: str | Path | None = None) -> Path:
+    return build_app_data_paths(log_dir).temp_dir / SUPPORT_BUNDLE_DIRNAME
 
 
 def _migrate_legacy_jobs_dir(app_data: AppDataPaths) -> None:

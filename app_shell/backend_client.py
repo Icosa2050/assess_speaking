@@ -6,7 +6,17 @@ from typing import Any
 
 import httpx
 
-from app_backend.contracts import AssessmentCreateResponse, AssessmentStatusResponse, ErrorCode, ErrorResponse, UploadResponse
+from app_backend.contracts import (
+    AssessmentCreateResponse,
+    AssessmentStatusResponse,
+    ErrorCode,
+    ErrorResponse,
+    LocalApiContractResponse,
+    MaintenanceCleanupResponse,
+    MaintenanceStorageResponse,
+    SupportBundleCreateResponse,
+    UploadResponse,
+)
 from app_backend.lifecycle import ensure_local_backend, get_backend_state
 
 def backend_base_url(*, log_dir: str | Path | None = None) -> str:
@@ -69,6 +79,11 @@ def upload_audio_path(audio_path: str | Path, *, filename: str = "", log_dir: st
     return UploadResponse(**response.json())
 
 
+def get_api_contract(*, log_dir: str | Path | None = None) -> LocalApiContractResponse:
+    response = _request("GET", "/v1/contract", log_dir=log_dir, timeout_sec=10.0)
+    return LocalApiContractResponse(**response.json())
+
+
 def create_assessment(request: dict[str, Any], *, log_dir: str | Path | None = None) -> AssessmentCreateResponse:
     response = _request("POST", "/v1/assessments", log_dir=log_dir, json=request, timeout_sec=10.0)
     return AssessmentCreateResponse(**response.json())
@@ -106,3 +121,29 @@ def load_samples(*, log_dir: str | Path | None = None) -> list[dict[str, Any]]:
     payload = response.json()
     items = payload.get("items") if isinstance(payload, dict) else []
     return list(items or [])
+
+
+def get_maintenance_storage(*, log_dir: str | Path | None = None) -> MaintenanceStorageResponse:
+    response = _request("GET", "/v1/maintenance/storage", log_dir=log_dir, timeout_sec=10.0)
+    return MaintenanceStorageResponse(**response.json())
+
+
+def post_maintenance_cleanup(request: dict[str, Any], *, log_dir: str | Path | None = None) -> MaintenanceCleanupResponse:
+    response = _request("POST", "/v1/maintenance/cleanup", log_dir=log_dir, json=request, timeout_sec=30.0)
+    return MaintenanceCleanupResponse(**response.json())
+
+
+def create_support_bundle(request: dict[str, Any], *, log_dir: str | Path | None = None) -> SupportBundleCreateResponse:
+    response = _request("POST", "/v1/support-bundles", log_dir=log_dir, json=request, timeout_sec=30.0)
+    return SupportBundleCreateResponse(**response.json())
+
+
+def download_support_bundle(bundle_id: str, *, destination: str | Path, log_dir: str | Path | None = None) -> Path:
+    response = _request("GET", f"/v1/support-bundles/{bundle_id}", log_dir=log_dir, timeout_sec=30.0)
+    target = Path(destination)
+    if target.is_dir():
+        filename = response.headers.get("content-disposition", "")
+        bundle_name = filename.partition("filename=")[2].strip('"') or f"{bundle_id}.zip"
+        target = target / bundle_name
+    target.write_bytes(response.content)
+    return target

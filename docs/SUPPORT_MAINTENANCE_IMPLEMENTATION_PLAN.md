@@ -1,6 +1,6 @@
 # Support, Cleanup, And Packaging-Safe Maintenance Implementation Plan
 
-Last updated: 2026-04-10
+Last updated: 2026-04-21
 Status: Proposed
 
 ## Summary
@@ -13,11 +13,12 @@ It keeps:
 2. backend-owned cleanup and export behavior
 3. Settings as the user-facing support surface
 4. packaging-safe behavior for both repo launch and future packaged apps on
-   macOS and Windows
+   macOS and Windows first-class targets, with Linux kept on a no-regression
+   basis
 
 ## Phase 1: Packaging-Safe Runtime Contract
 
-### Task 1. Add explicit runtime-mode metadata
+### Task 1. Add unified runtime metadata
 
 Files:
 1. `/Users/bernhard/Development/assess_speaking-codex-v6/app_shell/bootstrap.py`
@@ -26,8 +27,9 @@ Files:
 4. `/Users/bernhard/Development/assess_speaking-codex-v6/tests/test_run_app.py`
 
 Done when:
-1. launcher payload exposes `runtime_mode`
-2. launcher payload exposes `packaging_safe = true`
+1. `RuntimeMetadata` is defined authoritatively in `app_shell/bootstrap.py`
+2. launcher payload exposes `deployment_mode`, `launch_mode`,
+   `packaging_safe`, and `auth_mode`
 3. repo launch behavior remains unchanged
 4. future packaged mode can be simulated without writable repo paths
 
@@ -56,7 +58,8 @@ Files:
 4. `/Users/bernhard/Development/assess_speaking-codex-v6/tests/test_app_shell_services.py`
 
 Done when:
-1. bundle manifest contains platform, version, runtime mode, and redaction flags
+1. bundle manifest contains platform, version, shared runtime metadata, and
+   redaction flags
 2. default bundle excludes `reports`, `recordings`, and `uploads`
 3. secret values and secret refs are redacted
 4. sanitized client/runtime snapshot is passed from the shell instead of the
@@ -98,12 +101,18 @@ Done when:
 
 Files:
 1. `/Users/bernhard/Development/assess_speaking-codex-v6/pages/06_Settings.py`
-2. `/Users/bernhard/Development/assess_speaking-codex-v6/app_shell/services.py`
+2. `/Users/bernhard/Development/assess_speaking-codex-v6/app_shell/page_helpers.py`
 3. `/Users/bernhard/Development/assess_speaking-codex-v6/tests/test_app_shell_pages.py`
-4. `/Users/bernhard/Development/assess_speaking-codex-v6/tests/test_app_shell_services.py`
+4. `/Users/bernhard/Development/assess_speaking-codex-v6/tests/test_app_shell_page_helpers.py`
 
 Blocking rule:
 1. discuss the Settings approach with PAL before implementing the screen change
+
+Sequencing note:
+1. the earlier credential and support-bundle passes update
+   `app_shell/services.py` before this Settings surface is built
+2. the later Settings pass should center on `page_helpers.py` and the screen
+   layout work rather than reopening the earlier services serialization
 
 Done when:
 1. localized `Troubleshooting & Support` section exists

@@ -58,6 +58,9 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(records[1].speaker_id, "bern")
             self.assertEqual(records[1].learning_language, "it")
             self.assertAlmostEqual(records[1].final_score, 4.1)
+            self.assertIs(records[1].duration_pass, True)
+            self.assertIs(records[1].topic_pass, True)
+            self.assertIs(records[1].language_pass, True)
             self.assertEqual(records[1].top_priorities, ("Più dettagli", "Più precisione", "Meno pause"))
             self.assertEqual(records[1].grammar_error_categories, ("preposition_choice",))
 

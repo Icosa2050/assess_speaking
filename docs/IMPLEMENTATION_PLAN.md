@@ -1,6 +1,6 @@
 # Assessment Core And Local App Plan
 
-Last updated: 2026-04-15
+Last updated: 2026-04-21
 Status: Assessment core implemented, app shell moved to a local-first desktop-ready flow, local backend and app-data baseline implemented, support and maintenance planning documented, and the next product migration is now defined
 
 ## Goal
@@ -46,6 +46,18 @@ Related planning docs:
 6. `docs/PUBLIC_INFERENCE_ARCHITECTURE_PLAN.md`
 7. `docs/SAVED_CONNECTIONS_PRODUCTION_CREDENTIAL_PLAN.md`
 8. `docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md`
+
+## Desktop-Baseline Runtime Rules
+
+For the current desktop baseline:
+1. local desktop mode stays localhost-bound and auth-free in guest mode
+2. runtime metadata should converge on one shared shape owned by
+   `app_shell/bootstrap.py` with `deployment_mode`, `launch_mode`,
+   `packaging_safe`, and `auth_mode`
+3. support and maintenance endpoints are local-desktop extensions to the
+   canonical product API, not a separate product direction
+4. macOS and Windows are the first-class packaging targets for this pass, while
+   Linux remains a no-regression target
 
 ## Phase 1 Scope
 
@@ -114,7 +126,9 @@ Current status:
 2. add backend maintenance APIs for storage summary and safe cleanup actions
 3. add Settings-based `Troubleshooting & Support` controls after PAL review
 4. add cleanup and retention policies for `tmp/`, support bundles, stale jobs, and rotated logs
-5. make the launcher/backend runtime contract explicitly packaging-safe for macOS and Windows
+5. make the launcher/backend runtime contract explicitly packaging-safe with
+   shared runtime metadata for macOS and Windows first-class delivery and
+   Linux no-regression support
 6. refine the learner-facing review and history coaching surfaces on top of the job-based backend state
 7. calibrate pause heuristics against real Italian recordings
 8. add prompt packs and training loops on top of the new `report` contract

@@ -1,6 +1,6 @@
 # Mobile Companion Strategy
 
-Last updated: 2026-04-15
+Last updated: 2026-04-21
 Status: Deferred follow-on; desktop backend contract is now in place
 
 ## Summary
@@ -13,6 +13,8 @@ The recommended product shape is:
 This mirrors a credible pattern used by local-first creative tools:
 1. desktop is the full local product
 2. mobile is a companion for control, review, and lightweight input
+3. mobile remains a non-blocking follow-on to the current desktop-baseline and
+   hosted-migration work
 
 ## Product Decision
 
@@ -129,9 +131,9 @@ Current state:
 ## Packaging Implications
 
 Desktop remains the installable product for:
-1. macOS
-2. Windows
-3. Linux
+1. macOS as a first-class target
+2. Windows as a first-class target
+3. Linux on a no-regression basis
 
 Mobile, if built later, should be framed as:
 1. companion app
