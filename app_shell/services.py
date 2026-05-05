@@ -1192,9 +1192,14 @@ def load_history_records(log_dir: str | Path | None = None) -> list[object]:
 def history_rows(log_dir: str | Path | None = None) -> list[dict[str, Any]]:
     rows = []
     for record in load_history_records(log_dir):
+        timestamp = getattr(record, "timestamp", "")
+        if hasattr(timestamp, "isoformat"):
+            timestamp = timestamp.isoformat()
+        else:
+            timestamp = str(timestamp or "")
         rows.append(
             {
-                "timestamp": getattr(record, "timestamp", ""),
+                "timestamp": timestamp,
                 "session_id": getattr(record, "session_id", ""),
                 "speaker_id": getattr(record, "speaker_id", ""),
                 "learning_language": getattr(record, "learning_language", ""),

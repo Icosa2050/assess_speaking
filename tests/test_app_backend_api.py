@@ -92,6 +92,37 @@ class BackendApiTests(unittest.TestCase):
             self.assertIn("areas", storage.json())
             self.assertIn("tmp", storage.json()["areas"])
 
+    def test_history_endpoint_serializes_real_rows(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            reports_dir = Path(tmpdir)
+            report_path = reports_dir / "report.json"
+            report_path.write_text(json.dumps({"report": {"session_id": "sess-1"}}), encoding="utf-8")
+            (reports_dir / "history.csv").write_text(
+                "timestamp,session_id,schema_version,speaker_id,learning_language,task_family,theme,"
+                "audio,whisper,llm,label,target_duration_sec,duration_sec,wpm,word_count,duration_pass,"
+                "topic_pass,language_pass,fluency,cohesion,accuracy,range,overall,final_score,band,"
+                "requires_human_review,top_priority_1,top_priority_2,top_priority_3,"
+                "grammar_error_categories,coherence_issue_categories,report_path\n"
+                "2026-05-05T22:22:30,sess-1,2,manual-smoke,it,travel_narrative,Travel Story,"
+                "sample.wav,large-v3,llama3.2:3b,,90,16.05,190.6,51,false,,true,,,,,,3.26,3,"
+                "true,Keep speaking,Use connectors,Add detail,,,"
+                f"{report_path}\n",
+                encoding="utf-8",
+            )
+            client = TestClient(create_app(build_backend_runtime_config(log_dir=reports_dir, port=8775)))
+
+            history = client.get("/v1/history")
+            self.assertEqual(history.status_code, 200)
+            row = history.json()["items"][0]
+            self.assertEqual(row["timestamp"], "2026-05-05T22:22:30")
+            self.assertEqual(row["session_id"], "sess-1")
+            self.assertEqual(row["learning_language"], "it")
+            self.assertEqual(row["top_priorities"], ["Keep speaking", "Use connectors", "Add detail"])
+
+            detail = client.get("/v1/history/sess-1")
+            self.assertEqual(detail.status_code, 200)
+            self.assertEqual(detail.json()["payload"]["report"]["session_id"], "sess-1")
+
     def test_contract_endpoint_freezes_phase2_local_api_surface(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = build_backend_runtime_config(log_dir=tmpdir, port=8770)
