@@ -1189,25 +1189,28 @@ def load_history_records(log_dir: str | Path | None = None) -> list[object]:
     return progress_dashboard.load_history(history_path)
 
 
+def _history_str(value: Any) -> str:
+    if value is None:
+        return ""
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
 def history_rows(log_dir: str | Path | None = None) -> list[dict[str, Any]]:
     rows = []
     for record in load_history_records(log_dir):
-        timestamp = getattr(record, "timestamp", "")
-        if hasattr(timestamp, "isoformat"):
-            timestamp = timestamp.isoformat()
-        else:
-            timestamp = str(timestamp or "")
         rows.append(
             {
-                "timestamp": timestamp,
-                "session_id": getattr(record, "session_id", ""),
-                "speaker_id": getattr(record, "speaker_id", ""),
-                "learning_language": getattr(record, "learning_language", ""),
-                "theme": getattr(record, "theme", ""),
-                "task_family": getattr(record, "task_family", ""),
+                "timestamp": _history_str(getattr(record, "timestamp", "")),
+                "session_id": _history_str(getattr(record, "session_id", "")),
+                "speaker_id": _history_str(getattr(record, "speaker_id", "")),
+                "learning_language": _history_str(getattr(record, "learning_language", "")),
+                "theme": _history_str(getattr(record, "theme", "")),
+                "task_family": _history_str(getattr(record, "task_family", "")),
                 "overall": getattr(record, "overall", ""),
                 "wpm": getattr(record, "wpm", ""),
-                "report_path": getattr(record, "report_path", ""),
+                "report_path": _history_str(getattr(record, "report_path", "")),
                 "requires_human_review": getattr(record, "requires_human_review", ""),
                 "duration_pass": getattr(record, "duration_pass", ""),
                 "topic_pass": getattr(record, "topic_pass", ""),

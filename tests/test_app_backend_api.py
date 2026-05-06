@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
 import zipfile
@@ -22,7 +23,7 @@ import assessment_runtime.theme_library as theme_library_store
 from app_shell.bootstrap import bootstrap_app_environment
 from app_shell import secret_store
 from app_shell.runtime_connections import serialize_connections
-from app_shell.services import build_provider_connection, save_provider_connection, set_default_provider_connection
+from app_shell.services import build_provider_connection, history_rows, save_provider_connection, set_default_provider_connection
 from app_shell.state import AppPreferences, AppShellState
 
 
@@ -122,6 +123,39 @@ class BackendApiTests(unittest.TestCase):
             detail = client.get("/v1/history/sess-1")
             self.assertEqual(detail.status_code, 200)
             self.assertEqual(detail.json()["payload"]["report"]["session_id"], "sess-1")
+
+    def test_history_rows_normalizes_datetime_and_string_contract_fields(self):
+        class FakeHistoryRecord:
+            timestamp = datetime(2026, 5, 5, 22, 22, 30)
+            session_id = 42
+            speaker_id = None
+            learning_language = "it"
+            theme = 2026
+            task_family = "travel_narrative"
+            overall = ""
+            wpm = 190.6
+            report_path = Path("/tmp/report.json")
+            requires_human_review = True
+            duration_pass = False
+            topic_pass = None
+            language_pass = True
+            min_words_pass = ""
+            top_priorities = ("Keep speaking",)
+            grammar_error_categories = ()
+            coherence_issue_categories = ()
+            final_score = 3.26
+            band = 3
+
+        with mock.patch("app_shell.services.load_history_records", return_value=[FakeHistoryRecord()]):
+            rows = history_rows(Path("/unused"))
+
+        self.assertEqual(rows[0]["timestamp"], "2026-05-05T22:22:30")
+        self.assertEqual(rows[0]["session_id"], "42")
+        self.assertEqual(rows[0]["speaker_id"], "")
+        self.assertEqual(rows[0]["learning_language"], "it")
+        self.assertEqual(rows[0]["theme"], "2026")
+        self.assertEqual(rows[0]["task_family"], "travel_narrative")
+        self.assertEqual(rows[0]["report_path"], "/tmp/report.json")
 
     def test_contract_endpoint_freezes_phase2_local_api_surface(self):
         with tempfile.TemporaryDirectory() as tmpdir:
