@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -44,6 +45,27 @@ def _build_config(root: Path, *, host: str = "127.0.0.1", port: int = 8123) -> B
         jobs_dir=app_data.jobs_dir,
         log_file=app_data.logs_dir / "backend.log",
     )
+
+
+class FakePopen:
+    def __init__(self):
+        self.pid = 4242
+        self.terminated = False
+        self.killed = False
+
+    def poll(self):
+        return None
+
+    def terminate(self):
+        self.terminated = True
+
+    def kill(self):
+        self.killed = True
+
+    def wait(self, timeout=None):
+        if self.terminated and not self.killed:
+            raise subprocess.TimeoutExpired("backend", timeout)
+        return 0
 
 
 class BackendLifecycleTests(unittest.TestCase):
@@ -94,6 +116,14 @@ class BackendLifecycleTests(unittest.TestCase):
         with mock.patch("app_backend.lifecycle.os.kill", side_effect=OSError):
             _safe_terminate_pid(456)
 
+    def test_safe_terminate_pid_skips_process_when_metadata_does_not_match(self):
+        with mock.patch("app_backend.lifecycle._pid_matches_backend_command", return_value=False), mock.patch(
+            "app_backend.lifecycle.os.kill"
+        ) as mock_kill:
+            _safe_terminate_pid(123, expected_command_marker="scripts/run_backend.py")
+
+        mock_kill.assert_not_called()
+
     def test_get_backend_state_returns_none_for_invalid_state(self):
         with mock.patch("app_backend.lifecycle.read_backend_state", return_value=[]):
             self.assertIsNone(get_backend_state())
@@ -108,7 +138,7 @@ class BackendLifecycleTests(unittest.TestCase):
         ) as mock_clear:
             self.assertIsNone(get_backend_state(log_dir="reports", app_data_dir="/tmp/app", cache_dir="/tmp/cache"))
 
-        mock_terminate.assert_called_once_with(99)
+        mock_terminate.assert_called_once_with(99, expected_command_marker="scripts/run_backend.py")
         mock_clear.assert_called_once_with("reports", app_data_dir="/tmp/app", cache_dir="/tmp/cache")
 
     def test_get_backend_state_returns_healthy_state(self):
@@ -210,6 +240,35 @@ class BackendLifecycleTests(unittest.TestCase):
 
         mock_popen.assert_called_once()
         mock_sleep.assert_called_once_with(0.2)
+
+    def test_ensure_local_backend_cleans_spawned_process_after_timeout(self):
+        fake_process = FakePopen()
+        with tempfile.TemporaryDirectory() as root_dir:
+            config = _build_config(Path(root_dir).resolve(), port=9004)
+            with mock.patch("app_backend.lifecycle.get_backend_state", return_value=None), mock.patch(
+                "app_backend.lifecycle.build_backend_runtime_config",
+                return_value=config,
+            ), mock.patch(
+                "app_backend.lifecycle._backend_command",
+                return_value=["python", "scripts/run_backend.py"],
+            ), mock.patch(
+                "app_backend.lifecycle.subprocess.Popen",
+                return_value=fake_process,
+            ), mock.patch(
+                "app_backend.lifecycle.read_backend_state",
+                return_value={"base_url": config.base_url},
+            ), mock.patch(
+                "app_backend.lifecycle.is_backend_healthy",
+                return_value=False,
+            ), mock.patch(
+                "app_backend.lifecycle.time.time",
+                side_effect=[100.0, 100.2],
+            ), mock.patch("app_backend.lifecycle.time.sleep"):
+                with self.assertRaisesRegex(RuntimeError, "did not become ready"):
+                    ensure_local_backend(startup_timeout_sec=0.1)
+
+        self.assertTrue(fake_process.terminated)
+        self.assertTrue(fake_process.killed)
 
 
 if __name__ == "__main__":

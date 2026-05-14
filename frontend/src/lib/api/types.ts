@@ -239,19 +239,19 @@ export interface HistoryRow {
   learning_language: string;
   theme: string;
   task_family: string;
-  overall: unknown;
-  wpm: unknown;
+  overall: number | null;
+  wpm: number | null;
   report_path: string;
-  requires_human_review: unknown;
-  duration_pass: unknown;
-  topic_pass: unknown;
-  language_pass: unknown;
-  min_words_pass: unknown;
+  requires_human_review: boolean;
+  duration_pass: boolean;
+  topic_pass: boolean;
+  language_pass: boolean;
+  min_words_pass: boolean;
   top_priorities: string[];
   grammar_error_categories: string[];
   coherence_issue_categories: string[];
-  final_score: unknown;
-  band: unknown;
+  final_score: number | null;
+  band: string;
 }
 
 export interface HistoryResponse {

@@ -5,6 +5,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 from app_backend.config import build_backend_runtime_config
 from app_backend.contracts import SupportBundleCreateRequest
@@ -17,6 +18,15 @@ from app_backend.support_bundle import (
 
 
 class SupportBundleTests(unittest.TestCase):
+    def test_support_bundle_path_rejects_path_traversal_ids(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8773)
+
+            for bundle_id in ("../escape", "bundle_123/escape", "/tmp/bundle_123", "bundle_123.zip"):
+                with self.subTest(bundle_id=bundle_id):
+                    with self.assertRaises(ValueError):
+                        support_bundle_path(config, bundle_id)
+
     def test_storage_summary_counts_known_app_data_areas(self):
         with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
             config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8771)
@@ -158,6 +168,68 @@ class SupportBundleTests(unittest.TestCase):
                 self.assertEqual(manifest["redaction"]["secret_ref_policy"], "full_redaction")
                 self.assertGreaterEqual(manifest["redaction"]["removed_secret_refs"], 4)
                 self.assertGreaterEqual(manifest["redaction"]["redacted_secret_values"], 5)
+
+    def test_create_support_bundle_skips_unreadable_text_file(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8774)
+            notes = config.app_data.reports_dir / "notes.txt"
+            notes.parent.mkdir(parents=True, exist_ok=True)
+            notes.write_text("secret text", encoding="utf-8")
+            original_read_text = Path.read_text
+
+            def flaky_read_text(path, *args, **kwargs):
+                if path == notes:
+                    raise OSError("unreadable")
+                return original_read_text(path, *args, **kwargs)
+
+            with mock.patch.object(Path, "read_text", autospec=True, side_effect=flaky_read_text):
+                response = create_support_bundle(
+                    config,
+                    SupportBundleCreateRequest(include_reports=True, client_snapshot={}, client_diagnostics=[]),
+                )
+
+        self.assertTrue(response.bundle_id.startswith("bundle_"))
+
+    def test_create_support_bundle_skips_bad_optional_binary_file(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8775)
+            recording = config.app_data.recordings_dir / "sample.wav"
+            recording.parent.mkdir(parents=True, exist_ok=True)
+            recording.write_bytes(b"fake-recording")
+            original_write = zipfile.ZipFile.write
+
+            def flaky_write(archive, filename, *args, **kwargs):
+                if Path(filename) == recording:
+                    raise OSError("bad file")
+                return original_write(archive, filename, *args, **kwargs)
+
+            with mock.patch.object(zipfile.ZipFile, "write", autospec=True, side_effect=flaky_write):
+                response = create_support_bundle(
+                    config,
+                    SupportBundleCreateRequest(include_recordings=True, client_snapshot={}, client_diagnostics=[]),
+                )
+
+        self.assertTrue(response.bundle_id.startswith("bundle_"))
+
+    def test_create_support_bundle_skips_symlinked_files(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8776)
+            outside = Path(cache_dir).resolve() / "outside-secret.txt"
+            outside.write_text("do not bundle", encoding="utf-8")
+            link = config.app_data.reports_dir / "linked.txt"
+            link.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                link.symlink_to(outside)
+            except OSError:
+                self.skipTest("symlinks are not available")
+
+            response = create_support_bundle(
+                config,
+                SupportBundleCreateRequest(include_reports=True, client_snapshot={}, client_diagnostics=[]),
+            )
+
+            with zipfile.ZipFile(support_bundle_path(config, response.bundle_id)) as archive:
+                self.assertNotIn("reports/linked.txt", archive.namelist())
 
 
 if __name__ == "__main__":

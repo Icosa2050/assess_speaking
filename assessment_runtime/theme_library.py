@@ -3,18 +3,50 @@
 from __future__ import annotations
 
 import json
+import logging
 from copy import deepcopy
 from pathlib import Path
 
 _SESSION_SETUP_CONTENT_PATH = Path(__file__).with_name("data") / "session_setup_content.json"
+logger = logging.getLogger(__name__)
+_REQUIRED_SESSION_SETUP_KEYS = ("default_theme_library", "practice_brief_templates")
+_FALLBACK_SESSION_SETUP_CONTENT = {
+    "default_theme_library": {
+        "en": {"label": "English", "themes": []},
+        "it": {"label": "Italiano", "themes": []},
+    },
+    "practice_brief_templates": {
+        "en": {
+            "travel_narrative": "Speak about '{theme}' in a clear sequence.",
+            "personal_experience": "Explain '{theme}' as a personal experience.",
+            "opinion_monologue": "Give your opinion about '{theme}'.",
+            "free_monologue": "Speak in English about '{theme}'.",
+            "picture_description": "Describe '{theme}'.",
+            "default_duration_minutes": "Aim to speak for about {minutes} minutes.",
+            "default_duration_seconds": "Aim to speak for about {seconds} seconds.",
+            "success_focus": [],
+        }
+    },
+}
 
 
-def _load_session_setup_content() -> dict:
-    with _SESSION_SETUP_CONTENT_PATH.open(encoding="utf-8") as handle:
-        payload = json.load(handle)
+def _load_session_setup_content(path: Path = _SESSION_SETUP_CONTENT_PATH) -> dict:
+    try:
+        with path.open(encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (FileNotFoundError, json.JSONDecodeError, OSError) as exc:
+        logger.warning("Could not load session setup content from %s: %s", path, exc)
+        return deepcopy(_FALLBACK_SESSION_SETUP_CONTENT)
     if not isinstance(payload, dict):
-        raise ValueError("Session setup content must be a JSON object.")
-    return payload
+        logger.warning("Session setup content from %s is not a JSON object.", path)
+        return deepcopy(_FALLBACK_SESSION_SETUP_CONTENT)
+    normalized = deepcopy(_FALLBACK_SESSION_SETUP_CONTENT)
+    for key in _REQUIRED_SESSION_SETUP_KEYS:
+        if isinstance(payload.get(key), dict):
+            normalized[key] = payload[key]
+        else:
+            logger.warning("Session setup content from %s is missing key %s.", path, key)
+    return normalized
 
 
 _SESSION_SETUP_CONTENT = _load_session_setup_content()

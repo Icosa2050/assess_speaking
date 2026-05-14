@@ -25,6 +25,7 @@ from assessment_runtime.runner import AssessmentRunRequest, execute_assessment_r
 
 INCOMPLETE_JOB_STATUSES = {JobStatus.QUEUED.value, JobStatus.RUNNING.value}
 TERMINAL_JOB_STATUSES = {JobStatus.COMPLETED.value, JobStatus.FAILED.value, JobStatus.CANCELLED.value}
+TERMINAL_JOB_STATUSES_NORMALIZED = {status.lower() for status in TERMINAL_JOB_STATUSES}
 
 
 def _now_iso() -> str:
@@ -36,7 +37,11 @@ def _read_json(path: Path) -> dict[str, Any]:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
-    return payload if isinstance(payload, dict) else {}
+    if not isinstance(payload, dict):
+        return {}
+    if isinstance(payload.get("status"), str):
+        payload["status"] = payload["status"].strip().lower()
+    return payload
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -108,7 +113,7 @@ def prunable_job_metadata_files(
         return candidates
     for job_file in jobs_dir.glob("*.json"):
         payload = _read_json(job_file)
-        if str(payload.get("status") or "").strip().lower() not in TERMINAL_JOB_STATUSES:
+        if str(payload.get("status") or "").strip().lower() not in TERMINAL_JOB_STATUSES_NORMALIZED:
             continue
         anchor = _job_retention_anchor(payload, job_file)
         if anchor is not None and anchor <= cutoff:
@@ -373,6 +378,9 @@ class JobManager:
             process.terminate()
             process.join(timeout=1.0)
         payload = _read_json(_job_file(self._config.jobs_dir, assessment_id))
+        if str(payload.get("status") or "").strip().lower() in TERMINAL_JOB_STATUSES_NORMALIZED:
+            self._processes.pop(assessment_id, None)
+            return self.get_status(assessment_id)
         payload.update(
             {
                 "status": JobStatus.CANCELLED.value,

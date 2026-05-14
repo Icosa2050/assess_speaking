@@ -59,13 +59,45 @@ def is_backend_healthy(base_url: str, *, timeout_sec: float = 1.0) -> bool:
         return False
 
 
-def _safe_terminate_pid(pid: int) -> None:
+def _pid_matches_backend_command(pid: int, expected_command_marker: str) -> bool:
+    if not expected_command_marker:
+        return True
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=1.0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0 and expected_command_marker in result.stdout
+
+
+def _safe_terminate_pid(pid: int, *, expected_command_marker: str = "") -> None:
     if pid <= 0:
+        return
+    if not _pid_matches_backend_command(pid, expected_command_marker):
         return
     try:
         os.kill(pid, signal.SIGTERM)
     except OSError:
         return
+
+
+def _terminate_spawned_backend(process: subprocess.Popen) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        process.terminate()
+        process.wait(timeout=1.0)
+    except (OSError, subprocess.TimeoutExpired):
+        try:
+            process.kill()
+            process.wait(timeout=1.0)
+        except (OSError, subprocess.TimeoutExpired):
+            return
 
 
 def _runtime_metadata_payload(
@@ -122,7 +154,7 @@ def get_backend_state(
             cache_dir=cache_dir,
         )
     pid = int(state.get("pid") or 0)
-    _safe_terminate_pid(pid)
+    _safe_terminate_pid(pid, expected_command_marker="scripts/run_backend.py")
     clear_backend_state(log_dir, app_data_dir=app_data_dir, cache_dir=cache_dir)
     return None
 
@@ -159,7 +191,7 @@ def ensure_local_backend(
         env[APP_DATA_HOME_ENV_VAR] = str(app_data_dir)
     if cache_dir is not None and str(cache_dir).strip():
         env[APP_CACHE_HOME_ENV_VAR] = str(cache_dir)
-    subprocess.Popen(
+    process = subprocess.Popen(
         command,
         cwd=str(PROJECT_ROOT),
         env=env,
@@ -182,8 +214,9 @@ def ensure_local_backend(
                     log_dir=log_dir,
                     app_data_dir=app_data_dir,
                     cache_dir=cache_dir,
-                )
+        )
         time.sleep(0.2)
+    _terminate_spawned_backend(process)
     raise RuntimeError("The local backend did not become ready in time.")
 
 

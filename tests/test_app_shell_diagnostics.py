@@ -175,11 +175,24 @@ class StartupDiagnosticsTests(unittest.TestCase):
     ):
         mock_model_availability.return_value = {"cached": True, "cached_path": "/tmp/whisper-cache"}
         with tempfile.TemporaryDirectory() as tmpdir:
-            state = AppShellState(prefs=AppPreferences(log_dir=tmpdir))
-            diagnostics = collect_startup_diagnostics(state, include_runtime_health=False)
+            paths = _build_paths(Path(tmpdir).resolve())
+            for directory in (
+                paths.root,
+                paths.reports_dir,
+                paths.jobs_dir,
+                paths.logs_dir,
+                paths.temp_dir,
+                paths.cache_root,
+                paths.whisper_cache_dir,
+            ):
+                directory.mkdir(parents=True, exist_ok=True)
+            state = AppShellState(prefs=AppPreferences(log_dir=str(paths.reports_dir)))
+            with mock.patch("app_shell.diagnostics.bootstrap_app_environment", return_value=paths):
+                diagnostics = collect_startup_diagnostics(state, include_runtime_health=False)
 
         by_key = {item.key: item for item in diagnostics}
         self.assertEqual(by_key["app_data"].status, "error")
+        self.assertEqual(by_key["app_data"].detail_args["path"], str(paths.temp_dir))
 
     @mock.patch("app_shell.diagnostics.describe_model_availability")
     @mock.patch("app_shell.diagnostics.shutil.which", return_value="/opt/homebrew/bin/ffmpeg")
@@ -310,6 +323,7 @@ class StartupDiagnosticsTests(unittest.TestCase):
                 )
 
         by_key = {item.key: item for item in diagnostics}
+        self.assertEqual(by_key["app_data"].detail_args["path"], str(paths.temp_dir))
         self.assertEqual(by_key["maintenance_tmp"].status, "warning")
         self.assertEqual(by_key["maintenance_jobs"].status, "warning")
         self.assertEqual(by_key["maintenance_logs"].status, "warning")

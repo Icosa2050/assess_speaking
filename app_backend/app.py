@@ -75,7 +75,7 @@ from app_shell.services import (
     test_runtime_connection,
     whisper_model_status,
 )
-from app_shell.secret_store import delete_secret
+from app_shell.secret_store import delete_secret, get_secret
 from app_shell.state import build_default_state
 from app_shell.bootstrap import PROJECT_ROOT, bootstrap_app_environment
 
@@ -138,9 +138,15 @@ def _serialize_diagnostics(state, *, include_runtime_health: bool = False) -> Di
     )
 
 
+def _saved_connection_api_key(connection) -> str:
+    secret_ref = str(getattr(connection, "secret_ref", "") or "").strip()
+    if not secret_ref:
+        return ""
+    return str(get_secret(secret_ref) or "").strip()
+
+
 def _connection_secret_state(connection) -> ConnectionSecretState:
-    runtime_state = resolve_connection_runtime(connection)
-    if runtime_state.api_key:
+    if _saved_connection_api_key(connection):
         return ConnectionSecretState.PRESENT
     if str(connection.auth_mode or "").strip().lower() == "bearer" or requires_api_key(connection.provider_kind):
         return ConnectionSecretState.MISSING
@@ -148,9 +154,9 @@ def _connection_secret_state(connection) -> ConnectionSecretState:
 
 
 def _serialize_connection(connection) -> RuntimeSettingsConnection:
-    runtime_state = resolve_connection_runtime(connection)
     provider_choice = provider_choice_for_connection(connection)
     metadata = dict(connection.provider_metadata or {})
+    saved_api_key = _saved_connection_api_key(connection)
     return RuntimeSettingsConnection(
         connection_id=connection.connection_id,
         provider_key=normalize_provider(connection.provider_kind),
@@ -162,7 +168,7 @@ def _serialize_connection(connection) -> RuntimeSettingsConnection:
         is_default=bool(connection.is_default),
         is_local=bool(connection.is_local),
         requires_api_key=requires_api_key(connection.provider_kind),
-        has_api_key=bool(runtime_state.api_key),
+        has_api_key=bool(saved_api_key),
         secret_state=_connection_secret_state(connection),
         last_test_status=connection.last_test_status,
         last_tested_at=connection.last_tested_at,
@@ -227,8 +233,7 @@ def _save_runtime_settings(state, request: RuntimeSettingsSaveRequest):
     if should_drop_existing_secret:
         delete_secret(existing_secret_ref)
     elif preserve_existing_secret and existing_connection is not None:
-        existing_runtime = resolve_connection_runtime(existing_connection)
-        api_key = str(existing_runtime.api_key or "").strip()
+        api_key = _saved_connection_api_key(existing_connection)
 
     connection = build_provider_connection(
         provider_choice=provider_choice,
@@ -483,7 +488,10 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
 
     @app.get("/v1/support-bundles/{bundle_id}", tags=[LOCAL_SUPPORT_TAG])
     def download_support_bundle(bundle_id: str) -> FileResponse:
-        bundle_path = support_bundle_path(runtime_config, bundle_id)
+        try:
+            bundle_path = support_bundle_path(runtime_config, bundle_id)
+        except ValueError as exc:
+            raise _http_error(400, ErrorCode.VALIDATION, str(exc)) from exc
         if not bundle_path.exists():
             raise _http_error(404, ErrorCode.VALIDATION, f"Support bundle {bundle_id} does not exist.")
         return FileResponse(bundle_path, media_type="application/zip", filename=bundle_path.name)

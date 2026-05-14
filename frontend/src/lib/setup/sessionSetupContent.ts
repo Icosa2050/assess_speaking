@@ -1,6 +1,6 @@
 import sharedContent from "../../../../assessment_runtime/data/session_setup_content.json";
 
-import type { CefrLevel, DurationOption, TaskFamily } from "@/lib/state/sessionDraft";
+import { TASK_FAMILY_OPTIONS, type CefrLevel, type DurationOption, type TaskFamily } from "@/lib/state/sessionDraft";
 
 export interface ThemeEntry {
   title: string;
@@ -43,13 +43,39 @@ interface PracticeBriefTemplateGroup {
   success_focus: string[];
 }
 
-interface SessionSetupContent {
+export interface SessionSetupContent {
   default_theme_library: ThemeLibrary;
   practice_brief_templates: Record<string, PracticeBriefTemplateGroup>;
 }
 
 const STORAGE_KEY = "assess-speaking.session-setup.theme-library";
-const content = sharedContent as SessionSetupContent;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+export const isValidTaskFamily = (value: string): value is TaskFamily =>
+  TASK_FAMILY_OPTIONS.includes(value as TaskFamily);
+
+export const parseSessionSetupContent = (raw: unknown): SessionSetupContent => {
+  if (!isRecord(raw)) {
+    throw new Error("Session setup content must be an object.");
+  }
+
+  if (!isRecord(raw.default_theme_library)) {
+    throw new Error("Session setup content is missing default_theme_library.");
+  }
+
+  if (!isRecord(raw.practice_brief_templates)) {
+    throw new Error("Session setup content is missing practice_brief_templates.");
+  }
+
+  return {
+    default_theme_library: raw.default_theme_library as ThemeLibrary,
+    practice_brief_templates: raw.practice_brief_templates as Record<string, PracticeBriefTemplateGroup>,
+  };
+};
+
+const content = parseSessionSetupContent(sharedContent);
 
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
@@ -85,10 +111,11 @@ export const normalizeThemeLibrary = (library: unknown): ThemeLibrary => {
         continue;
       }
 
+      const taskFamily = String(theme.task_family || "free_monologue").trim();
       const entry: ThemeEntry = {
         title,
         level: String(theme.level || "B1").trim().toUpperCase(),
-        task_family: String(theme.task_family || "free_monologue").trim() as TaskFamily,
+        task_family: isValidTaskFamily(taskFamily) ? taskFamily : "free_monologue",
       };
 
       if (

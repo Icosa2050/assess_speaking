@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 import json
+import logging
 import platform
 from pathlib import Path
 import re
@@ -23,6 +24,8 @@ SUPPORT_BUNDLE_RETENTION_HOURS = 24
 RECENT_JOB_LIMIT = 20
 APP_VERSION = "0.1.0"
 REDACTED_VALUE = "[redacted]"
+BUNDLE_ID_PATTERN = re.compile(r"^bundle_[A-Za-z0-9]+$")
+logger = logging.getLogger(__name__)
 _SECRET_VALUE_FIELD_TOKENS = (
     "api_key",
     "authorization",
@@ -58,7 +61,7 @@ class RedactionStats:
 def _iter_files(root: Path) -> list[Path]:
     if not root.exists():
         return []
-    return [path for path in root.rglob("*") if path.is_file()]
+    return [path for path in root.rglob("*") if not path.is_symlink() and path.is_file()]
 
 
 def _storage_area_summary(path: Path) -> StorageAreaSummary:
@@ -95,7 +98,13 @@ def support_bundle_dir(runtime_config: BackendRuntimeConfig) -> Path:
 
 
 def support_bundle_path(runtime_config: BackendRuntimeConfig, bundle_id: str) -> Path:
-    return support_bundle_dir(runtime_config) / f"{bundle_id}.zip"
+    candidate = str(bundle_id or "").strip()
+    if not BUNDLE_ID_PATTERN.fullmatch(candidate):
+        raise ValueError("Invalid support bundle id.")
+    bundle_root = support_bundle_dir(runtime_config).resolve()
+    bundle_path = (bundle_root / f"{candidate}.zip").resolve()
+    bundle_path.relative_to(bundle_root)
+    return bundle_path
 
 
 def _looks_like_secret_value_field(key: str) -> bool:
@@ -226,7 +235,11 @@ def _add_text_file_to_archive(
     source: Path,
     stats: RedactionStats,
 ) -> None:
-    content = source.read_text(encoding="utf-8")
+    try:
+        content = source.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        logger.warning("Skipping support bundle text file %s: %s", source, exc)
+        return
     archive.writestr(entry_name, _sanitize_text(content, stats))
 
 
@@ -251,7 +264,10 @@ def _add_optional_tree(
             else:
                 _add_text_file_to_archive(archive, entry_name=entry_name, source=path, stats=stats)
             continue
-        archive.write(path, arcname=entry_name)
+        try:
+            archive.write(path, arcname=entry_name)
+        except OSError as exc:
+            logger.warning("Skipping support bundle file %s: %s", path, exc)
 
 
 def create_support_bundle(

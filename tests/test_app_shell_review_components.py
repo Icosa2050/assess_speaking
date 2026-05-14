@@ -40,6 +40,39 @@ class ReviewComponentsTests(unittest.TestCase):
         self.assertIn(t("review.status_done"), message)
         self.assertIn(t("review.warning_codes.llm_unavailable"), message)
 
+    def test_report_status_summary_promotes_warning_without_comparing_translated_text(self):
+        translations = {
+            "review.status_done": "Fertig",
+            "review.status_short_done": "Erledigt",
+            "review.status_short_unstable": "Prüfen",
+            "review.warnings": "Warnung: {value}",
+            "review.warning_codes.llm_unavailable": "LLM nicht verfügbar",
+        }
+
+        with patch("app_shell.review_components.t", side_effect=lambda key, **kwargs: translations.get(key, key).format(**kwargs)):
+            status = review_components.report_status_summary({"warnings": ["llm_unavailable"]})
+
+        self.assertEqual(status.level, "warning")
+        self.assertEqual(status.short_label, "Prüfen")
+
+    def test_report_status_summary_keeps_review_label_when_translations_collide(self):
+        translations = {
+            "review.status_review": "Prüfung nötig",
+            "review.status_short_review": "Erledigt",
+            "review.status_short_done": "Erledigt",
+            "review.status_short_unstable": "Prüfen",
+            "review.warnings": "Warnung: {value}",
+            "review.warning_codes.llm_unavailable": "LLM nicht verfügbar",
+        }
+
+        with patch("app_shell.review_components.t", side_effect=lambda key, **kwargs: translations.get(key, key).format(**kwargs)):
+            status = review_components.report_status_summary(
+                {"requires_human_review": True, "warnings": ["llm_unavailable"]}
+            )
+
+        self.assertEqual(status.level, "warning")
+        self.assertEqual(status.short_label, "Erledigt")
+
     def test_answer_helpers_prioritize_score_and_next_action(self):
         self.assertEqual(
             review_components._answer_result_text({"score_overall": 4.25, "band": "B2"}),

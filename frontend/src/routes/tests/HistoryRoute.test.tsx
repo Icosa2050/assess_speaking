@@ -57,7 +57,7 @@ const historyRows = [
     grammar_error_categories: ["preposition_choice"],
     coherence_issue_categories: ["missing_sequence_markers"],
     final_score: 3.6,
-    band: 4,
+    band: "4",
   },
   {
     timestamp: "2026-04-21T09:00:00Z",
@@ -78,7 +78,7 @@ const historyRows = [
     grammar_error_categories: ["preposition_choice"],
     coherence_issue_categories: ["missing_sequence_markers"],
     final_score: 4.0,
-    band: 4,
+    band: "4",
   },
   {
     timestamp: "2026-04-22T09:00:00Z",
@@ -99,7 +99,7 @@ const historyRows = [
     grammar_error_categories: ["verb_tense"],
     coherence_issue_categories: ["weak_closing"],
     final_score: 3.7,
-    band: 4,
+    band: "4",
   },
   {
     timestamp: "2026-04-23T09:00:00Z",
@@ -120,7 +120,7 @@ const historyRows = [
     grammar_error_categories: ["article_choice"],
     coherence_issue_categories: ["weak_closing"],
     final_score: 4.2,
-    band: 5,
+    band: "5",
   },
 ];
 

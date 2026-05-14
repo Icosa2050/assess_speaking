@@ -128,17 +128,27 @@ def execute_cleanup(
     now: datetime | None = None,
 ) -> MaintenanceCleanupResponse:
     candidates = cleanup_candidates(runtime_config, target, now=now)
-    freed_bytes = sum(path.stat().st_size for path in candidates if path.exists())
-    if not dry_run:
-        for path in candidates:
-            try:
-                path.unlink()
-            except OSError:
-                continue
+    deleted_file_count = 0
+    freed_bytes = 0
+    for path in candidates:
+        try:
+            size_bytes = path.stat().st_size
+        except OSError:
+            continue
+        if dry_run:
+            deleted_file_count += 1
+            freed_bytes += size_bytes
+            continue
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        deleted_file_count += 1
+        freed_bytes += size_bytes
     return MaintenanceCleanupResponse(
         target=target,
         dry_run=dry_run,
-        deleted_file_count=len(candidates),
+        deleted_file_count=deleted_file_count,
         freed_bytes=freed_bytes,
         warnings=[],
     )

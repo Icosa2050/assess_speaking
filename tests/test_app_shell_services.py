@@ -1,3 +1,5 @@
+import hashlib
+import io
 import os
 import tempfile
 import unittest
@@ -42,6 +44,13 @@ class _FakeUpload:
 
     def getvalue(self) -> bytes:
         return self._data
+
+
+class _ReadOnlyUpload:
+    name = "attempt.wav"
+
+    def read(self) -> bytes:
+        return b"audio"
 
 
 class AppShellServiceTests(unittest.TestCase):
@@ -704,6 +713,17 @@ class AppShellServiceTests(unittest.TestCase):
             log_dir="/tmp/vostavo-support",
         )
 
+    def test_export_support_bundle_archive_rejects_missing_bundle_id(self):
+        state = AppShellState()
+        with tempfile.TemporaryDirectory() as tmpdir, mock.patch(
+            "app_shell.services.create_support_bundle_archive",
+            return_value=mock.Mock(bundle_id=""),
+        ), mock.patch("app_shell.services.backend_client.download_support_bundle") as download:
+            with self.assertRaisesRegex(RuntimeError, "Support bundle could not be created"):
+                export_support_bundle_archive(state, destination=tmpdir)
+
+        download.assert_not_called()
+
     def test_set_default_provider_connection_promotes_requested_connection(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             state = AppShellState(
@@ -935,6 +955,28 @@ class AppShellServiceTests(unittest.TestCase):
             path, digest = store_uploaded_audio(_FakeUpload(b"abc", "sample.wav"), target_dir=tmpdir)
             self.assertTrue(Path(path).exists())
             self.assertTrue(digest)
+
+    def test_store_uploaded_audio_accepts_plain_file_like_read(self):
+        uploaded = _ReadOnlyUpload()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path, digest = store_uploaded_audio(uploaded, target_dir=tmpdir)
+
+        self.assertIsNotNone(path)
+        self.assertEqual(digest, hashlib.sha1(b"audio").hexdigest())
+
+    def test_store_uploaded_audio_accepts_plain_bytes_io(self):
+        uploaded = io.BytesIO(b"audio")
+        uploaded.name = "attempt.wav"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path, digest = store_uploaded_audio(uploaded, target_dir=tmpdir)
+
+        self.assertIsNotNone(path)
+        self.assertEqual(digest, hashlib.sha1(b"audio").hexdigest())
+
+    def test_store_uploaded_audio_rejects_objects_without_byte_reader(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaisesRegex(TypeError, "Uploaded file"):
+                store_uploaded_audio(object(), target_dir=tmpdir)
 
     def test_create_assessment_request_keeps_feedback_language(self):
         request = create_assessment_request(

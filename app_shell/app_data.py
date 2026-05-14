@@ -50,10 +50,10 @@ def _legacy_platform_data_home() -> Path:
 
 
 def _legacy_platform_cache_home() -> Path:
+    if os.name == "nt":
+        return Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local"))
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Caches"
-    if os.name == "nt":
-        return Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")) / "Cache"
     return Path(os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache"))
 
 
@@ -131,7 +131,7 @@ def resolve_cache_root(root: str | Path | None = None) -> Path:
     if env_override is not None:
         return env_override
     if _env_override(APP_DATA_HOME_ENV_VAR, LEGACY_APP_DATA_HOME_ENV_VAR) is not None:
-        return _default_cache_root()
+        return resolve_app_data_root() / "cache"
     env_override = _env_override(LEGACY_APP_CACHE_HOME_ENV_VAR)
     if env_override is not None:
         return env_override

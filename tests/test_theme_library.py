@@ -6,6 +6,26 @@ from assessment_runtime import theme_library
 
 
 class ThemeLibraryTests(unittest.TestCase):
+    def test_load_session_setup_content_falls_back_when_file_is_missing(self):
+        missing = Path("/tmp/does-not-exist/session_setup_content.json")
+
+        payload = theme_library._load_session_setup_content(path=missing)
+
+        self.assertIn("default_theme_library", payload)
+        self.assertIn("practice_brief_templates", payload)
+        self.assertIn("en", payload["practice_brief_templates"])
+
+    def test_load_session_setup_content_fills_missing_required_keys(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "session_setup_content.json"
+            path.write_text('{"default_theme_library": {}}', encoding="utf-8")
+
+            payload = theme_library._load_session_setup_content(path=path)
+
+        self.assertEqual(payload["default_theme_library"], {})
+        self.assertIn("practice_brief_templates", payload)
+        self.assertIn("en", payload["practice_brief_templates"])
+
     def test_load_theme_library_falls_back_to_defaults(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             library = theme_library.load_theme_library(Path(tmpdir))

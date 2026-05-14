@@ -39,6 +39,7 @@ type JsonRequestOptions = ClientOptions & {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const LONG_RUNNING_TIMEOUT_MS = 30_000;
+const pathSegment = (value: string): string => encodeURIComponent(value);
 
 const isErrorCode = (value: string): value is ErrorCode =>
   [
@@ -215,28 +216,28 @@ export const createApiClient = (baseUrl = resolveLocalDesktopApiBaseUrl()) => ({
 
   postRuntimeSettingsSetDefault: (connectionId: string, options?: ClientOptions) =>
     requestJson<RuntimeSettingsResponse>(
-      `/v1/runtime/settings/connections/${connectionId}/default`,
+      `/v1/runtime/settings/connections/${pathSegment(connectionId)}/default`,
       { method: "POST" },
       { ...options, baseUrl, timeoutMs: options?.timeoutMs ?? LONG_RUNNING_TIMEOUT_MS },
     ),
 
   deleteRuntimeSettingsConnection: (connectionId: string, options?: ClientOptions) =>
     requestJson<RuntimeSettingsResponse>(
-      `/v1/runtime/settings/connections/${connectionId}`,
+      `/v1/runtime/settings/connections/${pathSegment(connectionId)}`,
       { method: "DELETE" },
       { ...options, baseUrl, timeoutMs: options?.timeoutMs ?? LONG_RUNNING_TIMEOUT_MS },
     ),
 
   getWhisperModelStatus: (modelSize: string, options?: ClientOptions) =>
     requestJson<WhisperModelStatusResponse>(
-      `/v1/runtime/whisper-models/${modelSize}`,
+      `/v1/runtime/whisper-models/${pathSegment(modelSize)}`,
       { method: "GET" },
       { ...options, baseUrl },
     ),
 
   postWhisperModelDownload: (modelSize: string, options?: ClientOptions) =>
     requestJson<WhisperModelStatusResponse>(
-      `/v1/runtime/whisper-models/${modelSize}/download`,
+      `/v1/runtime/whisper-models/${pathSegment(modelSize)}/download`,
       { method: "POST" },
       {
         ...options,
@@ -281,14 +282,14 @@ export const createApiClient = (baseUrl = resolveLocalDesktopApiBaseUrl()) => ({
 
   getAssessmentStatus: (assessmentId: string, options?: ClientOptions) =>
     requestJson<AssessmentStatusResponse>(
-      `/v1/assessments/${assessmentId}`,
+      `/v1/assessments/${pathSegment(assessmentId)}`,
       { method: "GET" },
       { ...options, baseUrl },
     ),
 
   cancelAssessment: (assessmentId: string, options?: ClientOptions) =>
     requestJson<AssessmentStatusResponse>(
-      `/v1/assessments/${assessmentId}/cancel`,
+      `/v1/assessments/${pathSegment(assessmentId)}/cancel`,
       { method: "POST" },
       { ...options, baseUrl },
     ),
@@ -298,7 +299,7 @@ export const createApiClient = (baseUrl = resolveLocalDesktopApiBaseUrl()) => ({
 
   getHistoryDetail: (sessionId: string, options?: ClientOptions) =>
     requestJson<HistoryDetailResponse>(
-      `/v1/history/${sessionId}`,
+      `/v1/history/${pathSegment(sessionId)}`,
       { method: "GET" },
       { ...options, baseUrl },
     ),
@@ -349,7 +350,7 @@ export const createApiClient = (baseUrl = resolveLocalDesktopApiBaseUrl()) => ({
 
   downloadSupportBundle: (bundleId: string, options?: ClientOptions) =>
     requestBlob(
-      `/v1/support-bundles/${bundleId}`,
+      `/v1/support-bundles/${pathSegment(bundleId)}`,
       { method: "GET" },
       {
         ...options,

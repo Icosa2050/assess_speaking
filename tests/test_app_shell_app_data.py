@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from app_shell import app_data
 from app_shell.app_data import (
     APP_AUTHOR,
     APP_CACHE_HOME_ENV_VAR,
@@ -92,17 +93,24 @@ class AppDataTests(unittest.TestCase):
         ):
             self.assertEqual(resolve_app_data_root(), Path(tmpdir).resolve())
 
-    def test_resolve_cache_root_ignores_legacy_cache_when_new_home_is_set(self):
-        with tempfile.TemporaryDirectory() as data_home, tempfile.TemporaryDirectory() as legacy_cache:
-            with mock.patch.dict(
-                os.environ,
-                {
-                    APP_DATA_HOME_ENV_VAR: data_home,
-                    LEGACY_APP_CACHE_HOME_ENV_VAR: legacy_cache,
-                },
-                clear=True,
-            ), mock.patch("app_shell.app_data._default_cache_root", return_value=Path("/tmp/cache-home/frommherz_it/Vostavo/Cache").resolve()):
-                self.assertEqual(resolve_cache_root(), Path("/tmp/cache-home/frommherz_it/Vostavo/Cache").resolve())
+    def test_resolve_cache_root_uses_custom_app_data_home_when_cache_home_is_absent(self):
+        with tempfile.TemporaryDirectory() as data_home, mock.patch.dict(
+            os.environ,
+            {APP_DATA_HOME_ENV_VAR: data_home},
+            clear=True,
+        ):
+            self.assertEqual(resolve_cache_root(), Path(data_home).resolve() / "cache")
+
+    def test_legacy_windows_cache_home_does_not_append_cache_segment(self):
+        with mock.patch("app_shell.app_data.os.name", "nt"), mock.patch.dict(
+            os.environ,
+            {"LOCALAPPDATA": "C:/Users/test/AppData/Local"},
+            clear=True,
+        ):
+            self.assertEqual(
+                app_data._legacy_platform_cache_home(),
+                Path("C:/Users/test/AppData/Local"),
+            )
 
     def test_resolve_app_data_root_prefers_initialized_legacy_root_over_empty_new_root(self):
         with tempfile.TemporaryDirectory() as base_dir:

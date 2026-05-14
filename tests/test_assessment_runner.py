@@ -126,6 +126,39 @@ class AssessmentRunnerTests(unittest.TestCase):
 
     @mock.patch("assess_speaking.build_progress_delta", return_value=None)
     @mock.patch("assess_speaking.run_assessment")
+    def test_execute_assessment_run_pads_short_priority_lists(self, mock_run_assessment, _mock_progress):
+        payload = _assessment_payload()
+        payload["report"]["coaching"]["top_3_priorities"] = ["Use clearer connectors"]
+        mock_run_assessment.return_value = payload
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            audio_path = Path(tmpdir) / "sample.wav"
+            audio_path.write_bytes(b"fake-audio")
+            result = execute_assessment_run(
+                AssessmentRunRequest(
+                    audio=audio_path,
+                    whisper_model="tiny",
+                    llm_model="demo",
+                    provider="openrouter",
+                    target_cefr="B1",
+                    theme="Travel",
+                    task_family="free_monologue",
+                    speaker_id="speaker",
+                    target_duration_sec=60,
+                    expected_language="en",
+                    language_profile_key="en",
+                    feedback_language="en",
+                    dry_run=True,
+                    log_dir=Path(tmpdir),
+                )
+            )
+
+            self.assertIsNotNone(result.report_path)
+            history = (Path(tmpdir) / "history.csv").read_text(encoding="utf-8")
+            self.assertIn("Use clearer connectors", history)
+
+    @mock.patch("assess_speaking.build_progress_delta", return_value=None)
+    @mock.patch("assess_speaking.run_assessment")
     def test_execute_assessment_run_forwards_status_callback(self, mock_run_assessment, _mock_progress):
         events: list[str] = []
 

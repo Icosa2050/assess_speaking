@@ -176,6 +176,7 @@ def save_provider_connection(
     api_key: str = "",
     persist_draft: bool = False,
 ) -> SecretStoreStatus:
+    provided_api_key = str(api_key or "").strip()
     existing = list(getattr(state.prefs, "connections", []) or [])
     updated: list[ProviderConnection] = []
     replaced = False
@@ -200,8 +201,8 @@ def save_provider_connection(
         state.prefs.openrouter_app_title = str(
             connection.provider_metadata.get("app_title") or DEFAULT_OPENROUTER_APP_TITLE
         ).strip()
-    state.prefs.llm_api_key = str(api_key or state.prefs.llm_api_key or "").strip()
-    secret_status = _persist_connection_secret(connection, state.prefs.llm_api_key)
+    state.prefs.llm_api_key = provided_api_key
+    secret_status = _persist_connection_secret(connection, provided_api_key)
     save_state_preferences(state, persist_draft=persist_draft)
     return secret_status
 
@@ -568,8 +569,11 @@ def export_support_bundle_archive(
         include_uploads=include_uploads,
         include_runtime_health=include_runtime_health,
     )
+    bundle_id = str(getattr(created, "bundle_id", "") or "").strip()
+    if not bundle_id:
+        raise RuntimeError("Support bundle could not be created.")
     return backend_client.download_support_bundle(
-        created.bundle_id,
+        bundle_id,
         destination=destination,
         log_dir=getattr(state.prefs, "log_dir", "") or None,
     )
@@ -662,6 +666,7 @@ def hydrate_state_from_storage(state) -> Any:
 
 def save_state_preferences(state, *, persist_draft: bool = True) -> SecretStoreStatus:
     bootstrap_app_environment(log_dir=state.prefs.log_dir, whisper_cache_dir=state.prefs.whisper_cache_dir)
+    current_api_key = str(getattr(state.prefs, "llm_api_key", "") or "").strip()
     if state.prefs.connections:
         state.prefs.connections, state.prefs.active_connection_id = ensure_single_default_connection(
             list(state.prefs.connections or []),
@@ -669,7 +674,6 @@ def save_state_preferences(state, *, persist_draft: bool = True) -> SecretStoreS
         )
         sync_runtime_fields(state.prefs)
     active = active_connection(state.prefs)
-    current_api_key = str(getattr(state.prefs, "llm_api_key", "") or "").strip()
     if active is not None and current_api_key:
         secret_status = _persist_connection_secret(active, current_api_key)
     else:
@@ -1146,6 +1150,18 @@ def execute_assessment_request(request: dict[str, Any]) -> tuple[dict | None, st
     return None, "Assessment timed out before the local backend finished."
 
 
+def _uploaded_file_bytes(uploaded_file) -> bytes:
+    if hasattr(uploaded_file, "getvalue"):
+        return bytes(uploaded_file.getvalue())
+    if hasattr(uploaded_file, "getbuffer"):
+        return bytes(uploaded_file.getbuffer())
+    if hasattr(uploaded_file, "read"):
+        data = uploaded_file.read()
+        if isinstance(data, bytes):
+            return data
+    raise TypeError("Uploaded file must provide bytes via getvalue(), getbuffer(), or read().")
+
+
 def store_uploaded_audio(
     uploaded_file,
     *,
@@ -1154,11 +1170,8 @@ def store_uploaded_audio(
     previous_digest: str = "",
     previous_path: str = "",
 ) -> tuple[Path | None, str]:
-    if hasattr(uploaded_file, "getvalue"):
-        data = uploaded_file.getvalue()
-    else:
-        data = uploaded_file.getbuffer()
-    digest = hashlib.sha1(bytes(data)).hexdigest()
+    data = _uploaded_file_bytes(uploaded_file)
+    digest = hashlib.sha1(data).hexdigest()
     if digest == previous_digest and previous_path and Path(previous_path).exists():
         return Path(previous_path), digest
     suffix = Path(filename or getattr(uploaded_file, "name", "") or "audio.wav").suffix or ".wav"

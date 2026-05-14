@@ -53,14 +53,14 @@ def _app_data_writable_diagnostic(paths) -> StartupDiagnostic:
             status="error",
             title_key="diagnostics.app_data_title",
             detail_key="diagnostics.app_data_error_detail",
-            detail_args={"path": str(paths.reports_dir), "detail": str(exc)},
+            detail_args={"path": str(paths.temp_dir), "detail": str(exc)},
         )
     return StartupDiagnostic(
         key="app_data",
         status="ok",
         title_key="diagnostics.app_data_title",
         detail_key="diagnostics.app_data_ok_detail",
-        detail_args={"path": str(paths.reports_dir)},
+        detail_args={"path": str(paths.temp_dir)},
     )
 
 

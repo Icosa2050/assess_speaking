@@ -1,11 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import logging
+import os
 from typing import Any
 
 from app_shell.runtime_providers import normalize_provider, runtime_base_url
 from app_shell.secret_store import get_secret
 from app_shell.state import DEFAULT_MODEL, DEFAULT_OPENROUTER_APP_TITLE, DEFAULT_OPENROUTER_HTTP_REFERER, AppPreferences, ProviderConnection
+
+logger = logging.getLogger(__name__)
+_PROVIDER_API_KEY_ENV_NAMES = {
+    "openrouter": ("OPENROUTER_API_KEY", "LLM_API_KEY"),
+    "ollama": ("OLLAMA_API_KEY", "LLM_API_KEY"),
+    "lmstudio": ("LLM_API_KEY",),
+    "openai_compatible": ("LLM_API_KEY",),
+}
 
 
 @dataclass
@@ -21,12 +31,21 @@ class RuntimeConfig:
     provider_metadata: dict[str, Any] = field(default_factory=dict)
 
 
-def _connection_api_key(connection: ProviderConnection) -> str:
+def _provider_env_api_key(provider: str) -> str:
+    for name in _PROVIDER_API_KEY_ENV_NAMES.get(provider, ("LLM_API_KEY",)):
+        value = str(os.environ.get(name) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _connection_api_key(connection: ProviderConnection, provider: str) -> str:
     if connection.secret_ref:
         secret = get_secret(connection.secret_ref)
         if secret:
             return secret
-    return ""
+        logger.warning("Saved secret %s is unavailable; checking provider environment variables.", connection.secret_ref)
+    return _provider_env_api_key(provider)
 
 
 def active_connection(prefs: AppPreferences) -> ProviderConnection | None:
@@ -50,7 +69,7 @@ def resolve_connection_runtime(connection: ProviderConnection) -> RuntimeConfig:
         provider=provider,
         model=str(connection.default_model or DEFAULT_MODEL),
         base_url=runtime_base_url(provider, connection.base_url),
-        api_key=_connection_api_key(connection),
+        api_key=_connection_api_key(connection, provider),
         connection_id=str(connection.connection_id or ""),
         label=str(connection.label or ""),
         is_local=bool(connection.is_local),

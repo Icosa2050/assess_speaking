@@ -367,7 +367,7 @@ class BackendApiTests(unittest.TestCase):
                 log_dir=reports_dir,
                 app_data_dir=app_data_dir,
                 cache_dir=cache_dir,
-                port=8774,
+                port=8775,
             )
             keyring = FakeKeyringModule()
             keyring_status = secret_store.SecretStoreStatus(
@@ -467,6 +467,83 @@ class BackendApiTests(unittest.TestCase):
                     self.assertEqual(changed_url_payload["secret_state"], "missing")
                     self.assertFalse(changed_url_payload["has_api_key"])
                     self.assertNotIn((secret_store.SERVICE_NAME, base_url_changed.secret_ref), keyring.secrets)
+
+    def test_runtime_settings_does_not_persist_environment_fallback_as_saved_secret(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app_data_dir = Path(tmpdir) / "app-data"
+            cache_dir = Path(tmpdir) / "cache"
+            reports_dir = app_data_dir / "reports"
+            config = build_backend_runtime_config(
+                log_dir=reports_dir,
+                app_data_dir=app_data_dir,
+                cache_dir=cache_dir,
+                port=8774,
+            )
+            keyring = FakeKeyringModule()
+            keyring_status = secret_store.SecretStoreStatus(
+                persistent=True,
+                backend_name="mock-keyring",
+            )
+
+            with mock.patch("app_shell.secret_store._load_keyring_module", return_value=(keyring, keyring_status)):
+                bootstrap_app_environment(
+                    log_dir=config.app_data.reports_dir,
+                    app_data_dir=config.app_data.root,
+                    cache_dir=config.app_data.cache_root,
+                    whisper_cache_dir=config.app_data.whisper_cache_dir,
+                )
+                state = AppShellState(prefs=AppPreferences())
+                state.prefs.log_dir = str(config.app_data.reports_dir)
+                state.prefs.whisper_cache_dir = str(config.app_data.whisper_cache_dir)
+
+                connection = build_provider_connection(
+                    provider_choice="openrouter",
+                    label="Cloud source",
+                    model="google/gemini-3.1-pro-preview",
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key="saved-key",
+                    openrouter_http_referer="https://example.test/app",
+                    openrouter_app_title="Vostavo Desktop",
+                )
+                save_provider_connection(state, connection, api_key="saved-key", persist_draft=False)
+                keyring.secrets.pop((secret_store.SERVICE_NAME, connection.secret_ref), None)
+                persist_runtime_settings_seed(config, state)
+
+                with mock.patch.dict(
+                    os.environ,
+                    {
+                        "APP_SHELL_SKIP_BOOTSTRAP": "0",
+                        "OPENROUTER_API_KEY": "env-only-key",
+                        "LLM_API_KEY": "",
+                    },
+                    clear=False,
+                ), TestClient(create_app(config)) as client:
+                    response = client.put(
+                        "/v1/runtime/settings",
+                        json={
+                            "ui_locale": "en",
+                            "whisper_model": "large-v3",
+                            "clear_saved_secret": False,
+                            "connection": {
+                                "connection_id": connection.connection_id,
+                                "provider_choice": "openrouter",
+                                "label": "Cloud source",
+                                "model": "google/gemini-3.1-pro-preview",
+                                "base_url": "https://openrouter.ai/api/v1",
+                                "api_key": "",
+                                "openrouter_http_referer": "https://example.test/app",
+                                "openrouter_app_title": "Vostavo Desktop",
+                            },
+                        },
+                    )
+
+                self.assertEqual(response.status_code, 200)
+                updated = next(
+                    item for item in response.json()["connections"] if item["connection_id"] == connection.connection_id
+                )
+                self.assertEqual(updated["secret_state"], "missing")
+                self.assertFalse(updated["has_api_key"])
+                self.assertNotIn((secret_store.SERVICE_NAME, connection.secret_ref), keyring.secrets)
 
     def test_runtime_test_connection_and_whisper_endpoints_return_local_runtime_payloads(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -719,6 +796,14 @@ class BackendApiTests(unittest.TestCase):
 
                 missing = client.get("/v1/support-bundles/bundle_missing")
                 self.assertEqual(missing.status_code, 404)
+
+                invalid = client.get("/v1/support-bundles/bundle_123.zip")
+                self.assertEqual(invalid.status_code, 400)
+                self.assertEqual(invalid.json()["detail"]["code"], "validation_error")
+
+                traversal = client.get("/v1/support-bundles/..%2Fescape")
+                self.assertIn(traversal.status_code, {400, 404})
+                self.assertIsInstance(traversal.json(), dict)
 
             bundle_path = config.app_data.temp_dir / "support-bundles" / f"{bundle_id}.zip"
             self.assertTrue(bundle_path.exists())

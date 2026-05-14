@@ -8,8 +8,8 @@ import app_shell.services as shell_services
 from app_shell.i18n import t
 from app_shell.page_helpers import describe_whisper_download_event, go_to, render_shell_summary, resolve_page_title_locale
 from app_shell.runtime_providers import default_connection_label, default_setup_base_url
-from app_shell.runtime_resolver import active_connection, resolve_connection_runtime
-from app_shell.secret_store import delete_secret, secret_store_status
+from app_shell.runtime_resolver import active_connection
+from app_shell.secret_store import delete_secret, get_secret, secret_store_status
 from app_shell.services import (
     DEFAULT_WHISPER_OPTIONS,
     build_provider_connection,
@@ -335,8 +335,12 @@ with st.container(border=True):
     )
     current_provider_choice = _default_provider_choice(current_connection, state.prefs.provider) if current_connection is not None else ""
     same_provider_as_existing = current_connection is not None and provider_choice == current_provider_choice
-    existing_runtime = resolve_connection_runtime(current_connection) if same_provider_as_existing and current_connection is not None else None
-    existing_secret_available = bool(existing_runtime and existing_runtime.api_key)
+    existing_api_key = (
+        str(get_secret(current_connection.secret_ref) or "").strip()
+        if same_provider_as_existing and current_connection is not None and current_connection.secret_ref
+        else ""
+    )
+    existing_secret_available = bool(existing_api_key)
     existing_secret_missing = bool(
         current_connection is not None and same_provider_as_existing and current_connection.secret_ref and not existing_secret_available
     )
@@ -470,8 +474,8 @@ with st.container(border=True):
         )
     api_key_value = str(api_key or "").strip()
     effective_api_key = "" if clear_secret_requested else api_key_value
-    if not effective_api_key and same_provider_as_existing and not clear_secret_requested and existing_runtime is not None:
-        effective_api_key = str(existing_runtime.api_key or "").strip()
+    if not effective_api_key and same_provider_as_existing and not clear_secret_requested:
+        effective_api_key = existing_api_key
     if clear_secret_requested:
         st.warning(t("runtime_setup.secret_clear_pending"))
     elif existing_secret_available:

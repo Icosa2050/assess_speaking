@@ -61,7 +61,7 @@ class RuntimeResolverTests(unittest.TestCase):
         self.assertEqual(prefs.openrouter_app_title, "Vostavo")
 
     @mock.patch("app_shell.runtime_resolver.get_secret", return_value="")
-    def test_resolve_runtime_config_ignores_environment_fallback(self, _mock_get_secret):
+    def test_resolve_runtime_config_uses_provider_environment_fallback(self, _mock_get_secret):
         prefs = AppPreferences(
             connections=[
                 ProviderConnection(
@@ -76,10 +76,10 @@ class RuntimeResolverTests(unittest.TestCase):
             ],
             active_connection_id="conn-3",
         )
-        with mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": "env-key"}, clear=False):
+        with mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": "env-key", "LLM_API_KEY": ""}, clear=False):
             runtime = resolve_runtime_config(prefs)
 
-        self.assertEqual(runtime.api_key, "")
+        self.assertEqual(runtime.api_key, "env-key")
 
 
 if __name__ == "__main__":

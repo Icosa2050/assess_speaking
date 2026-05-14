@@ -80,6 +80,7 @@ def _localized_warning_messages(summary: dict) -> list[str]:
 def report_status_summary(summary: dict) -> ReportStatusSummary:
     failed_gates = summary.get("failed_gates") or []
     warning_messages = _localized_warning_messages(summary)
+    is_done = not summary.get("requires_human_review") and not failed_gates
     if summary.get("requires_human_review"):
         level = "warning"
         messages = [t("review.status_review")]
@@ -96,7 +97,7 @@ def report_status_summary(summary: dict) -> ReportStatusSummary:
     if warning_messages:
         level = "warning"
         messages.append(t("review.warnings", value=" ".join(warning_messages)))
-        if short_label == t("review.status_short_done"):
+        if is_done:
             short_label = t("review.status_short_unstable")
     return ReportStatusSummary(level=level, message=" ".join(messages), short_label=short_label)
 

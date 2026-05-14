@@ -252,6 +252,32 @@ class BackendConfigTests(unittest.TestCase):
             self.assertTrue(recording_file.exists())
             self.assertTrue(upload_file.exists())
 
+    def test_execute_cleanup_counts_only_successful_non_dry_run_deletes(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8765)
+            deleted = config.app_data.temp_dir / "deleted.tmp"
+            locked = config.app_data.temp_dir / "locked.tmp"
+            vanished = config.app_data.temp_dir / "vanished.tmp"
+            deleted.parent.mkdir(parents=True, exist_ok=True)
+            deleted.write_text("gone", encoding="utf-8")
+            locked.write_text("stay", encoding="utf-8")
+
+            original_unlink = Path.unlink
+
+            def flaky_unlink(path):
+                if path == locked:
+                    raise OSError("locked")
+                return original_unlink(path)
+
+            with mock.patch(
+                "app_backend.maintenance.cleanup_candidates",
+                return_value=[deleted, locked, vanished],
+            ), mock.patch.object(Path, "unlink", autospec=True, side_effect=flaky_unlink):
+                result = execute_cleanup(config, CleanupTarget.TMP, dry_run=False)
+
+        self.assertEqual(result.deleted_file_count, 1)
+        self.assertEqual(result.freed_bytes, 4)
+
 
 if __name__ == "__main__":
     unittest.main()
