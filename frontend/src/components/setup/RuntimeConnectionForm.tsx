@@ -11,6 +11,9 @@ type RuntimeConnectionFormState =
   | "test-succeeded"
   | "test-failed"
   | "saving"
+  | "default-failed"
+  | "delete-failed"
+  | "save-failed"
   | "saved";
 
 type RuntimeConnectionFormVariant = "runtime-setup" | "settings";
@@ -102,7 +105,12 @@ const formStateColor = (state: RuntimeConnectionFormState): string => {
   if (state === "saved" || state === "test-succeeded") {
     return "#166534";
   }
-  if (state === "test-failed") {
+  if (
+    state === "test-failed" ||
+    state === "save-failed" ||
+    state === "default-failed" ||
+    state === "delete-failed"
+  ) {
     return "#b42318";
   }
   if (state === "testing" || state === "saving" || state === "editing") {

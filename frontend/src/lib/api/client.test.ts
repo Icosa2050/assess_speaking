@@ -84,4 +84,21 @@ describe("api client", () => {
       expect.any(Object),
     );
   });
+
+  it("clears request timeout when an external signal is already aborted", async () => {
+    const client = createApiClient("http://localhost:8771");
+    const controller = new AbortController();
+    controller.abort();
+    const clearTimeoutSpy = vi.spyOn(window, "clearTimeout");
+
+    await client.getHealth({ signal: controller.signal, timeoutMs: 1234 });
+
+    expect(clearTimeoutSpy).toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8771/v1/health",
+      expect.objectContaining({
+        signal: expect.objectContaining({ aborted: true }),
+      }),
+    );
+  });
 });

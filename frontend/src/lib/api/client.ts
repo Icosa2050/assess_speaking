@@ -59,14 +59,6 @@ const mergeSignals = (signal: AbortSignal | undefined, timeoutMs: number): Abort
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
 
-  if (signal) {
-    if (signal.aborted) {
-      controller.abort();
-    } else {
-      signal.addEventListener("abort", () => controller.abort(), { once: true });
-    }
-  }
-
   controller.signal.addEventListener(
     "abort",
     () => {
@@ -74,6 +66,14 @@ const mergeSignals = (signal: AbortSignal | undefined, timeoutMs: number): Abort
     },
     { once: true },
   );
+
+  if (signal) {
+    if (signal.aborted) {
+      controller.abort();
+    } else {
+      signal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
+  }
 
   return controller.signal;
 };

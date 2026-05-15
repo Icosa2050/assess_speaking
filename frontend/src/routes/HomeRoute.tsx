@@ -9,6 +9,8 @@ import { queryKeys } from "@/lib/query/queryClient";
 import { selectRuntimeReadiness, useAppStore } from "@/lib/state/appStore";
 import { hasReviewState, hasSetupDraft } from "@/lib/state/sessionDraft";
 
+import styles from "./HomeRoute.module.css";
+
 const cardStyle = {
   display: "grid",
   gap: "0.875rem",
@@ -17,34 +19,6 @@ const cardStyle = {
   borderRadius: "8px",
   backgroundColor: "rgba(255, 255, 255, 0.94)",
   boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
-} as const;
-
-const actionRowStyle = {
-  display: "flex",
-  flexWrap: "wrap",
-  gap: "0.75rem",
-} as const;
-
-const primaryButtonStyle = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  minHeight: "44px",
-  padding: "0.75rem 1rem",
-  borderRadius: "8px",
-  border: "1px solid rgba(15, 118, 110, 0.2)",
-  backgroundColor: "#d7ebe5",
-  color: "#10201c",
-  fontWeight: 600,
-  font: "inherit",
-  cursor: "pointer",
-  textDecoration: "none",
-} as const;
-
-const secondaryButtonStyle = {
-  ...primaryButtonStyle,
-  backgroundColor: "rgba(255, 255, 255, 0.95)",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
 } as const;
 
 const diagnosticsListStyle = {
@@ -143,11 +117,11 @@ export const HomeRoute = () => {
           >
             {translate("home.runtime_setup_body")}
           </p>
-          <div style={actionRowStyle}>
+          <div className={styles.actionRow}>
             <button
               type="button"
               onClick={() => navigate("/runtime-setup")}
-              style={primaryButtonStyle}
+              className={`${styles.action} ${styles.primaryAction}`}
               {...semanticAttributes(SEMANTIC_IDS.home.runtimeSetupButton)}
             >
               {translate("home.runtime_setup_button")}
@@ -174,11 +148,11 @@ export const HomeRoute = () => {
           >
             {translate("home.primary_body")}
           </p>
-          <div style={actionRowStyle}>
+          <div className={styles.actionRow}>
             <button
               type="button"
               onClick={handleStartNew}
-              style={primaryButtonStyle}
+              className={`${styles.action} ${styles.primaryAction}`}
               {...semanticAttributes(SEMANTIC_IDS.home.startNew)}
             >
               {translate("home.start_new")}
@@ -187,11 +161,7 @@ export const HomeRoute = () => {
               type="button"
               onClick={handleResume}
               disabled={resumeDisabled}
-              style={{
-                ...secondaryButtonStyle,
-                cursor: resumeDisabled ? "not-allowed" : "pointer",
-                opacity: resumeDisabled ? 0.55 : 1,
-              }}
+              className={`${styles.action} ${styles.secondaryAction} ${resumeDisabled ? styles.disabledAction : ""}`}
               {...semanticAttributes(SEMANTIC_IDS.home.resume)}
             >
               {translate("home.resume")}
@@ -274,24 +244,24 @@ export const HomeRoute = () => {
         >
           {translate("home.secondary_body")}
         </p>
-        <div style={actionRowStyle}>
+        <div className={styles.actionRow}>
           <Link
             to="/history"
-            style={secondaryButtonStyle}
+            className={`${styles.action} ${styles.secondaryAction}`}
             {...semanticAttributes(SEMANTIC_IDS.home.openHistory)}
           >
             {translate("nav.history")}
           </Link>
           <Link
             to="/library"
-            style={secondaryButtonStyle}
+            className={`${styles.action} ${styles.secondaryAction}`}
             {...semanticAttributes(SEMANTIC_IDS.home.openLibrary)}
           >
             {translate("nav.library")}
           </Link>
           <Link
             to="/guide"
-            style={secondaryButtonStyle}
+            className={`${styles.action} ${styles.secondaryAction}`}
             {...semanticAttributes(SEMANTIC_IDS.home.openGuide)}
           >
             {translate("nav.guide")}
@@ -299,7 +269,7 @@ export const HomeRoute = () => {
           <Link
             to="/settings"
             state={{ from: "home" }}
-            style={secondaryButtonStyle}
+            className={`${styles.action} ${styles.secondaryAction}`}
             {...semanticAttributes(SEMANTIC_IDS.home.openSettings)}
           >
             {translate("nav.settings")}

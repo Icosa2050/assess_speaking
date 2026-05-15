@@ -34,6 +34,8 @@ _SECRET_VALUE_FIELD_TOKENS = (
     "token",
 )
 _SECRET_REF_FIELD = "secret_ref"
+_TEXT_LIKE_SUFFIXES = {".json", ".log", ".txt", ".csv"}
+_SAFE_BINARY_SUFFIXES = {".aiff", ".flac", ".jpeg", ".jpg", ".m4a", ".mp3", ".mp4", ".png", ".wav"}
 _TEXT_REDACTION_PATTERNS = (
     (
         re.compile(r'(?im)("?(?:llm_api_key|openrouter_api_key|ollama_api_key|api_key|authorization|password|token)"?\s*[:=]\s*")([^"\n]*)(")'),
@@ -50,11 +52,13 @@ _TEXT_REDACTION_PATTERNS = (
 class RedactionStats:
     removed_secret_refs: int = 0
     redacted_secret_values: int = 0
+    skipped_unsupported_binaries: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {
             "removed_secret_refs": self.removed_secret_refs,
             "redacted_secret_values": self.redacted_secret_values,
+            "skipped_unsupported_binaries": self.skipped_unsupported_binaries,
         }
 
 
@@ -257,12 +261,17 @@ def _add_optional_tree(
 ) -> None:
     for path in _iter_files(root):
         entry_name = _relative_entry(root, path, folder_name=folder_name)
-        if path.suffix.lower() in {".json", ".log", ".txt", ".csv"}:
+        suffix = path.suffix.lower()
+        if suffix in _TEXT_LIKE_SUFFIXES:
             payload = _read_json(path)
             if payload is not None:
                 _add_json_file_to_archive(archive, entry_name=entry_name, payload=payload, stats=stats)
             else:
                 _add_text_file_to_archive(archive, entry_name=entry_name, source=path, stats=stats)
+            continue
+        if suffix not in _SAFE_BINARY_SUFFIXES:
+            stats.skipped_unsupported_binaries += 1
+            logger.warning("Skipping unsupported support bundle binary file %s.", path)
             continue
         try:
             archive.write(path, arcname=entry_name)

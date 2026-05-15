@@ -18,7 +18,7 @@ class _FakeResponse:
         content: bytes = b"",
         headers: dict[str, str] | None = None,
     ) -> None:
-        self._payload = payload or {}
+        self._payload = {} if payload is None else payload
         self.content = content
         self.headers = headers or {}
 
@@ -143,6 +143,54 @@ class BackendClientTests(unittest.TestCase):
         self.assertEqual(cleanup.freed_bytes, 4)
         self.assertEqual(bundle.filename, "bundle_123.zip")
         self.assertEqual(request.call_count, 11)
+
+    def test_backend_path_segments_are_percent_encoded(self):
+        captured: list[str] = []
+
+        def fake_request(method: str, url: str, **kwargs):
+            captured.append(url)
+            if url.endswith("/cancel"):
+                payload = {"assessment_id": "asmt/1 ?", "status": "cancelled", "phase": "cancelled", "progress": 1.0}
+            elif "/history/" in url:
+                payload = {"payload": {"report": {"session_id": "sess/1 ?"}}}
+            elif "/support-bundles/" in url:
+                return httpx.Response(200, content=b"zip", request=httpx.Request(method, url))
+            else:
+                payload = {"assessment_id": "asmt/1 ?", "status": "running", "phase": "transcribing", "progress": 0.4}
+            return httpx.Response(200, json=payload, request=httpx.Request(method, url))
+
+        with tempfile.TemporaryDirectory() as tmpdir, mock.patch(
+            "app_shell.backend_client.backend_base_url",
+            return_value="http://backend.local",
+        ), mock.patch("app_shell.backend_client.httpx.request", side_effect=fake_request):
+            backend_client.get_assessment_status("asmt/1 ?")
+            backend_client.cancel_assessment("asmt/1 ?")
+            backend_client.load_history_detail("sess/1 ?")
+            backend_client.download_support_bundle("bundle/1 ?", destination=Path(tmpdir))
+
+        self.assertEqual(
+            captured,
+            [
+                "http://backend.local/v1/assessments/asmt%2F1%20%3F",
+                "http://backend.local/v1/assessments/asmt%2F1%20%3F/cancel",
+                "http://backend.local/v1/history/sess%2F1%20%3F",
+                "http://backend.local/v1/support-bundles/bundle%2F1%20%3F",
+            ],
+        )
+
+    def test_download_support_bundle_parses_encoded_content_disposition_filename(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            download_dir = Path(tmpdir)
+            response = _FakeResponse(
+                content=b"zip-bytes",
+                headers={"content-disposition": "attachment; filename*=UTF-8''support%20bundle.zip"},
+            )
+
+            with mock.patch("app_shell.backend_client._request", return_value=response):
+                downloaded = backend_client.download_support_bundle("bundle_123", destination=download_dir)
+
+            self.assertEqual(downloaded.name, "support bundle.zip")
+            self.assertEqual(downloaded.read_bytes(), b"zip-bytes")
 
     def test_load_history_detail_rejects_invalid_payload_shape(self):
         with mock.patch("app_shell.backend_client._request", return_value=_FakeResponse({"payload": []})):

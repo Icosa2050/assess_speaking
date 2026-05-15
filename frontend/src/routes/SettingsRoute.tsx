@@ -157,7 +157,15 @@ export const SettingsRoute = () => {
   const [selectedUiLocale, setSelectedUiLocale] = useState<UiLocale>(locale);
   const [selectedWhisperModel, setSelectedWhisperModel] = useState("small");
   const [formStatus, setFormStatus] = useState<
-    "idle" | "testing" | "test-succeeded" | "test-failed" | "saving" | "saved"
+    | "idle"
+    | "testing"
+    | "test-succeeded"
+    | "test-failed"
+    | "saving"
+    | "save-failed"
+    | "default-failed"
+    | "delete-failed"
+    | "saved"
   >("idle");
   const [formStatusMessage, setFormStatusMessage] = useState("");
   const [whisperMessage, setWhisperMessage] = useState("");
@@ -316,8 +324,8 @@ export const SettingsRoute = () => {
       await handleInvalidateRuntime();
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
-      setFormStatus("test-failed");
-      setFormStatusMessage(translate("settings.test_failed", { detail }));
+      setFormStatus("save-failed");
+      setFormStatusMessage(translate("settings.save_failed", { detail }));
     } finally {
       setIsBusy(false);
     }
@@ -354,6 +362,10 @@ export const SettingsRoute = () => {
       setSetupComplete(response.connections.length > 0);
       setSelectedConnectionId(connectionId);
       await handleInvalidateRuntime();
+    } catch (caught) {
+      const detail = caught instanceof Error ? caught.message : String(caught);
+      setFormStatus("default-failed");
+      setFormStatusMessage(translate("settings.default_failed", { detail }));
     } finally {
       setIsBusy(false);
     }
@@ -378,6 +390,10 @@ export const SettingsRoute = () => {
         nextConnectionId === "__new__" ? buildDefaultDraft(translate, "ollama_local") : null,
       );
       await handleInvalidateRuntime();
+    } catch (caught) {
+      const detail = caught instanceof Error ? caught.message : String(caught);
+      setFormStatus("delete-failed");
+      setFormStatusMessage(translate("settings.delete_failed", { detail }));
     } finally {
       setIsBusy(false);
     }

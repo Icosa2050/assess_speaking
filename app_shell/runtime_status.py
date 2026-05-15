@@ -9,12 +9,17 @@ from app_shell.runtime_resolver import RuntimeConfig
 TranslateFn = Callable[..., str]
 
 
+def _is_missing_translation(key: str, translated: str) -> bool:
+    return translated == f"[{key}]"
+
+
 def provider_display_name(provider: str, *, translate: TranslateFn = t) -> str:
     normalized_provider = normalize_provider(provider)
-    translated = translate(f"settings.provider_option_{normalized_provider}")
-    if not translated.startswith("["):
-        return translated
-    return default_connection_label(normalized_provider)
+    key = f"settings.provider_option_{normalized_provider}"
+    translated = translate(key)
+    if _is_missing_translation(key, translated):
+        return default_connection_label(normalized_provider)
+    return translated
 
 
 def job_status_message(status: str, runtime: RuntimeConfig | None = None, *, translate: TranslateFn = t) -> str:
@@ -23,15 +28,17 @@ def job_status_message(status: str, runtime: RuntimeConfig | None = None, *, tra
         provider = provider_display_name(runtime.provider, translate=translate)
         model = str(runtime.model or "").strip()
         if normalized_status == "queued" and provider and model:
-            translated = translate("speak.job_status_queued_provider", provider=provider, model=model)
-            if not translated.startswith("["):
+            key = "speak.job_status_queued_provider"
+            translated = translate(key, provider=provider, model=model)
+            if not _is_missing_translation(key, translated):
                 return translated
         if normalized_status == "running" and provider and model:
             key = "speak.job_status_running_local_provider" if runtime.is_local else "speak.job_status_running_remote_provider"
             translated = translate(key, provider=provider, model=model)
-            if not translated.startswith("["):
+            if not _is_missing_translation(key, translated):
                 return translated
-    translated = translate(f"speak.job_status_{normalized_status or 'unknown'}")
-    if translated.startswith("["):
+    key = f"speak.job_status_{normalized_status or 'unknown'}"
+    translated = translate(key)
+    if _is_missing_translation(key, translated):
         return translate("speak.job_status_unknown")
     return translated

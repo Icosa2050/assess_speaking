@@ -152,6 +152,10 @@ describe("Review route", () => {
     expect(screen.getByTestId("review-warning-item-0")).toHaveTextContent(
       "AI scoring was skipped because the response was too short.",
     );
+    expect(screen.getByText("Warnings")).toBeVisible();
+    expect(screen.getByTestId("review-failed-gates")).toHaveTextContent("Open validation checks");
+    expect(screen.getByText("Assessment result")).toBeVisible();
+    expect(screen.getByText("Validation")).toBeVisible();
     expect(screen.getByDisplayValue("Full transcript text")).toBeVisible();
   });
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 import hashlib
 import json
+import logging
 import multiprocessing
 import os
 from pathlib import Path
@@ -26,6 +27,8 @@ from assessment_runtime.runner import AssessmentRunRequest, execute_assessment_r
 INCOMPLETE_JOB_STATUSES = {JobStatus.QUEUED.value, JobStatus.RUNNING.value}
 TERMINAL_JOB_STATUSES = {JobStatus.COMPLETED.value, JobStatus.FAILED.value, JobStatus.CANCELLED.value}
 TERMINAL_JOB_STATUSES_NORMALIZED = {status.lower() for status in TERMINAL_JOB_STATUSES}
+
+logger = logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
@@ -51,6 +54,10 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 def _job_file(jobs_dir: Path, assessment_id: str) -> Path:
     return jobs_dir / f"{assessment_id}.json"
+
+
+def _sanitize_request_metadata(request_payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in request_payload.items() if key != "llm_api_key"}
 
 
 def _upload_meta_file(uploads_dir: Path, audio_id: str) -> Path:
@@ -305,6 +312,10 @@ class JobManager:
     def submit(self, request: AssessmentCreateRequest) -> AssessmentCreateResponse:
         assessment_id = f"asmt_{uuid4().hex}"
         audio_path = self._resolve_audio_path(request.audio_id)
+        worker_request = {
+            **request.model_dump(),
+            "log_dir": str(self._config.app_data.reports_dir),
+        }
         payload = {
             "assessment_id": assessment_id,
             "status": JobStatus.QUEUED.value,
@@ -315,17 +326,14 @@ class JobManager:
             "summary": None,
             "payload": None,
             "error": None,
-            "request": {
-                **request.model_dump(),
-                "log_dir": str(self._config.app_data.reports_dir),
-            },
+            "request": _sanitize_request_metadata(worker_request),
             "audio_path": str(audio_path.resolve()),
         }
         job_file = _job_file(self._config.jobs_dir, assessment_id)
         _write_json(job_file, payload)
         process = self._ctx.Process(
             target=_job_worker,
-            args=(str(job_file), payload["request"], str(audio_path.resolve())),
+            args=(str(job_file), worker_request, str(audio_path.resolve())),
         )
         process.start()
         self._processes[assessment_id] = process
@@ -403,6 +411,11 @@ class JobManager:
                 try:
                     os.kill(process.pid, signal.SIGTERM)
                 except OSError:
-                    pass
+                    logger.warning(
+                        "Could not terminate assessment worker %s for %s.",
+                        process.pid,
+                        assessment_id,
+                        exc_info=True,
+                    )
                 process.join(timeout=0.5)
             self._processes.pop(assessment_id, None)

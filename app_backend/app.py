@@ -258,13 +258,16 @@ def _find_history_payload(session_id: str, reports_dir: Path) -> dict[str, Any] 
     history_path = reports_dir / "history.csv"
     if not history_path.exists():
         return None
-    with history_path.open(newline="", encoding="utf-8") as handle:
-        for row in csv.DictReader(handle):
-            if str(row.get("session_id") or "").strip() != session_id:
-                continue
-            payload = load_report_payload(row.get("report_path") or "")
-            if payload is not None:
-                return payload
+    try:
+        with history_path.open(newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                if str(row.get("session_id") or "").strip() != session_id:
+                    continue
+                payload = load_report_payload(row.get("report_path") or "")
+                if payload is not None:
+                    return payload
+    except (OSError, UnicodeDecodeError, csv.Error):
+        return None
     return None
 
 

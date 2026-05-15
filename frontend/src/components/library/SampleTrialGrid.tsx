@@ -38,7 +38,7 @@ export const sampleTitleLabel = (sample: Pick<SampleItem, "title">): string => {
   }
   return title
     .split(/\s+/)
-    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1).toLowerCase()}`)
     .join(" ");
 };
 

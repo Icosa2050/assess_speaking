@@ -45,6 +45,16 @@ const semanticAttributes = (id: string): Record<string, string> => ({
   "data-semantic-id": id,
 });
 
+const SETUP_ERRORS_ID = "setup-errors";
+const SETUP_SPEAKER_ERROR_ID = "setup-error-speaker-id";
+const SETUP_THEME_ERROR_ID = "setup-error-theme";
+
+const isCefrLevel = (value: string): value is CefrLevel =>
+  (CEFR_LEVELS as readonly string[]).includes(value);
+
+const isDurationOption = (value: number): value is DurationOption =>
+  (DURATION_OPTIONS as readonly number[]).includes(value);
+
 export const ThemeForm = ({
   availableLanguages,
   availableThemes,
@@ -95,8 +105,17 @@ export const ThemeForm = ({
   selectedThemeTitle: string;
   speakerId: string;
   translate: Translate;
-}) => (
-  <section style={sectionStyle}>
+}) => {
+  const speakerError = translate("setup.error_speaker_id");
+  const themeError = translate("setup.error_theme");
+  const hasErrors = errors.length > 0;
+  const hasSpeakerError = errors.includes(speakerError);
+  const hasThemeError = errors.includes(themeError);
+  const describedBy = (fieldErrorId?: string): string | undefined =>
+    hasErrors ? [SETUP_ERRORS_ID, fieldErrorId].filter(Boolean).join(" ") : undefined;
+
+  return (
+    <section style={sectionStyle}>
     <h2
       style={{
         margin: 0,
@@ -118,6 +137,9 @@ export const ThemeForm = ({
 
     {errors.length > 0 ? (
       <ul
+        id={SETUP_ERRORS_ID}
+        role="alert"
+        aria-live="assertive"
         style={{
           margin: 0,
           paddingLeft: "1.125rem",
@@ -126,8 +148,19 @@ export const ThemeForm = ({
           gap: "0.375rem",
         }}
       >
-        {errors.map((error) => (
-          <li key={error}>{error}</li>
+        {errors.map((error, index) => (
+          <li
+            id={
+              error === speakerError
+                ? SETUP_SPEAKER_ERROR_ID
+                : error === themeError
+                  ? SETUP_THEME_ERROR_ID
+                  : `${SETUP_ERRORS_ID}-${index}`
+            }
+            key={`${error}-${index}`}
+          >
+            {error}
+          </li>
         ))}
       </ul>
     ) : null}
@@ -139,6 +172,8 @@ export const ThemeForm = ({
         type="text"
         value={speakerId}
         onChange={(event) => onSpeakerIdChange(event.currentTarget.value)}
+        aria-describedby={describedBy(hasSpeakerError ? SETUP_SPEAKER_ERROR_ID : undefined)}
+        aria-invalid={hasSpeakerError}
         style={controlStyle}
         {...semanticAttributes("setup.speaker_id")}
       />
@@ -166,7 +201,12 @@ export const ThemeForm = ({
       <select
         id="setup-cefr-level"
         value={selectedCefr}
-        onChange={(event) => onSelectedCefrChange(event.currentTarget.value as CefrLevel)}
+        onChange={(event) => {
+          const value = event.currentTarget.value;
+          if (isCefrLevel(value)) {
+            onSelectedCefrChange(value);
+          }
+        }}
         style={controlStyle}
         {...semanticAttributes("setup.cefr")}
       >
@@ -192,6 +232,8 @@ export const ThemeForm = ({
           onSelectedThemeModeChange("library");
           onSelectedThemeTitleChange(value);
         }}
+        aria-describedby={describedBy(hasThemeError ? SETUP_THEME_ERROR_ID : undefined)}
+        aria-invalid={hasThemeError}
         style={controlStyle}
         {...semanticAttributes("setup.theme")}
       >
@@ -212,6 +254,8 @@ export const ThemeForm = ({
         value={customTheme}
         disabled={!customThemeEnabled}
         onChange={(event) => onCustomThemeChange(event.currentTarget.value)}
+        aria-describedby={describedBy(hasThemeError ? SETUP_THEME_ERROR_ID : undefined)}
+        aria-invalid={hasThemeError && selectedThemeMode === "custom"}
         style={{
           ...controlStyle,
           opacity: customThemeEnabled ? 1 : 0.6,
@@ -246,7 +290,12 @@ export const ThemeForm = ({
       <select
         id="setup-duration"
         value={String(selectedDuration)}
-        onChange={(event) => onSelectedDurationChange(Number(event.currentTarget.value) as DurationOption)}
+        onChange={(event) => {
+          const value = Number(event.currentTarget.value);
+          if (isDurationOption(value)) {
+            onSelectedDurationChange(value);
+          }
+        }}
         style={controlStyle}
         {...semanticAttributes("setup.duration")}
       >
@@ -276,5 +325,6 @@ export const ThemeForm = ({
     >
       {translate("setup.continue")}
     </button>
-  </section>
-);
+    </section>
+  );
+};

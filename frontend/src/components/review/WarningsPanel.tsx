@@ -89,7 +89,7 @@ export const WarningsPanel = ({
 
       {warningItems.length > 0 ? (
         <div style={{ display: "grid", gap: "0.625rem" }}>
-          <strong style={{ color: "#6b4f00" }}>{translate("review.warnings", { value: "" }).replace(/: $/, "")}</strong>
+          <strong style={{ color: "#6b4f00" }}>{translate("review.warning_label")}</strong>
           <ul style={listStyle}>
             {warningItems.map((item, index) => (
               <li
@@ -107,7 +107,7 @@ export const WarningsPanel = ({
       {failedGates.length > 0 ? (
         <div style={{ display: "grid", gap: "0.625rem" }}>
           <strong style={{ color: "#6b4f00" }} data-testid="review-failed-gates" data-semantic-id="review-failed-gates">
-            {translate("review.answer_why_gates", { value: "" }).replace(/: $/, "")}
+            {translate("review.failed_gates_label")}
           </strong>
           <ul style={listStyle}>
             {failedGates.map((gateKey, index) => (

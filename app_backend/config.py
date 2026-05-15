@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import logging
 import socket
 from pathlib import Path
 import shutil
@@ -20,6 +21,8 @@ DEFAULT_SUPPORT_BUNDLE_RETENTION_HOURS = 24
 DEFAULT_JOB_METADATA_RETENTION_DAYS = 30
 DEFAULT_BACKEND_HOST = "127.0.0.1"
 DEFAULT_BACKEND_STARTUP_TIMEOUT_SEC = 15.0
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -73,6 +76,12 @@ def _migrate_legacy_jobs_dir(app_data: AppDataPaths) -> None:
             shutil.move(str(child), str(target))
         legacy_jobs_dir.rmdir()
     except OSError:
+        logger.warning(
+            "Could not migrate legacy backend job metadata from %s to %s.",
+            legacy_jobs_dir,
+            jobs_dir,
+            exc_info=True,
+        )
         return
 
 
@@ -160,4 +169,5 @@ def clear_backend_state(
     try:
         state_file.unlink()
     except OSError:
+        logger.warning("Could not clear backend state file %s.", state_file, exc_info=True)
         return

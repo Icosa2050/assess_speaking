@@ -29,7 +29,6 @@ except ImportError:  # pragma: no cover - handled by fallback initialization pat
 
 KNOWN_WHISPER_MODELS = ("tiny", "small", "medium", "large-v3")
 DEFAULT_ASR_PROVIDER = "faster_whisper"
-KNOWN_ASR_PROVIDERS = (DEFAULT_ASR_PROVIDER,)
 KNOWN_FILE_STRATEGIES = ("auto", "native", "chunked")
 DownloadProgressCallback = Callable[[dict[str, Any]], None]
 
@@ -142,6 +141,7 @@ _ASR_PROVIDERS: dict[str, ASRProvider] = {
     DEFAULT_ASR_PROVIDER: FasterWhisperASRProvider(),
     "faster_whisper_chunked": FasterWhisperChunkedASRProvider(),
 }
+KNOWN_ASR_PROVIDERS = tuple(_ASR_PROVIDERS)
 
 
 class _SilentTqdm(base_tqdm):

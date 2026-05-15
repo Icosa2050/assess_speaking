@@ -13,6 +13,7 @@ _REQUIRED_SESSION_SETUP_KEYS = ("default_theme_library", "practice_brief_templat
 _FALLBACK_SESSION_SETUP_CONTENT = {
     "default_theme_library": {
         "en": {"label": "English", "themes": []},
+        "de": {"label": "Deutsch", "themes": []},
         "it": {"label": "Italiano", "themes": []},
     },
     "practice_brief_templates": {

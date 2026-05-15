@@ -19,6 +19,36 @@ class FakeKeyringModule:
         self.secrets.pop((service, account), None)
 
 
+class FailingKeyringModule(FakeKeyringModule):
+    def __init__(
+        self,
+        initial: dict[tuple[str, str], str] | None = None,
+        *,
+        fail_get: bool = False,
+        fail_set: bool = False,
+        fail_delete: bool = False,
+    ) -> None:
+        super().__init__(initial)
+        self.fail_get = fail_get
+        self.fail_set = fail_set
+        self.fail_delete = fail_delete
+
+    def get_password(self, service: str, account: str) -> str | None:
+        if self.fail_get:
+            raise RuntimeError("get failed")
+        return super().get_password(service, account)
+
+    def set_password(self, service: str, account: str, value: str) -> None:
+        if self.fail_set:
+            raise RuntimeError("set failed")
+        super().set_password(service, account, value)
+
+    def delete_password(self, service: str, account: str) -> None:
+        if self.fail_delete:
+            raise RuntimeError("delete failed")
+        super().delete_password(service, account)
+
+
 class SecretStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         secret_store._SESSION_SECRETS.clear()
@@ -100,6 +130,53 @@ class SecretStoreTests(unittest.TestCase):
         self.assertFalse(status.persistent)
         self.assertEqual(secret_store.SessionSecretStore().get_secret(secret_store.SERVICE_NAME, "account-5"), "")
         self.assertEqual(secret_store.SessionSecretStore().get_secret(secret_store.LEGACY_SERVICE_NAME, "account-5"), "")
+
+    @mock.patch("app_shell.secret_store._load_keyring_module")
+    def test_get_secret_logs_keyring_read_failures(self, mock_load_keyring):
+        mock_load_keyring.return_value = (
+            FailingKeyringModule(fail_get=True),
+            secret_store.SecretStoreStatus(persistent=True, backend_name="mock-keyring"),
+        )
+
+        with self.assertLogs("app_shell.secret_store", level="WARNING") as logs:
+            self.assertEqual(secret_store.get_secret("account-6"), "")
+
+        self.assertIn("Could not read secret", "\n".join(logs.output))
+
+    @mock.patch("app_shell.secret_store._load_keyring_module")
+    def test_get_secret_logs_legacy_copy_failures_but_returns_legacy_secret(self, mock_load_keyring):
+        mock_load_keyring.return_value = (
+            FailingKeyringModule(
+                {(secret_store.LEGACY_SERVICE_NAME, "account-7"): "legacy-key"},
+                fail_set=True,
+            ),
+            secret_store.SecretStoreStatus(persistent=True, backend_name="mock-keyring"),
+        )
+
+        with self.assertLogs("app_shell.secret_store", level="WARNING") as logs:
+            self.assertEqual(secret_store.get_secret("account-7"), "legacy-key")
+
+        self.assertIn("Could not copy legacy secret", "\n".join(logs.output))
+
+    @mock.patch("app_shell.secret_store._load_keyring_module")
+    def test_delete_secret_logs_keyring_delete_failures(self, mock_load_keyring):
+        mock_load_keyring.return_value = (
+            FailingKeyringModule(fail_delete=True),
+            secret_store.SecretStoreStatus(persistent=True, backend_name="mock-keyring"),
+        )
+
+        with self.assertLogs("app_shell.secret_store", level="WARNING") as logs:
+            status = secret_store.delete_secret("account-8")
+
+        self.assertTrue(status.persistent)
+        self.assertIn("Could not delete secret", "\n".join(logs.output))
+
+    @mock.patch("app_shell.secret_store.KeyringSecretStore.delete_secret", side_effect=RuntimeError("wrapped failed"))
+    def test_delete_secret_logs_wrapper_delete_failures(self, _mock_delete_secret):
+        with self.assertLogs("app_shell.secret_store", level="WARNING") as logs:
+            secret_store.delete_secret("account-9")
+
+        self.assertIn("Could not clear stored secret", "\n".join(logs.output))
 
 
 if __name__ == "__main__":

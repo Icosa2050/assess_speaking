@@ -1,0 +1,46 @@
+.actionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(18, 61, 55, 0.12);
+  border-radius: 8px;
+  color: #10201c;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.action:hover:not(:disabled) {
+  border-color: rgba(15, 118, 110, 0.28);
+  background-color: rgba(239, 248, 245, 0.98);
+}
+
+.action:focus-visible {
+  outline: 3px solid rgba(15, 118, 110, 0.42);
+  outline-offset: 3px;
+}
+
+.primaryAction {
+  border-color: rgba(15, 118, 110, 0.2);
+  background-color: #d7ebe5;
+  cursor: pointer;
+}
+
+.secondaryAction {
+  background-color: rgba(255, 255, 255, 0.95);
+  cursor: pointer;
+}
+
+.disabledAction,
+.action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}

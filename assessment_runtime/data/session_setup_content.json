@@ -1,5 +1,55 @@
 {
   "default_theme_library": {
+    "de": {
+      "label": "Deutsch",
+      "themes": [
+        {
+          "title": "Meine letzte Reise ins Ausland",
+          "level": "B1",
+          "task_family": "travel_narrative"
+        },
+        {
+          "title": "Ein Fest oder Ereignis, das ich gut in Erinnerung habe",
+          "level": "B1",
+          "task_family": "personal_experience"
+        },
+        {
+          "title": "Ein typischer Tag in meinem Leben",
+          "level": "B1",
+          "task_family": "personal_experience"
+        },
+        {
+          "title": "Vor- und Nachteile von Arbeit im Homeoffice",
+          "level": "B2",
+          "task_family": "opinion_monologue"
+        },
+        {
+          "title": "Wie sich Reisegewohnheiten in den letzten Jahren veraendert haben",
+          "level": "B2",
+          "task_family": "opinion_monologue"
+        },
+        {
+          "title": "Eine Erfahrung, die mein Denken veraendert hat",
+          "level": "B2",
+          "task_family": "personal_experience"
+        },
+        {
+          "title": "Technologie und Lebensqualitaet im Alltag",
+          "level": "C1",
+          "task_family": "opinion_monologue"
+        },
+        {
+          "title": "Der Einfluss sozialer Medien auf oeffentliche Debatten",
+          "level": "C1",
+          "task_family": "opinion_monologue"
+        },
+        {
+          "title": "Wie man persoenliche Freiheit und gesellschaftliche Verantwortung ausbalanciert",
+          "level": "C1",
+          "task_family": "opinion_monologue"
+        }
+      ]
+    },
     "it": {
       "label": "Italiano",
       "themes": [

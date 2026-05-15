@@ -46,7 +46,7 @@ describe("Library and Guide routes", () => {
           sample_id: "en_B1_travel_story",
           language: "en",
           cefr: "B1",
-          title: "travel story",
+          title: "TRAVEL STORY",
           path: "/samples/cefr/en/B1/travel_story.wav",
         },
         {
@@ -110,6 +110,34 @@ describe("Library and Guide routes", () => {
       expect(store.getState().draft.themeId).toBe("en_B1_travel_story");
       expect(store.getState().draft.themeLabel).toBe("Travel Story");
     });
+  });
+
+  it("shows a loading state while shipped samples are loading", async () => {
+    mockedGetSamples.mockImplementationOnce(() => new Promise(() => undefined));
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/library"],
+      locale: "en",
+    });
+
+    expect(await screen.findByTestId("library-samples-loading")).toHaveTextContent(
+      "Loading shipped samples...",
+    );
+  });
+
+  it("shows a localized error when shipped samples cannot be loaded", async () => {
+    mockedGetSamples.mockRejectedValueOnce(
+      Object.assign(new Error("offline"), { responseStatus: 400 }),
+    );
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/library"],
+      locale: "en",
+    });
+
+    expect(await screen.findByTestId("library-samples-error")).toHaveTextContent(
+      "Shipped samples could not be loaded.",
+    );
   });
 
   it("renders the scoring guide sections from localized copy", async () => {

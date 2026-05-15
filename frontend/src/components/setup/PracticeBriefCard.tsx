@@ -16,6 +16,13 @@ const detailGridStyle = {
   gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
 } as const;
 
+const detailItemStyle = {
+  display: "grid",
+  gap: "0.25rem",
+  padding: "0.75rem 0",
+  borderTop: "1px solid rgba(18, 61, 55, 0.1)",
+} as const;
+
 const semanticAttributes = (id: string): Record<string, string> => ({
   "data-testid": id,
   "data-semantic-id": id,
@@ -60,7 +67,7 @@ export const PracticeBriefCard = ({
           fontWeight: 600,
         }}
       >
-        {resolvedThemeLabel || translate("setup.preview_title")}
+        {resolvedThemeLabel || translate("setup.no_theme_selected")}
       </p>
       {promptText ? (
         <>
@@ -95,8 +102,8 @@ export const PracticeBriefCard = ({
                 color: "#33514b",
               }}
             >
-              {successFocus.map((item) => (
-                <li key={item}>{item}</li>
+              {successFocus.map((item, index) => (
+                <li key={`${item}-${index}`}>{item}</li>
               ))}
             </ul>
           </div>
@@ -129,8 +136,8 @@ export const PracticeBriefCard = ({
         {translate("setup.selection_title")}
       </h2>
       <div style={detailGridStyle}>
-        {selectionDetails.map((detail) => (
-          <div key={detail.label} style={cardStyle}>
+        {selectionDetails.map((detail, index) => (
+          <div key={`${detail.label}-${index}`} style={detailItemStyle}>
             <strong
               style={{
                 color: "#33514b",

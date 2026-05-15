@@ -1,0 +1,173 @@
+.shell {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #eef4f2 0%, #f8fbfa 48%, #f3f6f5 100%);
+  color: #10201c;
+}
+
+.container {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.header {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  margin-bottom: 24px;
+}
+
+.brandBlock {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 2.6rem;
+  line-height: 1.05;
+}
+
+.body {
+  margin: 0;
+  max-width: 56ch;
+  line-height: 1.6;
+  color: #33514b;
+}
+
+.localePanel {
+  display: grid;
+  gap: 0.625rem;
+  justify-items: end;
+}
+
+.localeLabel {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #33514b;
+}
+
+.localeOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.localeButton {
+  padding: 0.55rem 0.85rem;
+  border: 1px solid rgba(18, 61, 55, 0.12);
+  border-radius: 8px;
+  background-color: rgba(255, 255, 255, 0.82);
+  color: #10201c;
+  cursor: pointer;
+  font: inherit;
+}
+
+.localeButton:hover {
+  border-color: rgba(15, 118, 110, 0.32);
+  background-color: rgba(239, 248, 245, 0.98);
+}
+
+.localeButton:focus-visible,
+.navLink:focus-visible {
+  outline: 3px solid rgba(15, 118, 110, 0.42);
+  outline-offset: 3px;
+}
+
+.localeButtonActive {
+  border-color: rgba(15, 118, 110, 0.3);
+  background-color: #d7ebe5;
+}
+
+.layout {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  align-items: start;
+}
+
+.sidebar {
+  display: grid;
+  gap: 0.875rem;
+  padding: 1rem;
+  border: 1px solid rgba(18, 61, 55, 0.12);
+  border-radius: 8px;
+  background-color: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 14px 30px rgba(16, 32, 28, 0.06);
+}
+
+.sidebarTitle {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #33514b;
+}
+
+.sidebarBody {
+  margin: 0;
+  line-height: 1.55;
+  color: #4a6660;
+}
+
+.nav {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.navLink {
+  display: block;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid rgba(18, 61, 55, 0.08);
+  border-radius: 8px;
+  background-color: rgba(255, 255, 255, 0.9);
+  color: #10201c;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.navLink:hover {
+  border-color: rgba(15, 118, 110, 0.22);
+  background-color: rgba(239, 248, 245, 0.98);
+}
+
+.navLinkActive {
+  border-color: rgba(15, 118, 110, 0.25);
+  background-color: #d7ebe5;
+}
+
+.main {
+  display: grid;
+  min-width: 0;
+  gap: 1rem;
+}
+
+@media (max-width: 760px) {
+  .container {
+    padding: 16px;
+  }
+
+  .header,
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .title {
+    font-size: 2rem;
+  }
+
+  .localePanel {
+    justify-items: start;
+  }
+
+  .localeOptions {
+    justify-content: flex-start;
+  }
+
+  .nav {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+}

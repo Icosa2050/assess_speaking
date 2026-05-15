@@ -245,7 +245,8 @@ with action_col:
             ]
         )
         effective_llm_api_key = runtime_config.api_key
-        if requires_api_key(runtime_config.provider) and not effective_llm_api_key:
+        has_saved_runtime_secret = bool(str(runtime_connection.secret_ref or "").strip())
+        if requires_api_key(runtime_config.provider) and not has_saved_runtime_secret:
             st.warning(t("speak.openrouter_missing_key"))
         if "speak_label" not in st.session_state:
             st.session_state["speak_label"] = state.recording.label_input

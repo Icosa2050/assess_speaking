@@ -45,7 +45,7 @@ export const AppFrame = () => {
   const location = useLocation();
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const setLocale = useAppStore((state) => state.setUiLocale);
-  const translate = createTranslator(locale);
+  const translate = useMemo(() => createTranslator(locale), [locale]);
 
   const localizedRoutes = useMemo<LocalizedRoute[]>(
     () =>
@@ -55,7 +55,7 @@ export const AppFrame = () => {
         title: translate(route.titleKey),
         body: translate(route.bodyKey),
       })),
-    [locale],
+    [translate],
   );
 
   const currentRoute = localizedRoutes.find((route) => route.path === location.pathname) ?? localizedRoutes[0];
@@ -87,6 +87,7 @@ export const AppFrame = () => {
               code,
               label: localeDisplayNames[code],
             }))}
+            navAriaLabel={translate("nav.main_navigation")}
             activeLocale={locale}
             onLocaleChange={(value) => {
               if (SUPPORTED_UI_LOCALES.includes(value as UiLocale)) {

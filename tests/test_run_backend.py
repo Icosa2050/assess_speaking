@@ -1,4 +1,3 @@
-from datetime import UTC, datetime, timedelta
 import logging
 import os
 import sys
@@ -10,6 +9,12 @@ from unittest import mock
 
 from app_backend.config import build_backend_runtime_config
 from scripts import run_backend
+
+
+def _flush_configured_loggers(*logger_names: str) -> None:
+    for logger_name in logger_names:
+        for handler in logging.getLogger(logger_name).handlers:
+            handler.flush()
 
 
 class RunBackendLoggingTests(unittest.TestCase):
@@ -29,6 +34,7 @@ class RunBackendLoggingTests(unittest.TestCase):
                 logging.getLogger("uvicorn.error").warning("uvicorn warning")
                 sys.stderr.write("backend error\n")
                 sys.stderr.flush()
+                _flush_configured_loggers("vostavo.stdout", "vostavo.stderr", "uvicorn.error")
                 contents = config.log_file.read_text(encoding="utf-8")
 
             self.assertIn("backend hello", contents)
@@ -45,7 +51,6 @@ class RunBackendLoggingTests(unittest.TestCase):
                 cache_dir=cache_dir,
                 port=8764,
             )
-            now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
             transient = config.app_data.temp_dir / "transient.tmp"
             transient.parent.mkdir(parents=True, exist_ok=True)
             transient.write_text("temp", encoding="utf-8")

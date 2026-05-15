@@ -154,6 +154,14 @@ def _fake_secret_storage(initial: dict[str, str] | None = None):
 
 
 class AppShellPageTests(unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        env_patcher = patch.dict(os.environ, {"APP_SHELL_SKIP_BOOTSTRAP": "1"}, clear=False)
+        env_patcher.start()
+        self.addCleanup(env_patcher.stop)
+        for key in ("OPENROUTER_API_KEY", "LLM_API_KEY", "OLLAMA_API_KEY"):
+            os.environ.pop(key, None)
+
     def test_home_renders(self):
         at = _app_test("streamlit_app.py")
         with patch("app_shell.diagnostics.collect_startup_diagnostics", return_value=[]):
@@ -499,6 +507,7 @@ class AppShellPageTests(unittest.TestCase):
                 )
             )
             with patch("app_shell.runtime_resolver.get_secret", side_effect=fake_get_secret), \
+                    patch("app_shell.secret_store.get_secret", side_effect=fake_get_secret), \
                     patch("app_shell.services.delete_secret", side_effect=fake_delete_secret), \
                     patch("app_shell.services.set_secret", side_effect=fake_set_secret), \
                     patch("app_shell.secret_store.delete_secret", side_effect=fake_delete_secret):
@@ -525,6 +534,7 @@ class AppShellPageTests(unittest.TestCase):
                 )
             )
             with patch("app_shell.runtime_resolver.get_secret", side_effect=fake_get_secret), \
+                    patch("app_shell.secret_store.get_secret", side_effect=fake_get_secret), \
                     patch("app_shell.services.delete_secret", side_effect=fake_delete_secret), \
                     patch("app_shell.services.set_secret", side_effect=fake_set_secret), \
                     patch("app_shell.secret_store.delete_secret", side_effect=fake_delete_secret):
@@ -2144,7 +2154,10 @@ class AppShellPageTests(unittest.TestCase):
             persisted = theme_library.load_theme_library(Path(tmpdir))
             self.assertIn("de", persisted)
             self.assertEqual(persisted["de"]["label"], "Deutsch")
-            self.assertEqual(persisted["de"]["themes"][0]["title"], "Ein wichtiges Gespraech")
+            self.assertIn(
+                "Ein wichtiges Gespraech",
+                [theme["title"] for theme in persisted["de"]["themes"]],
+            )
             self.assertEqual(at.session_state["library_filter_language"], "de")
             self.assertEqual(len(at.success), 1)
             at.selectbox(key="library_manage_language").set_value("__new_language__")
@@ -2309,6 +2322,7 @@ class AppShellPageTests(unittest.TestCase):
                 )
             )
             with patch("app_shell.runtime_resolver.get_secret", side_effect=fake_get_secret), \
+                    patch("app_shell.secret_store.get_secret", side_effect=fake_get_secret), \
                     patch("app_shell.services.delete_secret", side_effect=fake_delete_secret), \
                     patch("app_shell.services.set_secret", side_effect=fake_set_secret), \
                     patch("app_shell.secret_store.delete_secret", side_effect=fake_delete_secret):
@@ -2335,6 +2349,7 @@ class AppShellPageTests(unittest.TestCase):
                 )
             )
             with patch("app_shell.runtime_resolver.get_secret", side_effect=fake_get_secret), \
+                    patch("app_shell.secret_store.get_secret", side_effect=fake_get_secret), \
                     patch("app_shell.services.delete_secret", side_effect=fake_delete_secret), \
                     patch("app_shell.services.set_secret", side_effect=fake_set_secret), \
                     patch("app_shell.secret_store.delete_secret", side_effect=fake_delete_secret):

@@ -136,7 +136,6 @@ export const LibraryRoute = () => {
       }),
     [draft.cefrLevel, hasSetup, samplesQuery.data?.items, selectedLanguage],
   );
-
   const handlePrepareSample = (sample: SampleItem) => {
     const languageCodeValue = sample.language.toLowerCase();
     const title = sampleTitleLabel(sample) || translate("library.none");
@@ -158,6 +157,32 @@ export const LibraryRoute = () => {
     applySetup(nextDraft);
     navigate(hasSetupDraft(nextDraft) ? "/speak" : "/session-setup");
   };
+
+  const samplesContent = samplesQuery.isLoading ? (
+    <p
+      style={{ margin: 0, color: "#33514b" }}
+      data-testid="library-samples-loading"
+      data-semantic-id="library.samples_loading"
+    >
+      {translate("library.samples_loading")}
+    </p>
+  ) : samplesQuery.isError ? (
+    <p
+      role="alert"
+      style={{ margin: 0, color: "#b42318" }}
+      data-testid="library-samples-error"
+      data-semantic-id="library.samples_error"
+    >
+      {translate("library.samples_error")}
+    </p>
+  ) : (
+    <SampleTrialGrid
+      hasSetup={hasSetup}
+      onPrepareSample={handlePrepareSample}
+      samples={filteredSamples}
+      translate={translate}
+    />
+  );
 
   const handleSaveTheme = () => {
     const nextErrors = {
@@ -236,12 +261,7 @@ export const LibraryRoute = () => {
         <p style={{ margin: 0, lineHeight: 1.6, color: "#33514b" }}>
           {translate("library.samples_body")}
         </p>
-        <SampleTrialGrid
-          hasSetup={hasSetup}
-          onPrepareSample={handlePrepareSample}
-          samples={filteredSamples}
-          translate={translate}
-        />
+        {samplesContent}
       </section>
 
       <section style={cardStyle}>
@@ -261,8 +281,8 @@ export const LibraryRoute = () => {
                 </tr>
               </thead>
               <tbody>
-                {selectedThemes.map((theme) => (
-                  <tr key={`${theme.level}-${theme.title}-${theme.task_family}`}>
+                {selectedThemes.map((theme, index) => (
+                  <tr key={`${theme.level}-${theme.title}-${theme.task_family}-${index}`}>
                     <td style={{ borderTop: "1px solid rgba(18, 61, 55, 0.08)", padding: "0.65rem" }}>
                       {theme.title}
                     </td>

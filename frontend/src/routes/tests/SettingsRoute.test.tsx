@@ -290,6 +290,56 @@ describe("Settings route", () => {
     });
   });
 
+  it("surfaces save failures without labeling them as test failures", async () => {
+    mockedPutRuntimeSettings.mockRejectedValue(new Error("disk full"));
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/settings"],
+      locale: "en",
+    });
+
+    expect(await screen.findAllByText("Bravo runtime")).toHaveLength(2);
+    fireEvent.click(screen.getByTestId("runtime_connection.save_connection"));
+
+    expect(await screen.findByText("Settings could not be saved: disk full")).toBeVisible();
+    expect(screen.queryByText("Connection test failed: disk full")).not.toBeInTheDocument();
+  });
+
+  it("surfaces default connection failures without optimistic store updates", async () => {
+    mockedPostRuntimeSettingsSetDefault.mockRejectedValue(new Error("backend offline"));
+
+    const { store } = renderWithProviders(<AppFrame />, {
+      initialEntries: ["/settings"],
+      locale: "en",
+    });
+
+    expect(await screen.findAllByText("Alpha runtime")).toHaveLength(2);
+    fireEvent.change(screen.getByTestId("settings.connection_id"), {
+      target: {
+        value: "conn-alpha",
+      },
+    });
+    fireEvent.click(screen.getByTestId("settings.connection_row_set_default"));
+
+    expect(await screen.findByText("Default connection could not be changed: backend offline")).toBeVisible();
+    expect(store.getState().preferences.activeConnectionId).not.toBe("conn-alpha");
+  });
+
+  it("surfaces delete connection failures without removing the selected connection", async () => {
+    mockedDeleteRuntimeSettingsConnection.mockRejectedValue(new Error("locked"));
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/settings"],
+      locale: "en",
+    });
+
+    expect(await screen.findAllByText("Bravo runtime")).toHaveLength(2);
+    fireEvent.click(screen.getByTestId("settings.connection_row_delete"));
+
+    expect(await screen.findByText("Connection could not be deleted: locked")).toBeVisible();
+    expect(screen.getAllByText("Bravo runtime")).toHaveLength(2);
+  });
+
   it("resets auto-filled base URLs when the provider changes but preserves custom URLs", async () => {
     renderWithProviders(<AppFrame />, {
       initialEntries: ["/settings"],

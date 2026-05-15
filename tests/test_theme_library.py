@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import inspect
 from pathlib import Path
 
 from assessment_runtime import theme_library
@@ -36,7 +37,7 @@ class ThemeLibraryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             library = theme_library.load_theme_library(Path(tmpdir))
 
-        for language_code in ("it", "en"):
+        for language_code in ("it", "en", "de"):
             with self.subTest(language_code=language_code):
                 levels = {
                     str(theme.get("level") or "").upper()
@@ -44,17 +45,30 @@ class ThemeLibraryTests(unittest.TestCase):
                 }
                 self.assertTrue({"B1", "B2", "C1"}.issubset(levels))
 
+    def test_default_theme_library_covers_practice_brief_languages(self):
+        payload = theme_library._load_session_setup_content()
+
+        self.assertLessEqual(
+            set(payload["practice_brief_templates"]),
+            set(payload["default_theme_library"]),
+        )
+
+    def test_save_workspace_prefs_has_one_authoritative_definition(self):
+        source = inspect.getsource(theme_library)
+
+        self.assertEqual(source.count("def save_workspace_prefs"), 1)
+
     def test_add_theme_supports_new_language(self):
         library = theme_library.add_theme(
             {},
-            language_code="de",
-            language_label="Deutsch",
-            title="Ein Gespräch, das mich beeindruckt hat",
+            language_code="pl",
+            language_label="Polski",
+            title="Rozmowa, ktora zrobila na mnie wrazenie",
             level="B2",
             task_family="personal_experience",
         )
-        self.assertEqual(library["de"]["label"], "Deutsch")
-        self.assertEqual(library["de"]["themes"][0]["level"], "B2")
+        self.assertEqual(library["pl"]["label"], "Polski")
+        self.assertEqual(library["pl"]["themes"][0]["level"], "B2")
 
     def test_save_and_load_workspace_prefs_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmpdir:

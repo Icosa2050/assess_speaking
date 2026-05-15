@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,11 +11,28 @@ const backendPort = 8800;
 const frontendPort = 4173;
 const backendBaseUrl = `http://127.0.0.1:${backendPort}`;
 const frontendBaseUrl = `http://127.0.0.1:${frontendPort}`;
-const pythonExecutable = existsSync(path.join(repoRoot, ".venv", "bin", "python"))
-  ? path.join(repoRoot, ".venv", "bin", "python")
-  : process.platform === "win32"
-    ? "python"
-    : "python3";
+const pythonCandidates = [
+  path.join(repoRoot, ".venv", "bin", "python"),
+  path.join(repoRoot, ".venv", "Scripts", "python.exe"),
+];
+const pythonExecutable =
+  pythonCandidates.find((candidate) => existsSync(candidate)) ??
+  (process.platform === "win32" ? "python" : "python3");
+const backendAppDataDir = path.join(os.tmpdir(), "vostavo-frontend-smoke-app-data");
+const backendCacheDir = path.join(os.tmpdir(), "vostavo-frontend-smoke-cache");
+const shellArg = (value: string) => `"${value.replace(/"/g, '\\"')}"`;
+const backendCommand = [
+  shellArg(pythonExecutable),
+  "scripts/run_backend.py",
+  "--host",
+  "127.0.0.1",
+  "--port",
+  String(backendPort),
+  "--app-data-dir",
+  shellArg(backendAppDataDir),
+  "--cache-dir",
+  shellArg(backendCacheDir),
+].join(" ");
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -37,7 +55,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `${pythonExecutable} scripts/run_backend.py --host 127.0.0.1 --port ${backendPort} --app-data-dir /tmp/vostavo-frontend-smoke-app-data --cache-dir /tmp/vostavo-frontend-smoke-cache`,
+      command: backendCommand,
       cwd: repoRoot,
       name: "backend",
       url: `${backendBaseUrl}/v1/health`,

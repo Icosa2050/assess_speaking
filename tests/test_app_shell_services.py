@@ -12,6 +12,7 @@ from app_shell.services import (
     build_support_bundle_request,
     create_assessment_request,
     create_support_bundle_archive,
+    cleanup_temp_audio,
     discover_runtime_models,
     download_whisper_model,
     delete_provider_connection,
@@ -686,6 +687,22 @@ class AppShellServiceTests(unittest.TestCase):
             log_dir="/tmp/vostavo-support",
         )
 
+    @mock.patch("app_shell.services.backend_client.create_support_bundle")
+    @mock.patch("app_shell.services.build_support_bundle_request")
+    def test_create_support_bundle_archive_rejects_missing_creation_result(
+        self,
+        mock_build_request,
+        mock_create_support_bundle,
+    ):
+        mock_build_request.return_value = {"client_snapshot": {"has_active_connection": True}}
+        state = AppShellState(prefs=AppPreferences(log_dir="/tmp/vostavo-support"))
+
+        for created in (None, mock.Mock(bundle_id="")):
+            with self.subTest(created=created):
+                mock_create_support_bundle.return_value = created
+                with self.assertRaisesRegex(RuntimeError, "Support bundle could not be created"):
+                    create_support_bundle_archive(state)
+
     @mock.patch("app_shell.services.backend_client.download_support_bundle")
     @mock.patch("app_shell.services.create_support_bundle_archive")
     def test_export_support_bundle_archive_downloads_created_bundle(
@@ -977,6 +994,19 @@ class AppShellServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             with self.assertRaisesRegex(TypeError, "Uploaded file"):
                 store_uploaded_audio(object(), target_dir=tmpdir)
+
+    def test_cleanup_temp_audio_logs_delete_failures(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            audio_path = Path(tmpdir) / "attempt.wav"
+            audio_path.write_bytes(b"audio")
+
+            with mock.patch.object(Path, "unlink", side_effect=OSError("locked")), self.assertLogs(
+                "app_shell.services",
+                level="WARNING",
+            ) as logs:
+                cleanup_temp_audio(str(audio_path), allowed_root=tmpdir)
+
+        self.assertIn("Could not clean up temporary audio", "\n".join(logs.output))
 
     def test_create_assessment_request_keeps_feedback_language(self):
         request = create_assessment_request(

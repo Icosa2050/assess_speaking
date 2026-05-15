@@ -157,6 +157,8 @@ def _start_streamlit_server(project_root: Path, *, dry_run: bool, port: int):
         str(project_root / "scripts" / "run_app.py"),
         "--app-data-dir",
         str(project_root),
+        "--cache-dir",
+        str(runtime_root_path / "cache"),
         "--",
         "--server.headless=true",
         f"--server.port={port}",

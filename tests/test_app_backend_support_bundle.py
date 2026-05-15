@@ -211,6 +211,26 @@ class SupportBundleTests(unittest.TestCase):
 
         self.assertTrue(response.bundle_id.startswith("bundle_"))
 
+    def test_create_support_bundle_skips_unsupported_optional_binaries(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8777)
+            recordings_dir = config.app_data.recordings_dir
+            recordings_dir.mkdir(parents=True, exist_ok=True)
+            (recordings_dir / "sample.wav").write_bytes(b"fake-recording")
+            (recordings_dir / "debug.bin").write_bytes(b"raw-binary")
+
+            response = create_support_bundle(
+                config,
+                SupportBundleCreateRequest(include_recordings=True, client_snapshot={}, client_diagnostics=[]),
+            )
+
+            with zipfile.ZipFile(support_bundle_path(config, response.bundle_id)) as archive:
+                names = set(archive.namelist())
+                self.assertIn("recordings/sample.wav", names)
+                self.assertNotIn("recordings/debug.bin", names)
+                manifest = json.loads(archive.read("manifest.json"))
+                self.assertEqual(manifest["redaction"]["skipped_unsupported_binaries"], 1)
+
     def test_create_support_bundle_skips_symlinked_files(self):
         with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
             config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8776)

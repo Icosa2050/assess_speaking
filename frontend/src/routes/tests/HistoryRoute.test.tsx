@@ -214,6 +214,8 @@ describe("History route", () => {
     expect(screen.getByTestId("history-chart-score")).toBeVisible();
     expect(screen.getByTestId("history-attempts-row-s4")).toBeVisible();
     expect(screen.queryByTestId("history-attempts-row-s3")).not.toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Timestamp" })).toHaveAttribute("scope", "col");
+    expect(screen.getByRole("columnheader", { name: "Language" })).toHaveAttribute("scope", "col");
   });
 
   it("opens the most recent saved detail and lets the learner jump to another attempt", async () => {

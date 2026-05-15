@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import logging
 import os
 import re
 import tempfile
@@ -51,6 +52,9 @@ from app_shell.state import (
     DEFAULT_WHISPER_MODEL,
     ProviderConnection,
 )
+
+logger = logging.getLogger(__name__)
+
 DEFAULT_LOG_DIR = build_app_data_paths().reports_dir
 DEFAULT_WHISPER_OPTIONS = ("tiny", "base", "small", "medium", "large-v3")
 NEW_LANGUAGE_OPTION = "__new_language__"
@@ -547,10 +551,13 @@ def create_support_bundle_archive(
         include_uploads=include_uploads,
         include_runtime_health=include_runtime_health,
     )
-    return backend_client.create_support_bundle(
+    created = backend_client.create_support_bundle(
         request,
         log_dir=getattr(state.prefs, "log_dir", "") or None,
     )
+    if not str(getattr(created, "bundle_id", "") or "").strip():
+        raise RuntimeError("Support bundle could not be created.")
+    return created
 
 
 def export_support_bundle_archive(
@@ -1191,6 +1198,7 @@ def cleanup_temp_audio(path_str: str, *, allowed_root: str | Path | None = None)
         if path.exists() and root in path.resolve().parents:
             path.unlink()
     except OSError:
+        logger.warning("Could not clean up temporary audio %s.", path, exc_info=True)
         return
 
 

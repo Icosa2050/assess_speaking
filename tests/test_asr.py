@@ -206,6 +206,9 @@ class AsrTests(unittest.TestCase):
         self.assertIn("faster_whisper", providers)
         self.assertIn("faster_whisper_chunked", providers)
 
+    def test_known_asr_providers_matches_registered_providers(self):
+        self.assertEqual(asr.KNOWN_ASR_PROVIDERS, asr.available_asr_providers())
+
     def test_normalize_asr_provider_accepts_chunked_alias(self):
         self.assertEqual(asr._normalize_asr_provider_key("whisper_chunked"), "faster_whisper_chunked")
 

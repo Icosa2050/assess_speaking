@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import logging
 from pathlib import Path
 
 from app_backend.config import (
@@ -12,6 +13,8 @@ from app_backend.config import (
 )
 from app_backend.contracts import CleanupTarget, MaintenanceCleanupResponse
 from app_backend.jobs import prunable_job_metadata_files
+
+logger = logging.getLogger(__name__)
 
 
 def _iter_files(root: Path) -> list[Path]:
@@ -62,6 +65,7 @@ def expired_support_bundle_candidates(
         try:
             modified_at = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
         except OSError:
+            logger.warning("Could not inspect support bundle candidate %s.", path, exc_info=True)
             continue
         if modified_at <= cutoff:
             candidates.append(path)
@@ -130,10 +134,13 @@ def execute_cleanup(
     candidates = cleanup_candidates(runtime_config, target, now=now)
     deleted_file_count = 0
     freed_bytes = 0
+    warnings: list[str] = []
     for path in candidates:
         try:
             size_bytes = path.stat().st_size
         except OSError:
+            logger.warning("Could not inspect cleanup candidate %s.", path, exc_info=True)
+            warnings.append(f"Could not inspect cleanup candidate: {path}")
             continue
         if dry_run:
             deleted_file_count += 1
@@ -142,6 +149,8 @@ def execute_cleanup(
         try:
             path.unlink()
         except OSError:
+            logger.warning("Could not delete cleanup candidate %s.", path, exc_info=True)
+            warnings.append(f"Could not delete cleanup candidate: {path}")
             continue
         deleted_file_count += 1
         freed_bytes += size_bytes
@@ -150,7 +159,7 @@ def execute_cleanup(
         dry_run=dry_run,
         deleted_file_count=deleted_file_count,
         freed_bytes=freed_bytes,
-        warnings=[],
+        warnings=warnings,
     )
 
 

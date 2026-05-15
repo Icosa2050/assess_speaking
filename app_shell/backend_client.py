@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from email.message import Message
+from email.utils import collapse_rfc2231_value
 import json
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -18,6 +21,7 @@ from app_backend.contracts import (
     UploadResponse,
 )
 from app_backend.lifecycle import ensure_local_backend, get_backend_state
+
 
 def backend_base_url(*, log_dir: str | Path | None = None) -> str:
     state = get_backend_state(log_dir=log_dir)
@@ -65,6 +69,27 @@ def _request(
         ) from exc
 
 
+def _path_segment(value: str) -> str:
+    return quote(str(value), safe="")
+
+
+def _content_disposition_filename(value: str) -> str:
+    if not value:
+        return ""
+    message = Message()
+    message["content-disposition"] = value
+    filename = message.get_filename()
+    if isinstance(filename, tuple):
+        filename = collapse_rfc2231_value(filename)
+    return str(filename or "").strip()
+
+
+def _safe_download_filename(response: httpx.Response, bundle_id: str) -> str:
+    filename = _content_disposition_filename(response.headers.get("content-disposition", ""))
+    fallback = Path(f"{bundle_id}.zip").name or "support-bundle.zip"
+    return Path(filename).name if filename else fallback
+
+
 def upload_audio_path(audio_path: str | Path, *, filename: str = "", log_dir: str | Path | None = None) -> UploadResponse:
     path = Path(audio_path)
     upload_name = filename or path.name or "audio.wav"
@@ -90,12 +115,12 @@ def create_assessment(request: dict[str, Any], *, log_dir: str | Path | None = N
 
 
 def get_assessment_status(assessment_id: str, *, log_dir: str | Path | None = None) -> AssessmentStatusResponse:
-    response = _request("GET", f"/v1/assessments/{assessment_id}", log_dir=log_dir, timeout_sec=10.0)
+    response = _request("GET", f"/v1/assessments/{_path_segment(assessment_id)}", log_dir=log_dir, timeout_sec=10.0)
     return AssessmentStatusResponse(**response.json())
 
 
 def cancel_assessment(assessment_id: str, *, log_dir: str | Path | None = None) -> AssessmentStatusResponse:
-    response = _request("POST", f"/v1/assessments/{assessment_id}/cancel", log_dir=log_dir, timeout_sec=10.0)
+    response = _request("POST", f"/v1/assessments/{_path_segment(assessment_id)}/cancel", log_dir=log_dir, timeout_sec=10.0)
     return AssessmentStatusResponse(**response.json())
 
 
@@ -107,7 +132,7 @@ def load_history(*, log_dir: str | Path | None = None) -> list[dict[str, Any]]:
 
 
 def load_history_detail(session_id: str, *, log_dir: str | Path | None = None) -> dict[str, Any]:
-    response = _request("GET", f"/v1/history/{session_id}", log_dir=log_dir, timeout_sec=10.0)
+    response = _request("GET", f"/v1/history/{_path_segment(session_id)}", log_dir=log_dir, timeout_sec=10.0)
     payload = response.json()
     if isinstance(payload, dict) and isinstance(payload.get("payload"), dict):
         return payload["payload"]
@@ -139,11 +164,9 @@ def create_support_bundle(request: dict[str, Any], *, log_dir: str | Path | None
 
 
 def download_support_bundle(bundle_id: str, *, destination: str | Path, log_dir: str | Path | None = None) -> Path:
-    response = _request("GET", f"/v1/support-bundles/{bundle_id}", log_dir=log_dir, timeout_sec=30.0)
+    response = _request("GET", f"/v1/support-bundles/{_path_segment(bundle_id)}", log_dir=log_dir, timeout_sec=30.0)
     target = Path(destination)
     if target.is_dir():
-        filename = response.headers.get("content-disposition", "")
-        bundle_name = filename.partition("filename=")[2].strip('"') or f"{bundle_id}.zip"
-        target = target / bundle_name
+        target = target / _safe_download_filename(response, bundle_id)
     target.write_bytes(response.content)
     return target

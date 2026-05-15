@@ -399,7 +399,7 @@ export const ReviewSummary = ({
           color: "#0f766e",
         }}
       >
-        {translate("review.answers_title")}
+        {translate("review.answers_eyebrow")}
       </p>
       <h2
         style={{
@@ -574,7 +574,7 @@ export const ReviewSummary = ({
     </section>
 
     <section style={cardStyle} data-testid="review-gates" data-semantic-id="review-gates">
-      <p style={{ margin: 0, fontSize: "0.875rem", fontWeight: 700, color: "#0f766e" }}>{translate("review.gates_title")}</p>
+      <p style={{ margin: 0, fontSize: "0.875rem", fontWeight: 700, color: "#0f766e" }}>{translate("review.gates_eyebrow")}</p>
       <h2 style={{ margin: 0, fontSize: "1.35rem", color: "#10201c" }}>{translate("review.gates_title")}</h2>
       <div style={metricGridStyle}>
         {([

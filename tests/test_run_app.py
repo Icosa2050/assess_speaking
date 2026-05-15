@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class RunAppTests(unittest.TestCase):
     def test_launcher_payload_uses_overrides(self):
-        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+        with mock.patch.dict(os.environ, {}, clear=False), tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
             args = run_app._parse_args(
                 [
                     "--app-data-dir",
@@ -50,7 +50,7 @@ class RunAppTests(unittest.TestCase):
         self.assertEqual(payload["command"][-1], str(run_app.STREAMLIT_ENTRYPOINT))
 
     def test_main_prints_json_for_dry_run(self):
-        with tempfile.TemporaryDirectory() as app_dir, mock.patch(
+        with mock.patch.dict(os.environ, {}, clear=False), tempfile.TemporaryDirectory() as app_dir, mock.patch(
             "scripts.run_app.shutil.which",
             return_value="/opt/homebrew/bin/ffmpeg",
         ), mock.patch(
@@ -147,15 +147,15 @@ class RunAppTests(unittest.TestCase):
         self.assertFalse(payload["repo_local_override_active"])
 
     def test_launcher_payload_sets_legacy_compatibility_envs(self):
-        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+        with mock.patch.dict(os.environ, {}, clear=False), tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
             args = run_app._parse_args(["--app-data-dir", app_dir, "--cache-dir", cache_dir, "--dry-run"])
             with mock.patch("scripts.run_app.get_backend_state", return_value={"base_url": "http://127.0.0.1:9000"}):
                 run_app._launcher_payload(args)
 
-        self.assertEqual(Path(os.environ["VOSTAVO_HOME"]).resolve(), Path(app_dir).resolve())
-        self.assertEqual(Path(os.environ["VOSTAVO_CACHE_HOME"]).resolve(), Path(cache_dir).resolve())
-        self.assertEqual(Path(os.environ["SPEAKING_STUDIO_HOME"]).resolve(), Path(app_dir).resolve())
-        self.assertEqual(Path(os.environ["SPEAKING_STUDIO_CACHE_HOME"]).resolve(), Path(cache_dir).resolve())
+            self.assertEqual(Path(os.environ["VOSTAVO_HOME"]).resolve(), Path(app_dir).resolve())
+            self.assertEqual(Path(os.environ["VOSTAVO_CACHE_HOME"]).resolve(), Path(cache_dir).resolve())
+            self.assertEqual(Path(os.environ["SPEAKING_STUDIO_HOME"]).resolve(), Path(app_dir).resolve())
+            self.assertEqual(Path(os.environ["SPEAKING_STUDIO_CACHE_HOME"]).resolve(), Path(cache_dir).resolve())
 
     def test_bootstrap_rejects_repo_local_default_root(self):
         repo_root = ROOT.resolve()
@@ -200,7 +200,10 @@ class RunAppTests(unittest.TestCase):
     def test_launcher_payload_reports_repo_local_override_targets(self):
         repo_root = ROOT.resolve()
         args = run_app._parse_args(["--app-data-dir", str(repo_root), "--cache-dir", str(repo_root / ".cache"), "--dry-run"])
-        with mock.patch("scripts.run_app.shutil.which", return_value="/opt/homebrew/bin/ffmpeg"), mock.patch(
+        with mock.patch.dict(os.environ, {}, clear=False), mock.patch(
+            "scripts.run_app.shutil.which",
+            return_value="/opt/homebrew/bin/ffmpeg",
+        ), mock.patch(
             "scripts.run_app.get_backend_state",
             return_value={"base_url": "http://127.0.0.1:9000"},
         ):

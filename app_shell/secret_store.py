@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -7,6 +8,8 @@ from typing import Any, Protocol
 SERVICE_NAME = "Vostavo"
 LEGACY_SERVICE_NAME = "Speaking Studio"
 _SESSION_SECRETS: dict[tuple[str, str], str] = {}
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -56,6 +59,7 @@ class KeyringSecretStore:
         try:
             return str(self._keyring.get_password(service, account) or "")
         except Exception:  # pragma: no cover - backend boundary
+            logger.warning("Could not read secret %s from service %s.", account, service, exc_info=True)
             return ""
 
     def set_secret(self, service: str, account: str, value: str) -> None:
@@ -69,7 +73,7 @@ class KeyringSecretStore:
         try:
             self._keyring.delete_password(service, account)
         except Exception:
-            pass
+            logger.warning("Could not delete secret %s from service %s.", account, service, exc_info=True)
 
     def is_persistent_supported(self) -> bool:
         return self.status.persistent
@@ -140,6 +144,7 @@ def _copy_secret_to_primary(account: str, value: str) -> None:
     try:
         store.set_secret(SERVICE_NAME, account, value)
     except Exception:
+        logger.warning("Could not copy legacy secret %s to primary service.", account, exc_info=True)
         return
 
 
@@ -179,12 +184,17 @@ def delete_secret(account: str, *, service: str = SERVICE_NAME, env_var_names: t
     try:
         keyring_store.delete_secret(service, account)
     except Exception:
-        pass
+        logger.warning("Could not clear stored secret %s from service %s.", account, service, exc_info=True)
     if _should_use_legacy_fallback(service):
         try:
             keyring_store.delete_secret(LEGACY_SERVICE_NAME, account)
         except Exception:
-            pass
+            logger.warning(
+                "Could not clear stored secret %s from legacy service %s.",
+                account,
+                LEGACY_SERVICE_NAME,
+                exc_info=True,
+            )
     SessionSecretStore().delete_secret(service, account)
     if _should_use_legacy_fallback(service):
         SessionSecretStore().delete_secret(LEGACY_SERVICE_NAME, account)

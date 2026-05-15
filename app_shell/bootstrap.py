@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 import os
 import sys
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypeVar, cast
 
 from app_shell.app_data import (
     APP_CACHE_HOME_ENV_VAR,
@@ -23,10 +23,12 @@ BACKEND_ENTRYPOINT = PROJECT_ROOT / "scripts" / "run_backend.py"
 DEPLOYMENT_MODE_ENV_VAR = "VOSTAVO_DEPLOYMENT_MODE"
 LAUNCH_MODE_ENV_VAR = "VOSTAVO_LAUNCH_MODE"
 AUTH_MODE_ENV_VAR = "VOSTAVO_AUTH_MODE"
+WHISPER_CACHE_DIR_ENV_VAR = "WHISPER_CACHE_DIR"
 
 DeploymentMode = Literal["local", "hosted"]
 LaunchMode = Literal["repo", "packaged"]
 RuntimeAuthMode = Literal["guest", "optional", "required"]
+TEnvChoice = TypeVar("TEnvChoice", bound=str)
 
 
 @dataclass(frozen=True)
@@ -83,9 +85,9 @@ def is_within_project_checkout(path: Path) -> bool:
         return False
 
 
-def _resolve_env_choice[T: str](env_name: str, *, allowed: tuple[T, ...], default: T) -> T:
+def _resolve_env_choice(env_name: str, *, allowed: tuple[TEnvChoice, ...], default: TEnvChoice) -> TEnvChoice:
     raw = str(os.environ.get(env_name) or "").strip().lower()
-    return raw if raw in allowed else default
+    return cast(TEnvChoice, raw) if raw in allowed else default
 
 
 def _resolved_writable_roots(paths: AppDataPaths) -> tuple[Path, ...]:
@@ -153,6 +155,7 @@ def bootstrap_app_environment(
         APP_CACHE_HOME_ENV_VAR,
         LEGACY_APP_CACHE_HOME_ENV_VAR,
     )
+    explicit_whisper_cache_override = _has_explicit_override(whisper_cache_dir, WHISPER_CACHE_DIR_ENV_VAR)
     if app_data_dir is not None and str(app_data_dir).strip():
         _set_compat_envs(app_data_root=Path(app_data_dir).expanduser().resolve())
     if cache_dir is not None and str(cache_dir).strip():
@@ -161,10 +164,16 @@ def bootstrap_app_environment(
     _guard_default_root_outside_project(paths.root, explicit_override=explicit_app_data_override, label="app-data")
     _guard_default_root_outside_project(paths.cache_root, explicit_override=explicit_cache_override, label="cache")
     paths = ensure_app_data_dirs(paths)
+    whisper_cache_choice = str(whisper_cache_dir or os.environ.get(WHISPER_CACHE_DIR_ENV_VAR) or "").strip()
     resolved_whisper_cache_dir = (
-        Path(whisper_cache_dir).expanduser().resolve()
-        if whisper_cache_dir is not None and str(whisper_cache_dir).strip()
+        Path(whisper_cache_choice).expanduser().resolve()
+        if whisper_cache_choice
         else paths.whisper_cache_dir
+    )
+    _guard_default_root_outside_project(
+        resolved_whisper_cache_dir,
+        explicit_override=explicit_whisper_cache_override,
+        label="whisper cache",
     )
     resolved_whisper_cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -173,7 +182,10 @@ def bootstrap_app_environment(
     _set_default_env("XDG_CACHE_HOME", str(paths.cache_root))
     _set_default_env("STREAMLIT_BROWSER_GATHER_USAGE_STATS", "false")
     _set_default_env("STREAMLIT_SERVER_HEADLESS", "true")
-    _set_default_env("WHISPER_CACHE_DIR", str(resolved_whisper_cache_dir))
+    if explicit_whisper_cache_override:
+        os.environ[WHISPER_CACHE_DIR_ENV_VAR] = str(resolved_whisper_cache_dir)
+    else:
+        _set_default_env(WHISPER_CACHE_DIR_ENV_VAR, str(resolved_whisper_cache_dir))
 
     return AppDataPaths(
         root=paths.root,

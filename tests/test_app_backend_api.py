@@ -15,10 +15,12 @@ from app_backend.contracts import (
     AssessmentCreateResponse,
     AssessmentStatusResponse,
     CANONICAL_PRODUCT_API_ROUTES,
+    CleanupTarget,
     JobStatus,
     LOCAL_RUNTIME_MANAGEMENT_ROUTES,
     LOCAL_SUPPORT_API_ROUTES,
 )
+from app_backend.maintenance import execute_cleanup, expired_support_bundle_candidates
 import assessment_runtime.theme_library as theme_library_store
 from app_shell.bootstrap import bootstrap_app_environment
 from app_shell import secret_store
@@ -156,6 +158,35 @@ class BackendApiTests(unittest.TestCase):
         self.assertEqual(rows[0]["theme"], "2026")
         self.assertEqual(rows[0]["task_family"], "travel_narrative")
         self.assertEqual(rows[0]["report_path"], "/tmp/report.json")
+
+    def test_history_detail_returns_not_found_for_invalid_history_csv_encoding(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            reports_dir = Path(tmpdir)
+            (reports_dir / "history.csv").write_bytes(b"\xff\xfe\xfd")
+            client = TestClient(
+                create_app(build_backend_runtime_config(log_dir=reports_dir, port=8776)),
+                raise_server_exceptions=False,
+            )
+
+            detail = client.get("/v1/history/sess-1")
+
+        self.assertEqual(detail.status_code, 404)
+        self.assertIn("does not exist", detail.json()["detail"]["detail"])
+
+    def test_history_detail_returns_not_found_when_history_csv_disappears(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            reports_dir = Path(tmpdir)
+            (reports_dir / "history.csv").write_text("session_id,report_path\nsess-1,/tmp/report.json\n", encoding="utf-8")
+            client = TestClient(
+                create_app(build_backend_runtime_config(log_dir=reports_dir, port=8777)),
+                raise_server_exceptions=False,
+            )
+
+            with mock.patch("app_backend.app.Path.open", side_effect=OSError("gone")):
+                detail = client.get("/v1/history/sess-1")
+
+        self.assertEqual(detail.status_code, 404)
+        self.assertIn("does not exist", detail.json()["detail"]["detail"])
 
     def test_contract_endpoint_freezes_phase2_local_api_surface(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -667,7 +698,9 @@ class BackendApiTests(unittest.TestCase):
 
     def test_maintenance_cleanup_endpoint_supports_dry_run_and_validation(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            config = build_backend_runtime_config(log_dir=tmpdir, port=8768)
+            app_data_dir = Path(tmpdir) / "app-data"
+            cache_dir = Path(tmpdir) / "cache"
+            config = build_backend_runtime_config(app_data_dir=app_data_dir, cache_dir=cache_dir, port=8768)
             temp_file = config.app_data.temp_dir / "stale.tmp"
             temp_file.parent.mkdir(parents=True, exist_ok=True)
             temp_file.write_text("cleanup-me", encoding="utf-8")
@@ -705,6 +738,56 @@ class BackendApiTests(unittest.TestCase):
 
             invalid = client.post("/v1/maintenance/cleanup", json={"target": "bad-target", "dry_run": True})
             self.assertEqual(invalid.status_code, 422)
+
+    def test_expired_support_bundle_candidates_logs_unreadable_bundle_mtime(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = build_backend_runtime_config(log_dir=tmpdir, port=8778)
+            bundle = config.app_data.temp_dir / "support-bundles" / "stale.zip"
+
+            with mock.patch("app_backend.maintenance._iter_files", return_value=[bundle]), mock.patch.object(
+                Path,
+                "stat",
+                side_effect=OSError("unreadable"),
+            ), self.assertLogs("app_backend.maintenance", level="WARNING") as logs:
+                candidates = expired_support_bundle_candidates(config)
+
+        self.assertEqual(candidates, [])
+        self.assertIn("Could not inspect support bundle candidate", "\n".join(logs.output))
+
+    def test_execute_cleanup_reports_stat_and_delete_failures_as_warnings(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = build_backend_runtime_config(log_dir=tmpdir, port=8779)
+            stat_failure = config.app_data.temp_dir / "stat-failure.tmp"
+            delete_failure = config.app_data.temp_dir / "delete-failure.tmp"
+
+            with mock.patch(
+                "app_backend.maintenance.cleanup_candidates",
+                return_value=[stat_failure],
+            ), mock.patch.object(Path, "stat", side_effect=OSError("gone")), self.assertLogs(
+                "app_backend.maintenance",
+                level="WARNING",
+            ) as logs:
+                stat_response = execute_cleanup(config, CleanupTarget.TMP)
+
+            self.assertEqual(stat_response.deleted_file_count, 0)
+            self.assertEqual(len(stat_response.warnings), 1)
+            self.assertIn("Could not inspect cleanup candidate", "\n".join(logs.output))
+
+            delete_failure.parent.mkdir(parents=True, exist_ok=True)
+            delete_failure.write_text("stale", encoding="utf-8")
+            with mock.patch(
+                "app_backend.maintenance.cleanup_candidates",
+                return_value=[delete_failure],
+            ), mock.patch.object(Path, "unlink", side_effect=OSError("locked")), self.assertLogs(
+                "app_backend.maintenance",
+                level="WARNING",
+            ) as logs:
+                delete_response = execute_cleanup(config, CleanupTarget.TMP)
+
+            self.assertEqual(delete_response.deleted_file_count, 0)
+            self.assertEqual(delete_response.freed_bytes, 0)
+            self.assertEqual(len(delete_response.warnings), 1)
+            self.assertIn("Could not delete cleanup candidate", "\n".join(logs.output))
 
     def test_support_bundle_create_and_download_endpoints_work(self):
         with tempfile.TemporaryDirectory() as tmpdir:

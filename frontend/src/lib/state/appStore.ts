@@ -223,7 +223,7 @@ export const createAppStore = (seed: AppStoreSeed = {}): AppStoreApi => {
           nextAssessmentState = "completed";
         } else if (nextJob.status === "failed" || nextJob.status === "cancelled") {
           nextStatus = hasRecordingAttachment(state.recording) ? "ready" : "idle";
-          nextError = nextJob.error ?? "";
+          nextError = nextJob.error ?? state.recording.error ?? "";
           nextAssessmentState = nextJob.status;
         }
 

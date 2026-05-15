@@ -1,9 +1,11 @@
+import ast
 import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
+import app_shell.bootstrap as bootstrap_module
 from app_shell import app_data
 from app_shell.app_data import (
     APP_AUTHOR,
@@ -166,6 +168,68 @@ class AppDataTests(unittest.TestCase):
 
             self.assertEqual(resolve_app_data_root(), Path("/home/tester/.local/share/Vostavo").resolve())
             self.assertEqual(resolve_cache_root(), Path("/home/tester/.cache/Vostavo").resolve())
+
+    def test_bootstrap_module_parses_with_python_311_feature_version(self):
+        source = Path(bootstrap_module.__file__).read_text(encoding="utf-8")
+
+        ast.parse(source, filename=str(bootstrap_module.__file__), feature_version=(3, 11))
+
+    def test_bootstrap_rejects_repo_local_default_whisper_cache_dir(self):
+        with tempfile.TemporaryDirectory() as project_dir, tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            project_root = Path(project_dir).resolve()
+            app_root = Path(app_dir).resolve()
+            cache_root = Path(cache_dir).resolve()
+            fake_paths = app_data.AppDataPaths(
+                root=app_root,
+                reports_dir=app_root / "reports",
+                jobs_dir=app_root / "jobs",
+                logs_dir=app_root / "logs",
+                recordings_dir=app_root / "reports" / "recordings",
+                uploads_dir=app_root / "reports" / "uploads",
+                temp_dir=app_root / "tmp",
+                cache_root=cache_root,
+                whisper_cache_dir=project_root / "whisper",
+            )
+
+            with mock.patch("app_shell.bootstrap.PROJECT_ROOT", project_root), mock.patch(
+                "app_shell.bootstrap.build_app_data_paths",
+                return_value=fake_paths,
+            ), mock.patch(
+                "app_shell.bootstrap.ensure_app_data_dirs",
+                side_effect=lambda paths: paths,
+            ), mock.patch.dict(os.environ, {}, clear=True):
+                with self.assertRaisesRegex(RuntimeError, "whisper cache"):
+                    bootstrap_module.bootstrap_app_environment()
+
+    def test_bootstrap_allows_repo_local_whisper_cache_when_explicitly_overridden(self):
+        with tempfile.TemporaryDirectory() as project_dir, tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            project_root = Path(project_dir).resolve()
+            app_root = Path(app_dir).resolve()
+            cache_root = Path(cache_dir).resolve()
+            whisper_cache = project_root / "whisper"
+            fake_paths = app_data.AppDataPaths(
+                root=app_root,
+                reports_dir=app_root / "reports",
+                jobs_dir=app_root / "jobs",
+                logs_dir=app_root / "logs",
+                recordings_dir=app_root / "reports" / "recordings",
+                uploads_dir=app_root / "reports" / "uploads",
+                temp_dir=app_root / "tmp",
+                cache_root=cache_root,
+                whisper_cache_dir=cache_root / "whisper",
+            )
+
+            with mock.patch("app_shell.bootstrap.PROJECT_ROOT", project_root), mock.patch(
+                "app_shell.bootstrap.build_app_data_paths",
+                return_value=fake_paths,
+            ), mock.patch(
+                "app_shell.bootstrap.ensure_app_data_dirs",
+                side_effect=lambda paths: paths,
+            ), mock.patch.dict(os.environ, {}, clear=True):
+                paths = bootstrap_module.bootstrap_app_environment(whisper_cache_dir=whisper_cache)
+                self.assertEqual(os.environ["WHISPER_CACHE_DIR"], str(whisper_cache))
+
+        self.assertEqual(paths.whisper_cache_dir, whisper_cache)
 
 
 if __name__ == "__main__":

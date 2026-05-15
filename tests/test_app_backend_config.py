@@ -117,6 +117,41 @@ class BackendConfigTests(unittest.TestCase):
             self.assertTrue((config.jobs_dir / "asmt-old.json").exists())
             self.assertFalse(legacy_jobs_dir.exists())
 
+    def test_build_backend_runtime_config_logs_legacy_jobs_migration_failures(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            root = Path(app_dir).resolve()
+            legacy_jobs_dir = root / "reports" / BACKEND_JOBS_DIRNAME
+            legacy_jobs_dir.mkdir(parents=True, exist_ok=True)
+            (legacy_jobs_dir / "asmt-old.json").write_text('{"status":"completed"}', encoding="utf-8")
+
+            with mock.patch("app_backend.config.shutil.move", side_effect=OSError("locked")), self.assertLogs(
+                "app_backend.config",
+                level="WARNING",
+            ) as logs:
+                config = build_backend_runtime_config(
+                    app_data_dir=app_dir,
+                    cache_dir=cache_dir,
+                    port=8764,
+                )
+
+            self.assertTrue(config.jobs_dir.exists())
+            self.assertIn("Could not migrate legacy backend job metadata", "\n".join(logs.output))
+            self.assertTrue((legacy_jobs_dir / "asmt-old.json").exists())
+
+    def test_clear_backend_state_logs_unlink_failures(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            state_file = Path(app_dir).resolve() / BACKEND_STATE_FILENAME
+            state_file.parent.mkdir(parents=True, exist_ok=True)
+            state_file.write_text("{}", encoding="utf-8")
+
+            with mock.patch.object(Path, "unlink", side_effect=OSError("locked")), self.assertLogs(
+                "app_backend.config",
+                level="WARNING",
+            ) as logs:
+                clear_backend_state(app_data_dir=app_dir, cache_dir=cache_dir)
+
+            self.assertIn("Could not clear backend state file", "\n".join(logs.output))
+
     def test_recover_incomplete_job_metadata_marks_running_and_queued_as_failed(self):
         with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
             config = build_backend_runtime_config(

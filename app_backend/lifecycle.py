@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 import signal
@@ -24,6 +25,20 @@ from app_shell.bootstrap import (
 HEALTH_ENDPOINT = "/v1/health"
 DESKTOP_API_BASE_URL_ENV_VAR = "VOSTAVO_DESKTOP_API_BASE_URL"
 DESKTOP_PACKAGING_SAFE_ENV_VAR = "VOSTAVO_DESKTOP_PACKAGING_SAFE"
+BACKEND_START_ATTEMPTS = 3
+
+logger = logging.getLogger(__name__)
+
+
+def _backend_python_executable() -> Path:
+    venv_python = (
+        PROJECT_ROOT / ".venv" / "Scripts" / "python.exe"
+        if os.name == "nt"
+        else PROJECT_ROOT / ".venv" / "bin" / "python"
+    )
+    if venv_python.exists():
+        return venv_python
+    return Path(sys.executable)
 
 
 def _backend_command(
@@ -35,7 +50,7 @@ def _backend_command(
     port: int,
 ) -> list[str]:
     command = [
-        str(Path(sys.executable)),
+        str(_backend_python_executable()),
         str(PROJECT_ROOT / "scripts" / "run_backend.py"),
         "--host",
         host,
@@ -62,6 +77,8 @@ def is_backend_healthy(base_url: str, *, timeout_sec: float = 1.0) -> bool:
 def _pid_matches_backend_command(pid: int, expected_command_marker: str) -> bool:
     if not expected_command_marker:
         return True
+    if os.name != "posix":
+        return False
     try:
         result = subprocess.run(
             ["ps", "-p", str(pid), "-o", "command="],
@@ -83,6 +100,7 @@ def _safe_terminate_pid(pid: int, *, expected_command_marker: str = "") -> None:
     try:
         os.kill(pid, signal.SIGTERM)
     except OSError:
+        logger.warning("Could not terminate stale backend process %s.", pid, exc_info=True)
         return
 
 
@@ -97,7 +115,26 @@ def _terminate_spawned_backend(process: subprocess.Popen) -> None:
             process.kill()
             process.wait(timeout=1.0)
         except (OSError, subprocess.TimeoutExpired):
+            logger.warning(
+                "Could not force-stop spawned backend process %s.",
+                getattr(process, "pid", "<unknown>"),
+                exc_info=True,
+            )
             return
+
+
+def _spawn_backend_process(command: list[str], env: dict[str, str]) -> subprocess.Popen:
+    try:
+        return subprocess.Popen(
+            command,
+            cwd=str(PROJECT_ROOT),
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except (FileNotFoundError, PermissionError, OSError) as exc:
+        raise RuntimeError(f"Could not start the local backend: {exc}") from exc
 
 
 def _runtime_metadata_payload(
@@ -174,49 +211,61 @@ def ensure_local_backend(
     if existing is not None:
         return existing
 
-    config = build_backend_runtime_config(
-        log_dir=log_dir,
-        app_data_dir=app_data_dir,
-        cache_dir=cache_dir,
-    )
-    command = _backend_command(
-        log_dir=log_dir,
-        app_data_dir=app_data_dir,
-        cache_dir=cache_dir,
-        host=config.host,
-        port=config.port,
-    )
     env = os.environ.copy()
     if app_data_dir is not None and str(app_data_dir).strip():
         env[APP_DATA_HOME_ENV_VAR] = str(app_data_dir)
     if cache_dir is not None and str(cache_dir).strip():
         env[APP_CACHE_HOME_ENV_VAR] = str(cache_dir)
-    process = subprocess.Popen(
-        command,
-        cwd=str(PROJECT_ROOT),
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    deadline = time.time() + startup_timeout_sec
-    while time.time() < deadline:
-        state = read_backend_state(
-            log_dir,
+
+    for attempt in range(1, BACKEND_START_ATTEMPTS + 1):
+        config = build_backend_runtime_config(
+            log_dir=log_dir,
             app_data_dir=app_data_dir,
             cache_dir=cache_dir,
         )
-        if isinstance(state, dict):
-            base_url = str(state.get("base_url") or "").strip()
-            if base_url and is_backend_healthy(base_url):
-                return _merge_runtime_metadata(
-                    state,
-                    log_dir=log_dir,
-                    app_data_dir=app_data_dir,
-                    cache_dir=cache_dir,
+        command = _backend_command(
+            log_dir=log_dir,
+            app_data_dir=app_data_dir,
+            cache_dir=cache_dir,
+            host=config.host,
+            port=config.port,
         )
-        time.sleep(0.2)
-    _terminate_spawned_backend(process)
+        process = _spawn_backend_process(command, env)
+        deadline = time.time() + startup_timeout_sec
+        exit_code: int | None = None
+        while time.time() < deadline:
+            state = read_backend_state(
+                log_dir,
+                app_data_dir=app_data_dir,
+                cache_dir=cache_dir,
+            )
+            if isinstance(state, dict):
+                base_url = str(state.get("base_url") or "").strip()
+                if base_url and is_backend_healthy(base_url):
+                    return _merge_runtime_metadata(
+                        state,
+                        log_dir=log_dir,
+                        app_data_dir=app_data_dir,
+                        cache_dir=cache_dir,
+                    )
+            poll_result = process.poll()
+            if isinstance(poll_result, int):
+                exit_code = poll_result
+                logger.warning(
+                    "The local backend exited before it became ready (attempt %s/%s, exit code %s).",
+                    attempt,
+                    BACKEND_START_ATTEMPTS,
+                    exit_code,
+                )
+                break
+            time.sleep(0.2)
+        if exit_code is not None:
+            if attempt < BACKEND_START_ATTEMPTS:
+                continue
+            raise RuntimeError(f"The local backend exited before it became ready (exit code {exit_code}).")
+        _terminate_spawned_backend(process)
+        raise RuntimeError("The local backend did not become ready in time.")
+
     raise RuntimeError("The local backend did not become ready in time.")
 
 

@@ -49,12 +49,40 @@ export interface SessionSetupContent {
 }
 
 const STORAGE_KEY = "assess-speaking.session-setup.theme-library";
+const REQUIRED_PRACTICE_BRIEF_TEMPLATE_KEYS = [
+  ...TASK_FAMILY_OPTIONS,
+  "default_duration_minutes",
+  "default_duration_seconds",
+] as const;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
 export const isValidTaskFamily = (value: string): value is TaskFamily =>
   TASK_FAMILY_OPTIONS.includes(value as TaskFamily);
+
+const validateEnglishPracticeBriefTemplates = (
+  templates: Record<string, unknown>,
+): Record<string, PracticeBriefTemplateGroup> => {
+  if (!isRecord(templates.en)) {
+    throw new Error("Session setup content is missing English practice brief templates.");
+  }
+
+  for (const key of REQUIRED_PRACTICE_BRIEF_TEMPLATE_KEYS) {
+    if (typeof templates.en[key] !== "string" || !String(templates.en[key]).trim()) {
+      throw new Error(`English practice brief template '${key}' is required.`);
+    }
+  }
+
+  if (
+    !Array.isArray(templates.en.success_focus) ||
+    !templates.en.success_focus.every((item) => typeof item === "string")
+  ) {
+    throw new Error("English practice brief success_focus must be a string list.");
+  }
+
+  return templates as Record<string, PracticeBriefTemplateGroup>;
+};
 
 export const parseSessionSetupContent = (raw: unknown): SessionSetupContent => {
   if (!isRecord(raw)) {
@@ -69,9 +97,11 @@ export const parseSessionSetupContent = (raw: unknown): SessionSetupContent => {
     throw new Error("Session setup content is missing practice_brief_templates.");
   }
 
+  const practiceBriefTemplates = validateEnglishPracticeBriefTemplates(raw.practice_brief_templates);
+
   return {
     default_theme_library: raw.default_theme_library as ThemeLibrary,
-    practice_brief_templates: raw.practice_brief_templates as Record<string, PracticeBriefTemplateGroup>,
+    practice_brief_templates: practiceBriefTemplates,
   };
 };
 

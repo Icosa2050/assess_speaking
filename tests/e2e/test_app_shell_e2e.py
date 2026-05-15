@@ -172,8 +172,11 @@ def test_app_shell_browse_files_button_attaches_audio(
     _start_app_shell_session(page, app_shell_server, app_shell_text, ui_locale, speaker_id=f"playwright-browse-{ui_locale}")
     _set_upload_mode(page, app_shell_text, ui_locale)
 
+    uploader = page.locator('[data-testid="stFileUploader"]').filter(
+        has_text=re.compile(re.escape(app_shell_text(ui_locale, "speak.upload")))
+    )
     with page.expect_file_chooser() as chooser_info:
-        page.get_by_role("button", name="Browse files").click()
+        uploader.locator('button[data-testid="stBaseButton-secondary"]').click()
     chooser_info.value.set_files(str(samples_dir / DEFAULT_SAMPLE_AUDIO))
 
     expect(page.get_by_text(re.compile(re.escape(app_shell_text(ui_locale, "speak.status_ready"))))).to_be_visible(timeout=30000)

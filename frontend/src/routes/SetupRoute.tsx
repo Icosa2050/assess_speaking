@@ -152,7 +152,7 @@ export const SetupRoute = () => {
   const [detectedModelMessage, setDetectedModelMessage] = useState("");
   const [detectedModels, setDetectedModels] = useState<string[]>([]);
   const [formStatus, setFormStatus] = useState<
-    "idle" | "testing" | "test-succeeded" | "test-failed" | "saving" | "saved"
+    "idle" | "testing" | "test-succeeded" | "test-failed" | "saving" | "save-failed" | "saved"
   >("idle");
   const [formStatusMessage, setFormStatusMessage] = useState("");
   const [isBusy, setIsBusy] = useState(false);
@@ -354,8 +354,8 @@ export const SetupRoute = () => {
       await handleInvalidateRuntime();
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
-      setFormStatus("test-failed");
-      setFormStatusMessage(translate("runtime_setup.test_error", { detail }));
+      setFormStatus("save-failed");
+      setFormStatusMessage(translate("runtime_setup.save_error", { detail }));
     } finally {
       setIsBusy(false);
     }

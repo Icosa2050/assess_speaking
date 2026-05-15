@@ -18,7 +18,54 @@ type RenderWithProvidersOptions = Omit<RenderOptions, "wrapper"> & {
   locale?: UiLocale;
   queryClient?: QueryClient;
   store?: AppStoreApi;
+  /** Ignored when a custom store is provided. */
   appState?: AppStoreSeed;
+};
+
+const hasCompleteLocalStorage = (
+  localStorage:
+    | Storage
+    | {
+        clear?: () => void;
+        getItem?: (key: string) => string | null;
+        key?: (index: number) => string | null;
+        length?: number;
+        removeItem?: (key: string) => void;
+        setItem?: (key: string, value: string) => void;
+      }
+    | undefined,
+): localStorage is Storage =>
+  Boolean(
+    localStorage &&
+      typeof localStorage.getItem === "function" &&
+      typeof localStorage.setItem === "function" &&
+      typeof localStorage.removeItem === "function" &&
+      typeof localStorage.clear === "function" &&
+      typeof localStorage.key === "function" &&
+      typeof localStorage.length === "number",
+  );
+
+const installLocalStorageShim = () => {
+  const storage = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      clear: () => {
+        storage.clear();
+      },
+      getItem: (key: string) => storage.get(key) ?? null,
+      key: (index: number) => Array.from(storage.keys())[index] ?? null,
+      get length() {
+        return storage.size;
+      },
+      removeItem: (key: string) => {
+        storage.delete(key);
+      },
+      setItem: (key: string, value: string) => {
+        storage.set(key, value);
+      },
+    },
+  });
 };
 
 export const renderWithProviders = (
@@ -33,39 +80,12 @@ export const renderWithProviders = (
   }: RenderWithProvidersOptions = {},
 ) => {
   if (typeof window !== "undefined") {
-    const currentLocalStorage = window.localStorage as
-      | Storage
-      | {
-          clear?: () => void;
-          getItem?: (key: string) => string | null;
-          removeItem?: (key: string) => void;
-          setItem?: (key: string, value: string) => void;
-        }
-      | undefined;
+    const currentLocalStorage = window.localStorage as Parameters<typeof hasCompleteLocalStorage>[0];
 
-    if (
-      !currentLocalStorage ||
-      typeof currentLocalStorage.getItem !== "function" ||
-      typeof currentLocalStorage.setItem !== "function" ||
-      typeof currentLocalStorage.removeItem !== "function" ||
-      typeof currentLocalStorage.clear !== "function"
-    ) {
-      const storage = new Map<string, string>();
-      Object.defineProperty(window, "localStorage", {
-        configurable: true,
-        value: {
-          clear: () => {
-            storage.clear();
-          },
-          getItem: (key: string) => storage.get(key) ?? null,
-          removeItem: (key: string) => {
-            storage.delete(key);
-          },
-          setItem: (key: string, value: string) => {
-            storage.set(key, value);
-          },
-        },
-      });
+    if (hasCompleteLocalStorage(currentLocalStorage)) {
+      currentLocalStorage.clear();
+    } else {
+      installLocalStorageShim();
     }
   }
 

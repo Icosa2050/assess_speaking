@@ -144,9 +144,12 @@ const statusShortLabel = (
   return translate("review.status_short_done");
 };
 
+const isMissingTranslation = (key: string, translated: string): boolean => translated === `[${key}]`;
+
 const taskFamilyLabel = (value: string, translate: ReturnType<typeof createTranslator>): string => {
-  const translated = translate(`task_family.${value}`);
-  return translated.startsWith("[") ? value.replaceAll("_", " ") : translated;
+  const key = `task_family.${value}`;
+  const translated = translate(key);
+  return isMissingTranslation(key, translated) ? value.replaceAll("_", " ") : translated;
 };
 
 const languageLabel = (value: string, translate: ReturnType<typeof createTranslator>): string => {
@@ -154,8 +157,9 @@ const languageLabel = (value: string, translate: ReturnType<typeof createTransla
     return translate("history.none");
   }
 
-  const translated = translate(`locale.${value}`);
-  return translated.startsWith("[") ? value.toUpperCase() : translated;
+  const key = `locale.${value}`;
+  const translated = translate(key);
+  return isMissingTranslation(key, translated) ? value.toUpperCase() : translated;
 };
 
 const normalizeHistoryRecord = (
@@ -619,7 +623,7 @@ export const HistoryRoute = () => {
       />
 
       <HistoryDetailPanel
-        error={detailQuery.isError ? translate("history.details_error") : ""}
+        error={detailQuery.isError ? translate("history.details_error") : null}
         isLoading={detailQuery.isPending}
         payload={detailQuery.data?.payload ?? null}
         record={

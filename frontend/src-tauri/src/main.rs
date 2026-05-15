@@ -13,6 +13,7 @@ const DEPLOYMENT_MODE_ENV_VAR: &str = "VOSTAVO_DEPLOYMENT_MODE";
 const LAUNCH_MODE_ENV_VAR: &str = "VOSTAVO_LAUNCH_MODE";
 const DESKTOP_PACKAGING_SAFE_ENV_VAR: &str = "VOSTAVO_DESKTOP_PACKAGING_SAFE";
 const AUTH_MODE_ENV_VAR: &str = "VOSTAVO_AUTH_MODE";
+const PYTHON_BIN_ENV_VAR: &str = "PYTHON_BIN";
 const DESKTOP_BOOTSTRAP_FLAG: &str = "--desktop-bootstrap";
 
 struct DesktopRuntimeBridge {
@@ -27,12 +28,20 @@ fn escape_js(value: &str) -> String {
     value
         .replace('\\', "\\\\")
         .replace('\'', "\\'")
+        .replace('"', "\\\"")
+        .replace('`', "\\`")
         .replace('\n', "\\n")
         .replace('\r', "\\r")
+        .replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029")
+        .replace("</", "<\\/")
 }
 
 fn packaging_safe_from_env(value: &str) -> bool {
-    matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes")
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes"
+    )
 }
 
 fn desktop_bridge_from_env() -> Option<DesktopRuntimeBridge> {
@@ -71,13 +80,56 @@ fn parse_bootstrap_lines(stdout: &str) -> HashMap<String, String> {
     values
 }
 
+fn command_is_available(executable: &str) -> bool {
+    Command::new(executable).arg("--version").output().is_ok()
+}
+
+fn resolve_python_executable(root: &Path) -> PathBuf {
+    if let Ok(value) = env::var(PYTHON_BIN_ENV_VAR) {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+
+    for candidate in [
+        root.join(".venv").join("bin").join("python"),
+        root.join(".venv").join("Scripts").join("python.exe"),
+    ] {
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+
+    let candidate_names: &[&str] = if cfg!(target_os = "windows") {
+        &["python", "py"]
+    } else {
+        &["python3", "python"]
+    };
+    for candidate in candidate_names {
+        if command_is_available(candidate) {
+            return PathBuf::from(candidate);
+        }
+    }
+
+    PathBuf::from(candidate_names[0])
+}
+
 fn bootstrap_from_repo_launcher() -> Result<DesktopRuntimeBridge, Box<dyn Error>> {
     let root = repo_root();
-    let output = Command::new("python3")
+    let python_executable = resolve_python_executable(&root);
+    let output = Command::new(&python_executable)
         .arg(root.join("scripts").join("run_app.py"))
         .arg(DESKTOP_BOOTSTRAP_FLAG)
         .current_dir(&root)
-        .output()?;
+        .output()
+        .map_err(|error| {
+            std::io::Error::other(format!(
+                "failed to run desktop bootstrap with {}: {}",
+                python_executable.display(),
+                error
+            ))
+        })?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let detail = format!("desktop bootstrap failed: {}", stderr.trim());
@@ -114,6 +166,20 @@ fn bootstrap_from_repo_launcher() -> Result<DesktopRuntimeBridge, Box<dyn Error>
     })
 }
 
+fn desktop_runtime_bridge() -> Result<DesktopRuntimeBridge, Box<dyn Error>> {
+    if let Some(runtime) = desktop_bridge_from_env() {
+        return Ok(runtime);
+    }
+
+    bootstrap_from_repo_launcher().map_err(|error| {
+        std::io::Error::other(format!(
+            "could not initialize Vostavo desktop bridge from {} or launcher bootstrap: {}",
+            DESKTOP_API_BASE_URL_ENV_VAR, error
+        ))
+        .into()
+    })
+}
+
 fn desktop_bridge_script(runtime: &DesktopRuntimeBridge) -> String {
     format!(
         "window.__VOSTAVO_DESKTOP__ = Object.freeze({{ apiBaseUrl: '{}', deploymentMode: '{}', launchMode: '{}', packagingSafe: {}, authMode: '{}' }});",
@@ -126,17 +192,30 @@ fn desktop_bridge_script(runtime: &DesktopRuntimeBridge) -> String {
 }
 
 fn main() {
-    let runtime = desktop_bridge_from_env().or_else(|| bootstrap_from_repo_launcher().ok());
+    let runtime = desktop_runtime_bridge().expect("could not initialize Vostavo desktop bridge");
     tauri::Builder::default()
         .setup(move |app| {
-            if let Some(runtime) = runtime.as_ref() {
-                let window = app
-                    .get_webview_window("main")
-                    .ok_or_else(|| std::io::Error::other("main webview window is missing"))?;
-                window.eval(desktop_bridge_script(runtime))?;
-            }
+            let window = app
+                .get_webview_window("main")
+                .ok_or_else(|| std::io::Error::other("main webview window is missing"))?;
+            window.eval(desktop_bridge_script(&runtime))?;
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running Vostavo desktop shell");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn escape_js_escapes_script_and_literal_boundaries() {
+        let escaped = escape_js("a'b\"c`d\\e\nf\rg\u{2028}h\u{2029}</script>");
+
+        assert_eq!(
+            escaped,
+            "a\\'b\\\"c\\`d\\\\e\\nf\\rg\\u2028h\\u2029<\\/script>"
+        );
+    }
 }

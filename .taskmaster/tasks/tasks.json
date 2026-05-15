@@ -536,11 +536,66 @@
         "description": "Capture the remaining repo-quality audit backlog as a later hardening lane, without blocking the completed first phase.",
         "details": "Scope: do not treat this as a Phase 1 blocker. Use ./scripts/python.sh scripts/repo_quality_audit.py --coverage-mode run --json as the baseline. Break implementation into file-based subtasks with no more than 4 files each. Suggested subtask lanes: (1) exception visibility in backend/shell runtime files flagged for silent-except or broad-except, (2) low-coverage app modules that are product-critical, (3) low-coverage utility scripts, and (4) root generated artifacts and audit allowlist hygiene. Acceptance: current audit findings are triaged into concrete follow-up subtasks or intentionally documented as accepted debt; any touched exception handlers preserve user-facing behavior while making failures visible; coverage improvements are verified by targeted tests and the repo-quality audit; root artifacts are cleaned up or documented in ignore/allowlist policy.",
         "testStrategy": "",
-        "status": "deferred",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
-        "subtasks": [],
-        "updatedAt": "2026-04-23T16:19:27.091Z"
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Backend exception visibility",
+            "description": "Make backend runtime exception handlers visible without changing user-facing behavior.",
+            "details": "Files: app_backend/config.py, app_backend/lifecycle.py, tests/test_app_backend_config.py, tests/test_app_backend_lifecycle.py. Add targeted tests first, then preserve existing fallbacks while logging or surfacing failure context.",
+            "status": "done",
+            "dependencies": [],
+            "parentTaskId": 38,
+            "updatedAt": "2026-05-14T14:35:56.428Z",
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Job and maintenance exception visibility",
+            "description": "Harden job and maintenance exception paths and coverage.",
+            "details": "Files: app_backend/jobs.py, app_backend/maintenance.py, tests/test_app_backend_api.py, tests/test_app_backend_support_bundle.py. Add targeted tests for observable fallback/logging behavior before edits.",
+            "status": "done",
+            "dependencies": [],
+            "parentTaskId": 38,
+            "parentId": "undefined",
+            "updatedAt": "2026-05-14T14:42:09.736Z"
+          },
+          {
+            "id": 3,
+            "title": "Secret and shell runtime visibility",
+            "description": "Make secret-store and shell service fallback failures observable.",
+            "details": "Files: app_shell/secret_store.py, app_shell/services.py, tests/test_secret_store.py, tests/test_app_shell_services.py. Add or extend tests for logging/fallback behavior before implementation.",
+            "status": "done",
+            "dependencies": [],
+            "parentTaskId": 38,
+            "parentId": "undefined",
+            "updatedAt": "2026-05-14T14:40:09.150Z"
+          },
+          {
+            "id": 4,
+            "title": "Audit policy and generated artifacts",
+            "description": "Clean up repo-quality audit policy for generated artifacts and accepted debt.",
+            "details": "Files: scripts/repo_quality_audit.py, tests/test_repo_quality_audit.py, .gitignore. Keep generated coverage artifacts excluded or intentionally documented, and add focused audit tests before changing policy.",
+            "status": "done",
+            "dependencies": [],
+            "parentTaskId": 38,
+            "parentId": "undefined",
+            "updatedAt": "2026-05-14T14:41:13.232Z"
+          },
+          {
+            "id": 5,
+            "title": "Legacy monolith and runtime exception backlog",
+            "description": "Track remaining high audit findings outside the first hardening wave.",
+            "details": "Files: assess_speaking.py, assessment_runtime/llm_client.py, targeted legacy/runtime tests to be identified before edits. Remaining high findings are in the legacy Streamlit monolith and runtime LLM fallback paths; do not touch learner-facing screen behavior without the required PAL review and a separate file-based plan.",
+            "status": "deferred",
+            "dependencies": [],
+            "parentTaskId": 38,
+            "parentId": "undefined"
+          }
+        ],
+        "updatedAt": "2026-05-14T14:42:16.718Z"
       },
       {
         "id": "39",
@@ -777,6 +832,7 @@
         "testStrategy": "",
         "status": "deferred",
         "dependencies": [
+          "38",
           "52"
         ],
         "priority": "low",
@@ -948,9 +1004,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-05-04T21:49:52.999Z",
+      "lastModified": "2026-05-14T14:42:16.719Z",
       "taskCount": 65,
-      "completedCount": 63,
+      "completedCount": 64,
       "tags": [
         "master"
       ]

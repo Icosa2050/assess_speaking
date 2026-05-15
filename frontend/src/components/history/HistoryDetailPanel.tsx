@@ -30,7 +30,7 @@ export const HistoryDetailPanel = ({
   record,
   translate,
 }: {
-  error: string;
+  error: string | null;
   isLoading: boolean;
   payload: JsonRecord | null;
   record: HistoryDetailRecord | null;
@@ -54,7 +54,8 @@ export const HistoryDetailPanel = ({
     );
   }
 
-  if (error || !payload) {
+  const hasError = typeof error === "string" && error.length > 0;
+  if (hasError || !payload) {
     return (
       <section style={cardStyle} data-testid="history-detail-error" data-semantic-id="history-detail-error">
         <h2 style={{ margin: 0, fontSize: "1.35rem", color: "#10201c" }}>{translate("history.details_title")}</h2>

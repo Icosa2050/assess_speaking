@@ -34,6 +34,17 @@ const jumpButtonStyle = {
   cursor: "pointer",
 } as const;
 
+const jumpButtonContentStyle = {
+  display: "grid",
+  gap: "0.25rem",
+  minWidth: 0,
+} as const;
+
+const jumpButtonLineStyle = {
+  lineHeight: 1.35,
+  overflowWrap: "anywhere",
+} as const;
+
 const selectStyle = {
   minHeight: "44px",
   padding: "0.75rem 0.875rem",
@@ -101,12 +112,14 @@ export const HistoryList = ({
               data-testid={`history-jump-${index}`}
               data-semantic-id={`history-jump-${index}`}
             >
-              {[
-                `${record.languageLabel} · ${record.timestampLabel}`,
-                `${record.statusLabel} · ${translate("history.table_score")} ${record.scoreLabel} · ${translate("history.table_band")} ${record.bandLabel}`,
-                record.theme || "-",
-                record.taskFamilyLabel,
-              ].join(" · ")}
+              <span style={jumpButtonContentStyle}>
+                <span style={jumpButtonLineStyle}>{`${record.languageLabel} · ${record.timestampLabel}`}</span>
+                <span style={jumpButtonLineStyle}>
+                  {`${record.statusLabel} · ${translate("history.table_score")} ${record.scoreLabel} · ${translate("history.table_band")} ${record.bandLabel}`}
+                </span>
+                <span style={jumpButtonLineStyle}>{record.theme || "-"}</span>
+                <span style={jumpButtonLineStyle}>{record.taskFamilyLabel}</span>
+              </span>
             </button>
           ))}
         </div>
@@ -140,6 +153,7 @@ export const HistoryList = ({
             {[translate("history.table_timestamp"), translate("history.table_language"), translate("history.table_theme"), translate("history.table_score"), translate("history.table_band"), translate("history.table_status")].map((label) => (
               <th
                 key={label}
+                scope="col"
                 style={{
                   ...tableCellStyle,
                   color: "#33514b",
