@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/renderWithProviders";
@@ -85,6 +85,32 @@ describe("Home and Runtime Setup routes", () => {
       active_connection_id: "",
       connections: [],
     });
+    mockedPutRuntimeSettings.mockResolvedValue({
+      ui_locale: "en",
+      whisper_model: "medium",
+      active_connection_id: "conn-ollama",
+      connections: [
+        {
+          connection_id: "conn-ollama",
+          provider_key: "ollama",
+          provider_choice: "ollama_local",
+          provider_label: "Ollama local",
+          label: "Ollama local",
+          model: "llama3.2:3b",
+          base_url: "http://localhost:11434",
+          is_default: true,
+          is_local: true,
+          requires_api_key: false,
+          has_api_key: false,
+          secret_state: "absent",
+          last_test_status: "",
+          last_tested_at: "",
+          openrouter_http_referer: "",
+          openrouter_app_title: "",
+          provider_metadata: {},
+        },
+      ],
+    });
     mockedPostRuntimeSettingsTestConnection.mockResolvedValue({
       provider: "ollama",
       base_url: "http://localhost:11434/v1",
@@ -130,6 +156,16 @@ describe("Home and Runtime Setup routes", () => {
 
     expect(await screen.findByTestId("runtime_setup.screen")).toBeVisible();
     expect(screen.getByTestId("runtime_connection.form")).toBeVisible();
+    const providerField = screen.getByTestId("runtime_connection.provider");
+    expect(within(providerField).getByRole("option", { name: "Ollama local" })).toBeInTheDocument();
+    expect(within(providerField).getByRole("option", { name: "LM Studio local" })).toBeInTheDocument();
+    expect(within(providerField).queryByRole("option", { name: "OpenRouter" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show cloud and advanced providers" })).toBeVisible();
+    expect(screen.getByTestId("runtime_setup.detect_local_models")).toBeVisible();
+    expect(screen.queryByTestId("runtime_connection.api_key")).not.toBeInTheDocument();
+    const diagnosticsSummary = screen.getByText("Connection diagnostics");
+    expect(diagnosticsSummary).toBeVisible();
+    expect(diagnosticsSummary.closest("details")).not.toHaveAttribute("open");
 
     fireEvent.click(screen.getByTestId("runtime_setup.detect_local_models"));
 
@@ -138,6 +174,29 @@ describe("Home and Runtime Setup routes", () => {
     });
     expect(screen.getByText("Detected 2 local model(s) via http://localhost:11434/api/tags.")).toBeVisible();
 
+    const detectedModelField = screen.getByLabelText("Detected local models");
+    expect(screen.getByTestId("runtime_connection.model")).toHaveValue("llama3.2:3b");
+    expect(
+      within(detectedModelField).queryByText("Local model discovery can populate this field from the running service."),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("runtime_connection.test_connection"));
+    const healthCheckMessage =
+      "Health check passed at http://localhost:11434/api/tags. Smoke test reached http://localhost:11434/v1 with model llama3.2:3b. Preview: ok";
+    expect(await screen.findByText(healthCheckMessage)).toBeVisible();
+
+    fireEvent.change(screen.getByTestId("runtime_connection.provider"), {
+      target: { value: "lmstudio_local" },
+    });
+    expect(screen.getByTestId("runtime_connection.model")).toHaveValue("");
+    expect(screen.getByTestId("runtime_connection.base_url")).toHaveValue("http://localhost:1234/v1");
+    expect(screen.queryByLabelText("Detected local models")).not.toBeInTheDocument();
+    expect(screen.queryByText("Detected 2 local model(s) via http://localhost:11434/api/tags.")).not.toBeInTheDocument();
+    expect(screen.queryByText(healthCheckMessage)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId("runtime_connection.provider"), {
+      target: { value: "ollama_local" },
+    });
     fireEvent.change(screen.getByTestId("runtime_connection.model"), {
       target: { value: "llama3.2:3b" },
     });
@@ -156,6 +215,68 @@ describe("Home and Runtime Setup routes", () => {
       );
     });
     expect(screen.getByText("Connection saved and set as active.")).toBeVisible();
+  });
+
+  it("keeps cloud providers behind the advanced toggle on runtime setup", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: false,
+      provider: "",
+      model: "",
+      base_url: "",
+      requires_api_key: false,
+      has_api_key: false,
+    });
+    mockedGetRuntimeSettings.mockResolvedValue({
+      ui_locale: "en",
+      whisper_model: "medium",
+      active_connection_id: "",
+      connections: [],
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/runtime-setup"],
+      locale: "en",
+    });
+
+    const providerField = await screen.findByTestId("runtime_connection.provider");
+    expect(within(providerField).queryByRole("option", { name: "OpenRouter" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show cloud and advanced providers" }));
+
+    expect(within(providerField).getByRole("option", { name: "OpenRouter" })).toBeInTheDocument();
+    expect(within(providerField).getByRole("option", { name: "Generic OpenAI-compatible" })).toBeInTheDocument();
+
+    fireEvent.change(providerField, {
+      target: { value: "openrouter" },
+    });
+
+    expect(screen.queryByTestId("runtime_setup.detect_local_models")).not.toBeInTheDocument();
+    expect(screen.getByTestId("runtime_connection.api_key")).toBeVisible();
+    expect(screen.getByLabelText("OpenRouter HTTP-Referer")).toBeVisible();
+
+    fireEvent.change(screen.getByTestId("runtime_connection.api_key"), {
+      target: { value: "temporary-cloud-key" },
+    });
+    fireEvent.change(providerField, {
+      target: { value: "ollama_local" },
+    });
+    expect(screen.queryByTestId("runtime_connection.api_key")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId("runtime_connection.model"), {
+      target: { value: "llama3.2:3b" },
+    });
+    fireEvent.click(screen.getByTestId("runtime_connection.save_connection"));
+
+    await waitFor(() => {
+      expect(mockedPutRuntimeSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          connection: expect.objectContaining({
+            provider_choice: "ollama_local",
+            api_key: "",
+          }),
+        }),
+      );
+    });
   });
 
   it("preserves saved-secret clear confirmation and save flow for existing connections", async () => {
@@ -246,9 +367,15 @@ describe("Home and Runtime Setup routes", () => {
       },
     });
 
+    const form = await screen.findByTestId("runtime_connection.form");
     expect(
-      await screen.findAllByText("A saved key is already available for this connection."),
-    ).toHaveLength(2);
+      await within(form).findByText("A saved key is already available for this connection."),
+    ).toBeVisible();
+    expect(screen.queryByTestId("runtime_connection.api_key")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Replace saved key" }));
+
+    expect(screen.getByTestId("runtime_connection.api_key")).toBeVisible();
 
     fireEvent.click(screen.getByTestId("runtime_connection.clear_saved_key"));
     expect(
@@ -272,5 +399,45 @@ describe("Home and Runtime Setup routes", () => {
       );
     });
     expect(screen.getByText("Connection saved and set as active.")).toBeVisible();
+  });
+
+  it("blocks invalid OpenRouter referers before saving", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: false,
+      provider: "",
+      model: "",
+      base_url: "",
+      requires_api_key: false,
+      has_api_key: false,
+    });
+    mockedGetRuntimeSettings.mockResolvedValue({
+      ui_locale: "en",
+      whisper_model: "medium",
+      active_connection_id: "",
+      connections: [],
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/runtime-setup"],
+      locale: "en",
+    });
+
+    expect(await screen.findByTestId("runtime_connection.form")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Show cloud and advanced providers" }));
+    fireEvent.change(screen.getByTestId("runtime_connection.provider"), {
+      target: { value: "openrouter" },
+    });
+    fireEvent.change(screen.getByLabelText("OpenRouter HTTP-Referer"), {
+      target: { value: "test-referer" },
+    });
+
+    fireEvent.click(screen.getByTestId("runtime_connection.save_connection"));
+
+    expect(
+      await screen.findByText(
+        "OpenRouter HTTP-Referer must be a full URL starting with http:// or https://.",
+      ),
+    ).toBeVisible();
+    expect(mockedPutRuntimeSettings).not.toHaveBeenCalled();
   });
 });

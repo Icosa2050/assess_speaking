@@ -34,13 +34,34 @@ const PROVIDER_DEFAULT_BASE_URLS: Record<(typeof PROVIDER_CHOICES)[number], stri
   openai_compatible: "",
 };
 
+const DEFAULT_OPENROUTER_HTTP_REFERER = "http://localhost:8503";
+const DEFAULT_OPENROUTER_APP_TITLE = "Vostavo";
+
 const providerDefaultBaseUrl = (providerChoice: string): string =>
   PROVIDER_DEFAULT_BASE_URLS[providerChoice as keyof typeof PROVIDER_DEFAULT_BASE_URLS] ?? "";
 
 const normalizeBaseUrlForComparison = (value: string): string =>
   String(value || "").trim().replace(/\/+$/, "");
 
+const isValidOpenRouterHttpReferer = (value: string): boolean => {
+  const candidate = String(value || "").trim();
+  if (!candidate) {
+    return true;
+  }
+  try {
+    const parsed = new URL(candidate);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:") && Boolean(parsed.hostname);
+  } catch {
+    return false;
+  }
+};
+
 const LOCAL_PROVIDER_CHOICES = new Set<string>(["ollama_local", "lmstudio_local"]);
+const ADVANCED_PROVIDER_CHOICES = new Set<string>([
+  "ollama_cloud",
+  "openrouter",
+  "openai_compatible",
+]);
 
 const sectionStyle = {
   display: "grid",
@@ -128,6 +149,7 @@ type RuntimeConnectionFormProps = {
   locale: UiLocale;
   onBack?: () => void;
   onDetectLocalModels?: (draft: RuntimeConnectionDraft) => void;
+  onProviderChange?: (providerChoice: string) => void;
   onSave: (payload: { clearSavedSecret: boolean; draft: RuntimeConnectionDraft }) => void;
   onTest: (draft: RuntimeConnectionDraft) => void;
   resetToken?: string;
@@ -145,6 +167,7 @@ export const RuntimeConnectionForm = ({
   locale,
   onBack,
   onDetectLocalModels,
+  onProviderChange,
   onSave,
   onTest,
   resetToken = "",
@@ -157,10 +180,16 @@ export const RuntimeConnectionForm = ({
 
   const [draft, setDraft] = useState<RuntimeConnectionDraft>(() => normalizeDraft(initialDraft));
   const [clearStage, setClearStage] = useState<"idle" | "confirming" | "undo">("idle");
+  const [localValidationMessage, setLocalValidationMessage] = useState("");
+  const [replaceSecret, setReplaceSecret] = useState(false);
+  const [showAdvancedProviders, setShowAdvancedProviders] = useState(false);
 
   useEffect(() => {
     setDraft(normalizeDraft(initialDraft));
     setClearStage("idle");
+    setLocalValidationMessage("");
+    setReplaceSecret(false);
+    setShowAdvancedProviders(false);
   }, [initialDraftSeed, initialSecretState, resetToken]);
 
   const normalizedInitialDraft = useMemo(
@@ -168,24 +197,52 @@ export const RuntimeConnectionForm = ({
     [initialDraftSeed],
   );
   const normalizedDraft = useMemo(() => normalizeDraft(draft), [draft]);
+
+  useEffect(() => {
+    const firstDetectedModel = String(detectedModels[0] || "").trim();
+    if (!firstDetectedModel || normalizedDraft.model) {
+      return;
+    }
+    setDraft((current) => ({
+      ...current,
+      model: firstDetectedModel,
+    }));
+  }, [detectedModels, normalizedDraft.model]);
+
   const isDirty =
     JSON.stringify(normalizedDraft) !== JSON.stringify(normalizedInitialDraft) || clearStage !== "idle";
 
   const effectiveState: RuntimeConnectionFormState =
-    status === "testing" || status === "saving"
+    localValidationMessage
+      ? "save-failed"
+      : status === "testing" || status === "saving"
       ? status
       : isDirty
         ? "editing"
         : status;
+  const displayedStatusMessage = localValidationMessage || statusMessage;
 
   const providerChoice = normalizedDraft.provider_choice || "ollama_local";
-  const requiresApiKey = providerChoice === "openrouter";
   const copyRoot = variant === "settings" ? "settings" : "runtime_setup";
   const providerFieldLabel =
     variant === "settings"
       ? translate("settings.provider")
       : translate("runtime_setup.provider_label");
   const modelSelectEnabled = LOCAL_PROVIDER_CHOICES.has(providerChoice);
+  const selectedProviderIsAdvanced = ADVANCED_PROVIDER_CHOICES.has(providerChoice);
+  const advancedProvidersVisible =
+    variant === "settings" || showAdvancedProviders || selectedProviderIsAdvanced;
+  const providerChoices =
+    variant === "runtime-setup" && !advancedProvidersVisible
+      ? PROVIDER_CHOICES.filter((option) => LOCAL_PROVIDER_CHOICES.has(option))
+      : PROVIDER_CHOICES;
+  const providerCanUseApiKey = !LOCAL_PROVIDER_CHOICES.has(providerChoice);
+  const savedSecretPresent = initialSecretState === "present";
+  const showApiKeyField =
+    variant === "settings" ||
+    initialSecretState === "missing" ||
+    (providerCanUseApiKey && (!savedSecretPresent || replaceSecret));
+  const selectedDetectedModel = detectedModels.includes(normalizedDraft.model) ? normalizedDraft.model : "";
   const secretStateValue =
     clearStage === "confirming"
       ? "confirming-clear"
@@ -194,19 +251,35 @@ export const RuntimeConnectionForm = ({
         : initialSecretState;
 
   const updateDraft = (updates: Partial<RuntimeConnectionDraft>) => {
+    setLocalValidationMessage("");
     setDraft((current) => ({
       ...current,
       ...updates,
     }));
   };
 
+  const validateDraft = (candidate: RuntimeConnectionDraft): boolean => {
+    if (
+      String(candidate.provider_choice || "").trim() === "openrouter" &&
+      !isValidOpenRouterHttpReferer(candidate.openrouter_http_referer || "")
+    ) {
+      setLocalValidationMessage(translate(`${copyRoot}.openrouter_http_referer_invalid`));
+      return false;
+    }
+    setLocalValidationMessage("");
+    return true;
+  };
+
   const handleProviderChange = (nextProviderChoice: string) => {
+    const providerChanged = nextProviderChoice !== providerChoice;
     setDraft((current) => {
       const previousProviderChoice = current.provider_choice || "ollama_local";
+      const currentProviderChanged = nextProviderChoice !== previousProviderChoice;
       const previousLabel = providerLabel(translate, previousProviderChoice);
       const nextLabel = providerLabel(translate, nextProviderChoice);
       const keepAutoLabel = !current.label || current.label === previousLabel;
       const currentBaseUrl = String(current.base_url || "").trim();
+      const nextProviderCanUseApiKey = !LOCAL_PROVIDER_CHOICES.has(nextProviderChoice);
       const keepAutoBaseUrl =
         !currentBaseUrl ||
         normalizeBaseUrlForComparison(currentBaseUrl) ===
@@ -216,10 +289,18 @@ export const RuntimeConnectionForm = ({
         ...current,
         provider_choice: nextProviderChoice,
         label: keepAutoLabel ? nextLabel : current.label,
+        model: currentProviderChanged ? "" : current.model,
         base_url: keepAutoBaseUrl ? providerDefaultBaseUrl(nextProviderChoice) : current.base_url,
+        api_key:
+          variant === "runtime-setup" && !nextProviderCanUseApiKey ? "" : current.api_key,
       };
     });
+    if (providerChanged) {
+      onProviderChange?.(nextProviderChoice);
+    }
+    setLocalValidationMessage("");
     setClearStage("idle");
+    setReplaceSecret(false);
   };
 
   return (
@@ -247,7 +328,7 @@ export const RuntimeConnectionForm = ({
             style={inputStyle}
             {...semanticAttributes(SEMANTIC_IDS.runtimeConnection.provider)}
           >
-            {PROVIDER_CHOICES.map((option) => (
+            {providerChoices.map((option) => (
               <option
                 key={option}
                 value={option}
@@ -261,6 +342,19 @@ export const RuntimeConnectionForm = ({
         <p style={{ margin: 0, lineHeight: 1.55, color: "#33514b" }}>
           {providerHint(translate, providerChoice)}
         </p>
+
+        {variant === "runtime-setup" && !selectedProviderIsAdvanced ? (
+          <button
+            type="button"
+            onClick={() => setShowAdvancedProviders((current) => !current)}
+            style={{ ...actionButtonStyle, width: "fit-content" }}
+            {...semanticAttributes(SEMANTIC_IDS.runtimeSetup.advancedProvidersToggle)}
+          >
+            {translate(
+              showAdvancedProviders ? "runtime_setup.hide_advanced" : "runtime_setup.show_advanced",
+            )}
+          </button>
+        ) : null}
 
         {providerChoice === "ollama_cloud" ? (
           <p style={{ margin: 0, lineHeight: 1.55, color: "#33514b" }}>
@@ -314,11 +408,13 @@ export const RuntimeConnectionForm = ({
               {translate("runtime_setup.detected_local_models_label")}
             </span>
             <select
-              value={detectedModels.includes(normalizedDraft.model) ? normalizedDraft.model : ""}
+              value={selectedDetectedModel}
               onChange={(event) => updateDraft({ model: event.target.value })}
               style={inputStyle}
             >
-              <option value="">{translate("runtime_setup.detected_local_models_help")}</option>
+              {selectedDetectedModel ? null : (
+                <option value="">{translate("runtime_setup.detected_local_models_help")}</option>
+              )}
               {detectedModels.map((item) => (
                 <option
                   key={item}
@@ -349,10 +445,10 @@ export const RuntimeConnectionForm = ({
           />
         </label>
 
-        {onDetectLocalModels ? (
+        {onDetectLocalModels && modelSelectEnabled ? (
           <button
             type="button"
-            disabled={!modelSelectEnabled || isBusy}
+            disabled={isBusy}
             onClick={() => onDetectLocalModels(normalizedDraft)}
             style={actionButtonStyle}
             {...semanticAttributes(SEMANTIC_IDS.runtimeSetup.detectLocalModels)}
@@ -361,18 +457,20 @@ export const RuntimeConnectionForm = ({
           </button>
         ) : null}
 
-        <label style={fieldStyle}>
-          <span style={{ fontWeight: 600, color: "#33514b" }}>
-            {translate(`${copyRoot}.api_key`)}
-          </span>
-          <input
-            value={normalizedDraft.api_key}
-            onChange={(event) => updateDraft({ api_key: event.target.value })}
-            style={inputStyle}
-            type="password"
-            {...semanticAttributes(SEMANTIC_IDS.runtimeConnection.apiKey)}
-          />
-        </label>
+        {showApiKeyField ? (
+          <label style={fieldStyle}>
+            <span style={{ fontWeight: 600, color: "#33514b" }}>
+              {translate(`${copyRoot}.api_key`)}
+            </span>
+            <input
+              value={normalizedDraft.api_key}
+              onChange={(event) => updateDraft({ api_key: event.target.value })}
+              style={inputStyle}
+              type="password"
+              {...semanticAttributes(SEMANTIC_IDS.runtimeConnection.apiKey)}
+            />
+          </label>
+        ) : null}
 
         {providerChoice === "openrouter" ? (
           <>
@@ -383,8 +481,13 @@ export const RuntimeConnectionForm = ({
               <input
                 value={normalizedDraft.openrouter_http_referer || ""}
                 onChange={(event) => updateDraft({ openrouter_http_referer: event.target.value })}
+                placeholder={translate(`${copyRoot}.openrouter_http_referer_placeholder`, {
+                  value: DEFAULT_OPENROUTER_HTTP_REFERER,
+                })}
                 style={inputStyle}
-                type="text"
+                type="url"
+                aria-invalid={Boolean(localValidationMessage) || undefined}
+                {...semanticAttributes(SEMANTIC_IDS.runtimeConnection.openrouterHttpReferer)}
               />
             </label>
 
@@ -395,8 +498,12 @@ export const RuntimeConnectionForm = ({
               <input
                 value={normalizedDraft.openrouter_app_title || ""}
                 onChange={(event) => updateDraft({ openrouter_app_title: event.target.value })}
+                placeholder={translate(`${copyRoot}.openrouter_app_title_placeholder`, {
+                  value: DEFAULT_OPENROUTER_APP_TITLE,
+                })}
                 style={inputStyle}
                 type="text"
+                {...semanticAttributes(SEMANTIC_IDS.runtimeConnection.openrouterAppTitle)}
               />
             </label>
           </>
@@ -449,9 +556,20 @@ export const RuntimeConnectionForm = ({
               <p style={{ margin: 0, lineHeight: 1.55, color: "#33514b" }}>
                 {translate(`${copyRoot}.secret_saved_state`)}
               </p>
-              <p style={{ margin: 0, lineHeight: 1.55, color: "#33514b" }}>
-                {translate(`${copyRoot}.secret_keep_blank_hint`)}
-              </p>
+              {variant === "runtime-setup" && providerCanUseApiKey && !replaceSecret ? (
+                <button
+                  type="button"
+                  onClick={() => setReplaceSecret(true)}
+                  style={{ ...actionButtonStyle, width: "fit-content" }}
+                  {...semanticAttributes(SEMANTIC_IDS.runtimeConnection.replaceSavedKey)}
+                >
+                  {translate("runtime_setup.replace_saved_key")}
+                </button>
+              ) : showApiKeyField ? (
+                <p style={{ margin: 0, lineHeight: 1.55, color: "#33514b" }}>
+                  {translate(`${copyRoot}.secret_keep_blank_hint`)}
+                </p>
+              ) : null}
             </>
           ) : initialSecretState === "missing" ? (
             <p style={{ margin: 0, lineHeight: 1.55, color: "#9a6700" }}>
@@ -484,7 +602,7 @@ export const RuntimeConnectionForm = ({
           </>
         ) : null}
 
-        {statusMessage ? (
+        {displayedStatusMessage ? (
           <p
             style={{
               margin: 0,
@@ -493,7 +611,7 @@ export const RuntimeConnectionForm = ({
             }}
             {...semanticAttributes(SEMANTIC_IDS.runtimeConnection.formStatus, { state: effectiveState })}
           >
-            {statusMessage}
+            {displayedStatusMessage}
           </p>
         ) : null}
 
@@ -501,7 +619,11 @@ export const RuntimeConnectionForm = ({
           <button
             type="button"
             disabled={isBusy}
-            onClick={() => onTest(normalizedDraft)}
+            onClick={() => {
+              if (validateDraft(normalizedDraft)) {
+                onTest(normalizedDraft);
+              }
+            }}
             style={actionButtonStyle}
             {...semanticAttributes(SEMANTIC_IDS.runtimeConnection.testConnection)}
           >
@@ -510,12 +632,14 @@ export const RuntimeConnectionForm = ({
           <button
             type="button"
             disabled={isBusy}
-            onClick={() =>
-              onSave({
-                draft: normalizedDraft,
-                clearSavedSecret: clearStage === "undo",
-              })
-            }
+            onClick={() => {
+              if (validateDraft(normalizedDraft)) {
+                onSave({
+                  draft: normalizedDraft,
+                  clearSavedSecret: clearStage === "undo",
+                });
+              }
+            }}
             style={actionButtonStyle}
             {...semanticAttributes(SEMANTIC_IDS.runtimeConnection.saveConnection)}
           >

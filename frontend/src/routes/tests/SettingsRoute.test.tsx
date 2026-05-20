@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/renderWithProviders";
@@ -250,6 +250,9 @@ describe("Settings route", () => {
 
     expect(await screen.findAllByText("Bravo runtime")).toHaveLength(2);
     expect(screen.getAllByText("A saved key is already available for this connection.")).toHaveLength(2);
+    const providerField = screen.getByTestId("runtime_connection.provider");
+    expect(within(providerField).getByRole("option", { name: "OpenRouter" })).toBeInTheDocument();
+    expect(screen.getByTestId("runtime_connection.api_key")).toBeVisible();
 
     fireEvent.click(screen.getByTestId("runtime_connection.test_connection"));
 
@@ -349,15 +352,21 @@ describe("Settings route", () => {
     expect(await screen.findAllByText("Bravo runtime")).toHaveLength(2);
     const providerField = screen.getByTestId("runtime_connection.provider");
     const baseUrlField = screen.getByTestId("runtime_connection.base_url");
+    const modelField = screen.getByTestId("runtime_connection.model");
 
     expect(providerField).toHaveValue("openrouter");
     expect(baseUrlField).toHaveValue("https://openrouter.ai/api/v1");
+    expect(modelField).toHaveValue("gpt-4.1-mini");
 
     fireEvent.change(providerField, {
       target: { value: "ollama_local" },
     });
     expect(baseUrlField).toHaveValue("http://localhost:11434");
+    expect(modelField).toHaveValue("");
 
+    fireEvent.change(modelField, {
+      target: { value: "llama3.2:3b" },
+    });
     fireEvent.change(baseUrlField, {
       target: { value: "https://custom.example.test/v1" },
     });
@@ -365,6 +374,7 @@ describe("Settings route", () => {
       target: { value: "lmstudio_local" },
     });
     expect(baseUrlField).toHaveValue("https://custom.example.test/v1");
+    expect(modelField).toHaveValue("");
   });
 
   it("reports the edited draft provider when testing before save", async () => {

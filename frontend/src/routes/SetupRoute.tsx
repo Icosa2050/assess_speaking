@@ -68,7 +68,8 @@ const WHISPER_MODEL_ORDER: Record<string, number> = {
   base: 1,
   small: 2,
   medium: 3,
-  "large-v3": 4,
+  "large-v3-turbo": 4,
+  "large-v3": 5,
 };
 
 // Derived from docs/vostavo_whisper_model_guide.md
@@ -300,6 +301,13 @@ export const SetupRoute = () => {
     }
   };
 
+  const handleProviderChange = () => {
+    setDetectedModels([]);
+    setDetectedModelMessage("");
+    setFormStatus("idle");
+    setFormStatusMessage("");
+  };
+
   const handleTestConnection = async (connection: RuntimeConnectionDraft) => {
     setIsBusy(true);
     setFormStatus("testing");
@@ -420,7 +428,7 @@ export const SetupRoute = () => {
             onChange={(event) => setSelectedWhisperModel(event.target.value)}
             style={inputStyle}
           >
-            {["tiny", "base", "small", "medium", "large-v3"].map((option) => (
+            {["tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"].map((option) => (
               <option
                 key={option}
                 value={option}
@@ -465,23 +473,6 @@ export const SetupRoute = () => {
         </button>
       </section>
 
-      <section style={cardStyle}>
-        <h2
-          style={{
-            margin: 0,
-            fontSize: "1.2rem",
-            color: "#10201c",
-          }}
-        >
-          {translate("runtime_setup.section_connection")}
-        </h2>
-        <ConnectionStatusPanel
-          activeConnection={activeConnection}
-          diagnostics={diagnosticsItems}
-          runtime={runtime}
-        />
-      </section>
-
       <RuntimeConnectionForm
         detectedModelMessage={detectedModelMessage}
         detectedModels={detectedModels}
@@ -493,6 +484,7 @@ export const SetupRoute = () => {
         onDetectLocalModels={(connection) => {
           void handleDetectLocalModels(connection);
         }}
+        onProviderChange={handleProviderChange}
         onSave={(payload) => {
           void handleSave(payload);
         }}
@@ -504,6 +496,23 @@ export const SetupRoute = () => {
         statusMessage={formStatusMessage}
         variant="runtime-setup"
       />
+
+      <details style={cardStyle}>
+        <summary
+          style={{
+            cursor: "pointer",
+            fontWeight: 700,
+            color: "#10201c",
+          }}
+        >
+          {translate("runtime_setup.connection_diagnostics")}
+        </summary>
+        <ConnectionStatusPanel
+          activeConnection={activeConnection}
+          diagnostics={diagnosticsItems}
+          runtime={runtime}
+        />
+      </details>
     </div>
   );
 };
