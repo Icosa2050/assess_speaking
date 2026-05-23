@@ -503,7 +503,7 @@ export const SettingsRoute = () => {
             style={inputStyle}
             {...semanticAttributes(SEMANTIC_IDS.settings.whisperModel)}
           >
-            {["tiny", "base", "small", "medium", "large-v3"].map((option) => (
+            {["tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"].map((option) => (
               <option
                 key={option}
                 value={option}

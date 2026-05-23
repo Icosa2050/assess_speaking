@@ -17,7 +17,7 @@ from app_backend.lifecycle import (
     is_backend_healthy,
     PROJECT_ROOT,
 )
-from app_shell.app_data import APP_CACHE_HOME_ENV_VAR, APP_DATA_HOME_ENV_VAR, AppDataPaths
+from app_core.app_data import APP_CACHE_HOME_ENV_VAR, APP_DATA_HOME_ENV_VAR, AppDataPaths
 
 
 def _build_paths(root: Path) -> AppDataPaths:

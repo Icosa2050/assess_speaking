@@ -1,14 +1,20 @@
 # Local Backend Architecture
 
-Last updated: 2026-04-21
-Status: Implemented baseline for the desktop app
+Last updated: 2026-05-19
+Status: Implemented local backend baseline, updated for React/Tauri primary UI,
+with Streamlit retired from product runtime paths
 
 ## Summary
 
-The app now runs as a desktop-first Streamlit shell backed by a managed local
+The app now runs as a desktop-first React/Tauri shell backed by a managed local
 FastAPI process. The backend runs on `127.0.0.1`, is started or reused by the
-launcher, and exposes a small API for diagnostics, runtime status, uploads,
-assessments, reports, history, and sample browsing.
+desktop bootstrap path, and exposes a small API for diagnostics, runtime status,
+uploads, assessments, reports, history, and sample browsing.
+
+Streamlit is no longer the product architecture target or a product launch path.
+The useful legacy coverage moved to React Playwright/Vitest, pure Python modules
+live under `app_core`, and `tests/test_streamlit_removal_contract.py` prevents
+Streamlit files, imports, and dependencies from returning.
 
 This is a product decision, not a hosted-server decision:
 1. the user should still feel like they launched one app
@@ -20,19 +26,19 @@ This is a product decision, not a hosted-server decision:
 
 The current shipped architecture is:
 
-1. `app_shell/app_data.py` defines a cross-platform app-data and cache layout
-2. `app_shell/bootstrap.py` defines launcher bootstrap behavior
-3. `scripts/run_app.py` starts or reuses one healthy local backend per
-   app-data root, then launches the UI
-4. `app_shell/diagnostics.py` already computes startup diagnostics
-5. `app_shell/services.py` and `app_shell/backend_client.py` now consume the
+1. `app_core/app_data.py` defines a cross-platform app-data and cache layout
+2. `app_core/bootstrap.py` defines launcher bootstrap behavior
+3. the desktop bootstrap path starts or reuses one healthy local backend per
+   app-data root, then lets React/Tauri connect to it
+4. `app_core/diagnostics.py` already computes startup diagnostics
+5. `app_core/services.py` and `app_core/backend_client.py` now consume the
    backend contract by default
 6. `assessment_runtime/runner.py` is the shared assessment runner used by both
    the backend and CLI entrypoints
-7. learner-facing screens poll backend job state instead of spawning local
+7. React learner-facing routes poll backend job state instead of spawning local
    assessment subprocesses
 8. shipped EN/IT B1/B2/C1 samples are exposed through the same backend-facing
-   sample flow used by the Library screen
+   sample flow used by the Library route
 
 ## App-Data Policy
 
@@ -109,7 +115,8 @@ Do not adopt these models now:
 1. do not add auth, tenancy, or hosted orchestration
 2. do not expose the backend on LAN or public interfaces by default
 3. do not rewrite the assessment engine in another language
-4. do not pick the final desktop framework in this document
+4. do not re-open the desktop framework choice; React/Vite plus Tauri is the
+   active desktop UI direction
 
 ## Runtime Metadata
 
@@ -128,7 +135,7 @@ The launcher and backend should converge on one shared runtime metadata shape:
    - `optional`
    - `required`
 
-The authoritative definition belongs in `app_shell/bootstrap.py`, and the
+The authoritative definition belongs in `app_core/bootstrap.py`, and the
 backend should consume that exported shape instead of re-declaring a local
 variant.
 
@@ -451,10 +458,12 @@ The code now follows a deliberate two-tier error model:
 
 1. backend and service code catch specific exceptions where possible and return
    typed error payloads or `(result, error)` tuples
-2. page files may use explicit UI-boundary broad catches when wrapping
-   filesystem, provider, or Streamlit widget boundaries
+2. React route/component code may use explicit
+   UI-boundary broad catches only when wrapping filesystem, provider, browser,
+   or browser widget boundaries
 3. those UI-boundary catches must surface localized feedback and must carry an
-   inline `quality: allow[broad-except]` comment
+   inline `quality: allow[broad-except]` comment where the Python quality gate
+   applies
 
 This lets the quality gate stay strict without forcing fragile screen code.
 
@@ -465,9 +474,10 @@ The rollout now includes two enforced checks:
 1. `scripts/check_quality.py`
    - scans the backend rollout surface for bare `except`
    - flags broad `except Exception` without an explicit allow comment
-   - bans subprocess calls in `app_shell/` and `pages/`
+   - bans subprocess calls in legacy UI surfaces if they return
 2. `jscpd`
-   - runs on `app_backend`, `app_shell`, `pages`, and `streamlit_app.py`
+   - runs on backend, shared Python, frontend, and any still-present legacy UI
+     surfaces configured for duplication checks
    - fails when duplication crosses the configured threshold
 
 ## Deferred Work
@@ -480,7 +490,7 @@ Still not part of the shipped local baseline:
 Planned follow-on work now lives in `docs/DESKTOP_HOSTED_PRODUCT_PLAN.md`:
 1. hosted multi-user operation
 2. hosted auth and tenancy
-3. desktop framework migration away from Streamlit
+3. separate local and hosted regression lanes
 
 ## Job Lifecycle
 
@@ -597,8 +607,8 @@ Deliverable:
 ### Phase 6: Update Screen Flow
 
 Files:
-1. `pages/02_Speak.py`
-2. `pages/03_Review.py`
+1. `frontend/src/routes/SpeakRoute.tsx`
+2. `frontend/src/routes/ReviewRoute.tsx`
 
 Deliverable:
 1. explicit ready, uploading, queued, running, completed, and failed states
@@ -609,7 +619,8 @@ Deliverable:
 1. add API tests for health, diagnostics, runtime, uploads, assessments, and history
 2. add job tests for queued, running, completed, failed, and cancelled states
 3. keep the existing real-audio EN/IT B1/B2/C1 integration path green
-4. update E2E tests to launch through the same backend-aware wrapper used in packaging
+4. update frontend Playwright tests to launch through the same backend-aware
+   stack used in packaging
 5. verify the app can start and persist data from outside the repo root
 
 ## Risks

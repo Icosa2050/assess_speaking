@@ -12,8 +12,8 @@ from typing import Any
 import httpx
 
 from app_backend.config import build_backend_runtime_config, clear_backend_state, read_backend_state
-from app_shell.app_data import APP_CACHE_HOME_ENV_VAR, APP_DATA_HOME_ENV_VAR
-from app_shell.bootstrap import (
+from app_core.app_data import APP_CACHE_HOME_ENV_VAR, APP_DATA_HOME_ENV_VAR
+from app_core.bootstrap import (
     AUTH_MODE_ENV_VAR,
     DEPLOYMENT_MODE_ENV_VAR,
     LAUNCH_MODE_ENV_VAR,

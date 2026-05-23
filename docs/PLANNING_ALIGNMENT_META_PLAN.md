@@ -1,8 +1,14 @@
 # Planning Alignment Meta-Plan
 
-Last updated: 2026-04-21
-Status: Accepted alignment plan for the current desktop, support, hosted, and
-exploratory planning docs
+Last updated: 2026-05-17
+Status: Accepted alignment plan updated for active Streamlit retirement,
+React/Tauri local desktop primacy, support, hosted, and exploratory planning
+docs
+
+> Status note, 2026-05-20: keep this as historical alignment context. The
+> Streamlit-retirement execution lane has since completed; use
+> `docs/PLAN_STATUS.md` for current plan classification before executing work
+> from this file.
 
 ## Summary
 
@@ -33,7 +39,9 @@ Current planning lanes:
    - `docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md`
 6. supporting browser automation lane
    - `docs/PLAYWRIGHT_FLOW_EXPANSION_PLAN.md`
-7. supporting docs that must be triaged before implementation drift grows:
+7. active Streamlit retirement lane
+   - `docs/superpowers/plans/2026-05-16-streamlit-retirement.md`
+8. supporting docs that must be triaged before implementation drift grows:
    - `docs/REPO_CLEANUP_PLAN.md`
    - `docs/RECORDER_UX_WIREFRAME.md`
    - `docs/MULTILINGUAL_CEFR_ASSESSMENT_PLAN.md`
@@ -43,8 +51,9 @@ Current planning lanes:
 
 ## Locked Decisions
 
-1. The current priority is the local desktop baseline, not hosted auth, not the
-   React or Tauri migration, and not the public inference beta.
+1. The current priority is the local desktop React/Tauri baseline and the
+   active Streamlit retirement sequence, not hosted auth and not the public
+   inference beta.
 2. The shared product API remains the canonical local and future hosted product
    contract:
    - `/v1/health`
@@ -67,8 +76,10 @@ Current planning lanes:
    `secret_ref` storage.
 7. Environment variables remain supported for CLI and standalone integration
    test flows only, never for desktop app-shell runtime behavior.
-8. Any screen changes in `pages/00_Setup.py`, `pages/02_Speak.py`, or
-   `pages/06_Settings.py` must go through PAL review before implementation.
+8. Streamlit screen files are legacy/frozen during retirement. Any remaining
+   learner-facing screen changes in `pages/00_Setup.py`, `pages/02_Speak.py`,
+   `pages/06_Settings.py`, or their React route replacements must go through
+   PAL review before implementation.
 9. macOS and Windows are first-class packaging targets for this pass. Linux is
    a no-regression target, not a first-class packaging deliverable.
 10. `RuntimeMetadata` must be defined in one authoritative location:
@@ -76,9 +87,14 @@ Current planning lanes:
     of redefining it.
 11. PAL review is a blocking gate before the credential screen pass and before
     the Settings support pass.
-12. Playwright remains the primary browser E2E tool for the current Streamlit
-    app shell. Any Maestro evaluation belongs to a later companion or
-    mobile-oriented stage, not the current desktop-baseline phase.
+12. Frontend Playwright against React/Vite is the primary browser E2E lane.
+    pytest-playwright coverage for the Streamlit shell is legacy coverage to
+    replace or delete under the retirement plan. Any Maestro evaluation belongs
+    to a later companion or mobile-oriented stage, not the current
+    desktop-baseline phase.
+13. Hosted persistence/auth seams must not be opened on top of Streamlit-bound
+    Python imports. Finish or explicitly gate the `app_core` extraction and
+    launcher-retirement steps first.
 
 ## Discrepancies To Resolve In Docs
 
@@ -106,6 +122,33 @@ Current planning lanes:
 8. `docs/PUBLIC_INFERENCE_ARCHITECTURE_PLAN.md` must explicitly state that its
    `/v1/*` routes live on a separate service boundary and do not redefine the
    canonical product backend namespace.
+9. Docs that still describe Streamlit as the primary current shell must be
+   revised to either point at React/Tauri or explicitly mark the Streamlit path
+   as legacy until deletion.
+
+## Streamlit Retirement Alignment
+
+`docs/superpowers/plans/2026-05-16-streamlit-retirement.md` is now the
+canonical execution plan for removing Streamlit.
+
+Execution order:
+1. add or confirm React/Vite Playwright and Vitest replacements for valuable
+   legacy Streamlit behavior
+2. extract pure state, i18n, and service logic into a non-Streamlit namespace
+3. change launchers and Tauri bootstrap so Streamlit is legacy-only
+4. delete Streamlit UI files, Streamlit-only tests, and Streamlit dependencies
+5. update product, packaging, and hosted docs after deletion gates pass
+
+Rules:
+1. do not add new product features to `streamlit_app.py`, `pages/`, or
+   Streamlit-only helpers
+2. fixes in legacy Streamlit files should be limited to migration safety,
+   compatibility, or deletion staging
+3. new browser coverage belongs under `frontend/tests/e2e` unless a test is
+   intentionally preserving a legacy replacement gate
+4. hosted work in `app_backend/contracts.py`, `app_backend/app.py`,
+   `app_backend/config.py`, or `app_backend/jobs.py` must wait until backend
+   imports no Streamlit-bound `app_shell.state` or UI helper modules
 
 ## Supporting Doc Triage Outcomes
 
@@ -217,7 +260,9 @@ Required sequence for collision-heavy areas:
 2. support and maintenance backend APIs second
 3. support bundle and diagnostics refinement third
 4. shared Settings UI pass fourth
-5. hosted deployment seams only after the desktop baseline above is stable
+5. Streamlit retirement extraction and launcher gates fifth
+6. hosted deployment seams only after the desktop baseline above is stable and
+   the backend cannot import Streamlit-bound modules
 
 Explicit serial passes:
 1. `app_shell/services.py` is touched in Subtask 5, then Subtask 8
@@ -267,6 +312,12 @@ The explicit blocker gates are:
 6. Settings PAL strategy gate before Subtask 11
 
 ## File-Based Execution Plan
+
+The detailed subtasks below preserve the earlier desktop-baseline sequence for
+traceability. Any item that names `pages/`, `streamlit_app.py`, or
+Streamlit-only helpers is now legacy context unless the active Streamlit
+retirement plan explicitly reopens it for migration safety. New product UX and
+browser coverage should target the React/Tauri lane described above.
 
 ### Subtask 0A: Triage supporting docs set A
 

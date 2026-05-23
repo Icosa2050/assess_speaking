@@ -31,6 +31,7 @@ const warningMessage = (value: string, translate: Translate): string => {
     llm_skipped_low_word_count: "review.warning_codes.llm_skipped_low_word_count",
     llm_invalid_schema: "review.warning_codes.llm_invalid_schema",
     asr_pause_mismatch: "review.warning_codes.asr_pause_mismatch",
+    language_detection_uncertain: "review.warning_codes.language_detection_uncertain",
   };
 
   const localeKey = mapping[normalized];
@@ -41,6 +42,7 @@ const gateLabel = (gateKey: string, translate: Translate): string => {
   const mapping: Record<string, string> = {
     language_pass: "review.gate_language",
     topic_pass: "review.gate_theme",
+    content_validity_pass: "review.gate_content_validity",
     duration_pass: "review.gate_duration",
     min_words_pass: "review.gate_words",
   };

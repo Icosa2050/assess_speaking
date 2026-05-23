@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppFrame } from "@/App";
@@ -23,6 +23,7 @@ vi.mock("@/lib/api/client", () => ({
     createAssessment: vi.fn(),
     getAssessmentStatus: vi.fn(),
     getRuntime: vi.fn(),
+    getRuntimeSettings: vi.fn(),
     uploadAudio: vi.fn(),
   },
 }));
@@ -33,7 +34,43 @@ const mockedCancelAssessment = vi.mocked(apiClient.cancelAssessment);
 const mockedCreateAssessment = vi.mocked(apiClient.createAssessment);
 const mockedGetAssessmentStatus = vi.mocked(apiClient.getAssessmentStatus);
 const mockedGetRuntime = vi.mocked(apiClient.getRuntime);
+const mockedGetRuntimeSettings = vi.mocked(apiClient.getRuntimeSettings);
 const mockedUploadAudio = vi.mocked(apiClient.uploadAudio);
+
+type FakeRecorderEvent = {
+  data: Blob;
+};
+
+class FakeMediaRecorder {
+  static instances: FakeMediaRecorder[] = [];
+  static isTypeSupported = vi.fn((mimeType: string) => mimeType === "audio/webm;codecs=opus");
+
+  mimeType: string;
+  ondataavailable: ((event: FakeRecorderEvent) => void) | null = null;
+  onerror: ((event: { error?: Error }) => void) | null = null;
+  onstop: (() => void) | null = null;
+  state: "inactive" | "recording" = "inactive";
+
+  constructor(
+    readonly stream: MediaStream,
+    options: MediaRecorderOptions = {},
+  ) {
+    this.mimeType = options.mimeType || "audio/webm";
+    FakeMediaRecorder.instances.push(this);
+  }
+
+  start() {
+    this.state = "recording";
+  }
+
+  stop() {
+    this.state = "inactive";
+    this.ondataavailable?.({
+      data: new Blob(["browser audio"], { type: this.mimeType }),
+    });
+    this.onstop?.();
+  }
+}
 
 const validDraftState = {
   draft: {
@@ -59,8 +96,24 @@ const uploadFile = new File(["audio"], "attempt.wav", {
 });
 
 describe("Speak route", () => {
+  const stopTrack = vi.fn();
+  const getUserMedia = vi.fn();
+
   beforeEach(() => {
     vi.clearAllMocks();
+    stopTrack.mockClear();
+    FakeMediaRecorder.instances = [];
+    FakeMediaRecorder.isTypeSupported.mockClear();
+    getUserMedia.mockResolvedValue({
+      getTracks: () => [{ stop: stopTrack }],
+    } as unknown as MediaStream);
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia,
+      },
+    });
+    vi.stubGlobal("MediaRecorder", FakeMediaRecorder);
     mockedGetRuntime.mockResolvedValue({
       configured: true,
       provider: "ollama_local",
@@ -68,6 +121,12 @@ describe("Speak route", () => {
       base_url: "http://localhost:11434",
       requires_api_key: false,
       has_api_key: false,
+    });
+    mockedGetRuntimeSettings.mockResolvedValue({
+      ui_locale: "en",
+      whisper_model: "small",
+      active_connection_id: "conn-primary",
+      connections: [],
     });
     mockedUploadAudio.mockResolvedValue({
       audio_id: "audio-1",
@@ -123,9 +182,8 @@ describe("Speak route", () => {
       appState: validDraftState,
     });
 
-    fireEvent.change(await screen.findByLabelText("Record directly in the browser"), {
-      target: { files: [uploadFile] },
-    });
+    fireEvent.click(await screen.findByRole("button", { name: "Start recording" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop recording" }));
 
     const statusPanel = await screen.findByTestId("speak.status_panel");
     expect(
@@ -142,6 +200,122 @@ describe("Speak route", () => {
     expect(screen.getByLabelText("Or upload an audio file")).toBeVisible();
   });
 
+  it("removes an uploaded recording and returns to the idle state", async () => {
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/speak"],
+      locale: "en",
+      appState: validDraftState,
+    });
+
+    fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), {
+      target: { files: [uploadFile] },
+    });
+
+    const statusPanel = await screen.findByTestId("speak.status_panel");
+    expect(
+      await within(statusPanel).findByText("A recording is attached and ready for assessment."),
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByTestId("speak.remove_recording"));
+
+    await waitFor(() => {
+      expect(within(statusPanel).getByText("No recording is attached yet.")).toBeVisible();
+    });
+    expect(screen.queryByTestId("speak.remove_recording")).not.toBeInTheDocument();
+    expect(screen.getByTestId("speak.submit")).toBeDisabled();
+  });
+
+  it("records browser audio and attaches it for assessment", async () => {
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/speak"],
+      locale: "en",
+      appState: validDraftState,
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Start recording" }));
+
+    expect(getUserMedia).toHaveBeenCalledWith({ audio: true });
+    expect(await screen.findByRole("button", { name: "Stop recording" })).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    expect(stopTrack).toHaveBeenCalled();
+    expect(FakeMediaRecorder.instances[0]?.mimeType).toBe("audio/webm;codecs=opus");
+    const statusPanel = await screen.findByTestId("speak.status_panel");
+    expect(
+      await within(statusPanel).findByText("A recording is attached and ready for assessment."),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Remove recording" })).toBeVisible();
+  });
+
+  it("surfaces a stuck microphone permission request and leaves upload available", async () => {
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/speak"],
+      locale: "en",
+      appState: validDraftState,
+    });
+    const startButton = await screen.findByRole("button", { name: "Start recording" });
+    getUserMedia.mockReturnValueOnce(new Promise(() => undefined));
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(startButton);
+
+      expect(screen.getByText("Asking for microphone access...")).toBeVisible();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(8_000);
+      });
+
+      expect(
+        screen.getByText(
+          "Microphone access did not finish. Check the browser permission prompt or use Upload.",
+        ),
+      ).toBeVisible();
+
+      fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+
+      expect(screen.getByLabelText("Or upload an audio file")).toBeVisible();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears pending microphone status when switching to upload", async () => {
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/speak"],
+      locale: "en",
+      appState: validDraftState,
+    });
+    const startButton = await screen.findByRole("button", { name: "Start recording" });
+    getUserMedia.mockReturnValueOnce(new Promise(() => undefined));
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(startButton);
+
+      expect(screen.getByText("Asking for microphone access...")).toBeVisible();
+
+      fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+
+      expect(screen.queryByText("Asking for microphone access...")).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Or upload an audio file")).toBeVisible();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(8_000);
+      });
+
+      expect(
+        screen.queryByText(
+          "Microphone access did not finish. Check the browser permission prompt or use Upload.",
+        ),
+      ).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows the provider warning, runs the queued or running lifecycle, and acknowledges cancel", async () => {
     mockedGetRuntime.mockResolvedValue({
       configured: true,
@@ -150,6 +324,32 @@ describe("Speak route", () => {
       base_url: "https://openrouter.ai/api/v1",
       requires_api_key: true,
       has_api_key: false,
+    });
+    mockedGetRuntimeSettings.mockResolvedValue({
+      ui_locale: "en",
+      whisper_model: "small",
+      active_connection_id: "conn-openrouter",
+      connections: [
+        {
+          connection_id: "conn-openrouter",
+          provider_key: "openrouter",
+          provider_choice: "openrouter",
+          provider_label: "OpenRouter",
+          label: "OpenRouter review",
+          model: "google/gemini-3.1-pro-preview",
+          base_url: "https://openrouter.ai/api/v1",
+          is_default: true,
+          is_local: false,
+          requires_api_key: true,
+          has_api_key: false,
+          secret_state: "missing",
+          last_test_status: "",
+          last_tested_at: "",
+          openrouter_http_referer: "https://example.test/assess-speaking",
+          openrouter_app_title: "Vostavo Review",
+          provider_metadata: {},
+        },
+      ],
     });
 
     renderWithProviders(<AppFrame />, {
@@ -185,6 +385,21 @@ describe("Speak route", () => {
       ),
     ).toBeVisible();
     expect(within(statusPanel).getByText("Current step: Transcribing recording.")).toBeVisible();
+    expect(
+      within(statusPanel).getByText(
+        "This can take several minutes. Keep this page open; the review will appear automatically when it is ready.",
+      ),
+    ).toBeVisible();
+    await waitFor(() => {
+      expect(mockedCreateAssessment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          openrouter_app_title: "Vostavo Review",
+          openrouter_http_referer: "https://example.test/assess-speaking",
+          whisper: "small",
+        }),
+      );
+    });
+    expect(within(statusPanel).getByText("Provider `OpenRouter` · model `google/gemini-3.1-pro-preview` · Whisper `small`")).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel assessment" }));
 

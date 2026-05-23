@@ -110,12 +110,31 @@ class AsrTests(unittest.TestCase):
         with mock.patch.object(asr, "describe_model_availability") as mock_describe:
             mock_describe.side_effect = lambda model: {
                 "large-v3": {"cached": False},
+                "large-v3-turbo": {"cached": False},
                 "medium": {"cached": True},
                 "small": {"cached": True},
                 "tiny": {"cached": True},
             }[model]
             recommendation = asr.recommend_model_choice()
         self.assertEqual(recommendation["model"], "medium")
+
+    def test_recommend_model_choice_prefers_cached_turbo_over_medium(self):
+        with mock.patch.object(asr, "describe_model_availability") as mock_describe:
+            mock_describe.side_effect = lambda model: {
+                "large-v3": {"cached": False},
+                "large-v3-turbo": {"cached": True},
+                "medium": {"cached": True},
+                "small": {"cached": True},
+                "tiny": {"cached": True},
+            }[model]
+            recommendation = asr.recommend_model_choice()
+        self.assertEqual(recommendation["model"], "large-v3-turbo")
+
+    def test_large_v3_turbo_uses_faster_whisper_repo_alias(self):
+        self.assertEqual(
+            asr._model_repo_id("large-v3-turbo"),
+            "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+        )
 
     def test_describe_model_availability_does_not_force_cache_in_dry_run(self):
         with (

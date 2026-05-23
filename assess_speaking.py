@@ -21,7 +21,7 @@ from uuid import uuid4
 from assess_core.language_profiles import default_language_profile_key, resolve_language_profile
 from assess_core.schemas import AssessmentReport, REPORT_SCHEMA_VERSION, RubricResult, SchemaValidationError
 from assess_core.settings import Settings
-from app_shell.runtime_providers import default_base_url, normalize_provider, resolved_base_url
+from app_core.runtime_providers import default_base_url, normalize_provider, resolved_base_url
 from assessment_runtime.asr import available_asr_providers, transcribe as _transcribe
 from assessment_runtime.assessment_prompts import (
     COACHING_PROMPT_VERSION,
@@ -90,6 +90,7 @@ NONE_SENTINELS = {"", "none", "null"}
 TRANSCRIPTION_BASIS = "automatic_asr"
 TRANSCRIPTION_CAVEAT = "Assessment is based on automatic transcription and may contain ASR errors."
 SCORING_MODEL_VERSION = "hybrid_language_profile_v1"
+LANGUAGE_MISMATCH_CONFIDENCE_THRESHOLD = 0.75
 HISTORY_FIELDNAMES = [
     "timestamp",
     "session_id",
@@ -394,44 +395,103 @@ def build_progress_delta(history_path: Path, report: dict) -> Optional[dict]:
     }
 
 
-def evaluate_baseline(level: Optional[str], metrics: dict) -> Optional[dict]:
+BASELINE_INVALIDATING_GATES = ("language_pass", "topic_pass", "content_validity_pass")
+BASELINE_REQUIRED_METRICS = ("wpm", "fillers")
+
+
+def _baseline_invalidated_by(checks: dict | None) -> list[str]:
+    if not isinstance(checks, dict):
+        return []
+    return [gate for gate in BASELINE_INVALIDATING_GATES if checks.get(gate) is False]
+
+
+def _missing_required_baseline_metrics(metrics: dict) -> list[str]:
+    return [metric for metric in BASELINE_REQUIRED_METRICS if metrics.get(metric) is None]
+
+
+def _baseline_target(
+    *,
+    expected: object,
+    actual: object,
+    ok: bool | None = None,
+    observed_only: bool = False,
+    not_assessed: bool = False,
+) -> dict:
+    if not_assessed:
+        return {
+            "expected": expected,
+            "actual": actual,
+            "ok": None,
+            "status": "not_assessed",
+        }
+    if observed_only:
+        return {
+            "expected": expected,
+            "actual": actual,
+            "ok": None,
+            "status": "observed",
+        }
+    return {
+        "expected": expected,
+        "actual": actual,
+        "ok": ok,
+        "status": "pass" if ok else "fail",
+    }
+
+
+def evaluate_baseline(level: Optional[str], metrics: dict, *, checks: dict | None = None) -> Optional[dict]:
     if not level:
         return None
     cfg = CEFR_BASELINES.get(level.upper())
     if not cfg:
         return None
+    invalidated_by = _baseline_invalidated_by(checks)
+    missing_required_metrics = _missing_required_baseline_metrics(metrics)
+    invalidated = bool(invalidated_by)
+    not_assessed = invalidated or bool(missing_required_metrics)
+    valid = not not_assessed
 
-    def within_range(value: Optional[float], low: float, high: float) -> bool:
-        if value is None:
-            return False
-        return low <= value <= high
+    def hard_target(metric: str, expected: str, predicate) -> dict:
+        actual = metrics.get(metric)
+        return _baseline_target(
+            expected=expected,
+            actual=actual,
+            ok=False if actual is None else predicate(actual),
+            not_assessed=not_assessed,
+        )
 
     targets = {
-        "wpm": {
-            "expected": f"{cfg['wpm_min']}–{cfg['wpm_max']}",
-            "actual": metrics.get("wpm"),
-            "ok": within_range(metrics.get("wpm"), cfg["wpm_min"], cfg["wpm_max"]),
-        },
-        "fillers": {
-            "expected": f"≤{cfg['fillers_max']}",
-            "actual": metrics.get("fillers"),
-            "ok": metrics.get("fillers", 0) <= cfg["fillers_max"],
-        },
-        "cohesion_markers": {
-            "expected": f"≥{cfg['cohesion_min']}",
-            "actual": metrics.get("cohesion_markers"),
-            "ok": metrics.get("cohesion_markers", 0) >= cfg["cohesion_min"],
-        },
-        "complexity_index": {
-            "expected": f"≥{cfg['complexity_min']}",
-            "actual": metrics.get("complexity_index"),
-            "ok": metrics.get("complexity_index", 0) >= cfg["complexity_min"],
-        },
+        "wpm": hard_target(
+            "wpm",
+            f"≥{cfg['wpm_min']}",
+            lambda actual: actual >= cfg["wpm_min"],
+        ),
+        "fillers": hard_target(
+            "fillers",
+            f"≤{cfg['fillers_max']}",
+            lambda actual: actual <= cfg["fillers_max"],
+        ),
+        "cohesion_markers": _baseline_target(
+            expected=None,
+            actual=metrics.get("cohesion_markers"),
+            observed_only=True,
+            not_assessed=not_assessed,
+        ),
+        "complexity_index": _baseline_target(
+            expected=None,
+            actual=metrics.get("complexity_index"),
+            observed_only=True,
+            not_assessed=not_assessed,
+        ),
     }
-    passed = all(item["ok"] for item in targets.values())
+    assessed_targets = [item for item in targets.values() if item["status"] in {"pass", "fail"}]
+    passed = bool(assessed_targets) and all(item["status"] == "pass" for item in assessed_targets)
     return {
         "level": level.upper(),
-        "passed": passed,
+        "valid": valid,
+        "passed": passed if valid else False,
+        "invalidated_by": invalidated_by,
+        "missing_required_metrics": missing_required_metrics,
         "targets": targets,
         "comment": cfg["notes"],
     }
@@ -579,6 +639,32 @@ def _elapsed_ms(start: float) -> float:
     return round((time.perf_counter() - start) * 1000.0, 1)
 
 
+def _language_probability(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        probability = float(value)
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, min(1.0, probability))
+
+
+def _language_codes_match(detected_language: str, expected_language: str) -> bool:
+    return detected_language.strip().lower() == expected_language.strip().lower()
+
+
+def _is_confident_language_mismatch(
+    detected_language: str,
+    expected_language: str,
+    probability: float | None,
+) -> bool:
+    if _language_codes_match(detected_language, expected_language):
+        return False
+    if probability is None:
+        return True
+    return probability >= LANGUAGE_MISMATCH_CONFIDENCE_THRESHOLD
+
+
 def _validate_rubric_payload(payload: Optional[dict]) -> RubricResult | None:
     if payload is None:
         return None
@@ -633,6 +719,8 @@ def _dry_run_assessment(
         llm=None,
         topic_pass=checks["topic_pass"],
         topic_fail_cap_score=settings.topic_fail_cap_score,
+        language_pass=checks["language_pass"],
+        content_validity_pass=checks["content_validity_pass"],
     )
     scores = _augment_scores_with_language_profile(
         scores,
@@ -700,7 +788,7 @@ def _dry_run_assessment(
         "llm_rubric": json.dumps({"error": "llm_skipped_dry_run"}),
         "report": AssessmentReport.from_dict(report).to_dict(),
     }
-    baseline = evaluate_baseline(target_cefr, metrics) if target_cefr else None
+    baseline = evaluate_baseline(target_cefr, metrics, checks=checks) if target_cefr else None
     if baseline:
         out["baseline_comparison"] = baseline
     return out
@@ -825,55 +913,66 @@ def run_assessment(
             language_code=chosen_language,
             language_profile_key=chosen_profile_key,
         )
-        baseline = evaluate_baseline(target_cefr, metrics) if target_cefr else None
         transcript = asr_result["text"]
         detected_language = str(asr_result.get("detected_language") or chosen_language)
-        language_probability = asr_result.get("language_probability")
-        language_pass = detected_language.lower() == chosen_language.lower()
-        if not language_pass:
+        language_probability = _language_probability(asr_result.get("language_probability"))
+        asr_language_pass = _language_codes_match(detected_language, chosen_language)
+        hard_language_mismatch = _is_confident_language_mismatch(
+            detected_language,
+            chosen_language,
+            language_probability,
+        )
+        if hard_language_mismatch:
             warnings.extend(["language_mismatch", "llm_skipped_language_mismatch"])
             errors.append(
                 f"Detected language '{detected_language}' does not match expected '{chosen_language}'."
             )
             timings_ms["llm"] = 0.0
-        elif metrics["word_count"] < chosen_min_words:
-            warnings.append("llm_skipped_low_word_count")
-            timings_ms["llm"] = 0.0
         else:
-            _emit_status("scoring_rubric")
-            prompt = rubric_prompt(
-                transcript,
-                metrics,
-                theme,
-                expected_language=chosen_language,
-                feedback_language=chosen_feedback_language,
-            )
-            stage_start = time.perf_counter()
-            try:
-                if chosen_provider == "ollama" and chosen_llm_base_url == default_base_url("ollama") and not chosen_llm_api_key:
-                    llm_raw = call_ollama(chosen_model, prompt)
-                    rubric_obj = _validate_rubric_payload(extract_rubric_json(llm_raw))
-                    if rubric_obj is None:
-                        warnings.append("llm_invalid_schema")
-                        errors.append("LLM response did not match rubric schema.")
-                else:
-                    rubric_obj, llm_raw = generate_rubric(
-                        provider=chosen_provider,
-                        model=chosen_model,
-                        prompt=prompt,
-                        timeout_sec=chosen_llm_timeout,
-                        openrouter_api_key=os.getenv("OPENROUTER_API_KEY"),
-                        base_url=chosen_llm_base_url,
-                        api_key=chosen_llm_api_key,
-                        openrouter_http_referer=os.getenv("OPENROUTER_HTTP_REFERER"),
-                        openrouter_app_title=os.getenv("OPENROUTER_APP_TITLE"),
-                        max_validation_retries=1,
-                    )
-            except LLMClientError as exc:
-                warnings.append("llm_unavailable")
-                errors.append(str(exc))
-                llm_raw = json.dumps({"error": "llm_unavailable", "detail": str(exc)})
-            timings_ms["llm"] = _elapsed_ms(stage_start)
+            if not asr_language_pass:
+                warnings.append("language_detection_uncertain")
+            if metrics["word_count"] < chosen_min_words:
+                warnings.append("llm_skipped_low_word_count")
+                timings_ms["llm"] = 0.0
+            else:
+                _emit_status("scoring_rubric")
+                prompt = rubric_prompt(
+                    transcript,
+                    metrics,
+                    theme,
+                    expected_language=chosen_language,
+                    feedback_language=chosen_feedback_language,
+                )
+                stage_start = time.perf_counter()
+                try:
+                    if (
+                        chosen_provider == "ollama"
+                        and chosen_llm_base_url == default_base_url("ollama")
+                        and not chosen_llm_api_key
+                    ):
+                        llm_raw = call_ollama(chosen_model, prompt)
+                        rubric_obj = _validate_rubric_payload(extract_rubric_json(llm_raw))
+                        if rubric_obj is None:
+                            warnings.append("llm_invalid_schema")
+                            errors.append("LLM response did not match rubric schema.")
+                    else:
+                        rubric_obj, llm_raw = generate_rubric(
+                            provider=chosen_provider,
+                            model=chosen_model,
+                            prompt=prompt,
+                            timeout_sec=chosen_llm_timeout,
+                            openrouter_api_key=os.getenv("OPENROUTER_API_KEY"),
+                            base_url=chosen_llm_base_url,
+                            api_key=chosen_llm_api_key,
+                            openrouter_http_referer=os.getenv("OPENROUTER_HTTP_REFERER"),
+                            openrouter_app_title=os.getenv("OPENROUTER_APP_TITLE"),
+                            max_validation_retries=1,
+                        )
+                except LLMClientError as exc:
+                    warnings.append("llm_unavailable")
+                    errors.append(str(exc))
+                    llm_raw = json.dumps({"error": "llm_unavailable", "detail": str(exc)})
+                timings_ms["llm"] = _elapsed_ms(stage_start)
 
         if not llm_raw and not rubric_obj:
             llm_raw = json.dumps({"error": "llm_skipped"})
@@ -913,6 +1012,9 @@ def run_assessment(
         _emit_status("finalizing_report")
         det_score = deterministic_score(metrics)
         llm_score = rubric_score(rubric_obj)
+        language_pass = asr_language_pass or not hard_language_mismatch
+        if rubric_obj is not None and rubric_obj.language_ok is False:
+            language_pass = False
         checks = compute_checks(
             metrics=metrics,
             rubric=rubric_obj,
@@ -929,11 +1031,14 @@ def run_assessment(
         checks["asr_speaking_time_sec"] = asr_speaking_time_sec
         checks["speaking_time_delta_sec"] = speaking_time_delta_sec
         checks["asr_pause_consistent"] = asr_pause_consistent
+        baseline = evaluate_baseline(target_cefr, metrics, checks=checks) if target_cefr else None
         scores = final_scores(
             deterministic=det_score,
             llm=llm_score,
             topic_pass=checks["topic_pass"],
             topic_fail_cap_score=settings.topic_fail_cap_score,
+            language_pass=checks["language_pass"],
+            content_validity_pass=checks["content_validity_pass"],
         )
         scores = _augment_scores_with_language_profile(
             scores,
@@ -942,10 +1047,10 @@ def run_assessment(
             rubric=rubric_obj,
             expected_language=chosen_language,
             language_profile_key=chosen_profile_key,
-            detected_language_probability=language_probability if isinstance(language_probability, (int, float)) else None,
+            detected_language_probability=language_probability,
         )
         profile = resolve_language_profile(chosen_language, profile_key=chosen_profile_key)
-        requires_human_review = llm_score is None or not language_pass
+        requires_human_review = llm_score is None or not language_pass or checks["content_validity_pass"] is False
         if coaching_obj is None:
             coaching_obj = build_fallback_coaching(
                 metrics=metrics,

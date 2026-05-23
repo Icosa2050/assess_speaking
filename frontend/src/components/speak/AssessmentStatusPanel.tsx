@@ -211,15 +211,26 @@ export const AssessmentStatusPanel = ({
         </p>
       ) : null}
       {(lifecycleState === "queued" || lifecycleState === "running") ? (
-        <p
-          style={{
-            margin: 0,
-            color: "#33514b",
-            lineHeight: 1.55,
-          }}
-        >
-          {translate("speak.job_auto_refresh")}
-        </p>
+        <>
+          <p
+            style={{
+              margin: 0,
+              color: "#33514b",
+              lineHeight: 1.55,
+            }}
+          >
+            {translate("speak.job_auto_refresh")}
+          </p>
+          <p
+            style={{
+              margin: 0,
+              color: "#33514b",
+              lineHeight: 1.55,
+            }}
+          >
+            {translate("speak.job_long_running")}
+          </p>
+        </>
       ) : null}
     </div>
     <div

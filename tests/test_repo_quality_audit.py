@@ -81,7 +81,7 @@ class RepoQualityAuditTests(unittest.TestCase):
             (root / "app.py").write_text(
                 textwrap.dedent(
                     """
-                from app_shell.i18n import t
+                from app_core.i18n import t
 
                 def render() -> None:
                     print(t("home.title"))
@@ -162,9 +162,9 @@ class RepoQualityAuditTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             (root / "tests").mkdir()
-            (root / "app_shell").mkdir()
-            (root / "app_shell" / "__init__.py").write_text("", encoding="utf-8")
-            (root / "app_shell" / "i18n.py").write_text(
+            (root / "app_core").mkdir()
+            (root / "app_core" / "__init__.py").write_text("", encoding="utf-8")
+            (root / "app_core" / "i18n.py").write_text(
                 "\n".join(f"value_{index} = {index}" for index in range(40)),
                 encoding="utf-8",
             )
@@ -172,10 +172,10 @@ class RepoQualityAuditTests(unittest.TestCase):
                 "\n".join(f"metric_{index} = {index}" for index in range(40)),
                 encoding="utf-8",
             )
-            (root / "tests" / "test_app_shell_i18n.py").write_text(
+            (root / "tests" / "test_app_core_i18n.py").write_text(
                 textwrap.dedent(
                     """
-                from app_shell import i18n
+                from app_core import i18n
 
                 def test_import():
                     assert i18n is not None
@@ -187,7 +187,7 @@ class RepoQualityAuditTests(unittest.TestCase):
             findings = scan_missing_tests(root, excluded_dirs=set())
             flagged_paths = {finding.path for finding in findings}
             self.assertIn("analytics.py", flagged_paths)
-            self.assertNotIn("app_shell/i18n.py", flagged_paths)
+            self.assertNotIn("app_core/i18n.py", flagged_paths)
 
 
 if __name__ == "__main__":

@@ -291,6 +291,91 @@ class ParsingAndBaselineTests(unittest.TestCase):
         self.assertTrue(result["passed"])
         self.assertTrue(result["targets"]["wpm"]["ok"])
 
+    def test_evaluate_baseline_passes_fast_speech_and_observes_phrase_counters(self):
+        metrics = {"wpm": 172.6, "fillers": 0, "cohesion_markers": 1, "complexity_index": 14}
+        result = assess_speaking.evaluate_baseline("C1", metrics)
+
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["targets"]["wpm"]["expected"], "≥110")
+        self.assertTrue(result["targets"]["wpm"]["ok"])
+        self.assertEqual(result["targets"]["wpm"]["status"], "pass")
+        self.assertEqual(result["targets"]["cohesion_markers"]["status"], "observed")
+        self.assertIsNone(result["targets"]["cohesion_markers"]["ok"])
+        self.assertEqual(result["targets"]["complexity_index"]["status"], "observed")
+        self.assertIsNone(result["targets"]["complexity_index"]["ok"])
+
+    def test_evaluate_baseline_observed_phrase_counters_do_not_fail_c1(self):
+        metrics = {"wpm": 120, "fillers": 0, "cohesion_markers": 0, "complexity_index": 0}
+        result = assess_speaking.evaluate_baseline("C1", metrics)
+
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["targets"]["cohesion_markers"]["status"], "observed")
+        self.assertIsNone(result["targets"]["cohesion_markers"]["expected"])
+        self.assertEqual(result["targets"]["complexity_index"]["status"], "observed")
+        self.assertIsNone(result["targets"]["complexity_index"]["expected"])
+
+    def test_evaluate_baseline_missing_hard_metric_is_not_assessed(self):
+        metrics = {"wpm": 120, "cohesion_markers": 0, "complexity_index": 0}
+        result = assess_speaking.evaluate_baseline("C1", metrics)
+
+        self.assertFalse(result["valid"])
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["missing_required_metrics"], ["fillers"])
+        for target in result["targets"].values():
+            self.assertEqual(target["status"], "not_assessed")
+            self.assertIsNone(target["ok"])
+
+    def test_evaluate_baseline_observed_counters_do_not_require_threshold_config(self):
+        c1_without_observed_thresholds = {
+            "wpm_min": 110,
+            "fillers_max": 3,
+            "notes": "C1 baseline without observed counter thresholds.",
+        }
+
+        with mock.patch.dict(assess_speaking.CEFR_BASELINES, {"C1": c1_without_observed_thresholds}):
+            result = assess_speaking.evaluate_baseline(
+                "C1",
+                {"wpm": 120, "fillers": 0, "cohesion_markers": 0, "complexity_index": 0},
+            )
+
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["targets"]["cohesion_markers"]["status"], "observed")
+        self.assertEqual(result["targets"]["complexity_index"]["status"], "observed")
+
+    def test_evaluate_baseline_still_fails_slow_speech(self):
+        metrics = {"wpm": 90, "fillers": 0, "cohesion_markers": 8, "complexity_index": 8}
+        result = assess_speaking.evaluate_baseline("C1", metrics)
+
+        self.assertFalse(result["passed"])
+        self.assertFalse(result["targets"]["wpm"]["ok"])
+        self.assertEqual(result["targets"]["wpm"]["status"], "fail")
+
+    def test_evaluate_baseline_marks_zero_thresholds_observed(self):
+        metrics = {"wpm": 97, "fillers": 0, "cohesion_markers": 0, "complexity_index": 0}
+        result = assess_speaking.evaluate_baseline("B1", metrics)
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["targets"]["cohesion_markers"]["status"], "observed")
+        self.assertIsNone(result["targets"]["cohesion_markers"]["ok"])
+        self.assertEqual(result["targets"]["complexity_index"]["status"], "observed")
+        self.assertIsNone(result["targets"]["complexity_index"]["ok"])
+
+    def test_evaluate_baseline_invalidates_when_content_gate_fails(self):
+        metrics = {"wpm": 97, "fillers": 0, "cohesion_markers": 0, "complexity_index": 0}
+        result = assess_speaking.evaluate_baseline(
+            "B1",
+            metrics,
+            checks={
+                "language_pass": True,
+                "topic_pass": False,
+                "content_validity_pass": False,
+            },
+        )
+        self.assertFalse(result["valid"])
+        self.assertEqual(result["invalidated_by"], ["topic_pass", "content_validity_pass"])
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["targets"]["wpm"]["status"], "not_assessed")
+        self.assertIsNone(result["targets"]["wpm"]["ok"])
+
     def test_load_audio_features_requires_parselmouth(self):
         with mock.patch.object(audio_features, "parselmouth", None), mock.patch.object(audio_features, "call", None):
             with self.assertRaises(RuntimeError) as ctx:
@@ -562,8 +647,102 @@ class RunAssessmentTests(unittest.TestCase):
         self.assertIn("language_mismatch", result["report"]["warnings"])
         self.assertIsNone(result["report"]["rubric"])
         self.assertIsNone(result["report"]["checks"]["topic_pass"])
+        self.assertLessEqual(result["report"]["scores"]["final"], 2.5)
         self.assertEqual(len(result["report"]["coaching"]["top_3_priorities"]), 3)
         mock_generate.assert_not_called()
+
+    @mock.patch.object(
+        assess_speaking,
+        "generate_coaching_summary",
+        return_value=(
+            mock.Mock(
+                to_dict=mock.Mock(
+                    return_value={
+                        "strengths": ["Hai completato il tentativo."],
+                        "top_3_priorities": [
+                            "Usa piu italiano",
+                            "Aggiungi dettagli",
+                            "Parla piu a lungo",
+                        ],
+                        "next_focus": "Usa piu italiano",
+                        "next_exercise": "Ripeti il tema in italiano.",
+                        "coach_summary": "Serve una verifica linguistica piu affidabile.",
+                    }
+                )
+            ),
+            '{"coach_summary":"ok"}',
+        ),
+    )
+    @mock.patch.object(
+        assess_speaking,
+        "generate_rubric",
+        return_value=(
+            RubricResult(
+                fluency=1,
+                cohesion=1,
+                accuracy=1,
+                range=1,
+                overall=1,
+                comments_fluency="nonsense",
+                comments_cohesion="nonsense",
+                comments_accuracy="nonsense",
+                comments_range="nonsense",
+                overall_comment="nonsense",
+                on_topic=False,
+                topic_relevance_score=1,
+                language_ok=False,
+                recurring_grammar_errors=[],
+                coherence_issues=[],
+                lexical_gaps=[],
+                evidence_quotes=["blah blah"],
+                confidence="high",
+            ),
+            '{"overall":1,"language_ok":false}',
+        ),
+    )
+    @mock.patch.object(assess_speaking, "load_audio_features", return_value={"duration_sec": 45.0, "pauses": []})
+    @mock.patch.object(
+        assess_speaking,
+        "transcribe",
+        return_value={
+            "text": "blah blah ta da doo doo",
+            "detected_language": "en",
+            "language_probability": 0.30,
+            "compute_type_used": "default",
+            "compute_fallback_used": False,
+            "words": [
+                {"t0": 0.0, "t1": 5.0, "text": "blah"},
+                {"t0": 5.0, "t1": 10.0, "text": "blah"},
+                {"t0": 10.0, "t1": 15.0, "text": "ta"},
+                {"t0": 15.0, "t1": 20.0, "text": "da"},
+                {"t0": 20.0, "t1": 25.0, "text": "doo"},
+                {"t0": 25.0, "t1": 30.0, "text": "doo"},
+            ],
+        },
+    )
+    def test_run_assessment_lets_llm_judge_low_confidence_language_mismatch(
+        self,
+        _mock_transcribe,
+        _mock_audio,
+        mock_generate,
+        _mock_generate_coaching,
+    ):
+        result = assess_speaking.run_assessment(
+            Path("sample.wav"),
+            llm_model="google/gemini-3.1-pro-preview",
+            provider="openrouter",
+            expected_language="it",
+            target_cefr="B1",
+        )
+        report = result["report"]
+        self.assertTrue(report["requires_human_review"])
+        self.assertIn("language_detection_uncertain", report["warnings"])
+        self.assertNotIn("llm_skipped_language_mismatch", report["warnings"])
+        self.assertFalse(report["checks"]["language_pass"])
+        self.assertFalse(report["checks"]["content_validity_pass"])
+        self.assertEqual(report["scores"]["mode"], "hybrid")
+        self.assertFalse(result["baseline_comparison"]["valid"])
+        mock_generate.assert_called_once()
 
     @mock.patch.object(assess_speaking, "load_audio_features", return_value={"duration_sec": 4.0, "pauses": []})
     @mock.patch.object(

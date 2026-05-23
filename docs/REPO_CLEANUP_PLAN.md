@@ -2,14 +2,21 @@
 
 This document captures the current cleanup strategy for the repository root and
 the agreed migration order for reducing top-level Python-module sprawl without
-breaking the current CLI, Streamlit shell, tests, scripts, or CI.
+breaking the current CLI, React/Tauri desktop lane, tests, scripts, or CI.
+
+Streamlit is now a legacy UI lane under
+`docs/superpowers/plans/2026-05-16-streamlit-retirement.md`. Cleanup work should
+not protect `streamlit_app.py` or `pages/` as long-term architecture; it should
+avoid interfering with the active retirement sequence and then remove those
+legacy files when their deletion gates pass.
 
 ## Why This Exists
 
 The repository currently mixes:
 
-- stable root entrypoints such as `assess_speaking.py` and `streamlit_app.py`
-- already-packaged areas such as `app_shell/`, `pages/`, and `service/`
+- stable root entrypoints such as `assess_speaking.py`
+- already-packaged areas such as `app_shell/`, `frontend/`, `app_backend/`, and
+  `service/`
 - many root-level library modules that grew around the original CLI shape
 
 That shape works, but it makes the root noisy, encourages more top-level files,
@@ -18,7 +25,8 @@ and makes package boundaries harder to reason about.
 ## Non-Negotiable Guardrails
 
 - Keep `assess_speaking.py` stable at the root during cleanup.
-- Keep `streamlit_app.py` stable at the root during cleanup.
+- Treat `streamlit_app.py` as legacy: do not move it during early cleanup, but
+  do not preserve it beyond the Streamlit retirement deletion gate.
 - Do not do a big-bang `src/` migration while scripts, tests, docs, and CI still
   import root modules directly.
 - Prefer small, reversible moves with validation after every tranche.
@@ -138,8 +146,9 @@ Likely final wave:
 Run these after each tranche:
 
 - `./scripts/run_tests.sh`
-- `./scripts/run_e2e.sh`
-- smoke launch `streamlit_app.py`
+- `cd frontend && npm test && npm run typecheck`
+- `cd frontend && NODE_ENV=development npx playwright test -c playwright.config.ts`
+- legacy `./scripts/run_e2e.sh` only while Streamlit replacement gates remain
 - smoke run `assess_speaking.py`
 - if relevant credentials or env are available, run the opt-in integration paths
 

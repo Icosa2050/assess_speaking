@@ -51,8 +51,60 @@ class ScoringTests(unittest.TestCase):
         self.assertTrue(checks["duration_pass"])
         self.assertIsNone(checks["topic_pass"])
 
+    def test_compute_checks_adds_content_validity_gate_from_language_and_rubric(self):
+        rubric = RubricResult(
+            fluency=2,
+            cohesion=1,
+            accuracy=1,
+            range=1,
+            overall=1,
+            comments_fluency="nonsense",
+            comments_cohesion="nonsense",
+            comments_accuracy="nonsense",
+            comments_range="nonsense",
+            overall_comment="nonsense",
+            on_topic=False,
+            topic_relevance_score=1,
+            language_ok=False,
+            recurring_grammar_errors=[],
+            coherence_issues=[],
+            lexical_gaps=[],
+            evidence_quotes=["blah blah"],
+            confidence="high",
+        )
+        checks = compute_checks(
+            metrics={"speaking_time_sec": 55.0, "word_count": 20},
+            rubric=rubric,
+            target_duration_sec=60.0,
+            min_word_count=10,
+            duration_pass_ratio=0.8,
+            language_pass=True,
+        )
+        self.assertFalse(checks["content_validity_pass"])
+
     def test_final_scores_caps_off_topic(self):
         scores = final_scores(deterministic=4.5, llm=4.5, topic_pass=False, topic_fail_cap_score=2.5)
+        self.assertEqual(scores["final"], 2.5)
+
+    def test_final_scores_caps_language_failures(self):
+        scores = final_scores(
+            deterministic=4.5,
+            llm=None,
+            topic_pass=None,
+            topic_fail_cap_score=2.5,
+            language_pass=False,
+        )
+        self.assertEqual(scores["final"], 2.5)
+
+    def test_final_scores_caps_content_validity_failures(self):
+        scores = final_scores(
+            deterministic=4.5,
+            llm=4.5,
+            topic_pass=True,
+            topic_fail_cap_score=2.5,
+            language_pass=True,
+            content_validity_pass=False,
+        )
         self.assertEqual(scores["final"], 2.5)
 
     def test_final_scores_do_not_cap_when_topic_is_unassessed(self):

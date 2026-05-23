@@ -4,7 +4,7 @@ import type { ReviewState } from "@/lib/state/sessionDraft";
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
 
-type GateKey = "language_pass" | "topic_pass" | "duration_pass" | "min_words_pass";
+type GateKey = "language_pass" | "topic_pass" | "content_validity_pass" | "duration_pass" | "min_words_pass";
 
 type ProgressItem = {
   kind: string;
@@ -186,7 +186,7 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
         .filter((item) => item.length > 0)
     : [];
 
-  const failedGates = (["language_pass", "topic_pass", "duration_pass", "min_words_pass"] as const).filter(
+  const failedGates = (["language_pass", "topic_pass", "content_validity_pass", "duration_pass", "min_words_pass"] as const).filter(
     (gateKey) => checks[gateKey] === false,
   );
 
@@ -201,6 +201,7 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
     gates: {
       language_pass: gateValue(checks.language_pass),
       topic_pass: gateValue(checks.topic_pass),
+      content_validity_pass: gateValue(checks.content_validity_pass),
       duration_pass: gateValue(checks.duration_pass),
       min_words_pass: gateValue(checks.min_words_pass),
     },
@@ -250,6 +251,7 @@ const statusMessage = (summary: ReviewDisplaySummary, translate: Translate): str
         const mapping: Record<string, string> = {
           language_pass: "review.gate_language",
           topic_pass: "review.gate_theme",
+          content_validity_pass: "review.gate_content_validity",
           duration_pass: "review.gate_duration",
           min_words_pass: "review.gate_words",
         };
@@ -285,6 +287,23 @@ const gateStatus = (value: boolean | null, translate: Translate): string => {
     return translate("review.gate_fail");
   }
 
+  return translate("review.gate_unknown");
+};
+
+const baselineStatus = (entry: Record<string, unknown>, translate: Translate): string => {
+  const status = String(entry.status || "").trim();
+  if (status === "observed") {
+    return translate("review.baseline_status_observed");
+  }
+  if (status === "not_assessed") {
+    return translate("review.baseline_status_not_assessed");
+  }
+  if (entry.ok === true) {
+    return translate("review.gate_pass");
+  }
+  if (entry.ok === false) {
+    return translate("review.gate_fail");
+  }
   return translate("review.gate_unknown");
 };
 
@@ -563,7 +582,7 @@ export const ReviewSummary = ({
                   <span style={{ color: "#33514b" }}>{String(entry.expected ?? "-")}</span>
                   <span style={{ color: "#33514b" }}>{String(entry.actual ?? "-")}</span>
                   <span style={{ color: "#33514b" }}>
-                    {translate(entry.ok ? "review.gate_pass" : "review.gate_fail")}
+                    {baselineStatus(entry, translate)}
                   </span>
                 </div>
               ))}
@@ -580,6 +599,7 @@ export const ReviewSummary = ({
         {([
           ["review-gate-language", translate("review.gate_language"), summary.gates.language_pass],
           ["review-gate-topic", translate("review.gate_theme"), summary.gates.topic_pass],
+          ["review-gate-content-validity", translate("review.gate_content_validity"), summary.gates.content_validity_pass],
           ["review-gate-duration", translate("review.gate_duration"), summary.gates.duration_pass],
           ["review-gate-min-words", translate("review.gate_words"), summary.gates.min_words_pass],
         ] as const).map(([testId, label, value]) => (

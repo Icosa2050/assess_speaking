@@ -23,7 +23,7 @@ from app_backend.config import (
 )
 from app_backend.contracts import CleanupTarget
 from app_backend.maintenance import execute_cleanup
-from app_shell.app_data import APP_CACHE_HOME_ENV_VAR, APP_DATA_HOME_ENV_VAR
+from app_core.app_data import APP_CACHE_HOME_ENV_VAR, APP_DATA_HOME_ENV_VAR
 
 
 class _LoggerWriter:

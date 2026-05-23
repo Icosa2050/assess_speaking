@@ -14,7 +14,6 @@ const LAUNCH_MODE_ENV_VAR: &str = "VOSTAVO_LAUNCH_MODE";
 const DESKTOP_PACKAGING_SAFE_ENV_VAR: &str = "VOSTAVO_DESKTOP_PACKAGING_SAFE";
 const AUTH_MODE_ENV_VAR: &str = "VOSTAVO_AUTH_MODE";
 const PYTHON_BIN_ENV_VAR: &str = "PYTHON_BIN";
-const DESKTOP_BOOTSTRAP_FLAG: &str = "--desktop-bootstrap";
 
 struct DesktopRuntimeBridge {
     api_base_url: String,
@@ -119,8 +118,7 @@ fn bootstrap_from_repo_launcher() -> Result<DesktopRuntimeBridge, Box<dyn Error>
     let root = repo_root();
     let python_executable = resolve_python_executable(&root);
     let output = Command::new(&python_executable)
-        .arg(root.join("scripts").join("run_app.py"))
-        .arg(DESKTOP_BOOTSTRAP_FLAG)
+        .arg(root.join("scripts").join("bootstrap_backend.py"))
         .current_dir(&root)
         .output()
         .map_err(|error| {

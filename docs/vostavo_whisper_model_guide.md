@@ -50,6 +50,7 @@ Users need to download the model once; it is cached locally afterward.
 | `base` | ~145 MB | ~1 GB | Fast (not for CEFR) |
 | `small` | ~460 MB | ~2 GB | Fast |
 | `medium` | ~1.5 GB | ~5 GB | Moderate |
+| `large-v3-turbo` | ~1.6 GB | ~6 GB | Fast, near-`large-v3` quality |
 | `large-v3` | ~3.0 GB | ~10 GB | Slower, highest accuracy |
 
 > ℹ️ The model is downloaded automatically on first use and stored in the Vostavo cache directory. Subsequent runs use the local cache.

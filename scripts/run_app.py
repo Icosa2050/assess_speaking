@@ -5,7 +5,6 @@ import argparse
 import json
 import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -13,19 +12,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app_shell.app_data import APP_CACHE_HOME_ENV_VAR, APP_DATA_HOME_ENV_VAR
-from app_backend.lifecycle import build_desktop_bootstrap_env, ensure_local_backend, get_backend_state
-from app_shell.bootstrap import (
-    STREAMLIT_ENTRYPOINT,
+from app_core.app_data import APP_CACHE_HOME_ENV_VAR, APP_DATA_HOME_ENV_VAR
+from app_backend.lifecycle import ensure_local_backend, get_backend_state
+from app_core.bootstrap import (
     bootstrap_app_environment,
     build_runtime_metadata,
-    build_streamlit_launch_command,
     is_within_project_checkout,
 )
+from scripts.bootstrap_backend import build_bootstrap_env, format_bootstrap_env
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Bootstrap and launch the Vostavo Streamlit app.")
+    parser = argparse.ArgumentParser(description="Bootstrap the Vostavo local backend.")
     parser.add_argument("--app-data-dir", default="", help="Override the local app-data root.")
     parser.add_argument("--cache-dir", default="", help="Override the local cache root.")
     parser.add_argument("--log-dir", default="", help="Override the reports/history directory.")
@@ -35,12 +33,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Start or reuse the local backend and print desktop bridge env vars for the Tauri shell.",
     )
-    parser.add_argument("--dry-run", action="store_true", help="Print the launch command as JSON and exit.")
-    args, streamlit_args = parser.parse_known_args(argv)
-    args.streamlit_args = list(streamlit_args)
-    if args.streamlit_args[:1] == ["--"]:
-        args.streamlit_args = args.streamlit_args[1:]
-    return args
+    parser.add_argument("--dry-run", action="store_true", help="Print backend launcher diagnostics as JSON and exit.")
+    return parser.parse_args(argv)
 
 
 def _repo_local_override_targets(*, app_data_root: Path, cache_root: Path) -> list[str]:
@@ -80,7 +74,7 @@ def _launcher_payload(args: argparse.Namespace) -> dict[str, object]:
         app_data_root=paths.root,
         cache_root=paths.cache_root,
     )
-    return {
+    payload: dict[str, object] = {
         "app_data_root": str(paths.root),
         "reports_dir": str(paths.reports_dir),
         "jobs_dir": str(paths.jobs_dir),
@@ -92,32 +86,18 @@ def _launcher_payload(args: argparse.Namespace) -> dict[str, object]:
         "ffmpeg_available": bool(shutil.which("ffmpeg")),
         "backend_base_url": str(backend_state.get("base_url") or ""),
         **runtime_metadata,
-        "entrypoint": str(STREAMLIT_ENTRYPOINT),
-        "command": build_streamlit_launch_command(extra_args=getattr(args, "streamlit_args", [])),
     }
+    return payload
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     if args.desktop_bootstrap:
-        bootstrap_env = build_desktop_bootstrap_env(
-            log_dir=args.log_dir or None,
-            app_data_dir=args.app_data_dir or None,
-            cache_dir=args.cache_dir or None,
-        )
-        print(
-            "\n".join(
-                f"{key}={value}"
-                for key, value in bootstrap_env.items()
-            )
-        )
+        print(format_bootstrap_env(build_bootstrap_env(args)))
         return 0
     payload = _launcher_payload(args)
-    if args.check or args.dry_run:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
-        return 0
-    completed = subprocess.run(payload["command"], check=False)
-    return int(completed.returncode)
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
 
 
 if __name__ == "__main__":

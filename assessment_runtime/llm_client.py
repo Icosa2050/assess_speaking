@@ -10,7 +10,10 @@ from typing import Any
 from urllib import error, request
 
 from assess_core.schemas import CoachingSummary, RubricResult, SchemaValidationError
-from app_shell.runtime_providers import normalize_provider, runtime_base_url, service_base_url
+from app_core.runtime_providers import normalize_provider, runtime_base_url, service_base_url
+
+DEFAULT_OPENROUTER_HTTP_REFERER = "http://localhost:8503"
+DEFAULT_OPENROUTER_APP_TITLE = "Vostavo"
 
 
 class LLMClientError(RuntimeError):
@@ -182,8 +185,12 @@ def _chat_completion(
         if not resolved_api_key:
             raise LLMClientError("OPENROUTER_API_KEY is not set.")
         headers["Authorization"] = f"Bearer {resolved_api_key}"
-        referer = openrouter_http_referer or os.getenv("OPENROUTER_HTTP_REFERER", "http://localhost:8503")
-        title = openrouter_app_title or os.getenv("OPENROUTER_APP_TITLE", "Speaking Studio")
+        referer = openrouter_http_referer or os.getenv(
+            "OPENROUTER_HTTP_REFERER", DEFAULT_OPENROUTER_HTTP_REFERER
+        )
+        title = openrouter_app_title or os.getenv(
+            "OPENROUTER_APP_TITLE", DEFAULT_OPENROUTER_APP_TITLE
+        )
         headers["HTTP-Referer"] = referer
         headers["X-OpenRouter-Title"] = title
         headers["X-Title"] = title
@@ -330,8 +337,12 @@ def list_models(
     elif normalized_provider == "openrouter" and os.getenv("OPENROUTER_API_KEY"):
         headers["Authorization"] = f"Bearer {os.getenv('OPENROUTER_API_KEY')}"
     if normalized_provider == "openrouter":
-        headers["HTTP-Referer"] = openrouter_http_referer or os.getenv("OPENROUTER_HTTP_REFERER", "http://localhost:8503")
-        title = openrouter_app_title or os.getenv("OPENROUTER_APP_TITLE", "Speaking Studio")
+        headers["HTTP-Referer"] = openrouter_http_referer or os.getenv(
+            "OPENROUTER_HTTP_REFERER", DEFAULT_OPENROUTER_HTTP_REFERER
+        )
+        title = openrouter_app_title or os.getenv(
+            "OPENROUTER_APP_TITLE", DEFAULT_OPENROUTER_APP_TITLE
+        )
         headers["X-OpenRouter-Title"] = title
         headers["X-Title"] = title
     return _get_json(f"{resolved_url}/models", headers, timeout_sec)
@@ -353,8 +364,12 @@ def health_check(
     elif normalized_provider == "openrouter" and os.getenv("OPENROUTER_API_KEY"):
         headers["Authorization"] = f"Bearer {os.getenv('OPENROUTER_API_KEY')}"
     if normalized_provider == "openrouter":
-        headers["HTTP-Referer"] = openrouter_http_referer or os.getenv("OPENROUTER_HTTP_REFERER", "http://localhost:8503")
-        title = openrouter_app_title or os.getenv("OPENROUTER_APP_TITLE", "Speaking Studio")
+        headers["HTTP-Referer"] = openrouter_http_referer or os.getenv(
+            "OPENROUTER_HTTP_REFERER", DEFAULT_OPENROUTER_HTTP_REFERER
+        )
+        title = openrouter_app_title or os.getenv(
+            "OPENROUTER_APP_TITLE", DEFAULT_OPENROUTER_APP_TITLE
+        )
         headers["X-OpenRouter-Title"] = title
         headers["X-Title"] = title
     if normalized_provider == "ollama":

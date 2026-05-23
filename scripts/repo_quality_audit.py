@@ -43,7 +43,6 @@ PLACEHOLDER_RE = re.compile(r"(?<!\{)\{([a-zA-Z_][a-zA-Z0-9_]*)\}(?!\})")
 DEFAULT_ALLOWED_ROOT_PYTHON_FILES = frozenset(
     {
         "assess_speaking.py",
-        "streamlit_app.py",
     }
 )
 DEFAULT_ROOT_ARTIFACT_NAMES = frozenset({".coverage", "coverage.json", "-o", "--file-format=AIFF"})

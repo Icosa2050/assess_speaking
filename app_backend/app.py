@@ -50,8 +50,8 @@ from app_backend.support_bundle import (
     create_support_bundle as create_support_bundle_archive,
     support_bundle_path,
 )
-from app_shell.diagnostics import collect_startup_diagnostics
-from app_shell.runtime_providers import (
+from app_core.diagnostics import collect_startup_diagnostics
+from app_core.runtime_providers import (
     default_base_url,
     default_connection_label,
     default_setup_base_url,
@@ -60,8 +60,8 @@ from app_shell.runtime_providers import (
     provider_kind_from_choice,
     requires_api_key,
 )
-from app_shell.runtime_resolver import active_connection, resolve_connection_runtime
-from app_shell.services import (
+from app_core.runtime_resolver import active_connection, resolve_connection_runtime
+from app_core.services import (
     build_provider_connection,
     delete_provider_connection,
     download_whisper_model,
@@ -75,9 +75,13 @@ from app_shell.services import (
     test_runtime_connection,
     whisper_model_status,
 )
-from app_shell.secret_store import delete_secret, get_secret
-from app_shell.state import build_default_state
-from app_shell.bootstrap import PROJECT_ROOT, bootstrap_app_environment
+from app_core.secret_store import delete_secret, get_secret
+from app_core.state import (
+    build_default_state,
+    normalize_openrouter_app_title,
+    normalize_openrouter_http_referer,
+)
+from app_core.bootstrap import PROJECT_ROOT, bootstrap_app_environment
 
 CONTRACT_TAG = "contract"
 PRODUCT_API_TAG = "product-api"
@@ -156,6 +160,9 @@ def _connection_secret_state(connection) -> ConnectionSecretState:
 def _serialize_connection(connection) -> RuntimeSettingsConnection:
     provider_choice = provider_choice_for_connection(connection)
     metadata = dict(connection.provider_metadata or {})
+    if normalize_provider(connection.provider_kind) == "openrouter":
+        metadata["http_referer"] = normalize_openrouter_http_referer(metadata.get("http_referer"))
+        metadata["app_title"] = normalize_openrouter_app_title(metadata.get("app_title"))
     saved_api_key = _saved_connection_api_key(connection)
     return RuntimeSettingsConnection(
         connection_id=connection.connection_id,
@@ -197,17 +204,54 @@ def _runtime_settings_provider_identity(provider_choice: str, base_url: str) -> 
     return normalized_choice, resolved_base_url.rstrip("/")
 
 
+def _find_runtime_settings_connection(state, connection_id: str):
+    resolved_connection_id = str(connection_id or "").strip()
+    if not resolved_connection_id:
+        return None
+    return next(
+        (
+            item
+            for item in list(state.prefs.connections or [])
+            if item.connection_id == resolved_connection_id
+        ),
+        None,
+    )
+
+
+def _runtime_settings_draft_matches_existing(state, draft, existing_connection) -> bool:
+    provider_choice = str(
+        draft.provider_choice or provider_choice_for_connection(existing_connection, state.prefs.provider)
+    ).strip()
+    existing_identity = _runtime_settings_provider_identity(
+        provider_choice_for_connection(existing_connection, state.prefs.provider),
+        existing_connection.base_url,
+    )
+    draft_identity = _runtime_settings_provider_identity(provider_choice, str(draft.base_url or ""))
+    return existing_identity == draft_identity
+
+
+def _runtime_settings_test_connection_secret(state, draft) -> str:
+    api_key = str(draft.api_key or "").strip()
+    if api_key:
+        return api_key
+    existing_connection = _find_runtime_settings_connection(
+        state,
+        str(draft.connection_id or "").strip(),
+    )
+    if existing_connection is None:
+        return ""
+    if not _runtime_settings_draft_matches_existing(state, draft, existing_connection):
+        return ""
+    return _saved_connection_api_key(existing_connection)
+
+
 def _save_runtime_settings(state, request: RuntimeSettingsSaveRequest):
     state.prefs.ui_locale = str(request.ui_locale or state.prefs.ui_locale or "").strip() or state.prefs.ui_locale
     state.prefs.whisper_model = str(request.whisper_model or state.prefs.whisper_model or "").strip() or state.prefs.whisper_model
 
-    existing_connection = next(
-        (
-            item
-            for item in list(state.prefs.connections or [])
-            if item.connection_id == str(request.connection.connection_id or "").strip()
-        ),
-        None,
+    existing_connection = _find_runtime_settings_connection(
+        state,
+        str(request.connection.connection_id or "").strip(),
     )
     draft = request.connection
     provider_choice = str(draft.provider_choice or provider_choice_for_connection(existing_connection, state.prefs.provider)).strip()
@@ -252,6 +296,36 @@ def _save_runtime_settings(state, request: RuntimeSettingsSaveRequest):
         persist_draft=False,
     )
     return connection
+
+
+def _assessment_request_with_saved_runtime_secret(
+    state,
+    request: AssessmentCreateRequest,
+) -> AssessmentCreateRequest:
+    if str(request.llm_api_key or "").strip():
+        return request
+    connection = active_connection(state.prefs)
+    if connection is None:
+        return request
+    runtime_state = resolve_connection_runtime(connection)
+    if normalize_provider(request.provider) != runtime_state.provider:
+        return request
+    request_base_url = str(request.llm_base_url or "").strip().rstrip("/")
+    runtime_base = str(runtime_state.base_url or "").strip().rstrip("/")
+    if request_base_url and runtime_base and request_base_url != runtime_base:
+        return request
+
+    updates: dict[str, Any] = {}
+    if runtime_state.api_key:
+        updates["llm_api_key"] = runtime_state.api_key
+    if not str(request.llm_base_url or "").strip() and runtime_state.base_url:
+        updates["llm_base_url"] = runtime_state.base_url
+    if runtime_state.provider == "openrouter":
+        if not str(request.openrouter_http_referer or "").strip():
+            updates["openrouter_http_referer"] = runtime_state.extra_headers.get("HTTP-Referer", "")
+        if not str(request.openrouter_app_title or "").strip():
+            updates["openrouter_app_title"] = runtime_state.extra_headers.get("X-Title", "")
+    return request.model_copy(update=updates) if updates else request
 
 
 def _find_history_payload(session_id: str, reports_dir: Path) -> dict[str, Any] | None:
@@ -379,6 +453,7 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
 
     @app.post("/v1/runtime/settings/test-connection", response_model=RuntimeConnectionTestResponse, tags=[LOCAL_RUNTIME_TAG])
     def runtime_settings_test_connection(request: RuntimeConnectionTestRequest) -> RuntimeConnectionTestResponse:
+        state = _load_persisted_state(runtime_config)
         draft = request.connection
         try:
             result = test_runtime_connection(
@@ -386,7 +461,7 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
                 provider_choice=str(draft.provider_choice or "").strip(),
                 model=str(draft.model or "").strip(),
                 base_url=str(draft.base_url or "").strip(),
-                api_key=str(draft.api_key or "").strip(),
+                api_key=_runtime_settings_test_connection_secret(state, draft),
                 openrouter_http_referer=str(draft.openrouter_http_referer or "").strip(),
                 openrouter_app_title=str(draft.openrouter_app_title or "").strip(),
             )
@@ -509,7 +584,8 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
     @app.post("/v1/assessments", response_model=AssessmentCreateResponse, tags=[PRODUCT_API_TAG])
     def create_assessment(request: AssessmentCreateRequest) -> AssessmentCreateResponse:
         try:
-            return app.state.job_manager.submit(request)
+            state = _load_persisted_state(runtime_config)
+            return app.state.job_manager.submit(_assessment_request_with_saved_runtime_secret(state, request))
         except FileNotFoundError as exc:
             raise _http_error(404, ErrorCode.VALIDATION, str(exc)) from exc
         except OSError as exc:

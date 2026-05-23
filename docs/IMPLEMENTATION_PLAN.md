@@ -1,7 +1,7 @@
 # Assessment Core And Local App Plan
 
-Last updated: 2026-04-21
-Status: Assessment core implemented, app shell moved to a local-first desktop-ready flow, local backend and app-data baseline implemented, support and maintenance planning documented, and the next product migration is now defined
+Last updated: 2026-05-19
+Status: Assessment core implemented, local FastAPI backend and app-data baseline implemented, shared React/Tauri desktop direction active, and Streamlit retired from product runtime paths
 
 ## Goal
 
@@ -32,10 +32,11 @@ Current ASR runtime direction:
 4. preserve one merged transcript contract with word timestamps even when chunked fallback is used
 5. keep pause-feature extraction and assessment scoring unchanged while making room for future non-Whisper providers
 
-Planned follow-on:
+Active product direction:
 1. shared React frontend for desktop and hosted delivery
-2. hosted auth, tenancy, and server-side job orchestration
-3. Tauri-based desktop packaging after the shared frontend replaces Streamlit
+2. Tauri-based desktop packaging for the local guest desktop app
+3. Streamlit removal guarded by `tests/test_streamlit_removal_contract.py`
+4. hosted auth, tenancy, and server-side job orchestration after the local React/Tauri gates stay green
 
 Related planning docs:
 1. `docs/LOCAL_BACKEND_ARCHITECTURE.md`
@@ -46,18 +47,23 @@ Related planning docs:
 6. `docs/PUBLIC_INFERENCE_ARCHITECTURE_PLAN.md`
 7. `docs/SAVED_CONNECTIONS_PRODUCTION_CREDENTIAL_PLAN.md`
 8. `docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md`
+9. `docs/superpowers/plans/2026-05-16-streamlit-retirement.md`
 
 ## Desktop-Baseline Runtime Rules
 
 For the current desktop baseline:
 1. local desktop mode stays localhost-bound and auth-free in guest mode
 2. runtime metadata should converge on one shared shape owned by
-   `app_shell/bootstrap.py` with `deployment_mode`, `launch_mode`,
+   `app_core/bootstrap.py` with `deployment_mode`, `launch_mode`,
    `packaging_safe`, and `auth_mode`
 3. support and maintenance endpoints are local-desktop extensions to the
    canonical product API, not a separate product direction
 4. macOS and Windows are the first-class packaging targets for this pass, while
    Linux remains a no-regression target
+5. React/Vite plus Tauri is now the primary local desktop UI lane
+6. Streamlit is no longer a product lane; do not reintroduce
+   `streamlit_app.py`, `pages/`, `app_shell/`, Streamlit imports, or Streamlit
+   dependencies
 
 ## Phase 1 Scope
 
@@ -132,6 +138,6 @@ Current status:
 6. refine the learner-facing review and history coaching surfaces on top of the job-based backend state
 7. calibrate pause heuristics against real Italian recordings
 8. add prompt packs and training loops on top of the new `report` contract
-9. execute `docs/DESKTOP_HOSTED_PRODUCT_PLAN.md` in phases so the shared
-   frontend lands before hosted multi-user backend work
+9. keep the Streamlit removal contract and React/Tauri browser gates green before
+   opening hosted multi-user backend work
 10. if we add another ASR backend, implement it behind the existing ASR provider/capability layer instead of branching assessment codepaths

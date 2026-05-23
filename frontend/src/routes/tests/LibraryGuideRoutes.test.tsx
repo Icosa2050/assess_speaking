@@ -77,6 +77,7 @@ describe("Library and Guide routes", () => {
 
     fireEvent.click(screen.getByRole("link", { name: "Scoring Guide" }));
     expect(await screen.findByRole("heading", { name: "How scoring works" })).toBeVisible();
+    expect(screen.getByText("Content validity")).toBeVisible();
   });
 
   it("shows localized library themes and prepares a shipped sample for Speak", async () => {

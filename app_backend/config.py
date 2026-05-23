@@ -8,8 +8,8 @@ from pathlib import Path
 import shutil
 from typing import Any
 
-from app_shell.app_data import AppDataPaths, build_app_data_paths
-from app_shell.bootstrap import bootstrap_app_environment
+from app_core.app_data import AppDataPaths, build_app_data_paths
+from app_core.bootstrap import bootstrap_app_environment
 
 BACKEND_STATE_FILENAME = "backend_state.json"
 BACKEND_LOG_FILENAME = "backend.log"

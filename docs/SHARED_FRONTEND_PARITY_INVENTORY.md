@@ -1,20 +1,29 @@
 # Shared Frontend Parity Inventory
 
-Last updated: 2026-04-27
-Status: Phase-2 baseline artifact for the shared React + Tauri learner flow
+Last updated: 2026-05-17
+Status: Legacy parity inventory for the shared React + Tauri learner flow;
+superseded for execution by the active Streamlit retirement plan
 
 ## Purpose
 
-This document freezes the current local-desktop learner flow before the React
-port starts. It deliberately separates three concerns:
+This document records the Streamlit-era local-desktop learner flow that the
+React port used as its parity baseline. It deliberately separates three
+concerns:
 
-1. route and transition parity from the current Streamlit app
+1. route and transition parity from the legacy Streamlit app
 2. localization parity from the existing locale namespaces
 3. a new semantic-id contract for React, Playwright, and Maestro
 
-The local FastAPI contract remains canonical for phase 2. Visible learner copy
-must continue to come from the existing locale files. Semantic ids are a new
-cross-framework contract and must not be inferred from translated text.
+The local FastAPI contract remains canonical. Visible learner copy must continue
+to come from the existing locale files. Semantic ids are the cross-framework
+contract and must not be inferred from translated text.
+
+Current execution note:
+1. React/Tauri is now the primary local desktop UI lane
+2. Streamlit files in this document are parity references and deletion gates,
+   not targets for new product UX
+3. use `docs/superpowers/plans/2026-05-16-streamlit-retirement.md` for the
+   active task order
 
 ## Phase-2 scope
 

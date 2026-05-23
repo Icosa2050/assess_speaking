@@ -27,10 +27,14 @@ except ImportError:  # pragma: no cover - handled by fallback initialization pat
     hf_hub_download = None  # type: ignore
     snapshot_download = None  # type: ignore
 
-KNOWN_WHISPER_MODELS = ("tiny", "small", "medium", "large-v3")
+KNOWN_WHISPER_MODELS = ("tiny", "base", "small", "medium", "large-v3-turbo", "large-v3")
 DEFAULT_ASR_PROVIDER = "faster_whisper"
 KNOWN_FILE_STRATEGIES = ("auto", "native", "chunked")
 DownloadProgressCallback = Callable[[dict[str, Any]], None]
+_FASTER_WHISPER_MODEL_REPOS = {
+    "large-v3-turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+    "turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+}
 
 
 @dataclass(frozen=True)
@@ -333,6 +337,8 @@ def _model_repo_id(model_size: str) -> str:
     candidate_path = Path(model_size).expanduser()
     if candidate_path.exists():
         return str(candidate_path)
+    if model_size in _FASTER_WHISPER_MODEL_REPOS:
+        return _FASTER_WHISPER_MODEL_REPOS[model_size]
     return model_size if "/" in model_size else f"Systran/faster-whisper-{model_size}"
 
 
@@ -376,6 +382,11 @@ def recommend_model_choice() -> dict:
         return {
             "model": "large-v3",
             "reason": "`large-v3` ist lokal vorhanden und liefert die beste Bewertungsqualität.",
+        }
+    if describe_model_availability("large-v3-turbo")["cached"]:
+        return {
+            "model": "large-v3-turbo",
+            "reason": "`large-v3-turbo` ist lokal vorhanden und bietet einen schnellen Qualitätskompromiss.",
         }
     if describe_model_availability("medium")["cached"]:
         return {

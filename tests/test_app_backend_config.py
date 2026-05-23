@@ -25,7 +25,7 @@ from app_backend.config import (
 from app_backend.contracts import CleanupTarget
 from app_backend.jobs import prunable_job_metadata_files, recover_incomplete_job_metadata
 from app_backend.maintenance import execute_cleanup
-from app_shell.app_data import APP_CACHE_HOME_ENV_VAR, APP_DATA_HOME_ENV_VAR
+from app_core.app_data import APP_CACHE_HOME_ENV_VAR, APP_DATA_HOME_ENV_VAR
 
 
 class BackendConfigTests(unittest.TestCase):

@@ -24,6 +24,7 @@ const guideData = {
   gates: [
     { id: "language_pass" },
     { id: "topic_pass", topicFailCapScore: 2.5 },
+    { id: "content_validity_pass" },
     { id: "duration_pass", durationPassRatioPct: 80 },
     { id: "min_words_pass", minWordCount: 5 },
   ],
@@ -72,6 +73,9 @@ const tableCellStyle = {
 const gateLabelKey = (gateId: string): string => {
   if (gateId === "topic_pass") {
     return "review.gate_theme";
+  }
+  if (gateId === "content_validity_pass") {
+    return "review.gate_content_validity";
   }
   if (gateId === "min_words_pass") {
     return "review.gate_words";
@@ -122,6 +126,9 @@ const gateRule = (
     return translate("guide.gate_rule_topic_pass", {
       cap: gate.topicFailCapScore ?? "",
     });
+  }
+  if (gate.id === "content_validity_pass") {
+    return translate("guide.gate_rule_content_validity_pass");
   }
   return translate("guide.gate_rule_language_pass");
 };

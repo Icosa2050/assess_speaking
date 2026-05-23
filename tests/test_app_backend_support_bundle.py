@@ -137,11 +137,11 @@ class SupportBundleTests(unittest.TestCase):
                 backend_state = json.loads(archive.read("backend_state.json"))
                 self.assertEqual(backend_state["base_url"], config.base_url)
 
-                client_snapshot = json.loads(archive.read("shell/client_snapshot.json"))
+                client_snapshot = json.loads(archive.read("client/client_snapshot.json"))
                 self.assertEqual(client_snapshot["llm_api_key"], REDACTED_VALUE)
                 self.assertNotIn("secret_ref", client_snapshot)
 
-                client_diagnostics = json.loads(archive.read("shell/client_diagnostics.json"))
+                client_diagnostics = json.loads(archive.read("client/client_diagnostics.json"))
                 self.assertEqual(
                     client_diagnostics[0]["detail_args"]["nested"][0]["password"],
                     REDACTED_VALUE,

@@ -46,6 +46,12 @@ const reviewPayload = {
         actual: "Mostly sustained",
         ok: true,
       },
+      cohesion_markers: {
+        expected: ">=0",
+        actual: 0,
+        ok: null,
+        status: "observed",
+      },
     },
   },
   report: {
@@ -64,6 +70,7 @@ const reviewPayload = {
     checks: {
       language_pass: true,
       topic_pass: false,
+      content_validity_pass: false,
       duration_pass: true,
       min_words_pass: true,
     },
@@ -156,6 +163,9 @@ describe("Review route", () => {
     expect(screen.getByTestId("review-failed-gates")).toHaveTextContent("Open validation checks");
     expect(screen.getByText("Assessment result")).toBeVisible();
     expect(screen.getByText("Validation")).toBeVisible();
+    expect(screen.getByTestId("review-gate-content-validity")).toHaveTextContent("Content validity");
+    expect(screen.getByTestId("review-gate-content-validity")).toHaveTextContent("Open");
+    expect(screen.getByText("Observed")).toBeVisible();
     expect(screen.getByDisplayValue("Full transcript text")).toBeVisible();
   });
 

@@ -5,7 +5,12 @@ import { useQuery } from "@tanstack/react-query";
 import { AssessmentStatusPanel } from "@/components/speak/AssessmentStatusPanel";
 import { RecorderPanel } from "@/components/speak/RecorderPanel";
 import { apiClient, ApiClientError } from "@/lib/api/client";
-import type { AssessmentStatusResponse, RuntimeResponse } from "@/lib/api/types";
+import type {
+  AssessmentStatusResponse,
+  RuntimeResponse,
+  RuntimeSettingsConnection,
+  RuntimeSettingsResponse,
+} from "@/lib/api/types";
 import { createTranslator } from "@/lib/i18n";
 import { pollingIntervals, queryKeys } from "@/lib/query/queryClient";
 import {
@@ -19,7 +24,7 @@ import {
   type RecordingInputMethod,
 } from "@/lib/state/sessionDraft";
 
-const SCORING_WHISPER_MODEL = "large-v3";
+const DEFAULT_SCORING_WHISPER_MODEL = "large-v3";
 
 const cardStyle = {
   display: "grid",
@@ -56,6 +61,20 @@ const phaseMessage = (
   const translated = translate(`speak.job_phase_${phase}`);
   const resolvedPhase = translated.startsWith("[") ? phase.replaceAll("_", " ") : translated;
   return translate("speak.job_phase", { phase: resolvedPhase });
+};
+
+const selectRuntimeSettingsConnection = (
+  settings: RuntimeSettingsResponse | undefined,
+): RuntimeSettingsConnection | null => {
+  if (!settings) {
+    return null;
+  }
+  const connections = settings.connections ?? [];
+  return (
+    connections.find((connection) => connection.connection_id === settings.active_connection_id) ??
+    connections.find((connection) => connection.is_default) ??
+    null
+  );
 };
 
 const buildStatusMessage = ({
@@ -156,6 +175,18 @@ export const SpeakRoute = () => {
     queryKey: queryKeys.runtime,
     queryFn: () => apiClient.getRuntime(),
   });
+
+  const runtimeSettingsQuery = useQuery({
+    queryKey: ["runtime", "settings"],
+    queryFn: () => apiClient.getRuntimeSettings(),
+  });
+
+  const effectiveWhisperModel =
+    String(runtimeSettingsQuery.data?.whisper_model || "").trim() || DEFAULT_SCORING_WHISPER_MODEL;
+  const activeRuntimeConnection = useMemo(
+    () => selectRuntimeSettingsConnection(runtimeSettingsQuery.data),
+    [runtimeSettingsQuery.data],
+  );
 
   const effectivePreferences = useMemo(
     () => ({
@@ -289,6 +320,7 @@ export const SpeakRoute = () => {
   }
 
   const runtime = runtimeQuery.data as RuntimeResponse | undefined;
+  const isOpenRouterRuntime = String(runtime?.provider || "").trim().toLowerCase() === "openrouter";
   const statusMessage = buildStatusMessage({
     errorMessage: recording.error || recording.job.error,
     hasAttachment: hasRecordingAttachment(recording),
@@ -312,9 +344,15 @@ export const SpeakRoute = () => {
         assessmentState: "idle",
       });
       const upload = await apiClient.uploadAudio(attachedFile);
+      const openrouterHttpReferer = String(
+        activeRuntimeConnection?.openrouter_http_referer || "",
+      ).trim();
+      const openrouterAppTitle = String(
+        activeRuntimeConnection?.openrouter_app_title || "",
+      ).trim();
       const created = await apiClient.createAssessment({
         audio_id: upload.audio_id,
-        whisper: SCORING_WHISPER_MODEL,
+        whisper: effectiveWhisperModel,
         provider: runtime?.provider || "",
         llm_model: runtime?.model || "",
         expected_language: draft.learningLanguage,
@@ -327,6 +365,12 @@ export const SpeakRoute = () => {
         label: recording.labelInput || undefined,
         notes: recording.notesInput || undefined,
         llm_base_url: runtime?.base_url || undefined,
+        ...(isOpenRouterRuntime
+          ? {
+              openrouter_http_referer: openrouterHttpReferer || undefined,
+              openrouter_app_title: openrouterAppTitle || undefined,
+            }
+          : {}),
       });
       setRecordingAssessing({
         assessmentId: created.assessment_id,
@@ -478,7 +522,7 @@ export const SpeakRoute = () => {
               ? translate("speak.openrouter_missing_key")
               : null
           }
-          whisperModel={SCORING_WHISPER_MODEL}
+          whisperModel={effectiveWhisperModel}
         />
       </div>
       {lifecycleState === "completed" ? (

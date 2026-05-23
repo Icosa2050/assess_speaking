@@ -1,8 +1,8 @@
 import unittest
 
-from app_shell.i18n import t
-from app_shell.runtime_resolver import RuntimeConfig
-from app_shell.runtime_status import job_status_message, provider_display_name
+from app_core.i18n import t
+from app_core.runtime_resolver import RuntimeConfig
+from app_core.runtime_status import job_status_message, provider_display_name
 
 
 def _translate(locale: str):

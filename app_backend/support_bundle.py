@@ -18,7 +18,7 @@ from app_backend.contracts import (
     SupportBundleCreateRequest,
     SupportBundleCreateResponse,
 )
-from app_shell.bootstrap import build_runtime_metadata
+from app_core.bootstrap import build_runtime_metadata
 
 SUPPORT_BUNDLE_RETENTION_HOURS = 24
 RECENT_JOB_LIMIT = 20
@@ -317,13 +317,13 @@ def create_support_bundle(
         _write_json(archive, "backend_diagnostics.json", _backend_diagnostics_payload(runtime_config))
         _add_json_file_to_archive(
             archive,
-            entry_name="shell/client_snapshot.json",
+            entry_name="client/client_snapshot.json",
             payload=request.client_snapshot,
             stats=stats,
         )
         _add_json_file_to_archive(
             archive,
-            entry_name="shell/client_diagnostics.json",
+            entry_name="client/client_diagnostics.json",
             payload=request.client_diagnostics,
             stats=stats,
         )
