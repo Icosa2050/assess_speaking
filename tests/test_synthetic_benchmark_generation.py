@@ -15,6 +15,21 @@ from benchmarking.synthetic_seed_manifests import load_seed_manifest
 ENGLISH_FIXTURE_PATH = Path(__file__).parent / "fixtures" / "seeds" / "english_monologue_seeds_v1.json"
 ITALIAN_FIXTURE_PATH = Path(__file__).parent / "fixtures" / "seeds" / "italian_monologue_seeds_v1.json"
 BENCHMARKS_DIR = Path(__file__).parent / "fixtures" / "benchmarks"
+ROOT_OPTION_ARTIFACTS = (Path("-o"), Path("--file-format=AIFF"))
+
+
+def _clear_root_option_artifacts() -> None:
+    for path in ROOT_OPTION_ARTIFACTS:
+        path.unlink(missing_ok=True)
+
+
+def _assert_no_root_option_artifacts(test_case: unittest.TestCase) -> None:
+    for path in ROOT_OPTION_ARTIFACTS:
+        test_case.assertFalse(path.exists(), f"{path} leaked into the repo root")
+
+
+def _fake_say_output_path(command: list[str]) -> Path:
+    return Path(command[command.index("-o") + 1])
 
 
 class SyntheticBenchmarkGenerationTests(unittest.TestCase):
@@ -41,11 +56,12 @@ class SyntheticBenchmarkGenerationTests(unittest.TestCase):
 
     def test_render_seed_manifest_writes_audio_transcripts_and_manifest(self):
         calls: list[tuple[list[str], str | None]] = []
+        _clear_root_option_artifacts()
 
         def fake_run(command: list[str], *, input_text: str | None = None) -> None:
             calls.append((command, input_text))
             if command[0] == "say":
-                Path(command[5]).write_bytes(b"AIFF")
+                _fake_say_output_path(command).write_bytes(b"AIFF")
             elif command[0] == "ffmpeg":
                 Path(command[-1]).write_bytes(b"WAV")
 
@@ -84,6 +100,7 @@ class SyntheticBenchmarkGenerationTests(unittest.TestCase):
             self.assertEqual(calls[0][0][4], "150")
             self.assertIn("[[slnc", calls[0][1] or "")
             self.assertEqual(calls[1][0][1:4], ["-hide_banner", "-loglevel", "error"])
+            _assert_no_root_option_artifacts(self)
 
     def test_render_seed_manifest_rejects_unknown_seed_ids(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -112,7 +129,7 @@ class SyntheticBenchmarkGenerationTests(unittest.TestCase):
     def test_render_italian_seed_manifest_can_validate_against_benchmark_metrics(self):
         def fake_run(command: list[str], *, input_text: str | None = None) -> None:
             if command[0] == "say":
-                Path(command[5]).write_bytes(b"AIFF")
+                _fake_say_output_path(command).write_bytes(b"AIFF")
             elif command[0] == "ffmpeg":
                 Path(command[-1]).write_bytes(b"WAV")
 
@@ -148,7 +165,7 @@ class SyntheticBenchmarkGenerationTests(unittest.TestCase):
             nonlocal call_count
             call_count += 1
             if command[0] == "say":
-                Path(command[5]).write_bytes(b"AIFF")
+                _fake_say_output_path(command).write_bytes(b"AIFF")
             elif command[0] == "ffmpeg":
                 if call_count >= 4:
                     raise RuntimeError("ffmpeg failed on second seed")
@@ -171,7 +188,7 @@ class SyntheticBenchmarkGenerationTests(unittest.TestCase):
     def test_render_seed_manifest_overwrite_replaces_existing_bundle(self):
         def fake_run(command: list[str], *, input_text: str | None = None) -> None:
             if command[0] == "say":
-                Path(command[5]).write_bytes(b"AIFF")
+                _fake_say_output_path(command).write_bytes(b"AIFF")
             elif command[0] == "ffmpeg":
                 Path(command[-1]).write_bytes(b"WAV")
 
@@ -203,7 +220,7 @@ class SyntheticBenchmarkGenerationTests(unittest.TestCase):
 
         def fake_run(command: list[str], *, input_text: str | None = None) -> None:
             if command[0] == "say":
-                Path(command[5]).write_bytes(b"AIFF")
+                _fake_say_output_path(command).write_bytes(b"AIFF")
             elif command[0] == "ffmpeg":
                 Path(command[-1]).write_bytes(b"WAV")
 
