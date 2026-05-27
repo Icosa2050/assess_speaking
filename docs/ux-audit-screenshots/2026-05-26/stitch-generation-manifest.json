@@ -1,0 +1,123 @@
+{
+  "createdAt": "2026-05-26T20:40:00Z",
+  "projectId": "12105866389178941937",
+  "projectTitle": "Vostavo learner UX redesign",
+  "designSystemSource": {
+    "localPath": "DESIGN.md",
+    "stitchSourceScreen": "projects/12105866389178941937/screens/9034619077867123098",
+    "uploadStatus": "uploaded",
+    "designSystemAssetId": "813fdb63a0e347419f5bdfc69e41c4db",
+    "designSystemCreationStatus": "created",
+    "notes": [
+      "upload_design_md succeeded and created a DESIGN.md screen instance.",
+      "create_design_system_from_design_md rejected the full uploaded screen instance that included width and height.",
+      "create_design_system_from_design_md succeeded when selectedScreenInstance used the minimal SDK-documented shape: {\"id\":\"9034619077867123098\",\"sourceScreen\":\"projects/12105866389178941937/screens/9034619077867123098\"}."
+    ]
+  },
+  "sourceUploadManifest": "docs/ux-audit-screenshots/2026-05-24/stitch-upload-manifest.json",
+  "uploadedCurrentScreens": [
+    {
+      "name": "home-default",
+      "sourceCurrentScreenshot": "docs/ux-audit-screenshots/2026-05-24/01-home-default.jpg",
+      "stitchScreenId": "2652952707447588649"
+    },
+    {
+      "name": "runtime-setup-default",
+      "sourceCurrentScreenshot": "docs/ux-audit-screenshots/2026-05-24/02-runtime-setup-default.jpg",
+      "stitchScreenId": "15827749151882128930"
+    },
+    {
+      "name": "session-setup-default",
+      "sourceCurrentScreenshot": "docs/ux-audit-screenshots/2026-05-24/03-session-setup-default.jpg",
+      "stitchScreenId": "5706575674840363019"
+    },
+    {
+      "name": "speak-ready",
+      "sourceCurrentScreenshot": "docs/ux-audit-screenshots/2026-05-24/04-speak-ready.jpg",
+      "stitchScreenId": "15827749151882126720"
+    },
+    {
+      "name": "review-empty",
+      "sourceCurrentScreenshot": "docs/ux-audit-screenshots/2026-05-24/05-review-empty.jpg",
+      "stitchScreenId": "10997005272027059069"
+    },
+    {
+      "name": "history",
+      "sourceCurrentScreenshot": "docs/ux-audit-screenshots/2026-05-24/06-history.jpg",
+      "stitchScreenId": "17942821813920805216"
+    },
+    {
+      "name": "library",
+      "sourceCurrentScreenshot": "docs/ux-audit-screenshots/2026-05-24/07-library.jpg",
+      "stitchScreenId": "1861167787421514036"
+    },
+    {
+      "name": "guide",
+      "sourceCurrentScreenshot": "docs/ux-audit-screenshots/2026-05-24/08-guide.jpg",
+      "stitchScreenId": "9632730377206274406"
+    },
+    {
+      "name": "settings",
+      "sourceCurrentScreenshot": "docs/ux-audit-screenshots/2026-05-24/09-settings.jpg",
+      "stitchScreenId": "15330338813606331261"
+    },
+    {
+      "name": "home-configured",
+      "sourceCurrentScreenshot": "docs/ux-audit-screenshots/2026-05-24/10-home-configured.jpg",
+      "stitchScreenId": "15330338813606330996"
+    }
+  ],
+  "generationAttempts": [
+    {
+      "target": "home",
+      "method": "generate_screen_from_text",
+      "modelId": "GEMINI_3_1_PRO",
+      "status": "transport_error",
+      "result": "No generated screen appeared in list_screens after polling."
+    },
+    {
+      "target": "home",
+      "method": "generate_screen_from_text",
+      "modelId": "GEMINI_3_FLASH",
+      "status": "transport_error",
+      "result": "No generated screen appeared in list_screens after polling."
+    },
+    {
+      "target": "home",
+      "method": "generate_variants",
+      "modelId": "GEMINI_3_FLASH",
+      "status": "remote_disconnected",
+      "result": "No generated variant screen appeared in list_screens after polling."
+    },
+    {
+      "target": "home",
+      "method": "apply_design_system",
+      "modelId": null,
+      "status": "completed_but_blank_artifact",
+      "result": "Stitch returned generated design screen projects/12105866389178941937/screens/e1b78a8967c248e6b15edb745bb66e1f, but the downloaded screenshot artifact is a blank 512x410 PNG and the downloaded HTML artifact is an empty document.",
+      "artifactPaths": [
+        "docs/ux-audit-screenshots/2026-05-26/stitch-home-design-system.png",
+        "docs/ux-audit-screenshots/2026-05-26/stitch-home-design-system.html"
+      ]
+    },
+    {
+      "target": "home",
+      "method": "stitch-sdk:generate_screen_from_text",
+      "modelId": "GEMINI_3_FLASH",
+      "status": "generation_error",
+      "result": "The SDK path used @google/stitch-sdk 0.3.5 from a temporary /tmp install with a 300s timeout. Stitch closed the remote MCP socket after about one minute; a fresh-client poll found no new screen.",
+      "manifestPath": "docs/ux-audit-screenshots/2026-05-26/stitch-sdk-generation-manifest.json"
+    }
+  ],
+  "generatedScreens": [],
+  "failedGeneratedArtifacts": [
+    {
+      "screenId": "e1b78a8967c248e6b15edb745bb66e1f",
+      "sourceScreenId": "2652952707447588649",
+      "status": "not_reviewable",
+      "reason": "Downloaded screenshot is blank and HTML is empty."
+    }
+  ],
+  "reviewStatus": "blocked_stitch_generation_not_reviewable",
+  "nextAction": "Use the Stitch web UI for manual generation if needed. For repo implementation, proceed from DESIGN.md, the current screenshot audit, and PAL/direct-vision review; do not depend on Codex-driven Stitch generation for north-star screens until it returns nonblank artifacts."
+}

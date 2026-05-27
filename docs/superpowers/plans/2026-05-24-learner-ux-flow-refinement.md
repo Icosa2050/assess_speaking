@@ -63,6 +63,26 @@ These amendments supersede the earlier ordering in this file where they conflict
 - Add an explicit non-goal for this wave: do not change runtime detection, Whisper caching, provider contracts, color tokens, or the overall card/button design system.
 - Preserve semantic IDs and route guards in every navigation and Home change.
 
+## Stitch Design-System Pass
+
+The selected local design direction is `Calm Coach`, captured in the repo-level `DESIGN.md`.
+
+Implementation constraints:
+
+- Keep `DESIGN.md` as the design-system source of truth.
+- Use Stitch outputs as references only; do not import generated React/CSS directly.
+- Preserve localization keys, semantic IDs, route guards, and the existing app architecture.
+- Apply visual changes only through the existing file-bounded UX tasks.
+
+Stitch setup status from 2026-05-26:
+
+- Project `12105866389178941937` (`Vostavo learner UX redesign`) contains the current screenshot set and uploaded `DESIGN.md`.
+- Screenshot upload succeeded through `scripts/stitch_upload_screenshots.py`; the non-secret manifest is `docs/ux-audit-screenshots/2026-05-24/stitch-upload-manifest.json`.
+- `upload_design_md` succeeded. Stitch design-system creation initially returned `invalid argument` with the full screen instance, then succeeded with the minimal SDK-documented `{id, sourceScreen}` shape; the design-system asset is `813fdb63a0e347419f5bdfc69e41c4db`.
+- Generation attempts still hit transport disconnects. A one-screen `apply_design_system` trial created Stitch screen `e1b78a8967c248e6b15edb745bb66e1f`, but its downloaded screenshot is blank and its HTML artifact is empty, so it is not reviewable.
+- The SDK fallback (`@google/stitch-sdk` 0.3.5 from a temporary `/tmp` install, 300s timeout) also failed with a remote MCP socket close after about one minute; a fresh-client poll found no new screen.
+- Generation status is recorded in `docs/ux-audit-screenshots/2026-05-26/stitch-generation-manifest.json`.
+
 ## Task 1: Move UI Language Out Of Global Chrome
 
 ### Task 1A: Localize Settings Copy

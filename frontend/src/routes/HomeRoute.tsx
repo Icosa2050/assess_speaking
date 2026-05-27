@@ -11,24 +11,6 @@ import { hasReviewState, hasSetupDraft } from "@/lib/state/sessionDraft";
 
 import styles from "./HomeRoute.module.css";
 
-const cardStyle = {
-  display: "grid",
-  gap: "0.875rem",
-  padding: "1.25rem",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
-  borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.94)",
-  boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
-} as const;
-
-const diagnosticsListStyle = {
-  display: "grid",
-  gap: "0.75rem",
-  padding: 0,
-  margin: 0,
-  listStyle: "none",
-} as const;
-
 const statusColor = (status: string): string => {
   if (status === "ok") {
     return "#166534";
@@ -96,27 +78,11 @@ export const HomeRoute = () => {
   };
 
   return (
-    <div style={{ display: "grid", gap: "1rem" }}>
+    <div className={styles.homeGrid}>
       {!runtimeReadiness.ready ? (
-        <section style={cardStyle}>
-          <h2
-            style={{
-              margin: 0,
-              fontSize: "1.5rem",
-              color: "#10201c",
-            }}
-          >
-            {translate("home.runtime_setup_title")}
-          </h2>
-          <p
-            style={{
-              margin: 0,
-              lineHeight: 1.6,
-              color: "#33514b",
-            }}
-          >
-            {translate("home.runtime_setup_body")}
-          </p>
+        <section className={`${styles.card} ${styles.primaryPracticeCard}`}>
+          <h2 className={styles.primaryTitle}>{translate("home.runtime_setup_title")}</h2>
+          <p className={styles.cardBody}>{translate("home.runtime_setup_body")}</p>
           <div className={styles.actionRow}>
             <button
               type="button"
@@ -129,26 +95,10 @@ export const HomeRoute = () => {
           </div>
         </section>
       ) : (
-        <section style={cardStyle}>
-          <h2
-            style={{
-              margin: 0,
-              fontSize: "1.5rem",
-              color: "#10201c",
-            }}
-          >
-            {translate("home.primary_title")}
-          </h2>
-          <p
-            style={{
-              margin: 0,
-              lineHeight: 1.6,
-              color: "#33514b",
-            }}
-          >
-            {translate("home.primary_body")}
-          </p>
-          <div className={styles.actionRow}>
+        <section className={`${styles.card} ${styles.primaryPracticeCard}`}>
+          <h2 className={styles.primaryTitle}>{translate("home.primary_title")}</h2>
+          <p className={styles.cardBody}>{translate("home.primary_body")}</p>
+          <div className={`${styles.actionRow} ${styles.primaryActionRow}`}>
             <button
               type="button"
               onClick={handleStartNew}
@@ -170,40 +120,14 @@ export const HomeRoute = () => {
         </section>
       )}
 
-      <section style={cardStyle}>
-        <h2
-          style={{
-            margin: 0,
-            fontSize: "1.35rem",
-            color: "#10201c",
-          }}
-        >
-          {translate("home.diagnostics_title")}
-        </h2>
-        <p
-          style={{
-            margin: 0,
-            lineHeight: 1.6,
-            color: "#33514b",
-          }}
-        >
-          {translate("home.diagnostics_body")}
-        </p>
-        <ul style={diagnosticsListStyle}>
+      <section className={`${styles.card} ${styles.supportCard}`}>
+        <h2 className={styles.supportTitle}>{translate("home.diagnostics_title")}</h2>
+        <p className={styles.cardBody}>{translate("home.diagnostics_body")}</p>
+        <ul className={styles.diagnosticsList}>
           {diagnosticsItems.map((item) => {
             const message = translateDiagnostic(item, translate);
             return (
-              <li
-                key={item.key}
-                style={{
-                  display: "grid",
-                  gap: "0.375rem",
-                  padding: "0.875rem 1rem",
-                  borderRadius: "8px",
-                  border: "1px solid rgba(18, 61, 55, 0.08)",
-                  backgroundColor: "rgba(248, 251, 250, 0.96)",
-                }}
-              >
+              <li key={item.key} className={styles.diagnosticItem}>
                 <strong
                   style={{
                     color: statusColor(item.status),
@@ -225,25 +149,9 @@ export const HomeRoute = () => {
         </ul>
       </section>
 
-      <section style={cardStyle}>
-        <h2
-          style={{
-            margin: 0,
-            fontSize: "1.35rem",
-            color: "#10201c",
-          }}
-        >
-          {translate("home.secondary_title")}
-        </h2>
-        <p
-          style={{
-            margin: 0,
-            lineHeight: 1.6,
-            color: "#33514b",
-          }}
-        >
-          {translate("home.secondary_body")}
-        </p>
+      <section className={`${styles.card} ${styles.supportCard}`}>
+        <h2 className={styles.supportTitle}>{translate("home.secondary_title")}</h2>
+        <p className={styles.cardBody}>{translate("home.secondary_body")}</p>
         <div className={styles.actionRow}>
           <Link
             to="/history"

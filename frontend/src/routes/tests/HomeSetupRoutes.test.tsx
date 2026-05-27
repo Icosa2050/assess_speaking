@@ -70,6 +70,35 @@ describe("Home and Runtime Setup routes", () => {
     });
   });
 
+  it("keeps configured Home focused on the next speaking action", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true,
+      provider: "ollama",
+      model: "llama3.2:3b",
+      base_url: "http://localhost:11434/v1",
+      requires_api_key: false,
+      has_api_key: false,
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/"],
+      locale: "en",
+      appState: {
+        preferences: {
+          setupComplete: true,
+        },
+      },
+    });
+
+    const startNewButton = await screen.findByTestId("home.start_new");
+    const diagnosticsHeading = await screen.findByText("Startup checks");
+
+    expect(startNewButton).toBeVisible();
+    expect(startNewButton.closest("section")?.className).toContain("primaryPracticeCard");
+    expect(diagnosticsHeading.closest("section")?.className).toContain("supportCard");
+    expect(screen.queryByTestId("home.runtime_setup_button")).not.toBeInTheDocument();
+  });
+
   it("shows the runtime setup branch on Home and renders interactive runtime controls", async () => {
     mockedGetRuntime.mockResolvedValue({
       configured: false,
