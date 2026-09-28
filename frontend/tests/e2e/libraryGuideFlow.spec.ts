@@ -83,9 +83,14 @@ test.describe("library and guide browser flow", () => {
     await page.getByTestId("home.open_library").click();
     await expect(page).toHaveURL(/\/library$/);
     await expect(page.getByRole("heading", { name: "Pick your next exercise" })).toBeVisible();
+    await page.getByRole("combobox", { name: "Practice language", exact: true }).selectOption("en");
     await expect(page.getByText("Travel Story")).toBeVisible();
 
-    await page.getByTestId("library.sample_prepare").first().click();
+    await page
+      .getByRole("article")
+      .filter({ hasText: "Travel Story" })
+      .getByTestId("library.sample_prepare")
+      .click();
     await expect(page).toHaveURL(/\/session-setup$/);
     await expect(page.getByTestId("setup.layout")).toBeVisible();
     await expect(page.getByTestId("setup.custom_theme")).toHaveValue("Travel Story");

@@ -314,7 +314,9 @@ test.describe("review and history replacement flow", () => {
     await expect(page).toHaveURL(/\/review$/);
     await expect(page.getByTestId("review-next-step-card")).toBeVisible();
     await expect(page.getByTestId("review-summary")).toBeVisible();
-    await expect(page.getByTestId("review-progress")).toContainText("Final score delta");
+    await expect(page.getByTestId("review-progress")).toContainText(
+      "Change in overall score: +0.90.",
+    );
     await expect(page.getByTestId("review-transcript")).toHaveValue(attempts[1].transcript);
 
     await page.getByTestId("review-action-view-history").click();
