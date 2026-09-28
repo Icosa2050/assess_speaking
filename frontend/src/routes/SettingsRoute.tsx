@@ -25,6 +25,8 @@ type SettingsOrigin =
   | "session-setup"
   | "speak"
   | "review"
+  | "library"
+  | "guide"
   | "history";
 
 type SettingsLocationState = {
@@ -72,6 +74,8 @@ const returnPathMap: Record<SettingsOrigin, string> = {
   speak: "/speak",
   review: "/review",
   history: "/history",
+  library: "/library",
+  guide: "/guide",
 };
 
 const localeLabel = (

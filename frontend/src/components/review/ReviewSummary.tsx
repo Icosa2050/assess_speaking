@@ -60,6 +60,24 @@ const detailGridStyle = {
   gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
 } as const;
 
+const qualityChipGridStyle = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "0.5rem",
+} as const;
+
+const disclosureSummaryStyle = {
+  cursor: "pointer",
+  color: "#10201c",
+  fontWeight: 700,
+} as const;
+
+const disclosureContentStyle = {
+  display: "grid",
+  gap: "0.875rem",
+  marginTop: "0.875rem",
+} as const;
+
 const readOnlyInputStyle = {
   minHeight: "44px",
   padding: "0.75rem 0.875rem",
@@ -290,6 +308,25 @@ const gateStatus = (value: boolean | null, translate: Translate): string => {
   return translate("review.gate_unknown");
 };
 
+const gateItems = (summary: ReviewDisplaySummary, translate: Translate) =>
+  [
+    ["review-gate-language", translate("review.gate_language"), summary.gates.language_pass],
+    ["review-gate-topic", translate("review.gate_theme"), summary.gates.topic_pass],
+    ["review-gate-content-validity", translate("review.gate_content_validity"), summary.gates.content_validity_pass],
+    ["review-gate-duration", translate("review.gate_duration"), summary.gates.duration_pass],
+    ["review-gate-min-words", translate("review.gate_words"), summary.gates.min_words_pass],
+  ] as const;
+
+const qualitySummary = (summary: ReviewDisplaySummary, translate: Translate): string => {
+  const items = gateItems(summary, translate);
+  const passed = items.filter(([, , value]) => value === true).length;
+
+  return translate("review.quality_summary", {
+    passed,
+    total: items.length,
+  });
+};
+
 const baselineStatus = (entry: Record<string, unknown>, translate: Translate): string => {
   const status = String(entry.status || "").trim();
   if (status === "observed") {
@@ -396,10 +433,12 @@ const progressText = (item: ProgressItem, translate: Translate): string => {
 };
 
 export const ReviewSummary = ({
+  hideCoachSummary = false,
   summary,
   translate,
   warningsSlot,
 }: {
+  hideCoachSummary?: boolean;
   summary: ReviewDisplaySummary;
   translate: Translate;
   warningsSlot?: ReactNode;
@@ -482,13 +521,15 @@ export const ReviewSummary = ({
         {translate("review.coaching_tab")}
       </p>
       <h2 style={{ margin: 0, fontSize: "1.35rem", color: "#10201c" }}>{translate("review.summary_title")}</h2>
-      <p
-        style={{ margin: 0, color: "#10201c", lineHeight: 1.6 }}
-        data-testid="review-coach-summary"
-        data-semantic-id="review-coach-summary"
-      >
-        {summary.coachSummary || translate("review.summary_placeholder")}
-      </p>
+      {hideCoachSummary ? null : (
+        <p
+          style={{ margin: 0, color: "#10201c", lineHeight: 1.6 }}
+          data-testid="review-coach-summary"
+          data-semantic-id="review-coach-summary"
+        >
+          {summary.coachSummary || translate("review.summary_placeholder")}
+        </p>
+      )}
       <div style={detailGridStyle}>
         <div data-testid="review-strengths" data-semantic-id="review-strengths">
           <strong style={{ color: "#33514b" }}>{translate("review.strengths_title")}</strong>
@@ -592,88 +633,145 @@ export const ReviewSummary = ({
       ) : null}
     </section>
 
-    <section style={cardStyle} data-testid="review-gates" data-semantic-id="review-gates">
+    <section style={cardStyle} data-testid="review-quality-checks" data-semantic-id="review-quality-checks">
       <p style={{ margin: 0, fontSize: "0.875rem", fontWeight: 700, color: "#0f766e" }}>{translate("review.gates_eyebrow")}</p>
       <h2 style={{ margin: 0, fontSize: "1.35rem", color: "#10201c" }}>{translate("review.gates_title")}</h2>
-      <div style={metricGridStyle}>
-        {([
-          ["review-gate-language", translate("review.gate_language"), summary.gates.language_pass],
-          ["review-gate-topic", translate("review.gate_theme"), summary.gates.topic_pass],
-          ["review-gate-content-validity", translate("review.gate_content_validity"), summary.gates.content_validity_pass],
-          ["review-gate-duration", translate("review.gate_duration"), summary.gates.duration_pass],
-          ["review-gate-min-words", translate("review.gate_words"), summary.gates.min_words_pass],
-        ] as const).map(([testId, label, value]) => (
-          <div key={testId} style={cardStyle} data-testid={testId} data-semantic-id={testId}>
-            <strong style={{ color: "#33514b" }}>{label}</strong>
-            <span style={{ color: "#10201c", fontWeight: 700 }}>{gateStatus(value as boolean | null, translate)}</span>
-          </div>
+      <p
+        style={{ margin: 0, color: "#33514b", lineHeight: 1.55, fontWeight: 650 }}
+        data-testid="review-quality-summary"
+        data-semantic-id="review-quality-summary"
+      >
+        {qualitySummary(summary, translate)}
+      </p>
+      <div
+        style={qualityChipGridStyle}
+        data-testid="review-quality-chips"
+        data-semantic-id="review-quality-chips"
+      >
+        {gateItems(summary, translate).map(([testId, label, value]) => (
+          <span
+            key={`${testId}-chip`}
+            style={{
+              border: "1px solid rgba(18, 61, 55, 0.10)",
+              borderRadius: "8px",
+              backgroundColor: value === false ? "rgba(255, 251, 235, 0.92)" : "rgba(248, 251, 250, 0.96)",
+              color: value === false ? "#6b4f00" : "#33514b",
+              fontWeight: 650,
+              padding: "0.45rem 0.6rem",
+            }}
+            data-testid={`${testId}-chip`}
+            data-semantic-id={`${testId}-chip`}
+          >
+            {`${label}: ${gateStatus(value, translate)}`}
+          </span>
         ))}
       </div>
+      <details
+        open={summary.failedGates.length > 0}
+        data-testid="review-gates-disclosure"
+        data-semantic-id="review-gates-disclosure"
+      >
+        <summary
+          style={disclosureSummaryStyle}
+          data-testid="review-validation-toggle"
+          data-semantic-id="review-validation-toggle"
+        >
+          {translate("review.quality_details_summary")}
+        </summary>
+        <div
+          style={disclosureContentStyle}
+          data-testid="review-gates"
+          data-semantic-id="review-gates"
+        >
+          <div style={metricGridStyle}>
+            {gateItems(summary, translate).map(([testId, label, value]) => (
+              <div key={testId} style={cardStyle} data-testid={testId} data-semantic-id={testId}>
+                <strong style={{ color: "#33514b" }}>{label}</strong>
+                <span style={{ color: "#10201c", fontWeight: 700 }}>{gateStatus(value, translate)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </details>
     </section>
 
-    <section style={cardStyle}>
+    <section style={cardStyle} data-testid="review-reference" data-semantic-id="review-reference">
       <p style={{ margin: 0, fontSize: "0.875rem", fontWeight: 700, color: "#0f766e" }}>{translate("review.details_tab")}</p>
       <h2 style={{ margin: 0, fontSize: "1.35rem", color: "#10201c" }}>{translate("review.details_title")}</h2>
-      <div style={detailGridStyle}>
-        <label style={{ display: "grid", gap: "0.375rem", color: "#10201c", fontWeight: 600 }}>
-          <span>{translate("review.label_title")}</span>
-          <input
-            readOnly
-            value={summary.label || translate("review.label_placeholder")}
-            style={readOnlyInputStyle}
-            data-testid="review-label"
-            data-semantic-id="review-label"
-          />
-        </label>
-        <div style={{ display: "grid", gap: "0.375rem" }}>
-          <strong style={{ color: "#10201c" }}>{translate("review.metric_report_id")}</strong>
-          <span data-testid="review-report-id" data-semantic-id="review-report-id" style={{ color: "#33514b" }}>
-            {summary.reportId || "-"}
-          </span>
-          <strong style={{ color: "#10201c" }}>{translate("setup.learning_language")}</strong>
-          <span data-testid="review-learning-language" data-semantic-id="review-learning-language" style={{ color: "#33514b" }}>
-            {localizedLanguageLabel(summary.learningLanguage, translate) || "-"}
-          </span>
-        </div>
-      </div>
-      <label style={{ display: "grid", gap: "0.375rem", color: "#10201c", fontWeight: 600 }}>
-        <span>{translate("review.notes_title")}</span>
-        <textarea
-          readOnly
-          value={summary.notes || translate("review.notes_placeholder")}
-          style={{ ...readOnlyInputStyle, minHeight: "132px", resize: "vertical" }}
-          data-testid="review-notes"
-          data-semantic-id="review-notes"
-        />
-      </label>
-      <label style={{ display: "grid", gap: "0.375rem", color: "#10201c", fontWeight: 600 }}>
-        <span>{translate("review.transcript_title")}</span>
-        <textarea
-          readOnly
-          value={summary.transcript || translate("review.transcript_placeholder")}
-          style={{ ...readOnlyInputStyle, minHeight: "260px", resize: "vertical" }}
-          data-testid="review-transcript"
-          data-semantic-id="review-transcript"
-        />
-      </label>
-      <details data-testid="review-raw-payload" data-semantic-id="review-raw-payload">
-        <summary style={{ cursor: "pointer", fontWeight: 600, color: "#10201c" }}>
-          {translate("review.raw_payload")}
-        </summary>
-        <pre
-          style={{
-            margin: "0.75rem 0 0",
-            padding: "0.875rem",
-            borderRadius: "8px",
-            backgroundColor: "rgba(248, 251, 250, 0.96)",
-            overflowX: "auto",
-            whiteSpace: "pre-wrap",
-            color: "#10201c",
-            fontSize: "0.875rem",
-          }}
+      <details
+        data-testid="review-evidence-disclosure"
+        data-semantic-id="review-evidence-disclosure"
+      >
+        <summary
+          style={disclosureSummaryStyle}
+          data-testid="review-evidence-toggle"
+          data-semantic-id="review-evidence-toggle"
         >
-          {JSON.stringify(summary.payload, null, 2)}
-        </pre>
+          {translate("review.reference_details_summary")}
+        </summary>
+        <div style={disclosureContentStyle}>
+          <div style={detailGridStyle}>
+            <label style={{ display: "grid", gap: "0.375rem", color: "#10201c", fontWeight: 600 }}>
+              <span>{translate("review.label_title")}</span>
+              <input
+                readOnly
+                value={summary.label || translate("review.label_placeholder")}
+                style={readOnlyInputStyle}
+                data-testid="review-label"
+                data-semantic-id="review-label"
+              />
+            </label>
+            <div style={{ display: "grid", gap: "0.375rem" }}>
+              <strong style={{ color: "#10201c" }}>{translate("review.metric_report_id")}</strong>
+              <span data-testid="review-report-id" data-semantic-id="review-report-id" style={{ color: "#33514b" }}>
+                {summary.reportId || "-"}
+              </span>
+              <strong style={{ color: "#10201c" }}>{translate("setup.learning_language")}</strong>
+              <span data-testid="review-learning-language" data-semantic-id="review-learning-language" style={{ color: "#33514b" }}>
+                {localizedLanguageLabel(summary.learningLanguage, translate) || "-"}
+              </span>
+            </div>
+          </div>
+          <label style={{ display: "grid", gap: "0.375rem", color: "#10201c", fontWeight: 600 }}>
+            <span>{translate("review.notes_title")}</span>
+            <textarea
+              readOnly
+              value={summary.notes || translate("review.notes_placeholder")}
+              style={{ ...readOnlyInputStyle, minHeight: "132px", resize: "vertical" }}
+              data-testid="review-notes"
+              data-semantic-id="review-notes"
+            />
+          </label>
+          <label style={{ display: "grid", gap: "0.375rem", color: "#10201c", fontWeight: 600 }}>
+            <span>{translate("review.transcript_title")}</span>
+            <textarea
+              readOnly
+              value={summary.transcript || translate("review.transcript_placeholder")}
+              style={{ ...readOnlyInputStyle, minHeight: "260px", resize: "vertical" }}
+              data-testid="review-transcript"
+              data-semantic-id="review-transcript"
+            />
+          </label>
+          <details data-testid="review-raw-payload" data-semantic-id="review-raw-payload">
+            <summary style={{ cursor: "pointer", fontWeight: 600, color: "#10201c" }}>
+              {translate("review.raw_payload")}
+            </summary>
+            <pre
+              style={{
+                margin: "0.75rem 0 0",
+                padding: "0.875rem",
+                borderRadius: "8px",
+                backgroundColor: "rgba(248, 251, 250, 0.96)",
+                overflowX: "auto",
+                whiteSpace: "pre-wrap",
+                color: "#10201c",
+                fontSize: "0.875rem",
+              }}
+            >
+              {JSON.stringify(summary.payload, null, 2)}
+            </pre>
+          </details>
+        </div>
       </details>
     </section>
   </div>

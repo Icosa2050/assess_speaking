@@ -45,6 +45,12 @@ const cardStyle = {
   boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
 } as const;
 
+const secondaryPanelStyle = {
+  ...cardStyle,
+  backgroundColor: "rgba(248, 251, 250, 0.76)",
+  boxShadow: "none",
+} as const;
+
 const inputStyle = {
   minHeight: "44px",
   borderRadius: "8px",
@@ -231,7 +237,7 @@ export const LibraryRoute = () => {
         </p>
       </section>
 
-      <section style={cardStyle}>
+      <section style={secondaryPanelStyle}>
         <label style={fieldStyle}>
           <span style={{ fontWeight: 600, color: "#33514b" }}>
             {translate("library.language_filter")}
@@ -304,10 +310,17 @@ export const LibraryRoute = () => {
         )}
       </section>
 
-      <section style={cardStyle}>
+      <section
+        style={secondaryPanelStyle}
+        data-testid="library.custom_theme_builder"
+        data-semantic-id="library.custom_theme_builder"
+      >
         <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
           {translate("library.add_title")}
         </h2>
+        <p style={{ margin: 0, color: "#6b7a76", lineHeight: 1.55 }}>
+          {translate("library.custom_theme_caption")}
+        </p>
         {successMessage ? <p style={{ margin: 0, color: "#166534" }}>{successMessage}</p> : null}
         <label style={fieldStyle}>
           <span style={{ fontWeight: 600, color: "#33514b" }}>

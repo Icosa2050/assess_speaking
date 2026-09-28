@@ -1,8 +1,27 @@
 import { describe, expect, it } from "vitest";
 
-import { createAppStore } from "./appStore";
+import { createAppStore, selectCanSubmitAssessment } from "./appStore";
 
 describe("app store recording jobs", () => {
+  it.each(["upload", "assessment"])("allows retry after an %s failure without losing the recording", (phase) => {
+    const store = createAppStore({
+      draft: { speakerId: "learner", themeId: "travel", promptText: "Describe a trip", cefrLevel: "B1" },
+      recording: { audioPath: "/tmp/take.wav", inputMethod: "upload" },
+    });
+    expect(selectCanSubmitAssessment(store.getState())).toBe(true);
+
+    if (phase === "upload") {
+      store.getState().setRecordingError("Connection dropped");
+    } else {
+      store.getState().setRecordingJob({ status: "failed", error: "Provider unavailable" });
+    }
+
+    expect(store.getState().recording.audioPath).toBe("/tmp/take.wav");
+    expect(selectCanSubmitAssessment(store.getState())).toBe(true);
+    store.getState().clearRecording();
+    expect(selectCanSubmitAssessment(store.getState())).toBe(false);
+  });
+
   const assessingSeed = (error = "") =>
     ({
       recording: {

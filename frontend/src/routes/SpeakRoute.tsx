@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { AssessmentStatusPanel } from "@/components/speak/AssessmentStatusPanel";
 import { RecorderPanel } from "@/components/speak/RecorderPanel";
+import { SpeakStatusRail, type SpeakConfidencePhase } from "@/components/speak/SpeakStatusRail";
 import { apiClient, ApiClientError } from "@/lib/api/client";
 import type {
   AssessmentStatusResponse,
@@ -35,20 +36,6 @@ const cardStyle = {
   backgroundColor: "rgba(255, 255, 255, 0.94)",
   boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
 } as const;
-
-const detailGridStyle = {
-  display: "grid",
-  gap: "0.75rem",
-  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-} as const;
-
-const taskFamilyLabel = (
-  translate: ReturnType<typeof createTranslator>,
-  taskFamily: string,
-): string => {
-  const translated = translate(`task_family.${taskFamily}`);
-  return translated.startsWith("[") ? taskFamily.replaceAll("_", " ") : translated;
-};
 
 const phaseMessage = (
   translate: ReturnType<typeof createTranslator>,
@@ -321,16 +308,57 @@ export const SpeakRoute = () => {
 
   const runtime = runtimeQuery.data as RuntimeResponse | undefined;
   const isOpenRouterRuntime = String(runtime?.provider || "").trim().toLowerCase() === "openrouter";
+  const storeHasAttachment = hasRecordingAttachment(recording);
+  const assessmentOwnsAttachment =
+    lifecycleState === "queued" || lifecycleState === "running" || lifecycleState === "completed";
+  const hasAttachment = assessmentOwnsAttachment ? storeHasAttachment : Boolean(attachedFile);
+  const canSubmitLiveAttachment = canSubmitAssessment && Boolean(attachedFile);
   const statusMessage = buildStatusMessage({
     errorMessage: recording.error || recording.job.error,
-    hasAttachment: hasRecordingAttachment(recording),
-    hasMissingAttachment: Boolean(recording.audioPath) && !attachedFile,
+    hasAttachment,
+    hasMissingAttachment: storeHasAttachment && !attachedFile && !assessmentOwnsAttachment,
     lifecycleState,
     model: runtime?.model || "-",
     provider: runtime?.provider || "-",
     requiresApiKey: Boolean(runtime?.requires_api_key),
     translate,
   });
+  const sessionSummary = translate("speak.session_summary", {
+    language: draft.learningLanguageLabel || "-",
+    cefr: draft.cefrLevel || "-",
+    duration: `${draft.durationSec} s`,
+    speaker: draft.speakerId || "-",
+  });
+  const runtimeDetail = translate("speak.runtime_detail", {
+    provider: runtime?.provider || "-",
+    model: runtime?.model || "-",
+    whisper: effectiveWhisperModel,
+  });
+  const assessmentContextMode =
+    hasAttachment && lifecycleState !== "queued" && lifecycleState !== "running"
+      ? "optional"
+      : "inline";
+  const submitDisabledHelp = !hasAttachment ? translate("speak.submit_disabled_no_audio") : null;
+  const confidencePhase: SpeakConfidencePhase =
+    lifecycleState === "failed" || lifecycleState === "cancelled"
+      ? "failed"
+      : lifecycleState === "queued" || lifecycleState === "running"
+        ? "assess"
+        : hasAttachment
+          ? "submit"
+          : "record";
+  const handoffHint =
+    lifecycleState === "cancelled"
+      ? translate("speak.handoff_cancelled")
+      : lifecycleState === "failed"
+        ? translate("speak.handoff_failed")
+        : lifecycleState === "queued" || lifecycleState === "running"
+          ? translate("speak.handoff_assessing")
+          : isSubmitting
+            ? translate("speak.handoff_submitting")
+            : hasAttachment
+              ? translate("speak.handoff_ready")
+              : translate("speak.handoff_idle");
 
   const handleSubmit = async () => {
     if (!attachedFile) {
@@ -417,7 +445,7 @@ export const SpeakRoute = () => {
         <h2
           style={{
             margin: 0,
-            fontSize: "1.35rem",
+            fontSize: "1.45rem",
             color: "#10201c",
           }}
         >
@@ -432,51 +460,42 @@ export const SpeakRoute = () => {
         >
           {draft.themeLabel || translate("speak.prompt_title")}
         </p>
+        <p
+          style={{
+            margin: 0,
+            color: "#48645e",
+            fontWeight: 600,
+          }}
+          data-testid="speak.session_summary"
+          data-semantic-id="speak.session_summary"
+        >
+          {sessionSummary}
+        </p>
         <blockquote
           style={{
             margin: 0,
             padding: "1rem",
-            borderLeft: "3px solid rgba(15, 118, 110, 0.32)",
-            backgroundColor: "rgba(248, 251, 250, 0.96)",
+            borderLeft: "4px solid rgba(15, 118, 110, 0.4)",
+            borderRadius: "0 8px 8px 0",
+            backgroundColor: "rgba(239, 248, 245, 0.98)",
             color: "#10201c",
+            fontSize: "1.05rem",
+            lineHeight: 1.55,
+            fontWeight: 600,
           }}
         >
           {draft.promptText || translate("speak.prompt_placeholder")}
         </blockquote>
-        <div style={detailGridStyle}>
-          {[
-            [translate("setup.speaker_id"), draft.speakerId || "-"],
-            [translate("setup.learning_language"), draft.learningLanguageLabel || "-"],
-            [translate("setup.cefr"), draft.cefrLevel || "-"],
-            [translate("setup.duration"), `${draft.durationSec} s`],
-            [translate("history.task_family_name"), taskFamilyLabel(translate, draft.taskFamily)],
-            [translate("setup.theme"), draft.themeLabel || "-"],
-          ].map(([label, value]) => (
-            <div key={label} style={cardStyle}>
-              <strong
-                style={{
-                  color: "#33514b",
-                }}
-              >
-                {label}
-              </strong>
-              <span
-                style={{
-                  color: "#10201c",
-                }}
-              >
-                {value}
-              </span>
-            </div>
-          ))}
-        </div>
       </section>
+
+      <SpeakStatusRail phase={confidencePhase} translate={translate} />
 
       <div
         style={{
           display: "grid",
           gap: "1rem",
-          gridTemplateColumns: "minmax(0, 1.08fr) minmax(0, 0.92fr)",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 22rem), 1fr))",
+          alignItems: "start",
         }}
       >
         <RecorderPanel
@@ -486,13 +505,14 @@ export const SpeakRoute = () => {
           onInputModeChange={handleInputModeChange}
           onRemove={clearAttachment}
           previewUrl={previewUrl}
+          showReadyCheckpoint={hasAttachment && lifecycleState === "idle" && !isSubmitting}
           statusMessage={statusMessage}
           statusTone={
             lifecycleState === "failed"
               ? "error"
               : lifecycleState === "cancelled"
                 ? "warning"
-                : hasRecordingAttachment(recording)
+                : hasAttachment
                   ? "success"
                   : "info"
           }
@@ -500,29 +520,26 @@ export const SpeakRoute = () => {
         />
         <AssessmentStatusPanel
           canCancel={lifecycleState === "queued" || lifecycleState === "running"}
-          cefrSummary={draft.cefrLevel || "-"}
+          contextMode={assessmentContextMode}
+          handoffHint={handoffHint}
           labelValue={recording.labelInput}
-          learningLanguageSummary={draft.learningLanguageLabel || "-"}
           lifecycleState={lifecycleState}
-          model={runtime?.model || "-"}
           notesValue={recording.notesInput}
           onCancel={handleCancel}
           onLabelChange={(value) => updateRecordingInputs(value, recording.notesInput)}
           onNotesChange={(value) => updateRecordingInputs(recording.labelInput, value)}
           onSubmit={handleSubmit}
           phaseMessage={phaseMessage(translate, recording.job.phase)}
-          provider={runtime?.provider || "-"}
-          speakerSummary={draft.speakerId || "-"}
+          runtimeDetail={runtimeDetail}
           statusMessage={isSubmitting ? translate("speak.assessing") : statusMessage}
-          submitDisabled={!canSubmitAssessment || isSubmitting}
-          targetDurationSummary={`${draft.durationSec} s`}
+          submitDisabled={!canSubmitLiveAttachment || isSubmitting}
+          submitDisabledHelp={submitDisabledHelp}
           translate={translate}
           warningMessage={
             runtime?.requires_api_key && !runtime.has_api_key
               ? translate("speak.openrouter_missing_key")
               : null
           }
-          whisperModel={effectiveWhisperModel}
         />
       </div>
       {lifecycleState === "completed" ? (

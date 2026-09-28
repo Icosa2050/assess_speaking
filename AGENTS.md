@@ -15,6 +15,13 @@
 - Treat existing uncommitted changes as user-owned unless the task clearly depends on them.
 - Prefer small, local edits and verification over workflow advice.
 
+## Verification And Blocker Triage
+
+- When asked what is blocking, run or explicitly verify both the backend and the frontend before reporting status.
+- Frontend baseline: run `npm --prefix frontend test`, `npm --prefix frontend run typecheck`, and a localhost Vite smoke when browser/UI behavior is in scope.
+- Backend baseline: use `/Users/bernhard/Development/assess_speaking-codex-v6/.venv/bin/python -m pytest` for focused backend/API tests and a localhost `/v1/health` smoke when runtime behavior is in scope.
+- If browser or screenshot automation is reported blocked, rerun the smallest relevant Playwright or Browser probe and record the exact command, date, and error.
+
 ## npm Dependency Safety
 
 For any change touching `frontend/package.json`, npm lockfiles, install scripts, or JS/TS build tooling:

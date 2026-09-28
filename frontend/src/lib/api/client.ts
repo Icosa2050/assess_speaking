@@ -1,4 +1,4 @@
-import { buildApiUrl, resolveLocalDesktopApiBaseUrl } from "@/lib/runtime/environment";
+import { buildApiUrl } from "@/lib/runtime/environment";
 
 import type {
   AssessmentCreateRequest,
@@ -157,7 +157,7 @@ const requestBlob = async (
   return response.blob();
 };
 
-export const createApiClient = (baseUrl = resolveLocalDesktopApiBaseUrl()) => ({
+export const createApiClient = (baseUrl?: string) => ({
   getHealth: (options?: ClientOptions) =>
     requestJson<HealthResponse>("/v1/health", { method: "GET" }, { ...options, baseUrl }),
 

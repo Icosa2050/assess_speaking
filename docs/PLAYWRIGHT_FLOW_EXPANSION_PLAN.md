@@ -1,13 +1,88 @@
 # Playwright Flow Expansion Plan
 
-Last updated: 2026-05-17
-Status: Accepted supporting browser automation plan, rebased for React/Vite as
-the primary browser lane and Streamlit as legacy replacement coverage
+Last updated: 2026-07-22
+Status: Focused React/Vite flows implemented; full Chromium runner recheck is
+blocked by the current macOS sandbox before app assertions
 
 > Status note, 2026-05-20: partially implemented. The review/history,
 > live-runtime-setup, and real-audio replacement specs now exist under
-> `frontend/tests/e2e`; the full Playwright runner gate still needs a permitted
-> local run.
+> `frontend/tests/e2e`; the full Playwright runner gate still needs a deliberate
+> full local run.
+
+> Status note, 2026-06-03: `frontend/tests/e2e/reviewHistoryFlow.spec.ts`
+> now asserts actionable empty Review/History states, the Home → Session Setup
+> → Speak path, the compact Speak session summary, and the Review next-step
+> card. Local execution was attempted with
+> `npx playwright test -c playwright.config.ts tests/e2e/reviewHistoryFlow.spec.ts`
+> but Chromium failed before app assertions with macOS Mach bootstrap permission
+> errors in the sandbox. Direct probes also showed system Chrome and Edge abort
+> under Playwright before page load, while Firefox and WebKit are not installed
+> in the local Playwright cache.
+
+> Status note, 2026-06-04: fresh verification supersedes the 2026-06-03 local
+> blocker for the focused review/history lane. Backend and frontend localhost
+> smokes passed, the in-app Browser loaded and captured the frontend, and
+> `NODE_ENV=development npx playwright test -c playwright.config.ts tests/e2e/reviewHistoryFlow.spec.ts`
+> passed after one transient first-run click actionability timeout.
+
+> Status note, 2026-06-06: `frontend/tests/e2e/visualRefreshSmoke.spec.ts`
+> now covers the visual-refresh browser lane. From `frontend/`,
+> `env NODE_ENV=development VISUAL_REFRESH_SCREENSHOT_DIR=/Users/bernhard/Development/assess_speaking-codex-v6/docs/ux-audit-screenshots/2026-06-05 npx playwright test -c playwright.config.ts tests/e2e/visualRefreshSmoke.spec.ts`
+> passed locally, generated Home/Speak/Review/History desktop and 390px mobile
+> screenshots, asserted no visible serif typography, verified the primary
+> visual artifacts, and caught then fixed the History mobile page-overflow
+> regression.
+
+> Status note, 2026-06-09: `frontend/tests/e2e/visualRefreshSmoke.spec.ts`
+> is now the first-class focused visual-smoke gate. From `frontend/`,
+> `env NODE_ENV=development VISUAL_REFRESH_SCREENSHOT_DIR=/Users/bernhard/Development/assess_speaking-codex-v6/docs/ux-audit-screenshots/2026-06-05 npx playwright test -c playwright.config.ts tests/e2e/visualRefreshSmoke.spec.ts`
+> passed locally. The gate now captures and checks 390px mobile screenshots for
+> Home, Session Setup, Speak, clean Review, failed-gate Review, History, and
+> expanded History, and it runs no-serif plus no-horizontal-overflow assertions
+> for each mobile route state.
+
+> Status note, 2026-06-09 later: the focused visual-smoke spec was updated for
+> the Session Setup newbie wizard (`setup.wizard`, `setup.recommended_start`,
+> and `setup.runtime_callout`). The exact command attempted from `frontend/` was
+> `env NODE_ENV=development VISUAL_REFRESH_SCREENSHOT_DIR=/Users/bernhard/Development/assess_speaking-codex-v6/docs/ux-audit-screenshots/2026-06-09 npx playwright test -c playwright.config.ts tests/e2e/visualRefreshSmoke.spec.ts`.
+> It was blocked before app assertions because Chromium/Chrome could not launch
+> in the current sandbox. Bundled Chromium failed with
+> `bootstrap_check_in org.chromium.Chromium.MachPortRendezvousServer... Permission denied (1100)`.
+> System Chrome also aborted before page load, and direct Chrome produced no DOM
+> output. Treat 2026-06-09 screenshot refresh as open until browser launch works
+> again in this environment.
+
+> Status note, 2026-06-09 final: Chrome/Playwright is working again for the
+> focused visual-smoke gate. From `frontend/`,
+> `env NODE_ENV=development VISUAL_REFRESH_SCREENSHOT_DIR=/Users/bernhard/Development/assess_speaking-codex-v6/docs/ux-audit-screenshots/2026-06-09 npx playwright test -c playwright.config.ts tests/e2e/visualRefreshSmoke.spec.ts`
+> passed locally. The gate now also asserts the learner-confidence
+> simplification: History no longer renders duplicate `history-priority-*`
+> cards, and a 360px History overflow check captures
+> `visual-refresh-smoke-history-narrow-mobile.png`. It also captures
+> `visual-refresh-smoke-speak-ready-mobile.png` after audio is attached, proving
+> the optional-context handoff and hidden native file input do not create mobile
+> overflow.
+
+> Status note, 2026-07-22: `libraryGuideFlow.spec.ts` and
+> `reviewChangeTaskFlow.spec.ts` now cover the Library/Guide practice-support
+> journey and changing tasks from Review. The focused Review change-task flow
+> passed in real Chromium on 2026-07-21 after installing the pinned Playwright
+> browser under Node 22. The deterministic history specs now open
+> `speak.optional_context` before filling label/notes, matching the native
+> disclosure behavior while preserving metadata assertions. The Node 22
+> command
+> `/Users/bernhard/.nvm/versions/node/v22.19.0/bin/node node_modules/playwright/cli.js test -c playwright.config.ts --list`
+> collects 11 tests in 9 files. A full run with the same command minus `--list`
+> reached the runner but all eight browser-enabled tests failed at Chromium
+> launch with
+> `bootstrap_check_in org.chromium.Chromium.MachPortRendezvousServer... Permission denied (1100)`;
+> three opt-in live/runtime tests were skipped. This is an execution-environment
+> blocker, not an app assertion failure. The required smallest rerun on
+> 2026-07-22 used
+> `/Users/bernhard/.nvm/versions/node/v22.19.0/bin/node node_modules/playwright/cli.js test -c playwright.config.ts tests/e2e/reviewHistoryFlow.spec.ts`;
+> both collected tests failed in 1 ms at the same Chromium launch check, before
+> page creation or app assertions. An independently managed browser loaded the
+> correctly wired localhost Home route and navigated to Runtime Setup.
 
 ## Summary
 
@@ -54,7 +129,8 @@ The repo already has a shared-frontend browser foundation:
 1. `frontend/playwright.config.ts` starts Vite on `127.0.0.1:4173`
 2. the same config starts the local FastAPI backend on `127.0.0.1:8800`
 3. frontend smoke and local-guest regression flows cover Home, Runtime Setup,
-   History, Settings, support bundles, and Settings return/setup navigation
+   Session Setup, Speak, Review, History, Library, Guide, Settings, support
+   bundles, change-task navigation, and Settings return/setup navigation
 4. frontend Vitest route tests cover localized screen states and component
    behavior
 
@@ -68,9 +144,9 @@ to replace under the Streamlit retirement plan.
 
 Files:
 1. `frontend/tests/e2e/reviewHistoryFlow.spec.ts` `[CREATE]`
-2. `frontend/playwright.config.ts`
-3. `frontend/src/routes/ReviewRoute.tsx`
-4. `frontend/src/routes/HistoryRoute.tsx`
+2. `frontend/tests/e2e/reviewChangeTaskFlow.spec.ts` `[CREATE]`
+3. `frontend/tests/e2e/libraryGuideFlow.spec.ts` `[CREATE]`
+4. `frontend/playwright.config.ts`
 5. `frontend/src/routes/tests/ReviewRoute.test.tsx`
 
 Deliverables:
@@ -79,6 +155,8 @@ Deliverables:
 3. Try-again behavior that returns to Speak without losing setup state
 4. History detail selection for the latest attempt
 5. progress-delta assertion on the second attempt when fixture data supports it
+6. Review change-task navigation preserves the intended setup handoff
+7. Library and Guide frame content as practice support
 
 Timing:
 1. implement before deleting `tests/e2e/test_app_shell_e2e.py`
@@ -175,11 +253,11 @@ Deletion gate:
 Run from repo root:
 
 ```zsh
-./scripts/run_tests.sh
+/Users/bernhard/Development/assess_speaking-codex-v6/.venv/bin/python -m pytest
+npm --prefix frontend test
+npm --prefix frontend run typecheck
 cd frontend
-npm test
-npm run typecheck
-NODE_ENV=development npx playwright test -c playwright.config.ts
+/Users/bernhard/.nvm/versions/node/v22.19.0/bin/node node_modules/playwright/cli.js test -c playwright.config.ts
 ```
 
 Optional/live:

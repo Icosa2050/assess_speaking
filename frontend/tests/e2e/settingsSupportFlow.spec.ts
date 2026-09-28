@@ -34,7 +34,7 @@ test.describe("settings support flow", () => {
     await expect(page.getByTestId("settings.storage_row").first()).toBeVisible();
 
     await page.getByTestId("settings.support_cleanup_preview").click();
-    await expect(page.getByText(/Cleanup preview found/)).toBeVisible();
+    await expect(page.getByText(/Files that can be removed:/)).toBeVisible();
 
     await page.getByTestId("settings.support_bundle_include_runtime_health").check();
     const downloadPromise = page.waitForEvent("download");

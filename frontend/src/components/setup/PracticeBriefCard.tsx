@@ -23,6 +23,25 @@ const detailItemStyle = {
   borderTop: "1px solid rgba(18, 61, 55, 0.1)",
 } as const;
 
+const briefQuoteStyle = {
+  margin: 0,
+  padding: "1rem",
+  borderLeft: "4px solid rgba(15, 118, 110, 0.4)",
+  borderRadius: "0 8px 8px 0",
+  backgroundColor: "rgba(239, 248, 245, 0.98)",
+  color: "#10201c",
+  fontSize: "1.05rem",
+  lineHeight: 1.55,
+  fontWeight: 600,
+} as const;
+
+const receiptCardStyle = {
+  ...cardStyle,
+  gap: "0.75rem",
+  boxShadow: "none",
+  backgroundColor: "rgba(255, 255, 255, 0.84)",
+} as const;
+
 const semanticAttributes = (id: string): Record<string, string> => ({
   "data-testid": id,
   "data-semantic-id": id,
@@ -32,7 +51,10 @@ export const PracticeBriefCard = ({
   customThemeSaveHelp,
   promptText,
   resolvedThemeLabel,
+  runtimeCalloutBody,
+  runtimeCalloutTitle,
   selectionDetails,
+  shouldShowRuntimeCallout,
   shouldShowCustomThemeSaveHelp,
   successFocus,
   translate,
@@ -40,7 +62,10 @@ export const PracticeBriefCard = ({
   customThemeSaveHelp: string;
   promptText: string;
   resolvedThemeLabel: string;
+  runtimeCalloutBody: string;
+  runtimeCalloutTitle: string;
   selectionDetails: Array<{ label: string; value: string }>;
+  shouldShowRuntimeCallout: boolean;
   shouldShowCustomThemeSaveHelp: boolean;
   successFocus: string[];
   translate: Translate;
@@ -71,17 +96,7 @@ export const PracticeBriefCard = ({
       </p>
       {promptText ? (
         <>
-          <blockquote
-            style={{
-              margin: 0,
-              padding: "1rem",
-              borderLeft: "3px solid rgba(15, 118, 110, 0.32)",
-              backgroundColor: "rgba(248, 251, 250, 0.96)",
-              color: "#10201c",
-            }}
-          >
-            {promptText}
-          </blockquote>
+          <blockquote style={briefQuoteStyle}>{promptText}</blockquote>
           <div
             aria-label={translate("setup.success_focus_title")}
             {...semanticAttributes("setup.success_focus")}
@@ -123,7 +138,7 @@ export const PracticeBriefCard = ({
 
     <section
       aria-label={translate("setup.selection_title")}
-      style={cardStyle}
+      style={receiptCardStyle}
       {...semanticAttributes("setup.selection")}
     >
       <h2
@@ -140,7 +155,7 @@ export const PracticeBriefCard = ({
           <div key={`${detail.label}-${index}`} style={detailItemStyle}>
             <strong
               style={{
-                color: "#33514b",
+                color: "#48645e",
               }}
             >
               {detail.label}
@@ -165,6 +180,36 @@ export const PracticeBriefCard = ({
         >
           {customThemeSaveHelp}
         </p>
+      ) : null}
+      {shouldShowRuntimeCallout ? (
+        <div
+          style={{
+            display: "grid",
+            gap: "0.35rem",
+            padding: "0.875rem",
+            borderRadius: "8px",
+            border: "1px solid rgba(15, 118, 110, 0.14)",
+            backgroundColor: "rgba(239, 248, 245, 0.96)",
+          }}
+          {...semanticAttributes("setup.runtime_callout")}
+        >
+          <strong
+            style={{
+              color: "#10201c",
+            }}
+          >
+            {runtimeCalloutTitle}
+          </strong>
+          <p
+            style={{
+              margin: 0,
+              color: "#33514b",
+              lineHeight: 1.5,
+            }}
+          >
+            {runtimeCalloutBody}
+          </p>
+        </div>
       ) : null}
       <p
         style={{

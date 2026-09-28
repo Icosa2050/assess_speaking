@@ -336,7 +336,9 @@ export const selectCanSubmitAssessment = (
   state: Pick<AppStoreState, "draft" | "recording">,
 ): boolean => {
   const hasBlockingError =
-    Boolean(state.recording.error) && state.recording.assessmentState !== "cancelled";
+    Boolean(state.recording.error) &&
+    state.recording.assessmentState !== "cancelled" &&
+    state.recording.assessmentState !== "failed";
 
   return (
     hasSetupDraft(state.draft) &&

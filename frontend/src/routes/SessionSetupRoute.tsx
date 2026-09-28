@@ -1,16 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { PracticeBriefCard } from "@/components/setup/PracticeBriefCard";
-import { ThemeForm } from "@/components/setup/ThemeForm";
+import { ThemeForm, type SessionSetupStep } from "@/components/setup/ThemeForm";
 import { apiClient } from "@/lib/api/client";
+import type { HistoryRow } from "@/lib/api/types";
 import { createTranslator } from "@/lib/i18n";
 import { queryKeys } from "@/lib/query/queryClient";
 import {
   buildPracticeBrief,
   languageCodes,
   languageLabel,
+  type ThemeEntry,
   themeEntryId,
   themeLibraryRepository,
   themesForLanguageAndLevel,
@@ -22,8 +24,21 @@ import { type CefrLevel, type DurationOption, type TaskFamily } from "@/lib/stat
 const pageStyle = {
   display: "grid",
   gap: "1rem",
-  gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 0.9fr)",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 22rem), 1fr))",
+  alignItems: "start",
 } as const;
+
+const RECOMMENDED_CEFR: CefrLevel = "B1";
+const RECOMMENDED_DURATION: DurationOption = 90;
+const HISTORY_RECOMMENDATION_MAX_AGE_MS = 60 * 24 * 60 * 60 * 1000;
+
+type RecommendedSetupSource = "generic" | "history_exact" | "history_language";
+
+type RecommendedSetup = {
+  languageCode: string;
+  source: RecommendedSetupSource;
+  theme: ThemeEntry | null;
+};
 
 const deriveInitialLanguage = (library: ThemeLibrary, requestedLanguage: string): string => {
   const available = languageCodes(library);
@@ -39,6 +54,60 @@ const resolveTaskFamilyLabel = (
 ): string => {
   const translated = translate(`task_family.${taskFamily}`);
   return translated.startsWith("[") ? taskFamily.replaceAll("_", " ") : translated;
+};
+
+const normalizeSpeakerId = (value: string): string => value.trim().toLowerCase();
+
+const isRecentHistoryRow = (row: HistoryRow): boolean => {
+  const timestamp = new Date(row.timestamp).getTime();
+  if (!Number.isFinite(timestamp)) {
+    return false;
+  }
+
+  return Date.now() - timestamp <= HISTORY_RECOMMENDATION_MAX_AGE_MS;
+};
+
+const resolveHistoryRecommendation = ({
+  availableLanguages,
+  historyRows,
+  library,
+  speakerId,
+}: {
+  availableLanguages: string[];
+  historyRows: HistoryRow[];
+  library: ThemeLibrary;
+  speakerId: string;
+}): RecommendedSetup | null => {
+  const normalizedSpeakerId = normalizeSpeakerId(speakerId);
+  if (!normalizedSpeakerId) {
+    return null;
+  }
+
+  const recentRows = historyRows
+    .filter((row) => normalizeSpeakerId(row.speaker_id) === normalizedSpeakerId)
+    .filter(isRecentHistoryRow)
+    .sort((left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime());
+
+  for (const row of recentRows) {
+    const languageCode = String(row.learning_language || "").trim().toLowerCase();
+    if (!languageCode || !availableLanguages.includes(languageCode)) {
+      continue;
+    }
+
+    const b1Themes = themesForLanguageAndLevel(library, languageCode, RECOMMENDED_CEFR);
+    if (b1Themes.length === 0) {
+      continue;
+    }
+
+    const exactTheme = b1Themes.find((theme) => theme.title === row.theme);
+    return {
+      languageCode,
+      source: exactTheme ? "history_exact" : "history_language",
+      theme: exactTheme ?? b1Themes[0],
+    };
+  }
+
+  return null;
 };
 
 export const SessionSetupRoute = () => {
@@ -63,11 +132,21 @@ export const SessionSetupRoute = () => {
   const [customTheme, setCustomTheme] = useState("");
   const [saveCustomThemeForReuse, setSaveCustomThemeForReuse] = useState(false);
   const [selectedDuration, setSelectedDuration] = useState<DurationOption>(draft.durationSec);
+  const [setupStep, setSetupStep] = useState<SessionSetupStep>(() =>
+    draft.themeLabel ? "practice" : "learner",
+  );
+  const [advancedTopicOpen, setAdvancedTopicOpen] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
+  const draftThemeHydratedRef = useRef(false);
 
   const runtimeQuery = useQuery({
     queryKey: queryKeys.runtime,
     queryFn: () => apiClient.getRuntime(),
+  });
+
+  const historyQuery = useQuery({
+    queryKey: queryKeys.history,
+    queryFn: () => apiClient.getHistory(),
   });
 
   useEffect(() => {
@@ -87,6 +166,11 @@ export const SessionSetupRoute = () => {
   }, [availableLanguages, selectedLanguage]);
 
   useEffect(() => {
+    if (draftThemeHydratedRef.current) {
+      return;
+    }
+    draftThemeHydratedRef.current = true;
+
     const themeMatch = availableThemes.find((theme) => theme.title === draft.themeLabel);
     if (!draft.themeLabel) {
       setSelectedThemeTitle(availableThemes[0]?.title ?? "");
@@ -96,11 +180,13 @@ export const SessionSetupRoute = () => {
     if (themeMatch) {
       setSelectedThemeMode("library");
       setSelectedThemeTitle(themeMatch.title);
+      setAdvancedTopicOpen(false);
       return;
     }
 
     setSelectedThemeMode("custom");
     setCustomTheme(draft.themeLabel);
+    setAdvancedTopicOpen(true);
   }, [availableThemes, draft.themeLabel]);
 
   useEffect(() => {
@@ -153,6 +239,107 @@ export const SessionSetupRoute = () => {
       setupComplete: runtimeConfigured || preferences.setupComplete,
     },
   });
+  const primaryActionLabel = runtimeReadiness.ready
+    ? translate("setup.start_speaking")
+    : translate("setup.save_and_setup_device");
+  const runtimeCalloutTitle = runtimeReadiness.ready
+    ? translate("setup.runtime_ready_title")
+    : translate("setup.runtime_setup_needed_title");
+  const runtimeCalloutBody = runtimeReadiness.ready
+    ? translate("setup.runtime_ready_body")
+    : translate("setup.runtime_setup_needed_body");
+
+  const historyRecommendation = useMemo(
+    () =>
+      resolveHistoryRecommendation({
+        availableLanguages,
+        historyRows: historyQuery.data?.items ?? [],
+        library,
+        speakerId,
+      }),
+    [availableLanguages, historyQuery.data?.items, library, speakerId],
+  );
+
+  const resolveRecommendedSetup = (): RecommendedSetup => {
+    if (historyRecommendation) {
+      return historyRecommendation;
+    }
+
+    const preferredLanguages = [
+      selectedLanguage,
+      draft.learningLanguage,
+      "it",
+      ...availableLanguages,
+    ].filter((languageCode, index, languages) =>
+      Boolean(languageCode) &&
+      availableLanguages.includes(languageCode) &&
+      languages.indexOf(languageCode) === index,
+    );
+
+    for (const languageCode of preferredLanguages) {
+      const recommendedThemes = themesForLanguageAndLevel(library, languageCode, RECOMMENDED_CEFR);
+      if (recommendedThemes.length > 0) {
+        return {
+          languageCode,
+          source: "generic",
+          theme: recommendedThemes[0],
+        };
+      }
+    }
+
+    return {
+      languageCode: availableLanguages[0] ?? "en",
+      source: "generic",
+      theme: availableThemes[0] ?? null,
+    };
+  };
+
+  const recommendationPreview = resolveRecommendedSetup();
+  const recommendationHint =
+    recommendationPreview.source === "history_exact"
+      ? translate("setup.recommendation_hint_exact", {
+          duration: RECOMMENDED_DURATION,
+          language: languageLabel(library, recommendationPreview.languageCode),
+        })
+      : recommendationPreview.source === "history_language"
+        ? translate("setup.recommendation_hint_language", {
+            duration: RECOMMENDED_DURATION,
+            language: languageLabel(library, recommendationPreview.languageCode),
+          })
+        : translate("setup.recommendation_hint_generic", {
+            duration: RECOMMENDED_DURATION,
+            language: languageLabel(library, recommendationPreview.languageCode),
+          });
+
+  const handleRecommendedStart = () => {
+    const recommended = resolveRecommendedSetup();
+    const nextErrors: string[] = [];
+    if (!speakerId.trim()) {
+      nextErrors.push(translate("setup.error_speaker_id"));
+    }
+    if (!recommended.theme) {
+      nextErrors.push(translate("setup.error_theme"));
+    }
+    setErrors(nextErrors);
+    if (nextErrors.length > 0 || !recommended.theme) {
+      return;
+    }
+
+    setSelectedLanguage(recommended.languageCode);
+    setSelectedCefr(RECOMMENDED_CEFR);
+    setSelectedThemeMode("library");
+    setSelectedThemeTitle(recommended.theme.title);
+    setCustomTheme("");
+    setSaveCustomThemeForReuse(false);
+    setSelectedDuration(RECOMMENDED_DURATION);
+    setAdvancedTopicOpen(false);
+    setSetupStep("practice");
+  };
+
+  const handleAdvancedTopicOpenChange = (open: boolean) => {
+    setAdvancedTopicOpen(open);
+    setSelectedThemeMode(open ? "custom" : "library");
+  };
 
   const handleSubmit = () => {
     const nextErrors: string[] = [];
@@ -235,21 +422,26 @@ export const SessionSetupRoute = () => {
   }
 
   return (
-    <div style={pageStyle}>
+    <div style={pageStyle} data-testid="setup.layout" data-semantic-id="setup.layout">
       <ThemeForm
         availableLanguages={availableLanguages}
         availableThemes={availableThemes.map((theme) => ({ title: theme.title }))}
         customTheme={customTheme}
-        customThemeEnabled={selectedThemeMode === "custom"}
+        customThemeEnabled={advancedTopicOpen}
         customThemeSaveEnabled={selectedThemeMode === "custom" && Boolean(customTheme.trim())}
         errors={errors}
         languageLabelFor={(languageCode) => languageLabel(library, languageCode)}
+        advancedTopicOpen={advancedTopicOpen}
+        onAdvancedTopicOpenChange={handleAdvancedTopicOpenChange}
         onCustomThemeChange={(value) => {
+          setSelectedThemeMode("custom");
           setCustomTheme(value);
           if (errors.length > 0) {
             setErrors([]);
           }
         }}
+        onRecommendedStart={handleRecommendedStart}
+        recommendationHint={recommendationHint}
         onSaveCustomThemeForReuseChange={setSaveCustomThemeForReuse}
         onSelectedCefrChange={(value) => {
           setSelectedCefr(value);
@@ -268,6 +460,7 @@ export const SessionSetupRoute = () => {
           setSelectedThemeTitle(value);
           setErrors([]);
         }}
+        onSetupStepChange={setSetupStep}
         onSpeakerIdChange={(value) => {
           setSpeakerId(value);
           if (errors.length > 0) {
@@ -275,10 +468,12 @@ export const SessionSetupRoute = () => {
           }
         }}
         onSubmit={handleSubmit}
+        primaryActionLabel={primaryActionLabel}
         saveCustomThemeForReuse={saveCustomThemeForReuse}
         selectedCefr={selectedCefr}
         selectedDuration={selectedDuration}
         selectedLanguage={selectedLanguage}
+        setupStep={setupStep}
         selectedThemeMode={selectedThemeMode}
         selectedThemeTitle={selectedThemeTitle}
         speakerId={speakerId}
@@ -292,6 +487,8 @@ export const SessionSetupRoute = () => {
         })}
         promptText={brief.prompt}
         resolvedThemeLabel={resolvedThemeLabel}
+        runtimeCalloutBody={runtimeCalloutBody}
+        runtimeCalloutTitle={runtimeCalloutTitle}
         selectionDetails={[
           {
             label: translate("setup.speaker_id"),
@@ -318,6 +515,7 @@ export const SessionSetupRoute = () => {
             value: taskFamilyLabel,
           },
         ]}
+        shouldShowRuntimeCallout={setupStep === "practice"}
         shouldShowCustomThemeSaveHelp={selectedThemeMode === "custom"}
         successFocus={brief.successFocus}
         translate={translate}

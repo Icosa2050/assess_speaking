@@ -32,7 +32,7 @@ class SecretStore(Protocol):
 def _load_keyring_module() -> tuple[Any | None, SecretStoreStatus]:
     try:
         import keyring  # type: ignore
-    except Exception as exc:  # pragma: no cover - dependency boundary
+    except Exception as exc:  # quality: allow[broad-except] optional keyring import may initialize platform plugins
         return None, SecretStoreStatus(persistent=False, backend_name="unavailable", detail=str(exc))
 
     try:
@@ -45,7 +45,7 @@ def _load_keyring_module() -> tuple[Any | None, SecretStoreStatus]:
                 detail="No secure keyring backend is active.",
             )
         return keyring, SecretStoreStatus(persistent=True, backend_name=backend_name)
-    except Exception as exc:  # pragma: no cover - backend boundary
+    except Exception as exc:  # quality: allow[broad-except] third-party keyring discovery must degrade to unavailable
         return keyring, SecretStoreStatus(persistent=False, backend_name="unknown", detail=str(exc))
 
 
@@ -58,7 +58,7 @@ class KeyringSecretStore:
             return ""
         try:
             return str(self._keyring.get_password(service, account) or "")
-        except Exception:  # pragma: no cover - backend boundary
+        except Exception:  # quality: allow[broad-except] platform keyring read failures are logged and treated as absent
             logger.warning("Could not read secret %s from service %s.", account, service, exc_info=True)
             return ""
 
@@ -72,7 +72,7 @@ class KeyringSecretStore:
             return
         try:
             self._keyring.delete_password(service, account)
-        except Exception:
+        except Exception:  # quality: allow[broad-except] platform keyring deletion is best effort and logged
             logger.warning("Could not delete secret %s from service %s.", account, service, exc_info=True)
 
     def is_persistent_supported(self) -> bool:
@@ -143,7 +143,7 @@ def _copy_secret_to_primary(account: str, value: str) -> None:
         return
     try:
         store.set_secret(SERVICE_NAME, account, value)
-    except Exception:
+    except Exception:  # quality: allow[broad-except] optional legacy migration must preserve access to the old secret
         logger.warning("Could not copy legacy secret %s to primary service.", account, exc_info=True)
         return
 
@@ -174,7 +174,7 @@ def set_secret(account: str, value: str, *, service: str = SERVICE_NAME, env_var
         if legacy_present:
             store.set_secret(LEGACY_SERVICE_NAME, account, value)
         return status
-    except Exception as exc:  # pragma: no cover - backend boundary
+    except Exception as exc:  # quality: allow[broad-except] platform write errors become an explicit nonpersistent status
         return SecretStoreStatus(persistent=False, backend_name=status.backend_name, detail=str(exc))
 
 
@@ -183,12 +183,12 @@ def delete_secret(account: str, *, service: str = SERVICE_NAME, env_var_names: t
     status = keyring_store.status
     try:
         keyring_store.delete_secret(service, account)
-    except Exception:
+    except Exception:  # quality: allow[broad-except] log backend failure and still attempt legacy cleanup
         logger.warning("Could not clear stored secret %s from service %s.", account, service, exc_info=True)
     if _should_use_legacy_fallback(service):
         try:
             keyring_store.delete_secret(LEGACY_SERVICE_NAME, account)
-        except Exception:
+        except Exception:  # quality: allow[broad-except] legacy backend failure must not prevent session cleanup
             logger.warning(
                 "Could not clear stored secret %s from legacy service %s.",
                 account,

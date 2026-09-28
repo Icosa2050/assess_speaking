@@ -67,9 +67,12 @@ export const WarningsPanel = ({
     .filter((item) => item.trim().length > 0);
   const hasContent = requiresHumanReview || warningItems.length > 0 || failedGates.length > 0;
 
+  if (!hasContent) {
+    return null;
+  }
+
   return (
     <section
-      hidden={!hasContent}
       style={cardStyle}
       data-testid="review-warnings"
       data-semantic-id="review-warnings"

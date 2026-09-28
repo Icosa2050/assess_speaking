@@ -1,9 +1,10 @@
 import { useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
+import { Icon, type IconName } from "@/components/ui/Icon";
+import { ProgressRing } from "@/components/ui/ProgressRing";
 import { apiClient } from "@/lib/api/client";
-import type { DiagnosticItem } from "@/lib/api/types";
 import { createTranslator, semanticAttributes, SEMANTIC_IDS } from "@/lib/i18n";
 import { queryKeys } from "@/lib/query/queryClient";
 import { selectRuntimeReadiness, useAppStore } from "@/lib/state/appStore";
@@ -11,23 +12,74 @@ import { hasReviewState, hasSetupDraft } from "@/lib/state/sessionDraft";
 
 import styles from "./HomeRoute.module.css";
 
-const statusColor = (status: string): string => {
-  if (status === "ok") {
-    return "#166534";
-  }
-  if (status === "warning" || status === "info") {
-    return "#9a6700";
-  }
-  return "#b42318";
+type DiagnosticsCardState = "checks" | "loading" | "ready" | "setup" | "unavailable";
+
+const isActionableDiagnosticStatus = (status: string): boolean => {
+  const normalizedStatus = status.trim().toLowerCase();
+  return normalizedStatus !== "ok" && normalizedStatus !== "info";
 };
 
-const translateDiagnostic = (
-  item: DiagnosticItem,
+const diagnosticsCopy = (
+  state: DiagnosticsCardState,
+  itemCount: number,
   translate: ReturnType<typeof createTranslator>,
-): { detail: string; title: string } => ({
-  title: translate(item.title_key),
-  detail: translate(item.detail_key, item.detail_args as Record<string, string | number>),
-});
+): { body: string; title: string } => {
+  switch (state) {
+    case "loading":
+      return {
+        title: translate("home.diagnostics_title"),
+        body: translate("home.diagnostics_loading"),
+      };
+    case "setup":
+      return {
+        title: translate("home.diagnostics_next_step_title"),
+        body: translate("home.diagnostics_next_step_body"),
+      };
+    case "ready":
+      return {
+        title: translate("home.diagnostics_ready_title"),
+        body: translate("home.diagnostics_ready_body"),
+      };
+    case "unavailable":
+      return {
+        title: translate("home.diagnostics_title"),
+        body: translate("home.diagnostics_unavailable_body"),
+      };
+    case "checks":
+      return {
+        title: translate("home.diagnostics_issues_title"),
+        body: translate("home.diagnostics_issues_body", { count: itemCount }),
+      };
+  }
+};
+
+const readinessScore = (
+  state: DiagnosticsCardState,
+  runtimeReady: boolean,
+): number => {
+  switch (state) {
+    case "ready":
+      return 100;
+    case "checks":
+      return runtimeReady ? 72 : 42;
+    case "setup":
+      return 28;
+    case "unavailable":
+      return runtimeReady ? 64 : 18;
+    case "loading":
+      return 0;
+  }
+};
+
+const diagnosticsIcon = (state: DiagnosticsCardState): IconName => {
+  if (state === "ready") {
+    return "check";
+  }
+  if (state === "checks" || state === "unavailable") {
+    return "warning";
+  }
+  return "settings";
+};
 
 export const HomeRoute = () => {
   const navigate = useNavigate();
@@ -66,6 +118,27 @@ export const HomeRoute = () => {
   });
 
   const diagnosticsItems = diagnosticsQuery.data?.items ?? [];
+  const actionableDiagnostics = diagnosticsItems.filter((item) =>
+    isActionableDiagnosticStatus(item.status),
+  );
+  const diagnosticsCardState: DiagnosticsCardState = (() => {
+    if (runtimeQuery.isPending || diagnosticsQuery.isPending) {
+      return "loading";
+    }
+    if (diagnosticsQuery.isError) {
+      return "unavailable";
+    }
+    if (actionableDiagnostics.length > 0) {
+      return "checks";
+    }
+    return runtimeReadiness.ready ? "ready" : "setup";
+  })();
+  const diagnosticsMessage = diagnosticsCopy(
+    diagnosticsCardState,
+    actionableDiagnostics.length,
+    translate,
+  );
+  const practiceReadinessScore = readinessScore(diagnosticsCardState, runtimeReadiness.ready);
   const resumeDisabled = !hasSetupDraft(draft);
 
   const handleStartNew = () => {
@@ -81,8 +154,23 @@ export const HomeRoute = () => {
     <div className={styles.homeGrid}>
       {!runtimeReadiness.ready ? (
         <section className={`${styles.card} ${styles.primaryPracticeCard}`}>
-          <h2 className={styles.primaryTitle}>{translate("home.runtime_setup_title")}</h2>
-          <p className={styles.cardBody}>{translate("home.runtime_setup_body")}</p>
+          <div className={styles.practiceIntro}>
+            <div className={styles.titleBlock}>
+              <span className={styles.eyebrow}>
+                <Icon name="target" />
+                {translate("home.practice_meter_label")}
+              </span>
+              <h2 className={styles.primaryTitle}>{translate("home.runtime_setup_title")}</h2>
+              <p className={styles.cardBody}>{translate("home.runtime_setup_body")}</p>
+            </div>
+            <ProgressRing
+              className={styles.readinessMeter}
+              label={translate("home.practice_meter_label")}
+              showStatus={false}
+              status={diagnosticsMessage.title}
+              value={practiceReadinessScore}
+            />
+          </div>
           <div className={styles.actionRow}>
             <button
               type="button"
@@ -90,14 +178,30 @@ export const HomeRoute = () => {
               className={`${styles.action} ${styles.primaryAction}`}
               {...semanticAttributes(SEMANTIC_IDS.home.runtimeSetupButton)}
             >
+              <Icon name="settings" />
               {translate("home.runtime_setup_button")}
             </button>
           </div>
         </section>
       ) : (
         <section className={`${styles.card} ${styles.primaryPracticeCard}`}>
-          <h2 className={styles.primaryTitle}>{translate("home.primary_title")}</h2>
-          <p className={styles.cardBody}>{translate("home.primary_body")}</p>
+          <div className={styles.practiceIntro}>
+            <div className={styles.titleBlock}>
+              <span className={styles.eyebrow}>
+                <Icon name="microphone" />
+                {translate("home.practice_meter_label")}
+              </span>
+              <h2 className={styles.primaryTitle}>{translate("home.primary_title")}</h2>
+              <p className={styles.cardBody}>{translate("home.primary_body")}</p>
+            </div>
+            <ProgressRing
+              className={styles.readinessMeter}
+              label={translate("home.practice_meter_label")}
+              showStatus={false}
+              status={diagnosticsMessage.title}
+              value={practiceReadinessScore}
+            />
+          </div>
           <div className={`${styles.actionRow} ${styles.primaryActionRow}`}>
             <button
               type="button"
@@ -105,6 +209,7 @@ export const HomeRoute = () => {
               className={`${styles.action} ${styles.primaryAction}`}
               {...semanticAttributes(SEMANTIC_IDS.home.startNew)}
             >
+              <Icon name="play" />
               {translate("home.start_new")}
             </button>
             <button
@@ -114,74 +219,34 @@ export const HomeRoute = () => {
               className={`${styles.action} ${styles.secondaryAction} ${resumeDisabled ? styles.disabledAction : ""}`}
               {...semanticAttributes(SEMANTIC_IDS.home.resume)}
             >
+              <Icon name="arrow-right" />
               {translate("home.resume")}
             </button>
           </div>
         </section>
       )}
 
-      <section className={`${styles.card} ${styles.supportCard}`}>
-        <h2 className={styles.supportTitle}>{translate("home.diagnostics_title")}</h2>
-        <p className={styles.cardBody}>{translate("home.diagnostics_body")}</p>
-        <ul className={styles.diagnosticsList}>
-          {diagnosticsItems.map((item) => {
-            const message = translateDiagnostic(item, translate);
-            return (
-              <li key={item.key} className={styles.diagnosticItem}>
-                <strong
-                  style={{
-                    color: statusColor(item.status),
-                  }}
-                >
-                  {message.title}
-                </strong>
-                <span
-                  style={{
-                    color: "#33514b",
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {message.detail}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      </section>
-
-      <section className={`${styles.card} ${styles.supportCard}`}>
-        <h2 className={styles.supportTitle}>{translate("home.secondary_title")}</h2>
-        <p className={styles.cardBody}>{translate("home.secondary_body")}</p>
+      <section
+        className={`${styles.card} ${styles.supportCard}`}
+        aria-live="polite"
+      >
+        <div className={styles.supportHeader}>
+          <span className={styles.statusIcon}>
+            <Icon name={diagnosticsIcon(diagnosticsCardState)} />
+          </span>
+          <h2 className={styles.supportTitle}>{diagnosticsMessage.title}</h2>
+        </div>
+        <p className={styles.cardBody}>{diagnosticsMessage.body}</p>
         <div className={styles.actionRow}>
-          <Link
-            to="/history"
+          <button
+            type="button"
+            onClick={() => navigate("/runtime-setup")}
             className={`${styles.action} ${styles.secondaryAction}`}
-            {...semanticAttributes(SEMANTIC_IDS.home.openHistory)}
+            {...semanticAttributes(SEMANTIC_IDS.home.setupGuideButton)}
           >
-            {translate("nav.history")}
-          </Link>
-          <Link
-            to="/library"
-            className={`${styles.action} ${styles.secondaryAction}`}
-            {...semanticAttributes(SEMANTIC_IDS.home.openLibrary)}
-          >
-            {translate("nav.library")}
-          </Link>
-          <Link
-            to="/guide"
-            className={`${styles.action} ${styles.secondaryAction}`}
-            {...semanticAttributes(SEMANTIC_IDS.home.openGuide)}
-          >
-            {translate("nav.guide")}
-          </Link>
-          <Link
-            to="/settings"
-            state={{ from: "home" }}
-            className={`${styles.action} ${styles.secondaryAction}`}
-            {...semanticAttributes(SEMANTIC_IDS.home.openSettings)}
-          >
-            {translate("nav.settings")}
-          </Link>
+            <Icon name="guide" />
+            {translate("home.diagnostics_open_setup_guide")}
+          </button>
         </div>
       </section>
     </div>

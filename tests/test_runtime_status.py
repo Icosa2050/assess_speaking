@@ -55,7 +55,7 @@ class RuntimeStatusTests(unittest.TestCase):
         )
         self.assertEqual(
             message,
-            "Deine Auswertung wartet. Fuer die Review wird OpenRouter mit Modell `google/gemini-3.1-pro-preview` verwendet.",
+            "Deine Aufnahme wartet auf die Auswertung mit OpenRouter und dem Modell `google/gemini-3.1-pro-preview`.",
         )
 
     def test_job_status_message_falls_back_to_generic_unknown_copy(self):

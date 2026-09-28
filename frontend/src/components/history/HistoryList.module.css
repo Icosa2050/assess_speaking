@@ -1,0 +1,78 @@
+.mobileAttemptsList {
+  display: none;
+}
+
+.desktopAttempts {
+  display: grid;
+  gap: 0.875rem;
+  min-width: 0;
+}
+
+.mobileAttemptList {
+  display: grid;
+  gap: 0.75rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mobileAttemptCard {
+  display: grid;
+  gap: 0.625rem;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.875rem;
+  border: 1px solid rgba(18, 61, 55, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #10201c;
+  font: inherit;
+  text-align: left;
+}
+
+.mobileAttemptCard[data-selected="true"] {
+  border-color: rgba(15, 118, 110, 0.28);
+  background: #d7ebe5;
+}
+
+button.mobileAttemptCard {
+  cursor: pointer;
+}
+
+.mobileAttemptHeader,
+.mobileAttemptMeta,
+.mobileAttemptMetrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem 0.5rem;
+  min-width: 0;
+}
+
+.mobileAttemptHeader {
+  color: #33514b;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.mobileAttemptMeta {
+  color: #10201c;
+  font-weight: 750;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.mobileAttemptMetrics {
+  color: #33514b;
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+@media (max-width: 640px) {
+  .mobileAttemptsList {
+    display: block;
+  }
+
+  .desktopAttempts {
+    display: none;
+  }
+}

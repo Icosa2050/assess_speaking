@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppFrame } from "@/App";
@@ -112,6 +112,10 @@ const validDraftState = {
   },
 };
 
+const expectDecorativeIcon = (element: HTMLElement) => {
+  expect(element.querySelector('svg[aria-hidden="true"]')).toBeInTheDocument();
+};
+
 describe("Review route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -153,19 +157,71 @@ describe("Review route", () => {
       },
     });
 
+    const nextStepCard = await screen.findByTestId("review-next-step-card");
+    expect(nextStepCard).toBeVisible();
+    expect(within(nextStepCard).getByText("Coach note")).toBeVisible();
+    expect(within(nextStepCard).getByRole("heading", { name: "Your next step" })).toBeVisible();
+    const coachTakeaway = within(nextStepCard).getByTestId("review-coach-takeaway");
+    expect(coachTakeaway).toHaveAttribute("data-semantic-id", "review-coach-takeaway");
+    expect(coachTakeaway).toHaveTextContent("Focus on connectors.");
+    expect(within(nextStepCard).getByText("Choose one thing to work on in your next attempt.")).toBeVisible();
+    const scoreVisual = within(nextStepCard).getByTestId("review-next-step-score");
+    expect(scoreVisual).toHaveAttribute("data-semantic-id", "review-next-step-score");
+    const scoreRing = within(scoreVisual).getByRole("progressbar", { name: "Current result" });
+    expect(scoreRing).toHaveAttribute("aria-valuenow", "70");
+    expect(scoreRing).toHaveAttribute("aria-valuetext", "B2 · 3.5");
+    expect(scoreVisual).toHaveTextContent("B2 · 3.5");
+    const focusChip = within(nextStepCard).getByTestId("review-next-step-focus");
+    expect(focusChip).toHaveAttribute("data-semantic-id", "review-next-step-focus");
+    expect(focusChip).toHaveTextContent(
+      "Focus next on: Connect your examples more clearly.",
+    );
+    expectDecorativeIcon(focusChip);
+    const exerciseChip = within(nextStepCard).getByTestId("review-next-step-exercise");
+    expect(exerciseChip).toHaveAttribute("data-semantic-id", "review-next-step-exercise");
+    expect(exerciseChip).toHaveTextContent(
+      "Next exercise: Repeat the task with explicit transitions.",
+    );
+    expectDecorativeIcon(exerciseChip);
+    expect(within(nextStepCard).getByRole("status")).toHaveTextContent(
+      "Manual review is recommended before treating this score as final.",
+    );
+    const tryAgainButton = within(nextStepCard).getByRole("button", { name: "Try again" });
+    const changeTaskButton = within(nextStepCard).getByRole("button", { name: "Change task" });
+    const historyButton = within(nextStepCard).getByRole("button", { name: "Open history" });
+    expect(tryAgainButton).toHaveAttribute("data-semantic-id", "review-action-try-again");
+    expect(changeTaskButton).toHaveAttribute("data-semantic-id", "review-action-new-setup");
+    expect(historyButton).toHaveAttribute("data-semantic-id", "review-action-view-history");
+    expectDecorativeIcon(tryAgainButton);
+    expectDecorativeIcon(changeTaskButton);
+    expectDecorativeIcon(historyButton);
+    expect(screen.getAllByRole("button", { name: "Try again" })).toHaveLength(1);
+
     expect(await screen.findByTestId("review-summary")).toBeVisible();
-    expect(screen.getByText("Focus on connectors.")).toBeVisible();
+    expect(screen.queryByTestId("review-coach-summary")).not.toBeInTheDocument();
     expect(screen.getByTestId("review-requires-human-review")).toBeVisible();
     expect(screen.getByTestId("review-warning-item-0")).toHaveTextContent(
       "AI scoring was skipped because the response was too short.",
     );
     expect(screen.getByText("Warnings")).toBeVisible();
-    expect(screen.getByTestId("review-failed-gates")).toHaveTextContent("Open validation checks");
-    expect(screen.getByText("Assessment result")).toBeVisible();
-    expect(screen.getByText("Validation")).toBeVisible();
+    expect(screen.getByTestId("review-failed-gates")).toHaveTextContent("Failed quality checks");
+    expect(screen.getByText("Result")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Score details" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Feedback summary" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Quality checks" })).toBeVisible();
+    expect(screen.getByTestId("review-quality-summary")).toHaveTextContent("3 of 5 checks passed");
+    expect(screen.getByTestId("review-gates-disclosure")).toHaveAttribute("open");
+    expect(screen.getByTestId("review-validation-toggle")).toHaveTextContent("Show quality check details");
     expect(screen.getByTestId("review-gate-content-validity")).toHaveTextContent("Content validity");
-    expect(screen.getByTestId("review-gate-content-validity")).toHaveTextContent("Open");
+    expect(screen.getByTestId("review-gate-content-validity")).toHaveTextContent("Failed");
     expect(screen.getByText("Observed")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Transcript and reference" })).toBeVisible();
+    expect(screen.getByTestId("review-evidence-disclosure")).not.toHaveAttribute("open");
+    expect(screen.getByTestId("review-evidence-toggle")).toHaveTextContent(
+      "Show transcript and reference details",
+    );
+    fireEvent.click(screen.getByTestId("review-evidence-toggle"));
+    expect(screen.getByTestId("review-evidence-disclosure")).toHaveAttribute("open");
     expect(screen.getByDisplayValue("Full transcript text")).toBeVisible();
   });
 
@@ -194,7 +250,7 @@ describe("Review route", () => {
     expect(screen.getByRole("button", { name: "Back to Speak" })).toBeVisible();
   });
 
-  it("shows the missing-review guard when there is no report to show", async () => {
+  it("shows an actionable empty review state when there is no report to show", async () => {
     renderWithProviders(<AppFrame />, {
       initialEntries: ["/review"],
       locale: "en",
@@ -202,7 +258,12 @@ describe("Review route", () => {
     });
 
     expect(await screen.findByTestId("review-guard-missing-review")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Go to Speak" })).toBeVisible();
+    expect(screen.getByText("Nothing to review yet.")).toBeVisible();
+    expect(screen.getByText("Complete a speaking session and your results will appear here.")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Start a session" }));
+
+    expect(await screen.findByRole("heading", { name: "Set up today's speaking practice" })).toBeVisible();
   });
 
   it("restores a completed review from the assessment status endpoint", async () => {
@@ -291,7 +352,7 @@ describe("Review route", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Change task" }));
 
-    expect(await screen.findByRole("heading", { name: "Prepare one speaking session" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Set up today's speaking practice" })).toBeVisible();
     await waitFor(() => {
       expect(store.getState().draft.themeLabel).toBe("");
       expect(store.getState().draft.promptText).toBe("");

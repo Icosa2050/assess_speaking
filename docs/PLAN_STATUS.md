@@ -1,6 +1,6 @@
 # Plan Status
 
-Last updated: 2026-05-20
+Last updated: 2026-07-23
 
 This file distinguishes living roadmap documents from completed task plans. The
 rule of thumb is:
@@ -19,7 +19,9 @@ rule of thumb is:
 | `docs/superpowers/plans/2026-05-16-streamlit-retirement.md` | Completed contract | All checkboxes are closed. Kept in place because several docs link to it. Current guard tests passed: `tests/test_streamlit_removal_contract.py`, `tests/test_app_core_imports.py`, and `tests/test_run_app.py`. |
 | `docs/superpowers/plans/archive/completed/2026-05-17-baseline-metric-semantics.md` | Completed | Archived. Focused `ParsingAndBaselineTests` passed. |
 | `docs/superpowers/plans/archive/completed/2026-05-19-runtime-setup-streamline.md` | Completed | Archived. Focused `HomeSetupRoutes` and `SettingsRoute` tests passed. |
+| `docs/superpowers/plans/archive/completed/2026-06-05-enticing-learner-visual-refresh.md` | Completed visual foundation | Archived. Landed global typography/tokens, zero-dependency visual primitives, Home/Speak/Review/History visual artifacts, Runtime Setup onboarding readiness, locale parity verification, focused Playwright visual smoke, and desktop/mobile evidence under `docs/ux-audit-screenshots/2026-06-05/`. Next routing: use `docs/ux-audit-screenshots/2026-06-05/visual-polish-follow-up-assessment.md` for taste/product-design refinement. |
 | `docs/superpowers/plans/archive/completed/2026-05-10-coderabbit-core-remediation.md` | Completed, stale checklist | Archived. The original checkboxes were never backfilled, but focused backend/runtime remediation tests passed after the later `app_core` migration. |
+| `docs/superpowers/plans/2026-06-09-active-learner-confidence-progress-story.md` | Implemented confidence slice | Saved-take reassurance and the filtered History next-practice cue are implemented. Focused Speak/History tests and locale parity pass; Review intentionally remains unchanged. |
 | `docs/IMPLEMENTATION_PLAN.md` | Implemented baseline plus living roadmap | Assessment core, local FastAPI baseline, React/Tauri direction, and Streamlit retirement are implemented. Keep as the high-level product roadmap. |
 | `docs/LOCAL_BACKEND_ARCHITECTURE.md` | Implemented baseline plus living architecture | Local backend baseline and `app_core`/React/Tauri direction are current. Keep as architecture reference. |
 
@@ -27,7 +29,14 @@ rule of thumb is:
 
 | Plan | Classification | Open handling |
 |---|---|---|
-| `docs/PLAYWRIGHT_FLOW_EXPANSION_PLAN.md` | Partially implemented | The review/history, live runtime setup, and real-audio replacement specs exist. Broader browser coverage and a permitted full Playwright run remain open. |
+| `docs/superpowers/plans/2026-06-09-learner-confidence-simplification.md` | Implemented simplification slice | PAL-refined slice completed on 2026-06-09. Evidence: focused Speak/History tests, full frontend tests, frontend typecheck, backend i18n parity, focused visual-smoke command with 390px route checks, attached-audio Speak mobile coverage, 360px History overflow coverage, refreshed screenshots under `docs/ux-audit-screenshots/2026-06-09/`, and `git diff --check` passed. |
+| `docs/superpowers/plans/2026-06-09-recommendation-and-speak-handoff-polish.md` | Implemented product-polish slice | PAL-reviewed slice completed on 2026-06-09. Evidence: focused Session Setup/Speak route tests, full frontend tests, frontend typecheck, backend i18n parity, and `git diff --check` passed. |
+| `docs/superpowers/plans/2026-06-09-session-setup-newbie-wizard.md` | Implemented Session Setup slice | PAL-reviewed two-step beginner setup frame, recommended starter path, advanced custom-topic disclosure, runtime handoff callout, locale fan-out, focused route coverage, full frontend tests, typecheck, backend i18n parity, localhost backend/frontend HTTP smoke, and mobile evidence at `docs/ux-audit-screenshots/2026-06-09/visual-refresh-smoke-session-setup-mobile.png`. |
+| `docs/superpowers/plans/2026-06-09-visual-smoke-speak-confidence.md` | Implemented visual/testing slice | PAL-reviewed slice completed on 2026-06-09. Evidence: focused visual-smoke command passed with failed-gate Review coverage, all-key-route 390px screenshot/overflow checks, Speak confidence rail tests, full frontend tests, typecheck, and backend i18n parity. |
+| `docs/superpowers/plans/2026-06-08-history-progress-story.md` | Implemented visual slice | PAL-reviewed History polish completed with conservative "noticed last time" / "no longer flagged" copy, localized story strings, focused route/component tests, opened-report disclosure, and refreshed visual smoke screenshots. |
+| `docs/superpowers/plans/2026-06-05-runtime-setup-onboarding-readiness.md` | Implemented visual slice | PAL/Stitch-informed Runtime Setup onboarding pass completed on 2026-06-05. Evidence: focused setup tests, full frontend tests, typecheck, backend i18n test, localhost backend/frontend smoke, and desktop/mobile screenshots under `docs/ux-audit-screenshots/2026-06-05/`. |
+| `docs/superpowers/plans/2026-05-24-learner-ux-flow-refinement.md` | Implemented learner UX contract | Home/shell cleanup, Settings language ownership, grouped navigation, Setup Guide readiness, Session Setup goal framing, Speak hierarchy, Review/History next-step states, Library/Guide framing, focused browser-flow coverage, and screenshot evidence are implemented. Full Playwright execution remains a separate environment-sensitive gate. |
+| `docs/PLAYWRIGHT_FLOW_EXPANSION_PLAN.md` | Implemented focused flows; runner recheck blocked | Coverage includes review/history, live runtime setup, real-audio replacement, Home-to-Session-Setup-to-Speak, empty states, visual smoke, Library/Guide, and Review change-task behavior. Eleven tests in nine files collect on 2026-07-22, but Chromium is denied macOS Mach bootstrap access before app assertions in the current sandbox; keep the full-run gate open until it can run outside that restriction. |
 | `docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md` | Partially implemented | Runtime setup simplification landed; broader Speak, Review, History, Settings UX work remains a living lane. |
 | `docs/SUPPORT_MAINTENANCE_PLAN.md` | Partially implemented / policy reference | Support bundles, cleanup, and diagnostics exist in code, but the plan still needs an `app_core`/React wording refresh before it can be treated as closed. |
 | `docs/SUPPORT_MAINTENANCE_IMPLEMENTATION_PLAN.md` | Partially implemented / stale file map | Much of the functionality exists, but file references still name `app_shell` and Streamlit-era surfaces. Do not execute literally until rebased. |
@@ -40,6 +49,7 @@ rule of thumb is:
 | Plan | Classification | Notes |
 |---|---|---|
 | `docs/DESKTOP_HOSTED_PRODUCT_PLAN.md` | Approved future roadmap | Local React/Tauri baseline is current; hosted persistence/auth is not implemented yet. |
+| `docs/superpowers/specs/2026-07-22-signed-macos-dmg-design.md` | Approved packaging design, not yet executed | Developer ID-signed, notarized, stapled arm64 DMG with a PyInstaller onedir helper, packaged-PyAV ffmpeg removal, per-launch loopback auth token, and an inside-out signing pipeline. First entry under the new `docs/superpowers/specs/` directory for design specs that precede an execution plan. |
 | `docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md` | Supporting UX roadmap | Keep active, but execute only with PAL review for screen changes. |
 | `docs/PLANNING_ALIGNMENT_META_PLAN.md` | Historical alignment map | Useful for lineage, but Streamlit-retirement sequencing is now stale. Prefer this status file plus current roadmap docs for execution decisions. |
 
@@ -60,4 +70,5 @@ rule of thumb is:
 
 | Plan | Classification | Replacement |
 |---|---|---|
+| `docs/superpowers/plans/archive/superseded/2026-05-24-learner-ux-flow-v2.md` | Superseded design critique / backlog | Archived as rationale only. Execute `docs/superpowers/plans/2026-05-24-learner-ux-flow-refinement.md` instead. |
 | `docs/superpowers/plans/archive/superseded/2026-05-19-streamlit-removal-completion-concept.md` | Superseded | Replaced by the completed `docs/superpowers/plans/2026-05-16-streamlit-retirement.md` contract and current `app_core` implementation. |

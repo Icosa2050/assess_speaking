@@ -222,6 +222,22 @@ const installDeterministicBackend = async (page: Page) => {
   });
 };
 
+const installReadyEmptyBackend = async (page: Page) => {
+  await page.route("**/v1/diagnostics", (route) => fulfillJson(route, { items: [] }));
+  await page.route("**/v1/runtime", (route) =>
+    fulfillJson(route, {
+      configured: true,
+      provider: "ollama",
+      model: "llama3.2:3b",
+      base_url: "http://127.0.0.1:11434/v1",
+      requires_api_key: false,
+      has_api_key: false,
+    }),
+  );
+  await page.route("**/v1/runtime/settings", (route) => fulfillJson(route, runtimeSettings));
+  await page.route("**/v1/history", (route) => fulfillJson(route, { items: [] }));
+};
+
 const attachAudio = async (page: Page, name: string) => {
   await page.getByTestId("speak.input_mode_upload").click();
   await page.getByTestId("speak.upload_input").setInputFiles({
@@ -234,7 +250,29 @@ const attachAudio = async (page: Page, name: string) => {
   );
 };
 
+const fillOptionalContext = async (page: Page, attempt: Attempt) => {
+  const disclosure = page.getByTestId("speak.optional_context");
+  await disclosure.locator("summary").click();
+  await expect(disclosure).toHaveAttribute("open", "");
+  await page.getByTestId("speak.label").fill(attempt.label);
+  await page.getByTestId("speak.notes").fill(attempt.notes);
+};
+
 test.describe("review and history replacement flow", () => {
+  test("keeps empty Review and History states actionable", async ({ page }) => {
+    await installReadyEmptyBackend(page);
+
+    await page.goto("/review");
+    await expect(page.getByTestId("review-guard-missing-review")).toBeVisible();
+    await page.getByTestId("review-guard-cta").click();
+    await expect(page).toHaveURL(/\/session-setup$/);
+
+    await page.goto("/history");
+    await expect(page.getByTestId("history-empty")).toBeVisible();
+    await page.getByTestId("history-empty-cta").click();
+    await expect(page).toHaveURL(/\/session-setup$/);
+  });
+
   test("runs two deterministic attempts, shows progress, and opens the latest history detail", async ({
     page,
   }) => {
@@ -242,16 +280,24 @@ test.describe("review and history replacement flow", () => {
 
     await page.goto("/");
     await page.getByTestId("home.start_new").click();
+    await expect(page).toHaveURL(/\/session-setup$/);
     await page.getByTestId("setup.speaker_id").fill("playwright-review-history");
+    await page.getByTestId("setup.recommended_start").click();
     await page.getByTestId("setup.continue").click();
     await expect(page).toHaveURL(/\/speak$/);
+    await expect(page.getByTestId("speak.session_summary")).toContainText(
+      "Speaker playwright-review-history",
+    );
 
     await attachAudio(page, "first-attempt.wav");
-    await page.getByTestId("speak.label").fill(attempts[0].label);
-    await page.getByTestId("speak.notes").fill(attempts[0].notes);
+    await fillOptionalContext(page, attempts[0]);
     await page.getByTestId("speak.submit").click();
 
     await expect(page).toHaveURL(/\/review$/);
+    await expect(page.getByTestId("review-next-step-card")).toBeVisible();
+    await expect(page.getByTestId("review-next-step-focus")).toContainText(
+      "Keep the story close to the travel theme.",
+    );
     await expect(page.getByTestId("review-summary")).toBeVisible();
     await expect(page.getByTestId("review-transcript")).toHaveValue(attempts[0].transcript);
     await expect(page.getByTestId("review-notes")).toHaveValue(attempts[0].notes);
@@ -262,11 +308,11 @@ test.describe("review and history replacement flow", () => {
     await expect(page).toHaveURL(/\/speak$/);
 
     await attachAudio(page, "second-attempt.wav");
-    await page.getByTestId("speak.label").fill(attempts[1].label);
-    await page.getByTestId("speak.notes").fill(attempts[1].notes);
+    await fillOptionalContext(page, attempts[1]);
     await page.getByTestId("speak.submit").click();
 
     await expect(page).toHaveURL(/\/review$/);
+    await expect(page.getByTestId("review-next-step-card")).toBeVisible();
     await expect(page.getByTestId("review-summary")).toBeVisible();
     await expect(page.getByTestId("review-progress")).toContainText("Final score delta");
     await expect(page.getByTestId("review-transcript")).toHaveValue(attempts[1].transcript);

@@ -17,6 +17,7 @@ export interface LocaleTree {
 export const SEMANTIC_IDS = {
   home: {
     runtimeSetupButton: "home.runtime_setup_button",
+    setupGuideButton: "home.setup_guide_button",
     startNew: "home.start_new",
     resume: "home.resume",
     openHistory: "home.open_history",

@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { RuntimeConnectionForm } from "@/components/setup/RuntimeConnectionForm";
 import { ConnectionStatusPanel } from "@/components/setup/ConnectionStatusPanel";
+import { SetupReadinessPanel } from "@/components/setup/SetupReadinessPanel";
 import { apiClient, ApiClientError } from "@/lib/api/client";
 import type {
   ConnectionSecretState,
@@ -13,11 +14,20 @@ import type {
 } from "@/lib/api/types";
 import { createTranslator, semanticAttributes, SEMANTIC_IDS } from "@/lib/i18n";
 import { queryKeys } from "@/lib/query/queryClient";
+import {
+  buildSetupReadinessRows,
+  resolveSetupReadinessAction,
+  type SetupReadinessKey,
+} from "@/lib/setup/readiness";
 import { useAppStore } from "@/lib/state/appStore";
 
 const cardStyle = {
   display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr)",
   gap: "0.875rem",
+  minWidth: 0,
+  maxWidth: "100%",
+  overflowWrap: "anywhere",
   padding: "1.25rem",
   border: "1px solid rgba(18, 61, 55, 0.12)",
   borderRadius: "8px",
@@ -40,6 +50,8 @@ const actionButtonStyle = {
 } as const;
 
 const inputStyle = {
+  width: "100%",
+  minWidth: 0,
   minHeight: "44px",
   borderRadius: "8px",
   border: "1px solid rgba(18, 61, 55, 0.16)",
@@ -222,6 +234,16 @@ export const SetupRoute = () => {
   const whisperStatusMessage = whisperStatusQuery.data?.cached
     ? translate("runtime_setup.cache_ready", { path: whisperStatusQuery.data.cached_path })
     : whisperMessage || whisperMessageFromDiagnostics;
+  const setupReadinessRows = buildSetupReadinessRows({
+    diagnostics: diagnosticsItems,
+    diagnosticsError: diagnosticsQuery.isError,
+    diagnosticsPending: diagnosticsQuery.isPending,
+    runtime,
+    runtimeError: runtimeQuery.isError,
+    runtimePending: runtimeQuery.isPending,
+    whisperCached: Boolean(whisperStatusQuery.data?.cached),
+    whisperPending: whisperStatusQuery.isPending,
+  });
 
   const initialDraft = buildDraftFromConnection(activeConnection, translate);
   const formResetToken = JSON.stringify({
@@ -308,6 +330,22 @@ export const SetupRoute = () => {
     setFormStatusMessage("");
   };
 
+  const scrollToSetupSection = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({
+      block: "start",
+      behavior: "smooth",
+    });
+  };
+
+  const handleSetupReadinessAction = (key: SetupReadinessKey) => {
+    const target = resolveSetupReadinessAction(key);
+    if (target.kind === "section") {
+      scrollToSetupSection(target.value);
+      return;
+    }
+    navigate(target.value);
+  };
+
   const handleTestConnection = async (connection: RuntimeConnectionDraft) => {
     setIsBusy(true);
     setFormStatus("testing");
@@ -371,7 +409,13 @@ export const SetupRoute = () => {
 
   return (
     <div
-      style={{ display: "grid", gap: "1rem" }}
+      style={{
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr)",
+        gap: "1rem",
+        minWidth: 0,
+        maxWidth: "100%",
+      }}
       {...semanticAttributes(SEMANTIC_IDS.runtimeSetup.screen)}
     >
       <section style={cardStyle}>
@@ -406,7 +450,16 @@ export const SetupRoute = () => {
         ) : null}
       </section>
 
-      <section style={cardStyle}>
+      <SetupReadinessPanel
+        rows={setupReadinessRows}
+        translate={translate}
+        onAction={handleSetupReadinessAction}
+      />
+
+      <section
+        id="runtime-setup-whisper"
+        style={cardStyle}
+      >
         <h2
           style={{
             margin: 0,
@@ -473,29 +526,31 @@ export const SetupRoute = () => {
         </button>
       </section>
 
-      <RuntimeConnectionForm
-        detectedModelMessage={detectedModelMessage}
-        detectedModels={detectedModels}
-        initialDraft={initialDraft}
-        initialSecretState={initialSecretState}
-        isBusy={isBusy}
-        locale={locale}
-        onBack={() => navigate("/")}
-        onDetectLocalModels={(connection) => {
-          void handleDetectLocalModels(connection);
-        }}
-        onProviderChange={handleProviderChange}
-        onSave={(payload) => {
-          void handleSave(payload);
-        }}
-        onTest={(connection) => {
-          void handleTestConnection(connection);
-        }}
-        resetToken={formResetToken}
-        status={formStatus}
-        statusMessage={formStatusMessage}
-        variant="runtime-setup"
-      />
+      <div id="runtime-setup-connection">
+        <RuntimeConnectionForm
+          detectedModelMessage={detectedModelMessage}
+          detectedModels={detectedModels}
+          initialDraft={initialDraft}
+          initialSecretState={initialSecretState}
+          isBusy={isBusy}
+          locale={locale}
+          onBack={() => navigate("/")}
+          onDetectLocalModels={(connection) => {
+            void handleDetectLocalModels(connection);
+          }}
+          onProviderChange={handleProviderChange}
+          onSave={(payload) => {
+            void handleSave(payload);
+          }}
+          onTest={(connection) => {
+            void handleTestConnection(connection);
+          }}
+          resetToken={formResetToken}
+          status={formStatus}
+          statusMessage={formStatusMessage}
+          variant="runtime-setup"
+        />
+      </div>
 
       <details style={cardStyle}>
         <summary

@@ -52,6 +52,12 @@ const cardStyle = {
   boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
 } as const;
 
+const introLinkStyle = {
+  color: "#0f766e",
+  fontWeight: 700,
+  textDecoration: "none",
+} as const;
+
 const summaryGridStyle = {
   display: "grid",
   gap: "0.75rem",
@@ -168,7 +174,45 @@ export const GuideRoute = () => {
         </p>
       </section>
 
-      <section style={cardStyle}>
+      <section
+        style={cardStyle}
+        data-testid="guide.practice_support_intro"
+        data-semantic-id="guide.practice_support_intro"
+        data-variant="intro"
+      >
+        <p
+          style={{
+            margin: 0,
+            fontSize: "0.875rem",
+            fontWeight: 700,
+            color: "#0f766e",
+          }}
+        >
+          {translate("review.coaching_tab")}
+        </p>
+        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
+          {translate("guide.practice_support_intro")}
+        </h2>
+        <p style={{ margin: 0, color: "#33514b", lineHeight: 1.6 }}>
+          {translate("guide.practice_support_body")}
+        </p>
+        <nav
+          aria-label={translate("guide.practice_support_intro")}
+          style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem" }}
+        >
+          <a href="#guide-summary" style={introLinkStyle}>
+            {translate("guide.practice_support_scores")}
+          </a>
+          <a href="#guide-gates" style={introLinkStyle}>
+            {translate("guide.practice_support_gates")}
+          </a>
+          <a href="#guide-rubric" style={introLinkStyle}>
+            {translate("guide.practice_support_focus")}
+          </a>
+        </nav>
+      </section>
+
+      <section id="guide-summary" style={cardStyle}>
         <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
           {translate("guide.summary_title")}
         </h2>
@@ -185,7 +229,7 @@ export const GuideRoute = () => {
         </div>
       </section>
 
-      <section style={cardStyle}>
+      <section id="guide-formula" style={cardStyle}>
         <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
           {translate("guide.formula_title")}
         </h2>
@@ -207,7 +251,7 @@ export const GuideRoute = () => {
         </ul>
       </section>
 
-      <section style={cardStyle}>
+      <section id="guide-deterministic" style={cardStyle}>
         <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
           {translate("guide.deterministic_title")}
         </h2>
@@ -238,7 +282,7 @@ export const GuideRoute = () => {
         </div>
       </section>
 
-      <section style={cardStyle}>
+      <section id="guide-rubric" style={cardStyle}>
         <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
           {translate("guide.rubric_title")}
         </h2>
@@ -268,7 +312,7 @@ export const GuideRoute = () => {
         </div>
       </section>
 
-      <section style={cardStyle}>
+      <section id="guide-gates" style={cardStyle}>
         <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
           {translate("guide.gates_title")}
         </h2>

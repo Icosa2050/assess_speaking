@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { HistoryDetailPanel } from "@/components/history/HistoryDetailPanel";
 import { HistoryList } from "@/components/history/HistoryList";
+import {
+  HistoryProgressStory,
+  type HistoryProgressStoryRecord,
+} from "@/components/history/HistoryProgressStory";
+import { Sparkline } from "@/components/ui/Sparkline";
+import layoutStyles from "@/components/ui/layout.module.css";
 import { apiClient } from "@/lib/api/client";
 import { createTranslator } from "@/lib/i18n";
 import { queryKeys } from "@/lib/query/queryClient";
@@ -28,6 +35,10 @@ const metricGridStyle = {
   gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
 } as const;
 
+const routeGridStyle = {
+  gap: "1rem",
+} as const;
+
 const selectStyle = {
   minHeight: "44px",
   padding: "0.75rem 0.875rem",
@@ -36,6 +47,21 @@ const selectStyle = {
   backgroundColor: "#fff",
   color: "#10201c",
   font: "inherit",
+} as const;
+
+const primaryButtonStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minHeight: "44px",
+  padding: "0.75rem 1rem",
+  borderRadius: "8px",
+  border: "1px solid rgba(15, 118, 110, 0.2)",
+  backgroundColor: "#d7ebe5",
+  color: "#10201c",
+  fontWeight: 600,
+  font: "inherit",
+  cursor: "pointer",
 } as const;
 
 type HistoryViewRecord = {
@@ -247,9 +273,6 @@ const scopeCaption = ({
   return translate("history.scope_all", { count });
 };
 
-const listOrPlaceholder = (values: string[], translate: ReturnType<typeof createTranslator>): string =>
-  values.length > 0 ? values.join(", ") : translate("history.none");
-
 const formatTopCounts = (values: string[]): string => {
   if (values.length === 0) {
     return "–";
@@ -267,41 +290,28 @@ const formatTopCounts = (values: string[]): string => {
     .join(", ");
 };
 
-const Sparkline = ({
-  values,
-}: {
-  values: number[];
-}) => {
-  if (values.length < 2) {
-    return null;
+export const formatTrendSummary = (
+  values: number[],
+  locale: string,
+  translate: ReturnType<typeof createTranslator>,
+): string => {
+  if (values.length === 0) {
+    return "";
   }
 
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-  const points = values
-    .map((value, index) => {
-      const x = (index / (values.length - 1)) * 280;
-      const y = 64 - ((value - min) / range) * 52;
-      return `${x},${y}`;
-    })
-    .join(" ");
-
-  return (
-    <svg viewBox="0 0 280 72" width="100%" height="72" aria-hidden="true">
-      <polyline
-        fill="none"
-        points={points}
-        stroke="#0f766e"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="3"
-      />
-    </svg>
-  );
+  // Locale formatting also keeps grouping correct for unexpectedly large values.
+  const formatter = new Intl.NumberFormat(locale, {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 1,
+  });
+  return translate("history.trend_range", {
+    start: formatter.format(values[0]),
+    end: formatter.format(values[values.length - 1]),
+  });
 };
 
 export const HistoryRoute = () => {
+  const navigate = useNavigate();
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const draft = useAppStore((state) => state.draft);
   const setCurrentPage = useAppStore((state) => state.setCurrentPage);
@@ -397,16 +407,9 @@ export const HistoryRoute = () => {
   });
 
   const attempts = filteredRecords.slice().reverse();
-  const latestRecord = filteredRecords.at(-1) ?? null;
   const finalScores = filteredRecords.map((row) => row.finalScore).filter((value): value is number => value !== null);
   const wpmValues = filteredRecords.map((row) => row.wpm).filter((value): value is number => value !== null);
   const bandValues = filteredRecords.map((row) => row.bandValue).filter((value): value is number => value !== null);
-  const priorities = {
-    latest: latestRecord?.topPriorities ?? [],
-    previous: filteredRecords.length > 1 ? filteredRecords[filteredRecords.length - 2].topPriorities : [],
-  };
-  const newPriorities = priorities.latest.filter((item) => !priorities.previous.includes(item));
-  const resolvedPriorities = priorities.previous.filter((item) => !priorities.latest.includes(item));
   const taskFamilyRows = [...new Set(filteredRecords.map((row) => row.taskFamily).filter(Boolean))]
     .sort()
     .map((family) => {
@@ -439,8 +442,17 @@ export const HistoryRoute = () => {
   if (!historyQuery.isPending && scopedRecords.length === 0) {
     return (
       <section style={cardStyle} data-testid="history-empty" data-semantic-id="history-empty">
-        <h2 style={{ margin: 0, fontSize: "1.5rem", color: "#10201c" }}>{translate("history.title")}</h2>
-        <p style={{ margin: 0, color: "#33514b", lineHeight: 1.6 }}>{translate("history.empty")}</p>
+        <h2 style={{ margin: 0, fontSize: "1.5rem", color: "#10201c" }}>{translate("history.empty_title")}</h2>
+        <p style={{ margin: 0, color: "#33514b", lineHeight: 1.6 }}>{translate("history.empty_body")}</p>
+        <button
+          type="button"
+          onClick={() => navigate("/session-setup")}
+          style={primaryButtonStyle}
+          data-testid="history-empty-cta"
+          data-semantic-id="history-empty-cta"
+        >
+          {translate("history.empty_cta")}
+        </button>
       </section>
     );
   }
@@ -460,9 +472,26 @@ export const HistoryRoute = () => {
   const paceTrendValues = filteredRecords
     .map((row) => row.wpm)
     .filter((value): value is number => value !== null);
+  const progressStoryRecords: HistoryProgressStoryRecord[] = filteredRecords.map((row) => ({
+    finalScore: row.finalScore,
+    languageLabel: row.languageLabel,
+    scoreLabel: row.scoreLabel,
+    sessionId: row.sessionId,
+    taskFamily: row.taskFamily,
+    theme: row.theme,
+    timestamp: row.timestamp,
+    timestampLabel: row.timestampLabel,
+    topPriorities: row.topPriorities,
+    wpm: row.wpm,
+  }));
 
   return (
-    <div style={{ display: "grid", gap: "1rem" }} data-testid="history-route" data-semantic-id="history-route">
+    <div
+      className={layoutStyles.stack}
+      style={routeGridStyle}
+      data-testid="history-route"
+      data-semantic-id="history-route"
+    >
       <section style={cardStyle}>
         <h2 style={{ margin: 0, fontSize: "1.5rem", color: "#10201c" }}>{translate("history.title")}</h2>
         <p style={{ margin: 0, color: "#33514b", lineHeight: 1.6 }}>{translate("history.body")}</p>
@@ -489,6 +518,11 @@ export const HistoryRoute = () => {
           </label>
         </section>
       ) : null}
+
+      <HistoryProgressStory
+        records={progressStoryRecords}
+        translate={translate}
+      />
 
       <section style={cardStyle}>
         <p
@@ -521,32 +555,28 @@ export const HistoryRoute = () => {
 
       <section style={cardStyle} data-testid="history-trends" data-semantic-id="history-trends">
         <h2 style={{ margin: 0, fontSize: "1.35rem", color: "#10201c" }}>{translate("history.trends_title")}</h2>
-        <div style={metricGridStyle}>
-          <div data-testid="history-priority-latest" data-semantic-id="history-priority-latest">
-            <strong style={{ color: "#33514b" }}>{translate("history.priority_latest")}</strong>
-            <p style={{ margin: "0.625rem 0 0", color: "#10201c" }}>{listOrPlaceholder(priorities.latest, translate)}</p>
-          </div>
-          <div data-testid="history-priority-new" data-semantic-id="history-priority-new">
-            <strong style={{ color: "#33514b" }}>{translate("history.priority_new")}</strong>
-            <p style={{ margin: "0.625rem 0 0", color: "#10201c" }}>{listOrPlaceholder(newPriorities, translate)}</p>
-          </div>
-          <div data-testid="history-priority-resolved" data-semantic-id="history-priority-resolved">
-            <strong style={{ color: "#33514b" }}>{translate("history.priority_resolved")}</strong>
-            <p style={{ margin: "0.625rem 0 0", color: "#10201c" }}>{listOrPlaceholder(resolvedPriorities, translate)}</p>
-          </div>
-        </div>
         {filteredRecords.length >= 2 ? (
           <div style={{ display: "grid", gap: "1rem", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
             {scoreTrendValues.length >= 2 ? (
               <div data-testid="history-chart-score" data-semantic-id="history-chart-score" style={cardStyle}>
                 <strong style={{ color: "#33514b" }}>{translate("history.score_chart_title")}</strong>
-                <Sparkline values={scoreTrendValues} />
+                <Sparkline
+                  label={translate("history.score_chart_title")}
+                  summary={formatTrendSummary(scoreTrendValues, locale, translate)}
+                  testId="history-chart-score-sparkline"
+                  values={scoreTrendValues}
+                />
               </div>
             ) : null}
             {paceTrendValues.length >= 2 ? (
               <div data-testid="history-chart-pace" data-semantic-id="history-chart-pace" style={cardStyle}>
                 <strong style={{ color: "#33514b" }}>{translate("history.pace_chart_title")}</strong>
-                <Sparkline values={paceTrendValues} />
+                <Sparkline
+                  label={translate("history.pace_chart_title")}
+                  summary={formatTrendSummary(paceTrendValues, locale, translate)}
+                  testId="history-chart-pace-sparkline"
+                  values={paceTrendValues}
+                />
               </div>
             ) : null}
           </div>

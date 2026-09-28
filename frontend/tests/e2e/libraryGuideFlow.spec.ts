@@ -78,7 +78,7 @@ test.describe("library and guide browser flow", () => {
     await page.getByTestId("home.open_guide").click();
     await expect(page).toHaveURL(/\/guide$/);
     await expect(page.getByTestId("guide.practice_support_intro")).toBeVisible();
-    await expect(page.getByRole("link", { name: "Validation gates" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Quality checks" })).toBeVisible();
 
     await page.getByTestId("home.open_library").click();
     await expect(page).toHaveURL(/\/library$/);
@@ -88,7 +88,7 @@ test.describe("library and guide browser flow", () => {
     await page.getByTestId("library.sample_prepare").first().click();
     await expect(page).toHaveURL(/\/session-setup$/);
     await expect(page.getByTestId("setup.layout")).toBeVisible();
-    await expect(page.getByDisplayValue("Travel Story")).toBeVisible();
+    await expect(page.getByTestId("setup.custom_theme")).toHaveValue("Travel Story");
 
     await page.getByTestId("setup.speaker_id").fill("playwright-library-guide");
     await page.getByTestId("setup.continue").click();
@@ -97,6 +97,6 @@ test.describe("library and guide browser flow", () => {
     await expect(page.getByTestId("speak.session_summary")).toContainText(
       "Speaker playwright-library-guide",
     );
-    await expect(page.getByTestId("speak.session_summary")).toContainText("Travel Story");
+    await expect(page.getByText("Travel Story", { exact: true })).toBeVisible();
   });
 });

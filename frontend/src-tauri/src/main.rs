@@ -6,8 +6,6 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use tauri::Manager;
-
 const DESKTOP_API_BASE_URL_ENV_VAR: &str = "VOSTAVO_DESKTOP_API_BASE_URL";
 const DEPLOYMENT_MODE_ENV_VAR: &str = "VOSTAVO_DEPLOYMENT_MODE";
 const LAUNCH_MODE_ENV_VAR: &str = "VOSTAVO_LAUNCH_MODE";
@@ -193,10 +191,16 @@ fn main() {
     let runtime = desktop_runtime_bridge().expect("could not initialize Vostavo desktop bridge");
     tauri::Builder::default()
         .setup(move |app| {
-            let window = app
-                .get_webview_window("main")
-                .ok_or_else(|| std::io::Error::other("main webview window is missing"))?;
-            window.eval(desktop_bridge_script(&runtime))?;
+            let config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|window| window.label == "main")
+                .ok_or_else(|| std::io::Error::other("main webview configuration is missing"))?;
+            tauri::WebviewWindowBuilder::from_config(app, config)?
+                .initialization_script(&desktop_bridge_script(&runtime))
+                .build()?;
             Ok(())
         })
         .run(tauri::generate_context!())

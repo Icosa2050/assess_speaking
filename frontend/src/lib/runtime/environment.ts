@@ -1,3 +1,5 @@
+import { isDesktopRuntime, readDesktopRuntimeBridge } from "./desktopBridge";
+
 const DEFAULT_LOCAL_DESKTOP_API_BASE_URL = "http://127.0.0.1:8000";
 
 const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, "");
@@ -28,6 +30,10 @@ export const resolveLocalDesktopApiBaseUrl = (override?: string): string => {
   const envOverride = readEnvBaseUrl();
   if (envOverride) {
     return trimTrailingSlash(envOverride);
+  }
+
+  if (isDesktopRuntime()) {
+    return trimTrailingSlash(readDesktopRuntimeBridge().apiBaseUrl);
   }
 
   const origin = readWindowOrigin();

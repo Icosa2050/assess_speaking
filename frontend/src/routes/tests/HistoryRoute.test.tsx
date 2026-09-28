@@ -4,6 +4,8 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppFrame } from "@/App";
+import { createTranslator } from "@/lib/i18n";
+import { formatTrendSummary } from "@/routes/HistoryRoute";
 import { renderWithProviders } from "@/test/renderWithProviders";
 
 vi.mock("@/lib/api/client", () => ({
@@ -175,6 +177,14 @@ const detailPayload = (sessionId: string, options: { review?: boolean; topicPass
 });
 
 describe("History route", () => {
+  it("formats score and pace trend summaries for the UI locale", () => {
+    const translate = createTranslator("de");
+
+    expect(formatTrendSummary([4, 4.2], "de", translate)).toBe("4,0 bis 4,2");
+    expect(formatTrendSummary([110.2, 132], "de", translate)).toBe("110,2 bis 132,0");
+    expect(formatTrendSummary([], "de", translate)).toBe("");
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockedGetHistory.mockResolvedValue({ items: historyRows });
@@ -196,7 +206,12 @@ describe("History route", () => {
     });
 
     expect(await screen.findByTestId("history-empty")).toBeVisible();
-    expect(screen.getByText("No history rows are available yet.")).toBeVisible();
+    expect(screen.getByText("Your practice history starts here.")).toBeVisible();
+    expect(screen.getByText("Each completed speaking session adds a saved result to this page.")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Start your first session" }));
+
+    expect(await screen.findByRole("heading", { name: "Set up today's speaking practice" })).toBeVisible();
   });
 
   it("defaults the language filter to the current draft language and scopes to the current speaker", async () => {
@@ -208,14 +223,54 @@ describe("History route", () => {
 
     expect(await screen.findByTestId("history-language-filter")).toHaveValue("it");
     expect(screen.getByTestId("history-scope-caption")).toHaveTextContent(
-      "Showing 2 saved runs for speaker bern in Italian.",
+      "Saved attempts for bern in Italian: 2.",
     );
+    expect(screen.getByRole("region", { name: "Your progress story" })).toBeVisible();
+    expect(screen.getByTestId("history-progress-story-score")).toHaveTextContent("4.2");
+    expect(screen.getByTestId("history-progress-story-score")).toHaveTextContent(
+      "+0.2 since the previous attempt",
+    );
+    expect(screen.getByTestId("history-progress-story-pace")).toHaveTextContent(
+      "+21.8 WPM since the previous attempt",
+    );
+    expect(screen.getByTestId("history-progress-story-observed-focus")).toHaveTextContent(
+      "Noticed last time",
+    );
+    expect(screen.getByTestId("history-progress-story-observed-focus")).toHaveTextContent(
+      "More precision",
+    );
+    expect(screen.getByTestId("history-progress-story-next-practice")).toHaveTextContent(
+      "Try Holiday return again with this focus: More precision",
+    );
+    expect(screen.queryByTestId("history-progress-story-no-longer-flagged")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("history-priority-latest")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("history-priority-new")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("history-priority-resolved")).not.toBeInTheDocument();
     expect(screen.getByTestId("history-metric-runs")).toHaveTextContent("2");
     expect(screen.getByTestId("history-chart-score")).toBeVisible();
+    expect(screen.getByTestId("history-chart-score")).toHaveAttribute(
+      "data-semantic-id",
+      "history-chart-score",
+    );
+    expect(screen.getByRole("img", { name: "Score trend" })).toBeVisible();
+    expect(screen.getByTestId("history-chart-score-sparkline-summary")).toHaveTextContent(
+      "4.0 to 4.2",
+    );
+    expect(screen.getByRole("img", { name: "Speaking pace trend" })).toBeVisible();
+    expect(screen.getByTestId("history-chart-pace-sparkline-summary")).toHaveTextContent(
+      "110.2 to 132.0",
+    );
     expect(screen.getByTestId("history-attempts-row-s4")).toBeVisible();
     expect(screen.queryByTestId("history-attempts-row-s3")).not.toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Timestamp" })).toHaveAttribute("scope", "col");
     expect(screen.getByRole("columnheader", { name: "Language" })).toHaveAttribute("scope", "col");
+    expect(screen.getByTestId("history-attempts-mobile-list")).toBeVisible();
+    expect(screen.getByTestId("history-attempt-card-s4")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("history-attempt-card-s4")).toHaveTextContent("Holiday return");
+    expect(screen.getByTestId("history-attempt-card-s4")).toHaveTextContent("Score 4.2");
+    expect(screen.getByTestId("history-attempt-card-s4")).toHaveTextContent("Band 5");
+    expect(screen.getByTestId("history-attempt-card-s4")).toHaveTextContent("Done");
+    expect(screen.getByTestId("history-attempt-card-s2")).toHaveTextContent("Spring trip");
   });
 
   it("opens the most recent saved detail and lets the learner jump to another attempt", async () => {
@@ -227,13 +282,42 @@ describe("History route", () => {
 
     expect(await screen.findByTestId("history-detail-panel")).toBeVisible();
     expect(screen.getByTestId("history-detail-caption")).toHaveTextContent("Showing saved report s4");
-    expect(screen.getByText("Coach summary for s4")).toBeVisible();
+    expect(screen.getByTestId("history-detail-digest")).toHaveTextContent("Attempt summary");
+    expect(screen.getByTestId("history-detail-digest")).toHaveTextContent("4.2");
+    expect(screen.getByTestId("history-detail-digest")).toHaveTextContent("Coach summary for s4");
+    expect(screen.getByTestId("history-detail-digest")).toHaveTextContent("Strong opening");
+    expect(screen.getByTestId("history-detail-digest")).toHaveTextContent("Add one more concrete detail");
+    expect(screen.getByTestId("history-detail-digest")).toHaveTextContent("Sharpen the structure.");
+    expect(screen.queryByTestId("review-warnings")).not.toBeInTheDocument();
+    const fullReport = screen.getByTestId("history-detail-full-report");
+    expect(fullReport).not.toHaveAttribute("open");
+    expect(screen.getByTestId("history-detail-full-report-summary")).toHaveTextContent("Show full breakdown");
+
+    fireEvent.click(screen.getByTestId("history-detail-full-report-summary"));
+
+    expect(fullReport).toHaveAttribute("open");
+    expect(screen.getByTestId("review-summary")).toBeVisible();
+
+    fireEvent.click(screen.getByTestId("history-attempt-card-s2"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("history-detail-caption")).toHaveTextContent("Showing saved report s2");
+      expect(screen.getByTestId("history-attempt-card-s2")).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByTestId("history-detail-digest")).toHaveTextContent("Coach summary for s2");
+    });
+
+    fireEvent.click(screen.getByTestId("history-attempt-card-s4"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("history-detail-caption")).toHaveTextContent("Showing saved report s4");
+      expect(screen.getByTestId("history-attempt-card-s4")).toHaveAttribute("aria-pressed", "true");
+    });
 
     fireEvent.click(screen.getByTestId("history-jump-1"));
 
     await waitFor(() => {
       expect(screen.getByTestId("history-detail-caption")).toHaveTextContent("Showing saved report s2");
-      expect(screen.getByText("Coach summary for s2")).toBeVisible();
+      expect(screen.getByTestId("history-detail-digest")).toHaveTextContent("Coach summary for s2");
     });
   });
 
@@ -244,13 +328,30 @@ describe("History route", () => {
       appState: validDraftState,
     });
 
-    expect(await screen.findByText("Coach summary for s4")).toBeVisible();
+    expect(await screen.findByTestId("history-detail-digest-coach-summary")).toHaveTextContent(
+      "Coach summary for s4",
+    );
 
     fireEvent.change(screen.getByTestId("history-language-filter"), {
       target: { value: "en" },
     });
 
-    expect(await screen.findByText("Coach summary for s3")).toBeVisible();
+    await waitFor(() => {
+      expect(screen.getByTestId("history-progress-story-score")).toHaveTextContent("3.7");
+      expect(screen.getByTestId("history-progress-story-score")).toHaveTextContent(
+        "First saved attempt for this filter",
+      );
+      expect(screen.getByTestId("history-progress-story-observed-focus")).toHaveTextContent(
+        "Stay on topic",
+      );
+    });
+    expect(screen.queryByTestId("history-progress-story-next-practice")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("history-progress-story-no-longer-flagged")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("history-detail-digest-coach-summary")).toHaveTextContent(
+        "Coach summary for s3",
+      );
+    });
     expect(screen.getByTestId("history-detail-caption")).toHaveTextContent("Showing saved report s3");
     expect(screen.getByTestId("review-requires-human-review")).toBeVisible();
   });

@@ -65,7 +65,11 @@ const ADVANCED_PROVIDER_CHOICES = new Set<string>([
 
 const sectionStyle = {
   display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr)",
   gap: "0.875rem",
+  minWidth: 0,
+  maxWidth: "100%",
+  overflowWrap: "anywhere",
   padding: "1rem",
   border: "1px solid rgba(18, 61, 55, 0.1)",
   borderRadius: "8px",
@@ -74,10 +78,14 @@ const sectionStyle = {
 
 const fieldStyle = {
   display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr)",
   gap: "0.35rem",
+  minWidth: 0,
 } as const;
 
 const inputStyle = {
+  width: "100%",
+  minWidth: 0,
   minHeight: "44px",
   borderRadius: "8px",
   border: "1px solid rgba(18, 61, 55, 0.16)",
@@ -305,7 +313,13 @@ export const RuntimeConnectionForm = ({
 
   return (
     <div
-      style={{ display: "grid", gap: "1rem" }}
+      style={{
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr)",
+        gap: "1rem",
+        minWidth: 0,
+        maxWidth: "100%",
+      }}
       {...semanticAttributes(SEMANTIC_IDS.runtimeConnection.form, { state: effectiveState })}
     >
       <section style={sectionStyle}>

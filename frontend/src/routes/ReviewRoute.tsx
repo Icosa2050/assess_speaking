@@ -4,11 +4,15 @@ import { useQuery } from "@tanstack/react-query";
 
 import { ReviewSummary, selectReviewSummary } from "@/components/review/ReviewSummary";
 import { WarningsPanel } from "@/components/review/WarningsPanel";
+import { Icon } from "@/components/ui/Icon";
+import { ProgressRing } from "@/components/ui/ProgressRing";
 import { ApiClientError, apiClient } from "@/lib/api/client";
 import { createTranslator } from "@/lib/i18n";
 import { pollingIntervals, queryKeys } from "@/lib/query/queryClient";
 import { useAppStore } from "@/lib/state/appStore";
 import { hasReviewState } from "@/lib/state/sessionDraft";
+
+import styles from "./ReviewRoute.module.css";
 
 const cardStyle = {
   display: "grid",
@@ -24,6 +28,7 @@ const primaryButtonStyle = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
+  gap: "0.45rem",
   minHeight: "44px",
   padding: "0.75rem 1rem",
   borderRadius: "8px",
@@ -39,6 +44,51 @@ const secondaryButtonStyle = {
   ...primaryButtonStyle,
   backgroundColor: "rgba(255, 255, 255, 0.95)",
   border: "1px solid rgba(18, 61, 55, 0.12)",
+} as const;
+
+const tertiaryButtonStyle = {
+  ...secondaryButtonStyle,
+  backgroundColor: "transparent",
+  border: "1px solid transparent",
+  color: "#33514b",
+} as const;
+
+const nextStepCardStyle = {
+  ...cardStyle,
+  border: "1px solid rgba(15, 118, 110, 0.22)",
+  backgroundColor: "rgba(250, 253, 252, 0.98)",
+} as const;
+
+const scoreVisualStyle = {
+  display: "grid",
+  justifyItems: "start",
+  width: "fit-content",
+  maxWidth: "100%",
+  padding: "1rem",
+  border: "1px solid rgba(15, 118, 110, 0.16)",
+  borderRadius: "8px",
+  backgroundColor: "rgba(255, 255, 255, 0.72)",
+} as const;
+
+const focusChipGroupStyle = {
+  display: "grid",
+  gap: "0.55rem",
+} as const;
+
+const focusChipStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.5rem",
+  width: "fit-content",
+  maxWidth: "100%",
+  padding: "0.6rem 0.75rem",
+  border: "1px solid rgba(15, 118, 110, 0.16)",
+  borderRadius: "8px",
+  backgroundColor: "rgba(215, 235, 229, 0.62)",
+  color: "#10201c",
+  fontWeight: 650,
+  lineHeight: 1.45,
+  textWrap: "pretty",
 } as const;
 
 const buildStoredReviewState = (payload: Record<string, unknown>, fallbackReportId: string) => {
@@ -165,6 +215,24 @@ export const ReviewRoute = () => {
   }, [assessmentQuery.error, setRecordingError]);
 
   const summary = useMemo(() => selectReviewSummary(review), [review]);
+  const scoreStatus = translate("review.next_step_score", {
+    band: summary.band || "-",
+    score: summary.scoreOverall !== null ? summary.scoreOverall.toFixed(1) : "-",
+  });
+  const scoreRingValue = summary.scoreOverall !== null ? summary.scoreOverall * 20 : 0;
+  const coachTakeaway = summary.coachSummary || translate("review.coach_takeaway_placeholder");
+
+  const handleTryAgain = () => {
+    clearAttempt({ keepSetup: true });
+    setReturnTo("review");
+    navigate("/speak");
+  };
+
+  const handleChangeTask = () => {
+    clearAttempt({ keepSetup: false });
+    setReturnTo("review");
+    navigate("/session-setup");
+  };
 
   if (!hasReview && assessmentId && assessmentQuery.isPending && !isStillAssessing) {
     return (
@@ -195,14 +263,13 @@ export const ReviewRoute = () => {
   if (!hasReview) {
     return (
       <GuardCard
-        body={translate("review.guard_missing_review")}
-        buttonLabel={translate("review.go_speak")}
+        body={translate("review.empty_body")}
+        buttonLabel={translate("review.empty_cta")}
         onClick={() => {
-          setReturnTo("review");
-          navigate("/speak");
+          navigate("/session-setup");
         }}
         testId="review-guard-missing-review"
-        title={translate("review.title")}
+        title={translate("review.empty_title")}
       />
     );
   }
@@ -213,7 +280,129 @@ export const ReviewRoute = () => {
       data-testid="review-route"
       data-semantic-id="review-route"
     >
+      <section
+        style={nextStepCardStyle}
+        data-testid="review-next-step-card"
+        data-semantic-id="review-next-step-card"
+      >
+        <div className={styles.coachCardGrid}>
+          <div className={styles.coachMain}>
+            <p
+              style={{
+                margin: 0,
+                fontSize: "0.875rem",
+                fontWeight: 700,
+                color: "#0f766e",
+              }}
+            >
+              {translate("review.coach_note_eyebrow")}
+            </p>
+            <h2 style={{ margin: 0, fontSize: "1.5rem", color: "#10201c" }}>
+              {translate("review.next_step_title")}
+            </h2>
+            <p
+              className={styles.coachTakeaway}
+              data-testid="review-coach-takeaway"
+              data-semantic-id="review-coach-takeaway"
+            >
+              {coachTakeaway}
+            </p>
+            <p className={styles.coachHelper}>
+              {translate("review.coach_takeaway_body")}
+            </p>
+            <div style={focusChipGroupStyle}>
+              <div
+                style={focusChipStyle}
+                data-testid="review-next-step-focus"
+                data-semantic-id="review-next-step-focus"
+              >
+                <Icon name="target" size={18} />
+                {summary.nextFocus
+                  ? translate("review.answer_next_focus", { value: summary.nextFocus })
+                  : translate("review.answer_next_placeholder")}
+              </div>
+              {summary.nextExercise ? (
+                <div
+                  style={{
+                    ...focusChipStyle,
+                    backgroundColor: "rgba(255, 255, 255, 0.72)",
+                    color: "#33514b",
+                  }}
+                  data-testid="review-next-step-exercise"
+                  data-semantic-id="review-next-step-exercise"
+                >
+                  <Icon name="play" size={18} />
+                  {translate("review.next_exercise", { value: summary.nextExercise })}
+                </div>
+              ) : null}
+            </div>
+            {summary.requiresHumanReview ? (
+              <p
+                role="status"
+                style={{
+                  margin: 0,
+                  color: "#8f1f14",
+                  lineHeight: 1.5,
+                  fontWeight: 650,
+                }}
+                data-testid="review-human-review-guidance"
+                data-semantic-id="review-human-review-guidance"
+              >
+                {translate("review.human_review_guidance")}
+              </p>
+            ) : null}
+            <div
+              className={styles.actionRow}
+            >
+              <button
+                type="button"
+                onClick={handleTryAgain}
+                style={primaryButtonStyle}
+                data-testid="review-action-try-again"
+                data-semantic-id="review-action-try-again"
+              >
+                <Icon name="play" size={18} />
+                {translate("review.try_again")}
+              </button>
+              <button
+                type="button"
+                onClick={handleChangeTask}
+                style={secondaryButtonStyle}
+                data-testid="review-action-new-setup"
+                data-semantic-id="review-action-new-setup"
+              >
+                <Icon name="target" size={18} />
+                {translate("review.new_setup")}
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate("/history")}
+                style={tertiaryButtonStyle}
+                data-testid="review-action-view-history"
+                data-semantic-id="review-action-view-history"
+              >
+                <Icon name="history" size={18} />
+                {translate("review.view_history")}
+              </button>
+            </div>
+          </div>
+          <div className={styles.coachAside}>
+            <div
+              style={scoreVisualStyle}
+              data-testid="review-next-step-score"
+              data-semantic-id="review-next-step-score"
+            >
+              <ProgressRing
+                label={translate("review.answer_result_title")}
+                status={scoreStatus}
+                value={scoreRingValue}
+              />
+            </div>
+          </div>
+        </div>
+      </section>
       <ReviewSummary
+        hideCoachSummary
         summary={summary}
         translate={translate}
         warningsSlot={
@@ -225,52 +414,6 @@ export const ReviewRoute = () => {
           />
         }
       />
-
-      <section style={cardStyle}>
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "0.75rem",
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => {
-              clearAttempt({ keepSetup: true });
-              setReturnTo("review");
-              navigate("/speak");
-            }}
-            style={primaryButtonStyle}
-            data-testid="review-action-try-again"
-            data-semantic-id="review-action-try-again"
-          >
-            {translate("review.try_again")}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              clearAttempt({ keepSetup: false });
-              setReturnTo("review");
-              navigate("/session-setup");
-            }}
-            style={secondaryButtonStyle}
-            data-testid="review-action-new-setup"
-            data-semantic-id="review-action-new-setup"
-          >
-            {translate("review.new_setup")}
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate("/history")}
-            style={secondaryButtonStyle}
-            data-testid="review-action-view-history"
-            data-semantic-id="review-action-view-history"
-          >
-            {translate("review.view_history")}
-          </button>
-        </div>
-      </section>
     </div>
   );
 };

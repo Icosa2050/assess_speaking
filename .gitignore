@@ -53,3 +53,6 @@ node_modules/
 # Task files
 # tasks.json
 # tasks/ 
+.playwright-cli/
+.playwright-mcp/
+.serena/

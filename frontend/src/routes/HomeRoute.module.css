@@ -1,49 +1,111 @@
 .homeGrid {
   display: grid;
-  gap: 1rem;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  gap: var(--space-md);
 }
 
 .card {
   display: grid;
   gap: 0.875rem;
   padding: 1.25rem;
-  border: 1px solid rgba(18, 61, 55, 0.12);
-  border-radius: 8px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
   background-color: rgba(255, 255, 255, 0.96);
 }
 
 .primaryPracticeCard {
+  position: relative;
+  overflow: hidden;
   gap: 1rem;
-  padding: 1.5rem;
-  border-color: rgba(39, 106, 115, 0.2);
-  box-shadow: 0 12px 28px rgba(16, 32, 28, 0.05);
+  padding: clamp(1.25rem, 3vw, 2rem);
+  border-color: rgba(39, 106, 115, 0.48);
+  background-color: var(--color-accent);
+  background-image:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.12) 1px, transparent 1px);
+  background-size: 18px 18px;
+  box-shadow: var(--shadow-card);
+  color: var(--color-on-accent);
+}
+
+.primaryPracticeCard > * {
+  position: relative;
+}
+
+.practiceIntro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-lg);
+  align-items: center;
+}
+
+.titleBlock {
+  display: grid;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  gap: var(--space-sm);
+  padding: 0.3rem 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  border-radius: var(--radius-full);
+  background-color: rgba(255, 255, 255, 0.12);
+  color: var(--color-on-accent);
+  font-size: var(--font-size-label);
+  font-weight: 750;
 }
 
 .supportCard {
-  background-color: rgba(248, 250, 248, 0.96);
+  min-height: 150px;
+  background-color: var(--color-surface);
+  box-shadow: 0 10px 24px rgba(16, 32, 28, 0.04);
+}
+
+.supportHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.statusIcon {
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-full);
+  background-color: var(--color-surface-muted);
+  color: var(--color-accent);
 }
 
 .primaryTitle,
 .supportTitle {
   margin: 0;
-  color: #10201c;
+  color: var(--color-ink);
 }
 
 .primaryTitle {
-  font-size: 1.5rem;
-  line-height: 1.2;
+  max-width: 12ch;
+  color: var(--color-on-accent);
+  font-size: clamp(1.7rem, 4vw, 2.45rem);
+  line-height: var(--line-height-tight);
 }
 
 .supportTitle {
-  font-size: 1.35rem;
-  line-height: 1.25;
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-heading);
 }
 
 .cardBody {
   margin: 0;
-  color: #33514b;
-  line-height: 1.6;
+  color: var(--color-ink-muted);
+  line-height: var(--line-height-body);
+}
+
+.primaryPracticeCard .cardBody {
+  max-width: 58ch;
+  color: var(--color-on-accent-muted);
 }
 
 .actionRow {
@@ -60,37 +122,61 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: var(--space-sm);
   min-height: 44px;
   padding: 0.75rem 1rem;
-  border: 1px solid rgba(18, 61, 55, 0.12);
-  border-radius: 8px;
-  color: #10201c;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+  color: var(--color-ink);
   font: inherit;
   font-weight: 600;
   text-decoration: none;
+  transition:
+    background-color var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
 }
 
 .action:hover:not(:disabled) {
-  border-color: rgba(15, 118, 110, 0.28);
+  border-color: rgba(39, 106, 115, 0.32);
   background-color: rgba(239, 248, 245, 0.98);
+  transform: translateY(-1px);
 }
 
 .action:focus-visible {
-  outline: 3px solid rgba(15, 118, 110, 0.42);
+  outline: 3px solid var(--color-focus-ring);
   outline-offset: 3px;
+}
+
+.primaryPracticeCard .action:focus-visible {
+  outline-color: var(--color-focus-ring-on-accent);
 }
 
 .primaryAction {
   min-height: 48px;
-  border-color: #276a73;
-  background-color: #276a73;
-  color: #ffffff;
+  border-color: var(--color-accent);
+  background-color: var(--color-accent);
+  color: var(--color-on-accent);
   cursor: pointer;
 }
 
+.primaryPracticeCard .primaryAction {
+  border-color: var(--color-on-accent);
+  background-color: var(--color-on-accent);
+  color: var(--color-accent-strong);
+}
+
 .primaryAction:hover:not(:disabled) {
-  border-color: #1f5961;
-  background-color: #1f5961;
+  border-color: var(--color-accent-strong);
+  background-color: var(--color-accent-strong);
+  color: var(--color-on-accent);
+}
+
+.primaryPracticeCard .primaryAction:hover:not(:disabled) {
+  border-color: var(--color-on-accent);
+  background-color: rgba(255, 255, 255, 0.9);
+  color: var(--color-accent-strong);
 }
 
 .secondaryAction {
@@ -98,10 +184,30 @@
   cursor: pointer;
 }
 
+.primaryPracticeCard .secondaryAction {
+  border-color: rgba(255, 255, 255, 0.32);
+  background-color: rgba(255, 255, 255, 0.13);
+  color: var(--color-on-accent);
+}
+
+.primaryPracticeCard .secondaryAction:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.54);
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
 .disabledAction,
 .action:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.readinessMeter {
+  --progress-ring-size: 7.5rem;
+  --progress-ring-track: rgba(255, 255, 255, 0.24);
+  --progress-ring-fill: var(--color-on-accent);
+  --progress-ring-center: rgba(31, 89, 97, 0.76);
+  --progress-ring-text: var(--color-on-accent);
+  --progress-ring-muted: var(--color-on-accent-muted);
 }
 
 .diagnosticsList {
@@ -122,6 +228,14 @@
 }
 
 @media (max-width: 640px) {
+  .practiceIntro {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .readinessMeter {
+    justify-self: start;
+  }
+
   .action,
   .primaryAction {
     width: 100%;

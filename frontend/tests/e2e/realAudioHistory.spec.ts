@@ -18,6 +18,13 @@ const attachAudioPath = async (page: Page, filePath: string) => {
   await expect(page.getByText("A recording is attached and ready for assessment.")).toBeVisible();
 };
 
+const fillOptionalLabel = async (page: Page, label: string) => {
+  const disclosure = page.getByTestId("speak.optional_context");
+  await disclosure.locator("summary").click();
+  await expect(disclosure).toHaveAttribute("open", "");
+  await page.getByTestId("speak.label").fill(label);
+};
+
 const lastNumberFromTestId = async (page: Page, testId: string) => {
   const value = await page.getByTestId(testId).textContent();
   const matches = value?.match(/\d+(?:\.\d+)?/g) ?? [];
@@ -31,13 +38,12 @@ test.describe("real audio history replacement", () => {
     await page.goto("/");
     await page.getByTestId("home.start_new").click();
     await page.getByTestId("setup.speaker_id").fill("playwright-real-audio");
-    await page.getByTestId("setup.learning_language").selectOption("it");
-    await page.getByTestId("setup.cefr").selectOption("B1");
+    await page.getByTestId("setup.recommended_start").click();
     await page.getByTestId("setup.continue").click();
     await expect(page).toHaveURL(/\/speak$/);
 
     await attachAudioPath(page, weakerAudio);
-    await page.getByTestId("speak.label").fill("real weaker sample");
+    await fillOptionalLabel(page, "real weaker sample");
     await page.getByTestId("speak.submit").click();
     await expect(page.getByTestId("review-summary")).toBeVisible({ timeout: 180_000 });
     const firstScore = await lastNumberFromTestId(page, "review-metric-score-overall");
@@ -45,7 +51,7 @@ test.describe("real audio history replacement", () => {
 
     await page.getByTestId("review-action-try-again").click();
     await attachAudioPath(page, strongerAudio);
-    await page.getByTestId("speak.label").fill("real stronger sample");
+    await fillOptionalLabel(page, "real stronger sample");
     await page.getByTestId("speak.submit").click();
     await expect(page.getByTestId("review-summary")).toBeVisible({ timeout: 180_000 });
 
@@ -57,6 +63,6 @@ test.describe("real audio history replacement", () => {
 
     await page.getByTestId("review-action-view-history").click();
     await expect(page.getByTestId("history-detail-panel")).toBeVisible();
-    await expect(page.getByTestId("review-label")).toContainText("real stronger sample");
+    await expect(page.getByTestId("review-label")).toHaveValue("real stronger sample");
   });
 });

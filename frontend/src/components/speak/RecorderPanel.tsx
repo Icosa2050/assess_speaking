@@ -1,9 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 
+import { Icon } from "@/components/ui/Icon";
 import type { RecordingInputMethod } from "@/lib/state/sessionDraft";
+
+import styles from "./RecorderPanel.module.css";
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
 type RecorderPhase = "idle" | "requesting" | "recording" | "error";
+type VisualizerState = "idle" | "requesting" | "recording" | "ready" | "upload" | "error";
 
 const MAX_RECORDING_SECONDS = 5 * 60;
 const MEDIA_PERMISSION_TIMEOUT_MS = 8_000;
@@ -62,10 +66,10 @@ const recordingErrorMessage = (translate: Translate, error: unknown): string => 
 const cardStyle = {
   display: "grid",
   gap: "0.875rem",
-  padding: "1.25rem",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
+  padding: "1.35rem",
+  border: "1px solid rgba(15, 118, 110, 0.22)",
   borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.94)",
+  backgroundColor: "rgba(250, 253, 252, 0.98)",
   boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
 } as const;
 
@@ -92,6 +96,20 @@ const inputStyle = {
   backgroundColor: "#fff",
   color: "#10201c",
   font: "inherit",
+} as const;
+
+const hiddenFileInputStyle = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  margin: "-1px",
+  padding: 0,
+  border: 0,
+  overflow: "hidden",
+  opacity: 0,
+  clip: "rect(0 0 0 0)",
+  clipPath: "inset(50%)",
+  whiteSpace: "nowrap",
 } as const;
 
 const actionButtonStyle = {
@@ -132,6 +150,8 @@ const uploadBoxStyle = {
   cursor: "pointer",
 } as const;
 
+const visualizerBarScales = [0.36, 0.68, 0.46, 0.82, 0.54, 0.74, 0.42, 0.62, 0.36] as const;
+
 export const RecorderPanel = ({
   canRemove,
   inputMode,
@@ -139,6 +159,7 @@ export const RecorderPanel = ({
   onInputModeChange,
   onRemove,
   previewUrl,
+  showReadyCheckpoint,
   statusMessage,
   statusTone,
   translate,
@@ -149,6 +170,7 @@ export const RecorderPanel = ({
   onInputModeChange: (mode: RecordingInputMethod) => void;
   onRemove: () => void;
   previewUrl: string;
+  showReadyCheckpoint: boolean;
   statusMessage: string;
   statusTone: "error" | "info" | "success" | "warning";
   translate: Translate;
@@ -424,9 +446,25 @@ export const RecorderPanel = ({
         : recorderPhase === "recording"
           ? "warning"
           : statusTone;
+  const visualizerState: VisualizerState =
+    inputMode === "upload"
+      ? "upload"
+      : recorderPhase === "recording"
+        ? "recording"
+        : recorderPhase === "requesting"
+          ? "requesting"
+          : recorderPhase === "error" || visibleStatusTone === "error"
+            ? "error"
+            : visibleStatusTone === "success"
+              ? "ready"
+              : "idle";
 
   return (
-    <section style={cardStyle}>
+    <section
+      style={cardStyle}
+      data-testid="speak.recording_panel"
+      data-semantic-id="speak.recording_panel"
+    >
       <h2
         style={{
           margin: 0,
@@ -446,6 +484,30 @@ export const RecorderPanel = ({
         {translate("speak.recording_body")}
       </p>
       <div
+        role="img"
+        aria-label={visibleStatusMessage}
+        className={styles.visualizer}
+        data-recording-state={visualizerState}
+        data-testid="speak.recording_visualizer"
+        data-semantic-id="speak.recording_visualizer"
+      >
+        <div className={styles.visualizerBars} aria-hidden="true">
+          {visualizerBarScales.map((scale, index) => (
+            <span
+              // The fixed pattern gives the learner a voice-level cue without touching microphone streams.
+              key={`${scale}-${index}`}
+              className={styles.visualizerBar}
+              style={
+                {
+                  "--bar-delay": `${index * 90}ms`,
+                  "--bar-height": `${1.1 + scale * 3.1}rem`,
+                } as CSSProperties
+              }
+            />
+          ))}
+        </div>
+      </div>
+      <div
         aria-label={translate("speak.input_method")}
         style={{
           display: "flex",
@@ -456,19 +518,23 @@ export const RecorderPanel = ({
         <button
           type="button"
           onClick={() => handleModeChange("record")}
+          className={styles.controlButton}
           style={modeButtonStyle(inputMode === "record")}
           data-testid="speak.input_mode_record"
           data-semantic-id="speak.input_mode_record"
         >
+          <Icon className={styles.controlIcon} name="microphone" size={18} />
           {translate("speak.input_method_record")}
         </button>
         <button
           type="button"
           onClick={() => handleModeChange("upload")}
+          className={styles.controlButton}
           style={modeButtonStyle(inputMode === "upload")}
           data-testid="speak.input_mode_upload"
           data-semantic-id="speak.input_mode_upload"
         >
+          <Icon className={styles.controlIcon} name="upload" size={18} />
           {translate("speak.input_method_upload")}
         </button>
       </div>
@@ -484,35 +550,46 @@ export const RecorderPanel = ({
             onClick={handleStartRecording}
             disabled={recorderPhase === "requesting" || recorderPhase === "recording"}
             aria-pressed={recorderPhase === "recording"}
+            className={styles.controlButton}
             style={primaryActionButtonStyle}
             data-testid="speak.record_start"
             data-semantic-id="speak.record_start"
           >
+            <Icon className={styles.controlIcon} name="microphone" size={18} />
             {translate("speak.recording_start")}
           </button>
           {recorderPhase === "recording" ? (
             <button
               type="button"
               onClick={() => stopRecording()}
+              className={styles.controlButton}
               style={dangerActionButtonStyle}
               data-testid="speak.record_stop"
               data-semantic-id="speak.record_stop"
             >
+              <Icon className={styles.controlIcon} name="stop" size={18} />
               {translate("speak.recording_stop")}
             </button>
           ) : null}
         </div>
       ) : (
-        <label htmlFor="speak-upload-input" style={uploadBoxStyle}>
+        <label
+          htmlFor="speak-upload-input"
+          className={styles.uploadControl}
+          style={uploadBoxStyle}
+        >
           <span>{translate("speak.upload")}</span>
-          <span style={actionButtonStyle}>{translate("speak.upload_choose")}</span>
+          <span className={styles.controlButton} style={actionButtonStyle}>
+            <Icon className={styles.controlIcon} name="upload" size={18} />
+            {translate("speak.upload_choose")}
+          </span>
           <input
             id="speak-upload-input"
             type="file"
             accept="audio/*"
             aria-label={translate("speak.upload")}
             onChange={(event) => onFileSelected(event.currentTarget.files?.[0] ?? null)}
-            style={inputStyle}
+            style={hiddenFileInputStyle}
             data-testid="speak.upload_input"
             data-semantic-id="speak.upload_input"
           />
@@ -556,6 +633,41 @@ export const RecorderPanel = ({
             width: "100%",
           }}
         />
+      ) : null}
+      {showReadyCheckpoint ? (
+        <div
+          style={{
+            display: "grid",
+            gap: "0.35rem",
+            padding: "0.75rem",
+            border: "1px solid rgba(15, 118, 110, 0.16)",
+            borderRadius: "8px",
+            backgroundColor: "rgba(248, 251, 250, 0.96)",
+          }}
+          data-testid="speak.recording_ready_checkpoint"
+          data-semantic-id="speak.recording_ready_checkpoint"
+        >
+          <strong
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.4rem",
+              color: "#10201c",
+            }}
+          >
+            <Icon name="check" size={17} />
+            {translate("speak.recording_ready_checkpoint_title")}
+          </strong>
+          <p
+            style={{
+              margin: 0,
+              color: "#33514b",
+              lineHeight: 1.5,
+            }}
+          >
+            {translate("speak.recording_ready_checkpoint_body")}
+          </p>
+        </div>
       ) : null}
       {canRemove ? (
         <button

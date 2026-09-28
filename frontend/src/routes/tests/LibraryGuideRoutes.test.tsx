@@ -73,10 +73,10 @@ describe("Library and Guide routes", () => {
     });
 
     fireEvent.click(await screen.findByTestId("home.open_library"));
-    expect(await screen.findByRole("heading", { name: "Theme library" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Pick your next exercise" })).toBeVisible();
 
     fireEvent.click(screen.getByRole("link", { name: "Scoring Guide" }));
-    expect(await screen.findByRole("heading", { name: "How scoring works" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Understand your feedback" })).toBeVisible();
     expect(screen.getByText("Content validity")).toBeVisible();
   });
 
@@ -101,9 +101,14 @@ describe("Library and Guide routes", () => {
       },
     });
 
-    expect(await screen.findByRole("heading", { name: "Theme library" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Pick your next exercise" })).toBeVisible();
+    expect(screen.getByText("Choose a prompt or sample and move straight back into speaking practice.")).toBeVisible();
     expect(screen.getByText("My last trip abroad")).toBeVisible();
     expect(await screen.findByText("Travel Story")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Practice this prompt" })).toBeVisible();
+    expect(screen.getByTestId("library.custom_theme_builder")).toHaveTextContent(
+      "Optional: manage your own themes when the shipped prompts do not fit today's practice.",
+    );
 
     fireEvent.click(screen.getByTestId("library.sample_prepare"));
 
@@ -122,7 +127,7 @@ describe("Library and Guide routes", () => {
     });
 
     expect(await screen.findByTestId("library-samples-loading")).toHaveTextContent(
-      "Loading shipped samples...",
+      "Loading sample recordings...",
     );
   });
 
@@ -137,7 +142,7 @@ describe("Library and Guide routes", () => {
     });
 
     expect(await screen.findByTestId("library-samples-error")).toHaveTextContent(
-      "Shipped samples could not be loaded.",
+      "The sample recordings could not be loaded.",
     );
   });
 
@@ -147,7 +152,11 @@ describe("Library and Guide routes", () => {
       locale: "en",
     });
 
-    expect(await screen.findByRole("heading", { name: "How scoring works" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Understand your feedback" })).toBeVisible();
+    expect(screen.getByTestId("guide.practice_support_intro")).toHaveTextContent(
+      "Use this guide to understand a score or a note in your feedback.",
+    );
+    expect(screen.getByRole("link", { name: "Quality checks" })).toHaveAttribute("href", "#guide-gates");
     expect(screen.getByText("Final score formula")).toBeVisible();
     expect(screen.getByText("Speaking pace (WPM)")).toBeVisible();
     expect(screen.getByText("Provisional CEFR estimate")).toBeVisible();

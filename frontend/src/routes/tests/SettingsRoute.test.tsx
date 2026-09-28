@@ -5,7 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/renderWithProviders";
 
-vi.mock("@/lib/api/client", () => ({
+vi.mock("@/lib/api/client", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/api/client")>(),
   apiClient: {
     createSupportBundle: vi.fn(),
     deleteRuntimeSettingsConnection: vi.fn(),
@@ -172,6 +173,15 @@ describe("Settings route", () => {
       recommended: true,
       recommendation_reason: "Scoring baseline",
     });
+  });
+
+  it("returns to Review after opening Settings from the navigation", async () => {
+    renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en" });
+    expect(await screen.findByTestId("review-guard-missing-review")).toBeVisible();
+    fireEvent.click(screen.getByTestId("home.open_settings"));
+    expect(await screen.findByTestId("settings.return")).toBeVisible();
+    fireEvent.click(screen.getByTestId("settings.return"));
+    expect(await screen.findByTestId("review-guard-missing-review")).toBeVisible();
   });
 
   it("updates the active saved connection through the runtime settings API and returns to Home", async () => {
@@ -408,6 +418,43 @@ describe("Settings route", () => {
     expect(screen.queryByText(/Connection test succeeded for OpenRouter/)).not.toBeInTheDocument();
   });
 
+  it("keeps UI language editing in Settings", async () => {
+    const savedSettings = runtimeSettings({
+      ui_locale: "de",
+    });
+    mockedGetRuntimeSettings
+      .mockResolvedValueOnce(runtimeSettings())
+      .mockResolvedValue(savedSettings);
+    mockedPutRuntimeSettings.mockResolvedValue(savedSettings);
+
+    const { store } = renderWithProviders(<AppFrame />, {
+      initialEntries: ["/settings"],
+      locale: "en",
+    });
+
+    expect(await screen.findAllByText("Bravo runtime")).toHaveLength(2);
+    const localeField = await screen.findByTestId("settings.ui_locale");
+    expect(localeField).toHaveValue("en");
+
+    fireEvent.change(localeField, {
+      target: { value: "de" },
+    });
+    await waitFor(() => {
+      expect(localeField).toHaveValue("de");
+    });
+
+    fireEvent.click(screen.getByTestId("runtime_connection.save_connection"));
+
+    await waitFor(() => {
+      expect(mockedPutRuntimeSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ui_locale: "de",
+        }),
+      );
+      expect(store.getState().preferences.uiLocale).toBe("de");
+    });
+  });
+
   it("keeps the explicit create-new draft selected across runtime settings refreshes", async () => {
     const runtimeSettingsDeferred = createDeferred<RuntimeSettingsResponse>();
     mockedGetRuntimeSettings.mockReturnValue(runtimeSettingsDeferred.promise);
@@ -489,13 +536,13 @@ describe("Settings route", () => {
 
     fireEvent.click(screen.getByTestId("settings.support_cleanup_preview"));
     expect(
-      await screen.findByText("Cleanup preview found 4 file(s) and 4.0 KB safely removable."),
+      await screen.findByText("Files that can be removed: 4. Space to be freed: 4.0 KB."),
     ).toBeVisible();
 
     fireEvent.click(screen.getByTestId("settings.support_cleanup_run"));
     fireEvent.click(screen.getByTestId("settings.support_cleanup_run_confirm"));
     expect(
-      await screen.findByText("Cleanup removed 2 file(s) and freed 1.0 KB."),
+      await screen.findByText("Files removed: 2. Space freed: 1.0 KB."),
     ).toBeVisible();
     expect(screen.getByText("Support warning: rotated logs skipped")).toBeVisible();
 

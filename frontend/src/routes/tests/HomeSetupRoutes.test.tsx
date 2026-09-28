@@ -91,12 +91,361 @@ describe("Home and Runtime Setup routes", () => {
     });
 
     const startNewButton = await screen.findByTestId("home.start_new");
-    const diagnosticsHeading = await screen.findByText("Startup checks");
+    const diagnosticsHeading = await screen.findByText("Please review these notices");
+    const readinessMeter = screen.getByRole("progressbar", { name: "Practice readiness" });
 
     expect(startNewButton).toBeVisible();
     expect(startNewButton.closest("section")?.className).toContain("primaryPracticeCard");
+    expect(readinessMeter).toHaveAttribute("aria-valuemin", "0");
+    expect(readinessMeter).toHaveAttribute("aria-valuemax", "100");
+    expect(Number(readinessMeter.getAttribute("aria-valuenow"))).toBeGreaterThan(0);
     expect(diagnosticsHeading.closest("section")?.className).toContain("supportCard");
+    expect(screen.getByRole("button", { name: "Open Setup Guide" })).toHaveAttribute(
+      "data-semantic-id",
+      "home.setup_guide_button",
+    );
+    expect(screen.queryByText("See what is ready and what still needs to be set up.")).not.toBeInTheDocument();
     expect(screen.queryByTestId("home.runtime_setup_button")).not.toBeInTheDocument();
+  });
+
+  it("treats ok and informational diagnostics as healthy", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true,
+      provider: "ollama",
+      model: "llama3.2:3b",
+      base_url: "http://localhost:11434/v1",
+      requires_api_key: false,
+      has_api_key: false,
+    });
+    mockedGetDiagnostics.mockResolvedValue({
+      items: [
+        {
+          key: "whisper",
+          status: "ok",
+          title_key: "diagnostics.whisper_title",
+          detail_key: "diagnostics.whisper_ok_detail",
+          detail_args: {},
+        },
+        {
+          key: "runtime",
+          status: "ok",
+          title_key: "diagnostics.runtime_title",
+          detail_key: "diagnostics.runtime_ok_detail",
+          detail_args: {},
+        },
+        {
+          key: "microphone",
+          status: "info",
+          title_key: "diagnostics.microphone_title",
+          detail_key: "diagnostics.microphone_info_detail",
+          detail_args: {},
+        },
+      ],
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/"],
+      locale: "en",
+      appState: {
+        preferences: {
+          setupComplete: true,
+        },
+      },
+    });
+
+    expect(await screen.findByText("Ready on this device")).toBeVisible();
+    expect(screen.queryByText("Please review these notices")).not.toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Practice readiness" })).toHaveAttribute(
+      "aria-valuenow",
+      "100",
+    );
+  });
+
+  it("counts only actionable diagnostics in the attention summary", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true,
+      provider: "ollama",
+      model: "llama3.2:3b",
+      base_url: "http://localhost:11434/v1",
+      requires_api_key: false,
+      has_api_key: false,
+    });
+    mockedGetDiagnostics.mockResolvedValue({
+      items: [
+        {
+          key: "runtime",
+          status: "ok",
+          title_key: "diagnostics.runtime_title",
+          detail_key: "diagnostics.runtime_ok_detail",
+          detail_args: {},
+        },
+        {
+          key: "microphone",
+          status: "info",
+          title_key: "diagnostics.microphone_title",
+          detail_key: "diagnostics.microphone_info_detail",
+          detail_args: {},
+        },
+        {
+          key: "whisper",
+          status: " DeGrAdEd ",
+          title_key: "diagnostics.whisper_title",
+          detail_key: "diagnostics.whisper_warning_detail",
+          detail_args: {},
+        },
+      ],
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/"],
+      locale: "en",
+      appState: {
+        preferences: {
+          setupComplete: true,
+        },
+      },
+    });
+
+    expect(await screen.findByText("Please review these notices")).toBeVisible();
+    expect(screen.getByText("Items to check: 1. Open the setup guide to see your next steps.")).toBeVisible();
+  });
+
+  it.each([
+    ["de", "Bitte prüfe die folgenden Hinweise"],
+    ["en", "Please review these notices"],
+    ["fr", "Points à vérifier"],
+    ["es", "Avisos por revisar"],
+    ["it", "Avvisi da verificare"],
+  ] as const)("uses a neutral %s heading for maintenance-only warnings after setup", async (locale, heading) => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true,
+      provider: "ollama",
+      model: "llama3.2:3b",
+      base_url: "http://localhost:11434/v1",
+      requires_api_key: false,
+      has_api_key: false,
+    });
+    mockedGetDiagnostics.mockResolvedValue({
+      items: [
+        {
+          key: "whisper",
+          status: "ok",
+          title_key: "diagnostics.whisper_title",
+          detail_key: "diagnostics.whisper_ok_detail",
+          detail_args: { model: "small", path: "/tmp/whisper" },
+        },
+        {
+          key: "runtime",
+          status: "ok",
+          title_key: "diagnostics.runtime_title",
+          detail_key: "diagnostics.runtime_ok_detail",
+          detail_args: { provider: "ollama", model: "llama3.2:3b" },
+        },
+        {
+          key: "maintenance_tmp",
+          status: "warning",
+          title_key: "diagnostics.maintenance_tmp_title",
+          detail_key: "diagnostics.maintenance_tmp_warning_detail",
+          detail_args: { file_count: 1, size_bytes: 1024, oldest_age_hours: 48 },
+        },
+      ],
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/"],
+      locale,
+      appState: { preferences: { setupComplete: true } },
+    });
+
+    expect(await screen.findByRole("heading", { name: heading })).toBeVisible();
+    expect(screen.getByTestId("home.start_new")).toBeEnabled();
+    expect(screen.queryByTestId("home.runtime_setup_button")).not.toBeInTheDocument();
+  });
+
+  it("keeps UI language in Settings and avoids duplicate Home navigation copy", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true,
+      provider: "ollama",
+      model: "llama3.2:3b",
+      base_url: "http://localhost:11434/v1",
+      requires_api_key: false,
+      has_api_key: false,
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/"],
+      locale: "en",
+      appState: {
+        preferences: {
+          setupComplete: true,
+        },
+      },
+    });
+
+    expect(await screen.findByRole("button", { name: "Start new session" })).toBeVisible();
+    expect(screen.queryByLabelText("Interface language")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "English" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Settings" }).length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("Explore more")).not.toBeInTheDocument();
+  });
+
+  it("groups the configured navigation around practice without showing runtime setup as a peer route", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true,
+      provider: "ollama",
+      model: "llama3.2:3b",
+      base_url: "http://localhost:11434/v1",
+      requires_api_key: false,
+      has_api_key: false,
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/"],
+      locale: "en",
+      appState: {
+        preferences: {
+          setupComplete: true,
+        },
+      },
+    });
+
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+
+    expect(await screen.findByRole("button", { name: "Start new session" })).toBeVisible();
+    expect(within(nav).getByText("Practice")).toBeVisible();
+    expect(within(nav).getByText("Progress")).toBeVisible();
+    expect(within(nav).getByText("Discover")).toBeVisible();
+    expect(within(nav).getByRole("link", { name: "Practice Home" })).toBeVisible();
+    expect(within(nav).getByRole("link", { name: "Session Setup" })).toBeVisible();
+    expect(within(nav).getByRole("link", { name: "Speak" })).toBeVisible();
+    expect(within(nav).getByRole("link", { name: "Review" })).toBeVisible();
+    expect(within(nav).queryByRole("link", { name: "Set up local AI" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("home.open_history")).toHaveAttribute("href", "/history");
+    expect(screen.getByTestId("home.open_library")).toHaveAttribute("href", "/library");
+    expect(screen.getByTestId("home.open_guide")).toHaveAttribute("href", "/guide");
+    expect(screen.getByTestId("home.open_settings")).toHaveAttribute("href", "/settings");
+  });
+
+  it("uses backend runtime readiness to remove runtime setup from primary navigation", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true,
+      provider: "ollama",
+      model: "llama3.2:3b",
+      base_url: "http://localhost:11434/v1",
+      requires_api_key: false,
+      has_api_key: false,
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/"],
+      locale: "en",
+    });
+
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+
+    expect(await screen.findByRole("button", { name: "Start new session" })).toBeVisible();
+    await waitFor(() => {
+      expect(within(nav).queryByRole("link", { name: "Set up local AI" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("keeps runtime setup reachable in navigation before setup is complete", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: false,
+      provider: "",
+      model: "",
+      base_url: "",
+      requires_api_key: false,
+      has_api_key: false,
+    });
+    mockedGetRuntimeSettings.mockResolvedValue({
+      ui_locale: "en",
+      whisper_model: "medium",
+      active_connection_id: "",
+      connections: [],
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/runtime-setup"],
+      locale: "en",
+    });
+
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+
+    expect(await screen.findByTestId("runtime_setup.screen")).toBeVisible();
+    expect(document.title).toBe("Set up local AI");
+    expect(within(nav).getByText("Practice")).toBeVisible();
+    expect(within(nav).getByRole("link", { name: "Set up local AI" })).toHaveAttribute(
+      "href",
+      "/runtime-setup",
+    );
+  });
+
+  it("shows a setup next step instead of an empty startup checklist", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: false,
+      provider: "",
+      model: "",
+      base_url: "",
+      requires_api_key: false,
+      has_api_key: false,
+    });
+    mockedGetDiagnostics.mockResolvedValue({ items: [] });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/"],
+      locale: "en",
+    });
+
+    expect(await screen.findByText("Next step")).toBeVisible();
+    expect(screen.getByText("Set up local AI to unlock speaking practice on this device.")).toBeVisible();
+    expect(screen.queryByText("See what is ready and what still needs to be set up.")).not.toBeInTheDocument();
+  });
+
+  it("keeps startup checks in a loading state until readiness is known", () => {
+    mockedGetRuntime.mockImplementation(() => new Promise(() => undefined));
+    mockedGetDiagnostics.mockImplementation(() => new Promise(() => undefined));
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/"],
+      locale: "en",
+    });
+
+    expect(screen.getByText("Running startup checks...")).toBeVisible();
+    expect(screen.queryByText("Next step")).not.toBeInTheDocument();
+    expect(screen.queryByText("Set up local AI to unlock speaking practice on this device.")).not.toBeInTheDocument();
+  });
+
+  it("shows the setup guide readiness rows before runtime controls", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: false,
+      provider: "",
+      model: "",
+      base_url: "",
+      requires_api_key: false,
+      has_api_key: false,
+    });
+    mockedGetRuntimeSettings.mockResolvedValue({
+      ui_locale: "en",
+      whisper_model: "medium",
+      active_connection_id: "",
+      connections: [],
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/runtime-setup"],
+      locale: "en",
+    });
+
+    expect(await screen.findByTestId("runtime_setup.setup_guide")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Setup Guide" })).toBeVisible();
+    expect(screen.getByTestId("runtime_setup.setup_guide.speech_recognition")).toHaveTextContent(
+      "Speech recognition",
+    );
+    expect(screen.getByTestId("runtime_setup.setup_guide.ai_tutor")).toHaveTextContent("AI tutor");
+    expect(screen.getByTestId("runtime_setup.setup_guide.microphone")).toHaveTextContent("Microphone");
+    expect(screen.getByRole("button", { name: "Start a session" })).toBeDisabled();
+    expect(screen.getByTestId("runtime_connection.form")).toBeVisible();
   });
 
   it("shows the runtime setup branch on Home and renders interactive runtime controls", async () => {
@@ -201,7 +550,7 @@ describe("Home and Runtime Setup routes", () => {
     await waitFor(() => {
       expect(mockedPostRuntimeSettingsTestConnection).toHaveBeenCalled();
     });
-    expect(screen.getByText("Detected 2 local model(s) via http://localhost:11434/api/tags.")).toBeVisible();
+    expect(screen.getByText("Local models found via http://localhost:11434/api/tags: 2.")).toBeVisible();
 
     const detectedModelField = screen.getByLabelText("Detected local models");
     expect(screen.getByTestId("runtime_connection.model")).toHaveValue("llama3.2:3b");
@@ -211,7 +560,7 @@ describe("Home and Runtime Setup routes", () => {
 
     fireEvent.click(screen.getByTestId("runtime_connection.test_connection"));
     const healthCheckMessage =
-      "Health check passed at http://localhost:11434/api/tags. Smoke test reached http://localhost:11434/v1 with model llama3.2:3b. Preview: ok";
+      "Connection to http://localhost:11434/api/tags succeeded. Model llama3.2:3b responded via http://localhost:11434/v1. Preview: ok";
     expect(await screen.findByText(healthCheckMessage)).toBeVisible();
 
     fireEvent.change(screen.getByTestId("runtime_connection.provider"), {
@@ -220,7 +569,7 @@ describe("Home and Runtime Setup routes", () => {
     expect(screen.getByTestId("runtime_connection.model")).toHaveValue("");
     expect(screen.getByTestId("runtime_connection.base_url")).toHaveValue("http://localhost:1234/v1");
     expect(screen.queryByLabelText("Detected local models")).not.toBeInTheDocument();
-    expect(screen.queryByText("Detected 2 local model(s) via http://localhost:11434/api/tags.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Local models found via http://localhost:11434/api/tags: 2.")).not.toBeInTheDocument();
     expect(screen.queryByText(healthCheckMessage)).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByTestId("runtime_connection.provider"), {

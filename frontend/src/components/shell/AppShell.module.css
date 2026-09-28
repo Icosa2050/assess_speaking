@@ -1,7 +1,7 @@
 .shell {
   min-height: 100vh;
-  background: linear-gradient(180deg, #eef4f2 0%, #f8fbfa 48%, #f3f6f5 100%);
-  color: #10201c;
+  background: var(--color-bg);
+  color: var(--color-ink);
 }
 
 .container {
@@ -13,7 +13,7 @@
 .header {
   display: grid;
   gap: 1rem;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   margin-bottom: 24px;
 }
@@ -26,60 +26,20 @@
 
 .title {
   margin: 0;
-  font-size: 2.6rem;
-  line-height: 1.05;
+  font-size: var(--font-size-display);
+  line-height: var(--line-height-tight);
 }
 
 .body {
   margin: 0;
   max-width: 56ch;
-  line-height: 1.6;
-  color: #33514b;
+  line-height: var(--line-height-body);
+  color: var(--color-ink-muted);
 }
 
-.localePanel {
-  display: grid;
-  gap: 0.625rem;
-  justify-items: end;
-}
-
-.localeLabel {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #33514b;
-}
-
-.localeOptions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  justify-content: flex-end;
-}
-
-.localeButton {
-  padding: 0.55rem 0.85rem;
-  border: 1px solid rgba(18, 61, 55, 0.12);
-  border-radius: 8px;
-  background-color: rgba(255, 255, 255, 0.82);
-  color: #10201c;
-  cursor: pointer;
-  font: inherit;
-}
-
-.localeButton:hover {
-  border-color: rgba(15, 118, 110, 0.32);
-  background-color: rgba(239, 248, 245, 0.98);
-}
-
-.localeButton:focus-visible,
 .navLink:focus-visible {
-  outline: 3px solid rgba(15, 118, 110, 0.42);
+  outline: 3px solid var(--color-focus-ring);
   outline-offset: 3px;
-}
-
-.localeButtonActive {
-  border-color: rgba(15, 118, 110, 0.3);
-  background-color: #d7ebe5;
 }
 
 .layout {
@@ -90,52 +50,74 @@
 }
 
 .sidebar {
-  display: grid;
-  gap: 0.875rem;
+  display: flex;
+  flex-direction: column;
   padding: 1rem;
-  border: 1px solid rgba(18, 61, 55, 0.12);
-  border-radius: 8px;
-  background-color: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 14px 30px rgba(16, 32, 28, 0.06);
-}
-
-.sidebarTitle {
-  margin: 0;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #33514b;
-}
-
-.sidebarBody {
-  margin: 0;
-  line-height: 1.55;
-  color: #4a6660;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+  background-color: rgba(255, 255, 255, 0.82);
+  box-shadow: var(--shadow-card);
 }
 
 .nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.navPrimary {
+  display: grid;
+  gap: 1rem;
+}
+
+.navGroup {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.navGroupLabel {
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-label);
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.navLinks {
   display: grid;
   gap: 0.5rem;
-  margin-top: 0.5rem;
+}
+
+.navFooter {
+  display: grid;
+  gap: 0.5rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--color-border-soft);
 }
 
 .navLink {
   display: block;
   padding: 0.75rem 0.85rem;
   border: 1px solid rgba(18, 61, 55, 0.08);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background-color: rgba(255, 255, 255, 0.9);
-  color: #10201c;
+  color: var(--color-ink);
   font-weight: 600;
   text-decoration: none;
+  transition:
+    background-color var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
 }
 
 .navLink:hover {
   border-color: rgba(15, 118, 110, 0.22);
   background-color: rgba(239, 248, 245, 0.98);
+  transform: translateY(-1px);
 }
 
 .navLinkActive {
-  border-color: rgba(15, 118, 110, 0.25);
+  border-color: rgba(39, 106, 115, 0.28);
   background-color: #d7ebe5;
 }
 
@@ -145,12 +127,15 @@
   gap: 1rem;
 }
 
+.main > * {
+  min-width: 0;
+}
+
 @media (max-width: 760px) {
   .container {
     padding: 16px;
   }
 
-  .header,
   .layout {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -159,15 +144,7 @@
     font-size: 2rem;
   }
 
-  .localePanel {
-    justify-items: start;
-  }
-
-  .localeOptions {
-    justify-content: flex-start;
-  }
-
-  .nav {
+  .navLinks {
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   }
 }

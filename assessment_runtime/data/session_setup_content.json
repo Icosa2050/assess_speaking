@@ -24,27 +24,27 @@
           "task_family": "opinion_monologue"
         },
         {
-          "title": "Wie sich Reisegewohnheiten in den letzten Jahren veraendert haben",
+          "title": "Wie sich Reisegewohnheiten in den letzten Jahren verändert haben",
           "level": "B2",
           "task_family": "opinion_monologue"
         },
         {
-          "title": "Eine Erfahrung, die mein Denken veraendert hat",
+          "title": "Eine Erfahrung, die mein Denken verändert hat",
           "level": "B2",
           "task_family": "personal_experience"
         },
         {
-          "title": "Technologie und Lebensqualitaet im Alltag",
+          "title": "Technologie und Lebensqualität im Alltag",
           "level": "C1",
           "task_family": "opinion_monologue"
         },
         {
-          "title": "Der Einfluss sozialer Medien auf oeffentliche Debatten",
+          "title": "Der Einfluss sozialer Medien auf öffentliche Debatten",
           "level": "C1",
           "task_family": "opinion_monologue"
         },
         {
-          "title": "Wie man persoenliche Freiheit und gesellschaftliche Verantwortung ausbalanciert",
+          "title": "Wie sich persönliche Freiheit und gesellschaftliche Verantwortung vereinbaren lassen",
           "level": "C1",
           "task_family": "opinion_monologue"
         }
@@ -107,11 +107,11 @@
       ]
     },
     "de": {
-      "travel_narrative": "Sprich über '{theme}' in einer klaren Reihenfolge: Anfang, Entwicklung, Schluss.",
-      "personal_experience": "Erzähle '{theme}' als persönliche Erfahrung mit konkreten Details.",
+      "travel_narrative": "Erzähle zum Thema '{theme}' in einer klaren Reihenfolge mit Einleitung, Hauptteil und Schluss.",
+      "personal_experience": "Erzähle von einer persönlichen Erfahrung zum Thema '{theme}' und nenne konkrete Einzelheiten.",
       "opinion_monologue": "Beziehe zu '{theme}' Stellung und stütze deine Meinung mit mindestens zwei Argumenten.",
       "free_monologue": "Sprich auf Deutsch über '{theme}' mit einer einfachen, klaren Struktur.",
-      "picture_description": "Beschreibe '{theme}', erkläre den Kontext und vermute, was danach passiert.",
+      "picture_description": "Beschreibe das Bild zum Thema '{theme}', erläutere die Situation und überlege, was als Nächstes passieren könnte.",
       "default_duration_minutes": "Sprich etwa {minutes} Minuten.",
       "default_duration_seconds": "Sprich etwa {seconds} Sekunden.",
       "success_focus": [

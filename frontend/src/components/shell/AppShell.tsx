@@ -1,91 +1,112 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
+
+import { SEMANTIC_IDS, semanticAttributes } from "@/lib/i18n";
 
 import styles from "./AppShell.module.css";
-
-type LocaleOption = {
-  code: string;
-  label: string;
-};
 
 type RouteItem = {
   href: string;
   label: string;
 };
 
+type NavGroup = {
+  id: string;
+  items: RouteItem[];
+  label?: string;
+};
+
 type AppShellProps = {
-  activeLocale: string;
   appName: string;
-  localeLabel: string;
-  localeOptions: LocaleOption[];
+  navGroups: NavGroup[];
   navAriaLabel: string;
-  onLocaleChange: (locale: string) => void;
-  routeItems: RouteItem[];
   shellBody: string;
-  shellSecondaryBody: string;
-  shellSecondaryTitle: string;
+};
+
+const routeSemanticAttributes = (href: string): Record<string, string> => {
+  switch (href) {
+    case "/history":
+      return semanticAttributes(SEMANTIC_IDS.home.openHistory);
+    case "/library":
+      return semanticAttributes(SEMANTIC_IDS.home.openLibrary);
+    case "/guide":
+      return semanticAttributes(SEMANTIC_IDS.home.openGuide);
+    case "/settings":
+      return semanticAttributes(SEMANTIC_IDS.home.openSettings);
+    default:
+      return {};
+  }
 };
 
 export const AppShell = ({
-  activeLocale,
   appName,
-  localeLabel,
-  localeOptions,
+  navGroups,
   navAriaLabel,
-  onLocaleChange,
-  routeItems,
   shellBody,
-  shellSecondaryBody,
-  shellSecondaryTitle,
-}: AppShellProps) => (
-  <div className={styles.shell}>
-    <div className={styles.container}>
-      <header className={styles.header}>
-        <div className={styles.brandBlock}>
-          <h1 className={styles.title}>{appName}</h1>
-          <p className={styles.body}>{shellBody}</p>
-        </div>
-        <div className={styles.localePanel}>
-          <span className={styles.localeLabel}>{localeLabel}</span>
-          <div className={styles.localeOptions}>
-            {localeOptions.map((option) => (
-              <button
-                key={option.code}
-                type="button"
-                onClick={() => onLocaleChange(option.code)}
-                aria-pressed={activeLocale === option.code}
-                className={`${styles.localeButton} ${activeLocale === option.code ? styles.localeButtonActive : ""}`}
-              >
-                {option.label}
-              </button>
-            ))}
+}: AppShellProps) => {
+  const location = useLocation();
+  const primaryGroups = navGroups.filter((group) => group.id !== "settings");
+  const footerGroups = navGroups.filter((group) => group.id === "settings");
+  const renderRouteLink = (route: RouteItem) => (
+    <NavLink
+      key={route.href}
+      to={route.href}
+      state={route.href === "/settings"
+        ? location.pathname === "/settings"
+          ? location.state
+          : { from: location.pathname.slice(1) || "home" }
+        : undefined}
+      className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ""}`}
+      {...routeSemanticAttributes(route.href)}
+    >
+      {route.label}
+    </NavLink>
+  );
+
+  return (
+    <div className={styles.shell}>
+      <div className={styles.container}>
+        <header className={styles.header}>
+          <div className={styles.brandBlock}>
+            <h1 className={styles.title}>{appName}</h1>
+            <p className={styles.body}>{shellBody}</p>
           </div>
+        </header>
+
+        <div className={styles.layout}>
+          <aside className={styles.sidebar}>
+            <nav
+              aria-label={navAriaLabel}
+              className={styles.nav}
+            >
+              <div className={styles.navPrimary}>
+                {primaryGroups.map((group) => (
+                  <div
+                    key={group.id}
+                    className={styles.navGroup}
+                    data-nav-group={group.id}
+                  >
+                    {group.label ? (
+                      <span className={styles.navGroupLabel}>{group.label}</span>
+                    ) : null}
+                    <div className={styles.navLinks}>
+                      {group.items.map(renderRouteLink)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {footerGroups.length > 0 ? (
+                <div className={styles.navFooter}>
+                  {footerGroups.flatMap((group) => group.items).map(renderRouteLink)}
+                </div>
+              ) : null}
+            </nav>
+          </aside>
+
+          <main className={styles.main}>
+            <Outlet />
+          </main>
         </div>
-      </header>
-
-      <div className={styles.layout}>
-        <aside className={styles.sidebar}>
-          <p className={styles.sidebarTitle}>{shellSecondaryTitle}</p>
-          <p className={styles.sidebarBody}>{shellSecondaryBody}</p>
-          <nav
-            aria-label={navAriaLabel}
-            className={styles.nav}
-          >
-            {routeItems.map((route) => (
-              <NavLink
-                key={route.href}
-                to={route.href}
-                className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ""}`}
-              >
-                {route.label}
-              </NavLink>
-            ))}
-          </nav>
-        </aside>
-
-        <main className={styles.main}>
-          <Outlet />
-        </main>
       </div>
     </div>
-  </div>
-);
+  );
+};

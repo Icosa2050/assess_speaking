@@ -17,7 +17,41 @@ describe("api client", () => {
   });
 
   afterEach(() => {
+    Reflect.deleteProperty(window, "__VOSTAVO_DESKTOP__");
     vi.unstubAllGlobals();
+  });
+
+  it("uses the desktop URL even when the bridge arrives after client creation", async () => {
+    const client = createApiClient();
+    Object.assign(window, {
+      __VOSTAVO_DESKTOP__: { apiBaseUrl: "http://127.0.0.1:54321/" },
+    });
+
+    await client.getHealth();
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "http://127.0.0.1:54321/v1/health",
+      expect.any(Object),
+    );
+
+    Object.assign(window, {
+      __VOSTAVO_DESKTOP__: { apiBaseUrl: "http://127.0.0.1:54322" },
+    });
+    await client.getHistory();
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "http://127.0.0.1:54322/v1/history",
+      expect.any(Object),
+    );
+  });
+
+  it("preserves an explicit client URL when a desktop bridge exists", async () => {
+    Object.assign(window, {
+      __VOSTAVO_DESKTOP__: { apiBaseUrl: "http://127.0.0.1:54321" },
+    });
+    await createApiClient("http://localhost:8771").getHealth();
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "http://localhost:8771/v1/health",
+      expect.any(Object),
+    );
   });
 
   it("encodes dynamic history path segments", async () => {

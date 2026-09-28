@@ -163,6 +163,7 @@ class AsrTests(unittest.TestCase):
         with (
             mock.patch.object(asr, "WhisperModel", object()),
             mock.patch.object(asr, "describe_model_availability", side_effect=availability_side_effect),
+            mock.patch.object(asr, "_plan_snapshot_download", return_value=[]),
             mock.patch.object(asr, "_initialize_whisper_model", return_value=(object(), "default", False)) as mock_init,
         ):
             availability = asr.ensure_model_downloaded("tiny")

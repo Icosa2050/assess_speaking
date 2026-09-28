@@ -8,7 +8,7 @@ test.skip(
 test.describe("live local runtime setup replacement", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("detects Ollama models and preserves a sanitized base URL", async ({ page }) => {
+  test("detects Ollama models and preserves the entered base URL", async ({ page }) => {
     await page.goto("/runtime-setup");
 
     await page.getByTestId("runtime_connection.provider").selectOption("ollama_local");
@@ -19,7 +19,7 @@ test.describe("live local runtime setup replacement", () => {
       timeout: 30_000,
     });
     await expect(page.getByTestId("runtime_connection.base_url")).toHaveValue(
-      "http://localhost:11434/v1",
+      "http://localhost:11434/",
     );
     await expect(page.getByTestId("runtime_connection.model")).not.toHaveValue("");
   });
