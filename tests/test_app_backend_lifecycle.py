@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -9,13 +10,14 @@ import httpx
 from app_backend.config import BACKEND_STATE_FILENAME, BackendRuntimeConfig
 from app_backend.lifecycle import (
     _backend_command,
+    _backend_python_executable,
     _safe_terminate_pid,
     ensure_local_backend,
     get_backend_state,
     is_backend_healthy,
     PROJECT_ROOT,
 )
-from app_shell.app_data import APP_CACHE_HOME_ENV_VAR, APP_DATA_HOME_ENV_VAR, AppDataPaths
+from app_core.app_data import APP_CACHE_HOME_ENV_VAR, APP_DATA_HOME_ENV_VAR, AppDataPaths
 
 
 def _build_paths(root: Path) -> AppDataPaths:
@@ -46,6 +48,47 @@ def _build_config(root: Path, *, host: str = "127.0.0.1", port: int = 8123) -> B
     )
 
 
+class FakePopen:
+    def __init__(self):
+        self.pid = 4242
+        self.terminated = False
+        self.killed = False
+
+    def poll(self):
+        return None
+
+    def terminate(self):
+        self.terminated = True
+
+    def kill(self):
+        self.killed = True
+
+    def wait(self, timeout=None):
+        if self.terminated and not self.killed:
+            raise subprocess.TimeoutExpired("backend", timeout)
+        return 0
+
+
+class ExitedPopen:
+    def __init__(self, exit_code: int = 1):
+        self.pid = 4343
+        self.exit_code = exit_code
+        self.terminated = False
+        self.killed = False
+
+    def poll(self):
+        return self.exit_code
+
+    def terminate(self):
+        self.terminated = True
+
+    def kill(self):
+        self.killed = True
+
+    def wait(self, timeout=None):
+        return self.exit_code
+
+
 class BackendLifecycleTests(unittest.TestCase):
     def test_backend_command_includes_optional_overrides(self):
         command = _backend_command(
@@ -56,7 +99,7 @@ class BackendLifecycleTests(unittest.TestCase):
             port=9001,
         )
 
-        self.assertEqual(command[:6], [str(Path(os.sys.executable)), str(PROJECT_ROOT / "scripts" / "run_backend.py"), "--host", "0.0.0.0", "--port", "9001"])
+        self.assertEqual(command[:6], [str(_backend_python_executable()), str(PROJECT_ROOT / "scripts" / "run_backend.py"), "--host", "0.0.0.0", "--port", "9001"])
         self.assertIn("--log-dir", command)
         self.assertIn("reports/live", command)
         self.assertIn("--app-data-dir", command)
@@ -71,6 +114,19 @@ class BackendLifecycleTests(unittest.TestCase):
         self.assertNotIn("--log-dir", command)
         self.assertNotIn("--app-data-dir", command)
         self.assertNotIn("--cache-dir", command)
+
+    def test_backend_command_prefers_project_virtualenv_python(self):
+        with tempfile.TemporaryDirectory() as root_dir:
+            project_root = Path(root_dir).resolve()
+            venv_python = project_root / ".venv" / "bin" / "python"
+            venv_python.parent.mkdir(parents=True)
+            venv_python.write_text("#!/usr/bin/env python\n", encoding="utf-8")
+
+            with mock.patch("app_backend.lifecycle.PROJECT_ROOT", project_root):
+                command = _backend_command(port=9002)
+
+        self.assertEqual(command[0], str(venv_python))
+        self.assertEqual(command[1], str(project_root / "scripts" / "run_backend.py"))
 
     def test_is_backend_healthy_checks_status_and_handles_http_errors(self):
         with mock.patch("app_backend.lifecycle.httpx.get", return_value=mock.Mock(status_code=200)):
@@ -92,7 +148,57 @@ class BackendLifecycleTests(unittest.TestCase):
         mock_kill.assert_called_once()
 
         with mock.patch("app_backend.lifecycle.os.kill", side_effect=OSError):
-            _safe_terminate_pid(456)
+            with self.assertLogs("app_backend.lifecycle", level="WARNING") as logs:
+                _safe_terminate_pid(456)
+
+        self.assertIn("Could not terminate stale backend process", "\n".join(logs.output))
+
+    def test_ensure_local_backend_logs_when_spawned_process_cannot_be_killed(self):
+        fake_process = FakePopen()
+        with tempfile.TemporaryDirectory() as root_dir:
+            config = _build_config(Path(root_dir).resolve(), port=9004)
+            with mock.patch("app_backend.lifecycle.get_backend_state", return_value=None), mock.patch(
+                "app_backend.lifecycle.build_backend_runtime_config",
+                return_value=config,
+            ), mock.patch(
+                "app_backend.lifecycle._backend_command",
+                return_value=["python", "scripts/run_backend.py"],
+            ), mock.patch(
+                "app_backend.lifecycle.subprocess.Popen",
+                return_value=fake_process,
+            ), mock.patch(
+                "app_backend.lifecycle.read_backend_state",
+                return_value={"base_url": config.base_url},
+            ), mock.patch(
+                "app_backend.lifecycle.is_backend_healthy",
+                return_value=False,
+            ), mock.patch(
+                "app_backend.lifecycle.time.time",
+                side_effect=[100.0, 100.2, 100.3, 100.4],
+            ), mock.patch("app_backend.lifecycle.time.sleep"), mock.patch.object(
+                fake_process,
+                "wait",
+                side_effect=subprocess.TimeoutExpired("backend", 1.0),
+            ), mock.patch.object(
+                fake_process,
+                "kill",
+                side_effect=OSError("stuck"),
+            ), self.assertLogs(
+                "app_backend.lifecycle",
+                level="WARNING",
+            ) as logs:
+                with self.assertRaisesRegex(RuntimeError, "did not become ready"):
+                    ensure_local_backend(startup_timeout_sec=0.1)
+
+        self.assertIn("Could not force-stop spawned backend process", "\n".join(logs.output))
+
+    def test_safe_terminate_pid_skips_process_when_metadata_does_not_match(self):
+        with mock.patch("app_backend.lifecycle._pid_matches_backend_command", return_value=False), mock.patch(
+            "app_backend.lifecycle.os.kill"
+        ) as mock_kill:
+            _safe_terminate_pid(123, expected_command_marker="scripts/run_backend.py")
+
+        mock_kill.assert_not_called()
 
     def test_get_backend_state_returns_none_for_invalid_state(self):
         with mock.patch("app_backend.lifecycle.read_backend_state", return_value=[]):
@@ -108,7 +214,7 @@ class BackendLifecycleTests(unittest.TestCase):
         ) as mock_clear:
             self.assertIsNone(get_backend_state(log_dir="reports", app_data_dir="/tmp/app", cache_dir="/tmp/cache"))
 
-        mock_terminate.assert_called_once_with(99)
+        mock_terminate.assert_called_once_with(99, expected_command_marker="scripts/run_backend.py")
         mock_clear.assert_called_once_with("reports", app_data_dir="/tmp/app", cache_dir="/tmp/cache")
 
     def test_get_backend_state_returns_healthy_state(self):
@@ -121,7 +227,12 @@ class BackendLifecycleTests(unittest.TestCase):
         ) as mock_clear:
             result = get_backend_state()
 
-        self.assertEqual(result, healthy_state)
+        self.assertEqual(result["base_url"], healthy_state["base_url"])
+        self.assertEqual(result["pid"], healthy_state["pid"])
+        self.assertEqual(result["deployment_mode"], "local")
+        self.assertEqual(result["launch_mode"], "repo")
+        self.assertEqual(result["auth_mode"], "guest")
+        self.assertIn("packaging_safe", result)
         mock_terminate.assert_not_called()
         mock_clear.assert_not_called()
 
@@ -165,7 +276,12 @@ class BackendLifecycleTests(unittest.TestCase):
                     startup_timeout_sec=15.0,
                 )
 
-        self.assertEqual(result, ready_state)
+        self.assertEqual(result["base_url"], ready_state["base_url"])
+        self.assertEqual(result["pid"], ready_state["pid"])
+        self.assertEqual(result["deployment_mode"], "local")
+        self.assertEqual(result["launch_mode"], "repo")
+        self.assertEqual(result["auth_mode"], "guest")
+        self.assertIn("packaging_safe", result)
         mock_popen.assert_called_once()
         self.assertEqual(mock_popen.call_args.kwargs["cwd"], str(PROJECT_ROOT))
         env = mock_popen.call_args.kwargs["env"]
@@ -200,6 +316,89 @@ class BackendLifecycleTests(unittest.TestCase):
 
         mock_popen.assert_called_once()
         mock_sleep.assert_called_once_with(0.2)
+
+    def test_ensure_local_backend_reports_spawn_failure(self):
+        with tempfile.TemporaryDirectory() as root_dir:
+            config = _build_config(Path(root_dir).resolve(), port=9005)
+            with mock.patch("app_backend.lifecycle.get_backend_state", return_value=None), mock.patch(
+                "app_backend.lifecycle.build_backend_runtime_config",
+                return_value=config,
+            ), mock.patch(
+                "app_backend.lifecycle._backend_command",
+                return_value=["python", "scripts/run_backend.py"],
+            ), mock.patch(
+                "app_backend.lifecycle.subprocess.Popen",
+                side_effect=PermissionError("blocked"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "Could not start the local backend"):
+                    ensure_local_backend(startup_timeout_sec=0.1)
+
+    def test_ensure_local_backend_retries_when_spawned_process_exits_before_ready(self):
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir).resolve()
+            first_config = _build_config(root / "first", port=9006)
+            second_config = _build_config(root / "second", port=9007)
+            ready_state = {"base_url": second_config.base_url, "pid": 42}
+            exited_process = ExitedPopen(exit_code=1)
+            ready_process = FakePopen()
+
+            with mock.patch("app_backend.lifecycle.get_backend_state", return_value=None), mock.patch(
+                "app_backend.lifecycle.build_backend_runtime_config",
+                side_effect=[first_config, second_config],
+            ) as mock_build, mock.patch(
+                "app_backend.lifecycle._backend_command",
+                side_effect=[["python", "scripts/run_backend.py", "--port", "9006"], ["python", "scripts/run_backend.py", "--port", "9007"]],
+            ), mock.patch(
+                "app_backend.lifecycle.subprocess.Popen",
+                side_effect=[exited_process, ready_process],
+            ), mock.patch(
+                "app_backend.lifecycle.read_backend_state",
+                side_effect=[None, ready_state],
+            ), mock.patch(
+                "app_backend.lifecycle.is_backend_healthy",
+                return_value=True,
+            ), mock.patch(
+                "app_backend.lifecycle.time.time",
+                side_effect=[100.0, 100.1, 100.2, 100.3, 100.4, 100.5],
+            ), mock.patch("app_backend.lifecycle.time.sleep"), self.assertLogs(
+                "app_backend.lifecycle",
+                level="WARNING",
+            ) as logs:
+                result = ensure_local_backend(startup_timeout_sec=15.0)
+
+        self.assertEqual(result["base_url"], ready_state["base_url"])
+        self.assertEqual(mock_build.call_count, 2)
+        self.assertFalse(exited_process.terminated)
+        self.assertIn("exited before it became ready", "\n".join(logs.output))
+
+    def test_ensure_local_backend_cleans_spawned_process_after_timeout(self):
+        fake_process = FakePopen()
+        with tempfile.TemporaryDirectory() as root_dir:
+            config = _build_config(Path(root_dir).resolve(), port=9004)
+            with mock.patch("app_backend.lifecycle.get_backend_state", return_value=None), mock.patch(
+                "app_backend.lifecycle.build_backend_runtime_config",
+                return_value=config,
+            ), mock.patch(
+                "app_backend.lifecycle._backend_command",
+                return_value=["python", "scripts/run_backend.py"],
+            ), mock.patch(
+                "app_backend.lifecycle.subprocess.Popen",
+                return_value=fake_process,
+            ), mock.patch(
+                "app_backend.lifecycle.read_backend_state",
+                return_value={"base_url": config.base_url},
+            ), mock.patch(
+                "app_backend.lifecycle.is_backend_healthy",
+                return_value=False,
+            ), mock.patch(
+                "app_backend.lifecycle.time.time",
+                side_effect=[100.0, 100.2],
+            ), mock.patch("app_backend.lifecycle.time.sleep"):
+                with self.assertRaisesRegex(RuntimeError, "did not become ready"):
+                    ensure_local_backend(startup_timeout_sec=0.1)
+
+        self.assertTrue(fake_process.terminated)
+        self.assertTrue(fake_process.killed)
 
 
 if __name__ == "__main__":

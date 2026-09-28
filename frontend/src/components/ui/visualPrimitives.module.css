@@ -1,0 +1,96 @@
+.icon {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: var(--icon-size, 1.25rem);
+  height: var(--icon-size, 1.25rem);
+  color: currentColor;
+  stroke: currentColor;
+  vertical-align: middle;
+}
+
+.progressRing {
+  --progress-ring-size: 7.25rem;
+  --progress-ring-track: rgba(206, 216, 210, 0.84);
+  --progress-ring-fill: var(--color-accent);
+  --progress-ring-center: var(--color-surface);
+  --progress-ring-text: var(--color-ink);
+  --progress-ring-muted: var(--color-ink-muted);
+
+  display: grid;
+  justify-items: center;
+  gap: var(--space-sm);
+  min-width: min-content;
+  color: var(--progress-ring-text);
+}
+
+.ringGraphic {
+  display: grid;
+  place-items: center;
+  width: var(--progress-ring-size);
+  aspect-ratio: 1;
+  border-radius: var(--radius-full);
+  background:
+    radial-gradient(circle, var(--progress-ring-center) 0 58%, transparent 59%),
+    conic-gradient(
+      var(--progress-ring-fill) 0 var(--progress-ring-degrees),
+      var(--progress-ring-track) var(--progress-ring-degrees) 360deg
+    );
+}
+
+.ringValue {
+  color: var(--progress-ring-text);
+  font-size: 1.3rem;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.ringCopy {
+  display: grid;
+  justify-items: center;
+  gap: 0.2rem;
+  text-align: center;
+}
+
+.ringLabel {
+  color: var(--progress-ring-muted);
+  font-size: var(--font-size-label);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.ringStatus {
+  max-width: 16ch;
+  color: var(--progress-ring-text);
+  font-size: var(--font-size-label);
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.sparkline {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
+  color: var(--color-ink);
+}
+
+.sparklineGraphic {
+  display: block;
+  width: 100%;
+  min-height: 4.5rem;
+  overflow: visible;
+}
+
+.sparklineLine {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+
+.sparklineSummary {
+  color: var(--color-ink);
+  font-size: var(--font-size-label);
+  font-weight: 750;
+  line-height: 1.2;
+}

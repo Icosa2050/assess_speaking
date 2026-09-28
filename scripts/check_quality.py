@@ -11,22 +11,11 @@ from typing import Iterable
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TARGETS = (
     "app_backend",
-    "app_shell/backend_client.py",
-    "app_shell/diagnostics.py",
-    "app_shell/page_helpers.py",
-    "app_shell/services.py",
-    "app_shell/state.py",
-    "pages/00_Setup.py",
-    "pages/02_Speak.py",
-    "pages/03_Review.py",
-    "pages/04_History.py",
-    "pages/05_Library.py",
-    "pages/06_Settings.py",
-    "streamlit_app.py",
+    "app_core",
     "scripts/run_app.py",
     "scripts/run_backend.py",
 )
-SUBPROCESS_BAN_ROOTS = ("app_shell", "pages")
+SUBPROCESS_BAN_ROOTS = ("app_core",)
 ALLOW_PREFIX = "quality: allow["
 
 
@@ -138,7 +127,7 @@ class QualityVisitor(ast.NodeVisitor):
                     check="subprocess-shellout",
                     path=rel_path,
                     line=node.lineno,
-                    message="App-shell and screen code should call the managed backend, not spawn subprocesses directly.",
+                    message="Core runtime code should call the managed backend, not spawn subprocesses directly.",
                 )
             )
         self.generic_visit(node)

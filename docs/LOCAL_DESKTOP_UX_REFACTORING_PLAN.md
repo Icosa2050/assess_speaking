@@ -1,12 +1,12 @@
 # Local Desktop UX Refactoring Plan
 
-Last updated: 2026-04-19
-Status: Accepted supporting plan registered under the local desktop planning
-hierarchy
+Last updated: 2026-05-17
+Status: Accepted supporting plan rebased for React/Tauri local desktop UX and
+Streamlit legacy retirement
 
 ## Summary
 
-This plan adds one missing layer to the current desktop-baseline work:
+This plan adds one UX layer to the current desktop-baseline work:
 1. a focused UX refactoring lane for the shipped local desktop experience
 2. clear scope boundaries so UX cleanup does not drift into product redesign
 3. file-based execution slices that fit the repo's collision rules
@@ -22,6 +22,8 @@ This document should be treated as:
 1. a supporting local-desktop UX plan
 2. non-authoritative on repo-wide execution order
 3. safe to refine later without redefining product direction
+4. React/Tauri-first; Streamlit files are legacy reference or deletion staging
+   surfaces only
 
 ## Position In Planning Hierarchy
 
@@ -53,8 +55,8 @@ The goal is:
 ## Non-Goals
 
 This plan does not:
-1. define the future shared React UI
-2. replace Streamlit with Tauri or web delivery
+1. reopen the decision to use React/Vite and Tauri
+2. add new UX scope to the legacy Streamlit UI lane
 3. redesign the product brand or visual system from scratch
 4. introduce hosted-only UX assumptions into the current local product
 5. bypass PAL review for screen changes
@@ -70,8 +72,10 @@ This UX plan must respect the current locked decisions:
    `secret_ref` storage
 6. localization is required; no new hardcoded learner-facing strings
 7. Maestro semantic labels must remain in scope for UX-affecting work
-8. any screen changes in `pages/00_Setup.py`, `pages/02_Speak.py`, or
-   `pages/06_Settings.py` must go through PAL review before implementation
+8. any learner-facing screen changes in React Setup/Speak/Settings routes, or
+   in the legacy `pages/00_Setup.py`, `pages/02_Speak.py`, or
+   `pages/06_Settings.py` files before deletion, must go through PAL review
+   before implementation
 
 ## UX Principles
 
@@ -128,29 +132,41 @@ The learner should be able to tell:
 ## UX Scope By Screen
 
 Primary local-baseline screens for this plan:
+1. `frontend/src/routes/SetupRoute.tsx`
+2. `frontend/src/routes/SpeakRoute.tsx`
+3. `frontend/src/routes/ReviewRoute.tsx`
+4. `frontend/src/routes/HistoryRoute.tsx`
+5. `frontend/src/routes/SettingsRoute.tsx`
+
+Legacy Streamlit references:
 1. `pages/00_Setup.py`
 2. `pages/02_Speak.py`
 3. `pages/03_Review.py`
 4. `pages/04_History.py`
 5. `pages/06_Settings.py`
 
+The legacy files may inform parity and deletion gates, but new UX work should
+land in React unless the active Streamlit retirement plan explicitly calls for a
+compatibility or migration safety change.
+
 Supporting non-screen files may be touched only when they help one of the
 screens above:
 1. `app_shell/services.py`
 2. `app_shell/diagnostics.py`
-3. `app_shell/page_helpers.py`
-4. `app_shell/review_components.py`
+3. `frontend/src/components/**`
+4. `frontend/src/lib/**`
 5. related locale and test files
 
 ## Dependencies On The Governing Plans
 
 To stay aligned with the governing plans and avoid churn:
 1. do not rewrite UX around hosted auth yet
-2. do not redesign around React routing yet
+2. do not redesign around legacy Streamlit routing
 3. do not assume support endpoints exist until their backend plan lands
 4. treat credential UX work as dependent on the saved-connections credential
    plan
 5. treat collision-heavy files as serialized work, not parallel work
+6. do not add new product UX to Streamlit files while they are being retired
 
 This means:
 1. `Setup` and `Settings` work should wait until credential-core rules are
@@ -161,9 +177,11 @@ This means:
 ## PAL Requirement
 
 Before implementing screen changes in these files:
-1. `pages/00_Setup.py`
-2. `pages/02_Speak.py`
-3. `pages/06_Settings.py`
+1. `frontend/src/routes/SetupRoute.tsx`
+2. `frontend/src/routes/SpeakRoute.tsx`
+3. `frontend/src/routes/SettingsRoute.tsx`
+4. legacy `pages/00_Setup.py`, `pages/02_Speak.py`, or
+   `pages/06_Settings.py` if a temporary retirement change is unavoidable
 
 We should:
 1. review the specific UX approach with PAL
@@ -175,10 +193,10 @@ We should:
 ### Subtask 1: Recorder and speak-state cleanup
 
 Files:
-1. `pages/02_Speak.py`
-2. `app_shell/page_helpers.py`
+1. `frontend/src/routes/SpeakRoute.tsx`
+2. `frontend/src/components/speak/RecorderPanel.tsx`
 3. `locales/en.json`
-4. `tests/test_app_shell_pages.py`
+4. `frontend/src/routes/tests/SpeakRoute.test.tsx`
 
 Deliverables:
 1. one clearer state model for idle, recording, saved, assessing, done, and
@@ -199,10 +217,10 @@ Notes:
 ### Subtask 2: Review screen hierarchy cleanup
 
 Files:
-1. `pages/03_Review.py`
-2. `app_shell/review_components.py`
+1. `frontend/src/routes/ReviewRoute.tsx`
+2. `frontend/src/components/review/ReviewSummary.tsx`
 3. `locales/en.json`
-4. `tests/test_app_shell_review_components.py`
+4. `frontend/src/routes/tests/ReviewRoute.test.tsx`
 
 Deliverables:
 1. summary-first layout
@@ -213,10 +231,10 @@ Deliverables:
 ### Subtask 3: History triage and reopen flow
 
 Files:
-1. `pages/04_History.py`
-2. `app_shell/page_helpers.py`
+1. `frontend/src/routes/HistoryRoute.tsx`
+2. `frontend/src/components/history/HistoryList.tsx`
 3. `locales/en.json`
-4. `tests/test_app_shell_pages.py`
+4. `frontend/src/routes/tests/HistoryRoute.test.tsx`
 
 Deliverables:
 1. easier scan of recent sessions
@@ -225,18 +243,18 @@ Deliverables:
 4. less noise in row-level metadata
 
 Notes:
-1. the `pages/04_History.py` slice can move earlier on the current backend
-   contract
-2. any `app_shell/page_helpers.py` or `tests/test_app_shell_pages.py` work must
-   follow the serial chain in `docs/PLANNING_ALIGNMENT_META_PLAN.md`
+1. the React History slice can move earlier on the current backend contract
+2. any legacy `app_shell/page_helpers.py` or `tests/test_app_shell_pages.py`
+   work should be limited to retirement gates and must follow the serial chain
+   in `docs/PLANNING_ALIGNMENT_META_PLAN.md`
 
 ### Subtask 4: Runtime setup readiness messaging
 
 Files:
-1. `pages/00_Setup.py`
-2. `app_shell/diagnostics.py`
+1. `frontend/src/routes/SetupRoute.tsx`
+2. `frontend/src/components/setup/RuntimeConnectionForm.tsx`
 3. `locales/en.json`
-4. `tests/test_app_shell_pages.py`
+4. `frontend/src/routes/tests/HomeSetupRoutes.test.tsx`
 
 Deliverables:
 1. clearer readiness states for Whisper and provider setup
@@ -256,10 +274,10 @@ Notes:
 ### Subtask 5: Settings safety and terminology pass
 
 Files:
-1. `pages/06_Settings.py`
-2. `app_shell/services.py`
+1. `frontend/src/routes/SettingsRoute.tsx`
+2. `frontend/src/components/setup/RuntimeConnectionForm.tsx`
 3. `locales/en.json`
-4. `tests/test_app_shell_pages.py`
+4. `frontend/src/routes/tests/SettingsRoute.test.tsx`
 
 Deliverables:
 1. safer wording around saved keys and active connections
@@ -274,8 +292,9 @@ Notes:
    redoing the form logic
 3. this subtask must follow the final `Settings` pass in
    `docs/PLANNING_ALIGNMENT_META_PLAN.md`
-4. `pages/06_Settings.py` belongs after meta-plan `Subtask 11`
-5. `app_shell/services.py` belongs after meta-plan `Subtask 8`
+4. legacy `pages/06_Settings.py` work belongs only to compatibility or deletion
+   staging after meta-plan `Subtask 11`
+5. service-level changes belong after the relevant backend/service serial pass
 
 ### Subtask 6: Locale parity pass
 
@@ -293,10 +312,12 @@ Deliverables:
 
 Recommended order:
 1. review this plan after the meta-plan review settles
-2. start with `Review` and `History` if they can move without credential churn
+2. start with React `Review` and `History` if they can move without credential
+   churn
 3. do `Setup` and `Settings` after credential rules are locked enough to avoid
    rework
 4. keep `Speak` changes coordinated with PAL and recorder-state behavior
+5. use Streamlit files only as parity references or retirement gates
 
 ## Success Criteria
 

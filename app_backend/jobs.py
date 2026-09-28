@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import hashlib
 import json
+import logging
 import multiprocessing
 import os
 from pathlib import Path
@@ -10,7 +11,7 @@ import signal
 from typing import Any
 from uuid import uuid4
 
-from app_backend.config import BackendRuntimeConfig
+from app_backend.config import BackendRuntimeConfig, DEFAULT_JOB_METADATA_RETENTION_DAYS
 from app_backend.contracts import (
     AssessmentCreateRequest,
     AssessmentCreateResponse,
@@ -23,6 +24,12 @@ from app_backend.contracts import (
 )
 from assessment_runtime.runner import AssessmentRunRequest, execute_assessment_run
 
+INCOMPLETE_JOB_STATUSES = {JobStatus.QUEUED.value, JobStatus.RUNNING.value}
+TERMINAL_JOB_STATUSES = {JobStatus.COMPLETED.value, JobStatus.FAILED.value, JobStatus.CANCELLED.value}
+TERMINAL_JOB_STATUSES_NORMALIZED = {status.lower() for status in TERMINAL_JOB_STATUSES}
+
+logger = logging.getLogger(__name__)
+
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
@@ -33,7 +40,11 @@ def _read_json(path: Path) -> dict[str, Any]:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
-    return payload if isinstance(payload, dict) else {}
+    if not isinstance(payload, dict):
+        return {}
+    if isinstance(payload.get("status"), str):
+        payload["status"] = payload["status"].strip().lower()
+    return payload
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -45,8 +56,76 @@ def _job_file(jobs_dir: Path, assessment_id: str) -> Path:
     return jobs_dir / f"{assessment_id}.json"
 
 
+def _sanitize_request_metadata(request_payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in request_payload.items() if key != "llm_api_key"}
+
+
 def _upload_meta_file(uploads_dir: Path, audio_id: str) -> Path:
     return uploads_dir / f"{audio_id}.json"
+
+
+def _coerce_timestamp(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _job_retention_anchor(payload: dict[str, Any], path: Path) -> datetime | None:
+    timestamp = _coerce_timestamp(payload.get("completed_at")) or _coerce_timestamp(payload.get("created_at"))
+    if timestamp is not None:
+        return timestamp
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+    except OSError:
+        return None
+
+
+def recover_incomplete_job_metadata(jobs_dir: Path) -> int:
+    recovered = 0
+    jobs_dir.mkdir(parents=True, exist_ok=True)
+    for job_file in jobs_dir.glob("*.json"):
+        payload = _read_json(job_file)
+        if payload.get("status") not in INCOMPLETE_JOB_STATUSES:
+            continue
+        payload["status"] = JobStatus.FAILED.value
+        payload["phase"] = "failed"
+        payload["progress"] = 1.0
+        payload["completed_at"] = _now_iso()
+        payload["error"] = ErrorResponse(
+            code=ErrorCode.RUNTIME,
+            detail="Backend restarted before the assessment finished.",
+        ).model_dump()
+        _write_json(job_file, payload)
+        recovered += 1
+    return recovered
+
+
+def prunable_job_metadata_files(
+    jobs_dir: Path,
+    *,
+    retention_days: int = DEFAULT_JOB_METADATA_RETENTION_DAYS,
+    now: datetime | None = None,
+) -> list[Path]:
+    reference_now = now.astimezone(UTC) if now is not None and now.tzinfo is not None else (now.replace(tzinfo=UTC) if now is not None else datetime.now(UTC))
+    cutoff = reference_now - timedelta(days=max(int(retention_days), 0))
+    candidates: list[Path] = []
+    if not jobs_dir.exists():
+        return candidates
+    for job_file in jobs_dir.glob("*.json"):
+        payload = _read_json(job_file)
+        if str(payload.get("status") or "").strip().lower() not in TERMINAL_JOB_STATUSES_NORMALIZED:
+            continue
+        anchor = _job_retention_anchor(payload, job_file)
+        if anchor is not None and anchor <= cutoff:
+            candidates.append(job_file)
+    return sorted(candidates)
 
 
 def _error_code_from_detail(detail: str, *, provider: str = "") -> ErrorCode:
@@ -198,19 +277,7 @@ class JobManager:
         return self._config.app_data.uploads_dir
 
     def _recover_existing_jobs(self) -> None:
-        self._config.jobs_dir.mkdir(parents=True, exist_ok=True)
-        for job_file in self._config.jobs_dir.glob("*.json"):
-            payload = _read_json(job_file)
-            if payload.get("status") in {JobStatus.QUEUED.value, JobStatus.RUNNING.value}:
-                payload["status"] = JobStatus.FAILED.value
-                payload["phase"] = "failed"
-                payload["progress"] = 1.0
-                payload["completed_at"] = _now_iso()
-                payload["error"] = ErrorResponse(
-                    code=ErrorCode.RUNTIME,
-                    detail="Backend restarted before the assessment finished.",
-                ).model_dump()
-                _write_json(job_file, payload)
+        recover_incomplete_job_metadata(self._config.jobs_dir)
 
     def register_upload(self, *, data: bytes, filename: str) -> UploadResponse:
         audio_id = f"aud_{uuid4().hex}"
@@ -245,6 +312,10 @@ class JobManager:
     def submit(self, request: AssessmentCreateRequest) -> AssessmentCreateResponse:
         assessment_id = f"asmt_{uuid4().hex}"
         audio_path = self._resolve_audio_path(request.audio_id)
+        worker_request = {
+            **request.model_dump(),
+            "log_dir": str(self._config.app_data.reports_dir),
+        }
         payload = {
             "assessment_id": assessment_id,
             "status": JobStatus.QUEUED.value,
@@ -255,17 +326,14 @@ class JobManager:
             "summary": None,
             "payload": None,
             "error": None,
-            "request": {
-                **request.model_dump(),
-                "log_dir": str(self._config.app_data.reports_dir),
-            },
+            "request": _sanitize_request_metadata(worker_request),
             "audio_path": str(audio_path.resolve()),
         }
         job_file = _job_file(self._config.jobs_dir, assessment_id)
         _write_json(job_file, payload)
         process = self._ctx.Process(
             target=_job_worker,
-            args=(str(job_file), payload["request"], str(audio_path.resolve())),
+            args=(str(job_file), worker_request, str(audio_path.resolve())),
         )
         process.start()
         self._processes[assessment_id] = process
@@ -318,6 +386,9 @@ class JobManager:
             process.terminate()
             process.join(timeout=1.0)
         payload = _read_json(_job_file(self._config.jobs_dir, assessment_id))
+        if str(payload.get("status") or "").strip().lower() in TERMINAL_JOB_STATUSES_NORMALIZED:
+            self._processes.pop(assessment_id, None)
+            return self.get_status(assessment_id)
         payload.update(
             {
                 "status": JobStatus.CANCELLED.value,
@@ -340,6 +411,11 @@ class JobManager:
                 try:
                     os.kill(process.pid, signal.SIGTERM)
                 except OSError:
-                    pass
+                    logger.warning(
+                        "Could not terminate assessment worker %s for %s.",
+                        process.pid,
+                        assessment_id,
+                        exc_info=True,
+                    )
                 process.join(timeout=0.5)
             self._processes.pop(assessment_id, None)

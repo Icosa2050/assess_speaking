@@ -1,0 +1,150 @@
+.shell {
+  min-height: 100vh;
+  background: var(--color-bg);
+  color: var(--color-ink);
+}
+
+.container {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.header {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  margin-bottom: 24px;
+}
+
+.brandBlock {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-display);
+  line-height: var(--line-height-tight);
+}
+
+.body {
+  margin: 0;
+  max-width: 56ch;
+  line-height: var(--line-height-body);
+  color: var(--color-ink-muted);
+}
+
+.navLink:focus-visible {
+  outline: 3px solid var(--color-focus-ring);
+  outline-offset: 3px;
+}
+
+.layout {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  align-items: start;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+  background-color: rgba(255, 255, 255, 0.82);
+  box-shadow: var(--shadow-card);
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.navPrimary {
+  display: grid;
+  gap: 1rem;
+}
+
+.navGroup {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.navGroupLabel {
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-label);
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.navLinks {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.navFooter {
+  display: grid;
+  gap: 0.5rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.navLink {
+  display: block;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid rgba(18, 61, 55, 0.08);
+  border-radius: var(--radius-md);
+  background-color: rgba(255, 255, 255, 0.9);
+  color: var(--color-ink);
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    background-color var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
+}
+
+.navLink:hover {
+  border-color: rgba(15, 118, 110, 0.22);
+  background-color: rgba(239, 248, 245, 0.98);
+  transform: translateY(-1px);
+}
+
+.navLinkActive {
+  border-color: rgba(39, 106, 115, 0.28);
+  background-color: #d7ebe5;
+}
+
+.main {
+  display: grid;
+  min-width: 0;
+  gap: 1rem;
+}
+
+.main > * {
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  .container {
+    padding: 16px;
+  }
+
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .title {
+    font-size: 2rem;
+  }
+
+  .navLinks {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+}

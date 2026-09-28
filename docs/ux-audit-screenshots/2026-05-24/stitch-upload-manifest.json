@@ -1,0 +1,107 @@
+{
+  "createdAt": "2026-05-26T20:30:55.377303+00:00",
+  "projectId": "12105866389178941937",
+  "dryRun": false,
+  "uploads": [
+    {
+      "sourcePath": "docs/ux-audit-screenshots/2026-05-24/01-home-default.jpg",
+      "title": "Vostavo current 01 home default",
+      "mimeType": "image/jpeg",
+      "status": "uploaded",
+      "screenNames": [
+        "projects/12105866389178941937/screens/2652952707447588649"
+      ],
+      "error": null
+    },
+    {
+      "sourcePath": "docs/ux-audit-screenshots/2026-05-24/02-runtime-setup-default.jpg",
+      "title": "Vostavo current 02 runtime setup default",
+      "mimeType": "image/jpeg",
+      "status": "uploaded",
+      "screenNames": [
+        "projects/12105866389178941937/screens/15827749151882128930"
+      ],
+      "error": null
+    },
+    {
+      "sourcePath": "docs/ux-audit-screenshots/2026-05-24/03-session-setup-default.jpg",
+      "title": "Vostavo current 03 session setup default",
+      "mimeType": "image/jpeg",
+      "status": "uploaded",
+      "screenNames": [
+        "projects/12105866389178941937/screens/5706575674840363019"
+      ],
+      "error": null
+    },
+    {
+      "sourcePath": "docs/ux-audit-screenshots/2026-05-24/04-speak-ready.jpg",
+      "title": "Vostavo current 04 speak ready",
+      "mimeType": "image/jpeg",
+      "status": "uploaded",
+      "screenNames": [
+        "projects/12105866389178941937/screens/15827749151882126720"
+      ],
+      "error": null
+    },
+    {
+      "sourcePath": "docs/ux-audit-screenshots/2026-05-24/05-review-empty.jpg",
+      "title": "Vostavo current 05 review empty",
+      "mimeType": "image/jpeg",
+      "status": "uploaded",
+      "screenNames": [
+        "projects/12105866389178941937/screens/10997005272027059069"
+      ],
+      "error": null
+    },
+    {
+      "sourcePath": "docs/ux-audit-screenshots/2026-05-24/06-history.jpg",
+      "title": "Vostavo current 06 history",
+      "mimeType": "image/jpeg",
+      "status": "uploaded",
+      "screenNames": [
+        "projects/12105866389178941937/screens/17942821813920805216"
+      ],
+      "error": null
+    },
+    {
+      "sourcePath": "docs/ux-audit-screenshots/2026-05-24/07-library.jpg",
+      "title": "Vostavo current 07 library",
+      "mimeType": "image/jpeg",
+      "status": "uploaded",
+      "screenNames": [
+        "projects/12105866389178941937/screens/1861167787421514036"
+      ],
+      "error": null
+    },
+    {
+      "sourcePath": "docs/ux-audit-screenshots/2026-05-24/08-guide.jpg",
+      "title": "Vostavo current 08 guide",
+      "mimeType": "image/jpeg",
+      "status": "uploaded",
+      "screenNames": [
+        "projects/12105866389178941937/screens/9632730377206274406"
+      ],
+      "error": null
+    },
+    {
+      "sourcePath": "docs/ux-audit-screenshots/2026-05-24/09-settings.jpg",
+      "title": "Vostavo current 09 settings",
+      "mimeType": "image/jpeg",
+      "status": "uploaded",
+      "screenNames": [
+        "projects/12105866389178941937/screens/15330338813606331261"
+      ],
+      "error": null
+    },
+    {
+      "sourcePath": "docs/ux-audit-screenshots/2026-05-24/10-home-configured.jpg",
+      "title": "Vostavo current 10 home configured",
+      "mimeType": "image/jpeg",
+      "status": "uploaded",
+      "screenNames": [
+        "projects/12105866389178941937/screens/15330338813606330996"
+      ],
+      "error": null
+    }
+  ]
+}

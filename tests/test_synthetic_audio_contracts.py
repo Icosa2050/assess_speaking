@@ -15,6 +15,21 @@ from benchmarking.synthetic_seed_manifests import (
 
 
 SEED_FIXTURE_PATH = Path(__file__).parent / "fixtures" / "seeds" / "english_monologue_seeds_v1.json"
+ROOT_OPTION_ARTIFACTS = (Path("-o"), Path("--file-format=AIFF"))
+
+
+def _clear_root_option_artifacts() -> None:
+    for path in ROOT_OPTION_ARTIFACTS:
+        path.unlink(missing_ok=True)
+
+
+def _assert_no_root_option_artifacts(test_case: unittest.TestCase) -> None:
+    for path in ROOT_OPTION_ARTIFACTS:
+        test_case.assertFalse(path.exists(), f"{path} leaked into the repo root")
+
+
+def _fake_say_output_path(command: list[str]) -> Path:
+    return Path(command[command.index("-o") + 1])
 
 
 class SyntheticAudioContractsTests(unittest.TestCase):
@@ -23,7 +38,7 @@ class SyntheticAudioContractsTests(unittest.TestCase):
 
     def _fake_run(self, command: list[str], *, input_text: str | None = None) -> None:
         if command[0] == "say":
-            Path(command[7]).write_bytes(b"AIFF")
+            _fake_say_output_path(command).write_bytes(b"AIFF")
         elif command[0] == "ffmpeg":
             Path(command[-1]).write_bytes(b"WAV")
 
@@ -35,6 +50,7 @@ class SyntheticAudioContractsTests(unittest.TestCase):
                 load_render_manifest(path)
 
     def test_build_rendered_audio_contract_suite_resolves_paths_and_metadata(self):
+        _clear_root_option_artifacts()
         with tempfile.TemporaryDirectory() as tmp_dir, mock.patch(
             "benchmarking.synthetic_benchmark_generation._run_subprocess",
             side_effect=self._fake_run,
@@ -64,6 +80,7 @@ class SyntheticAudioContractsTests(unittest.TestCase):
             self.assertGreater(first.estimated_render_duration_sec, 100.0)
             self.assertGreater(first.duration_alignment_ratio, 0.85)
             self.assertIn("rendered-audio", first.tags)
+            _assert_no_root_option_artifacts(self)
 
     def test_build_rendered_audio_contract_suite_rejects_seed_content_drift(self):
         with tempfile.TemporaryDirectory() as tmp_dir, mock.patch(

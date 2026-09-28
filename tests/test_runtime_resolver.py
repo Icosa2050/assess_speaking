@@ -1,8 +1,9 @@
+import os
 import unittest
 from unittest import mock
 
-from app_shell.runtime_resolver import resolve_runtime_config, sync_runtime_fields
-from app_shell.state import AppPreferences, ProviderConnection
+from app_core.runtime_resolver import resolve_runtime_config, sync_runtime_fields
+from app_core.state import AppPreferences, DEFAULT_OPENROUTER_HTTP_REFERER, ProviderConnection
 
 
 class RuntimeResolverTests(unittest.TestCase):
@@ -10,7 +11,7 @@ class RuntimeResolverTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "No active runtime connection is configured."):
             resolve_runtime_config(AppPreferences())
 
-    @mock.patch("app_shell.runtime_resolver.get_secret", return_value="local-token")
+    @mock.patch("app_core.runtime_resolver.get_secret", return_value="local-token")
     def test_resolve_runtime_config_adds_v1_for_local_ollama_connection(self, _mock_get_secret):
         prefs = AppPreferences(
             connections=[
@@ -33,7 +34,7 @@ class RuntimeResolverTests(unittest.TestCase):
         self.assertEqual(runtime.base_url, "http://localhost:11434/v1")
         self.assertEqual(runtime.model, "llama3")
 
-    @mock.patch("app_shell.runtime_resolver.get_secret", return_value="saved-key")
+    @mock.patch("app_core.runtime_resolver.get_secret", return_value="saved-key")
     def test_sync_runtime_fields_uses_openrouter_connection_metadata(self, _mock_get_secret):
         prefs = AppPreferences(
             connections=[
@@ -58,6 +59,53 @@ class RuntimeResolverTests(unittest.TestCase):
         self.assertEqual(prefs.llm_api_key, "saved-key")
         self.assertEqual(prefs.openrouter_http_referer, "http://localhost:8503")
         self.assertEqual(prefs.openrouter_app_title, "Vostavo")
+
+    @mock.patch("app_core.runtime_resolver.get_secret", return_value="")
+    def test_resolve_runtime_config_uses_provider_environment_fallback(self, _mock_get_secret):
+        prefs = AppPreferences(
+            connections=[
+                ProviderConnection(
+                    connection_id="conn-3",
+                    provider_kind="openrouter",
+                    label="OpenRouter",
+                    base_url="https://openrouter.ai/api/v1",
+                    default_model="google/gemini-3.1-pro-preview",
+                    secret_ref="connection:conn-3",
+                    is_default=True,
+                )
+            ],
+            active_connection_id="conn-3",
+        )
+        with mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": "env-key", "LLM_API_KEY": ""}, clear=False):
+            runtime = resolve_runtime_config(prefs)
+
+        self.assertEqual(runtime.api_key, "env-key")
+
+    @mock.patch("app_core.runtime_resolver.get_secret", return_value="saved-key")
+    def test_resolve_runtime_config_defaults_invalid_openrouter_referer(self, _mock_get_secret):
+        prefs = AppPreferences(
+            connections=[
+                ProviderConnection(
+                    connection_id="conn-invalid",
+                    provider_kind="openrouter",
+                    label="OpenRouter",
+                    base_url="https://openrouter.ai/api/v1",
+                    default_model="google/gemini-3.1-pro-preview",
+                    secret_ref="connection:conn-invalid",
+                    is_default=True,
+                    provider_metadata={
+                        "http_referer": "test-referer",
+                        "app_title": "",
+                    },
+                )
+            ],
+            active_connection_id="conn-invalid",
+        )
+
+        runtime = resolve_runtime_config(prefs)
+
+        self.assertEqual(runtime.extra_headers["HTTP-Referer"], DEFAULT_OPENROUTER_HTTP_REFERER)
+        self.assertEqual(runtime.extra_headers["X-OpenRouter-Title"], "Vostavo")
 
 
 if __name__ == "__main__":

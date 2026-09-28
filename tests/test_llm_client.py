@@ -129,6 +129,23 @@ class LlmClientTests(unittest.TestCase):
         self.assertEqual(headers["X-OpenRouter-Title"], "Vostavo")
 
     @mock.patch("assessment_runtime.llm_client._post_json")
+    def test_chat_completion_openrouter_defaults_to_vostavo_metadata(self, mock_post):
+        mock_post.return_value = {"choices": [{"message": {"content": VALID_JSON}}]}
+        with mock.patch.dict(llm_client.os.environ, {}, clear=True):
+            llm_client._chat_completion(
+                provider="openrouter",
+                model="google/gemini-3.1-pro-preview",
+                prompt="p",
+                timeout_sec=3.0,
+                openrouter_api_key="key",
+            )
+
+        headers = mock_post.call_args.args[2]
+        self.assertEqual(headers["HTTP-Referer"], "http://localhost:8503")
+        self.assertEqual(headers["X-OpenRouter-Title"], "Vostavo")
+        self.assertEqual(headers["X-Title"], "Vostavo")
+
+    @mock.patch("assessment_runtime.llm_client._post_json")
     def test_chat_completion_openrouter_falls_back_without_response_format(self, mock_post):
         mock_post.side_effect = [
             LLMClientError("HTTP 400: response_format is not supported"),

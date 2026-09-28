@@ -32,7 +32,8 @@
     "enableCodebaseAnalysis": true,
     "enableProxy": false,
     "anonymousTelemetry": true,
-    "defaultTag": "master"
+    "defaultTag": "master",
+    "userId": "1234567890"
   },
   "claudeCode": {},
   "codexCli": {},

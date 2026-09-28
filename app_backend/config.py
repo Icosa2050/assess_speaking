@@ -2,21 +2,27 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import logging
 import socket
 from pathlib import Path
 import shutil
 from typing import Any
 
-from app_shell.app_data import AppDataPaths, build_app_data_paths
-from app_shell.bootstrap import bootstrap_app_environment
+from app_core.app_data import AppDataPaths, build_app_data_paths
+from app_core.bootstrap import bootstrap_app_environment
 
 BACKEND_STATE_FILENAME = "backend_state.json"
 BACKEND_LOG_FILENAME = "backend.log"
 BACKEND_JOBS_DIRNAME = "jobs"
+SUPPORT_BUNDLE_DIRNAME = "support-bundles"
 BACKEND_LOG_MAX_BYTES = 1_000_000
 BACKEND_LOG_BACKUP_COUNT = 3
+DEFAULT_SUPPORT_BUNDLE_RETENTION_HOURS = 24
+DEFAULT_JOB_METADATA_RETENTION_DAYS = 30
 DEFAULT_BACKEND_HOST = "127.0.0.1"
 DEFAULT_BACKEND_STARTUP_TIMEOUT_SEC = 15.0
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -46,6 +52,10 @@ def resolve_backend_log_file(log_dir: str | Path | None = None) -> Path:
     return build_app_data_paths(log_dir).logs_dir / BACKEND_LOG_FILENAME
 
 
+def resolve_support_bundle_dir(log_dir: str | Path | None = None) -> Path:
+    return build_app_data_paths(log_dir).temp_dir / SUPPORT_BUNDLE_DIRNAME
+
+
 def _migrate_legacy_jobs_dir(app_data: AppDataPaths) -> None:
     legacy_jobs_dir = app_data.reports_dir / BACKEND_JOBS_DIRNAME
     jobs_dir = app_data.jobs_dir
@@ -66,6 +76,12 @@ def _migrate_legacy_jobs_dir(app_data: AppDataPaths) -> None:
             shutil.move(str(child), str(target))
         legacy_jobs_dir.rmdir()
     except OSError:
+        logger.warning(
+            "Could not migrate legacy backend job metadata from %s to %s.",
+            legacy_jobs_dir,
+            jobs_dir,
+            exc_info=True,
+        )
         return
 
 
@@ -153,4 +169,5 @@ def clear_backend_state(
     try:
         state_file.unlink()
     except OSError:
+        logger.warning("Could not clear backend state file %s.", state_file, exc_info=True)
         return

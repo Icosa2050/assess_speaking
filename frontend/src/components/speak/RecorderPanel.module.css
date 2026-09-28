@@ -1,0 +1,126 @@
+.controlButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  width: fit-content;
+  max-width: 100%;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.controlIcon {
+  flex: 0 0 auto;
+}
+
+.uploadControl:focus-within {
+  outline: 3px solid var(--color-focus-ring);
+  outline-offset: 3px;
+}
+
+.visualizer {
+  display: grid;
+  align-items: center;
+  min-height: 6.35rem;
+  padding: 0.95rem;
+  border: 1px solid rgba(39, 106, 115, 0.18);
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(237, 243, 239, 0.96)),
+    radial-gradient(circle at 20% 0%, rgba(39, 106, 115, 0.12), transparent 34%);
+  overflow: hidden;
+}
+
+.visualizerBars {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 0.35rem;
+  align-items: center;
+  width: 100%;
+  min-height: 4.2rem;
+}
+
+.visualizerBar {
+  display: block;
+  width: 100%;
+  height: var(--bar-height);
+  min-height: 1.15rem;
+  border-radius: var(--radius-full);
+  background: linear-gradient(180deg, rgba(39, 106, 115, 0.76), rgba(31, 89, 97, 0.92));
+  box-shadow: 0 0.45rem 1rem rgba(39, 106, 115, 0.16);
+  opacity: 0.58;
+  transform-origin: center;
+}
+
+.visualizer[data-recording-state="idle"] .visualizerBar,
+.visualizer[data-recording-state="upload"] .visualizerBar {
+  background: rgba(39, 106, 115, 0.28);
+  box-shadow: none;
+}
+
+.visualizer[data-recording-state="requesting"] .visualizerBar {
+  animation: recordingWave 1.7s ease-in-out infinite alternate;
+  animation-delay: var(--bar-delay);
+  opacity: 0.74;
+}
+
+.visualizer[data-recording-state="recording"] {
+  border-color: rgba(148, 71, 43, 0.28);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(250, 245, 240, 0.96)),
+    radial-gradient(circle at 20% 0%, rgba(148, 71, 43, 0.14), transparent 34%);
+}
+
+.visualizer[data-recording-state="recording"] .visualizerBar {
+  animation: recordingWave 0.95s ease-in-out infinite alternate;
+  animation-delay: var(--bar-delay);
+  background: linear-gradient(180deg, var(--color-accent), var(--color-caution));
+  box-shadow: 0 0.5rem 1.15rem rgba(148, 71, 43, 0.18);
+  opacity: 0.95;
+}
+
+.visualizer[data-recording-state="ready"] .visualizerBar {
+  background: linear-gradient(180deg, var(--color-progress), #2f6241);
+  box-shadow: 0 0.45rem 1rem rgba(63, 122, 82, 0.16);
+  opacity: 0.84;
+}
+
+.visualizer[data-recording-state="error"] .visualizerBar {
+  background: #b42318;
+  box-shadow: 0 0.45rem 1rem rgba(180, 35, 24, 0.14);
+  opacity: 0.76;
+}
+
+@keyframes recordingWave {
+  from {
+    transform: scaleY(0.72);
+  }
+
+  to {
+    transform: scaleY(1.14);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .visualizerBar {
+    animation: none !important;
+    transform: none;
+  }
+
+  .visualizer[data-recording-state="requesting"] .visualizerBar,
+  .visualizer[data-recording-state="recording"] .visualizerBar {
+    opacity: 0.9;
+  }
+}
+
+@media (max-width: 560px) {
+  .visualizer {
+    min-height: 5.5rem;
+    padding: 0.75rem;
+  }
+
+  .visualizerBars {
+    gap: 0.25rem;
+    min-height: 3.5rem;
+  }
+}

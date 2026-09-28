@@ -155,6 +155,8 @@ def execute_assessment_run(
     coaching_obj = report.get("coaching") or {}
     if rubric_obj is None and isinstance(assessment["llm_rubric"], str):
         rubric_obj = assess_cli.extract_rubric_json(assessment["llm_rubric"])
+    priorities = [str(item) for item in (coaching_obj.get("top_3_priorities") or []) if str(item).strip()]
+    padded_priorities = priorities[:3] + [""] * max(0, 3 - len(priorities[:3]))
     assess_cli.append_history(
         resolved_log_dir / "history.csv",
         {
@@ -184,9 +186,9 @@ def execute_assessment_run(
             "final_score": report.get("scores", {}).get("final", ""),
             "band": report.get("scores", {}).get("band", ""),
             "requires_human_review": report.get("requires_human_review", ""),
-            "top_priority_1": (coaching_obj.get("top_3_priorities") or ["", "", ""])[0],
-            "top_priority_2": (coaching_obj.get("top_3_priorities") or ["", "", ""])[1],
-            "top_priority_3": (coaching_obj.get("top_3_priorities") or ["", "", ""])[2],
+            "top_priority_1": padded_priorities[0],
+            "top_priority_2": padded_priorities[1],
+            "top_priority_3": padded_priorities[2],
             "grammar_error_categories": assess_cli._extract_issue_categories(rubric_obj, "recurring_grammar_errors"),
             "coherence_issue_categories": assess_cli._extract_issue_categories(rubric_obj, "coherence_issues"),
             "report_path": str(report_path.resolve()),

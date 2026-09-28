@@ -25,6 +25,7 @@ FINAL_SCORE_WEIGHTS = {
     "deterministic": 0.40,
     "rubric": 0.60,
 }
+CONTENT_VALIDITY_TOPIC_MIN = 2
 
 
 def _clip(value: float, low: float, high: float) -> float:
@@ -79,11 +80,22 @@ def compute_checks(
     duration_pass = speaking_time >= (target_duration_sec * duration_pass_ratio)
     min_words_pass = word_count >= min_word_count
     topic_pass = rubric.on_topic if rubric is not None else None
+    if language_pass is False:
+        content_validity_pass = False
+    elif rubric is None:
+        content_validity_pass = None
+    else:
+        content_validity_pass = bool(
+            rubric.language_ok
+            and rubric.on_topic
+            and rubric.topic_relevance_score >= CONTENT_VALIDITY_TOPIC_MIN
+        )
     return {
         "duration_pass": duration_pass,
         "topic_pass": topic_pass,
         "min_words_pass": min_words_pass,
         "language_pass": language_pass,
+        "content_validity_pass": content_validity_pass,
     }
 
 
@@ -92,6 +104,8 @@ def final_scores(
     llm: Optional[float],
     topic_pass: Optional[bool],
     topic_fail_cap_score: float,
+    language_pass: Optional[bool] = None,
+    content_validity_pass: Optional[bool] = None,
 ) -> dict:
     if llm is None:
         final = deterministic
@@ -100,6 +114,10 @@ def final_scores(
         final = (FINAL_SCORE_WEIGHTS["deterministic"] * deterministic) + (FINAL_SCORE_WEIGHTS["rubric"] * llm)
         mode = "hybrid"
     if topic_pass is False:
+        final = min(final, topic_fail_cap_score)
+    if language_pass is False:
+        final = min(final, topic_fail_cap_score)
+    if content_validity_pass is False:
         final = min(final, topic_fail_cap_score)
     final = round(_clip(final, SCORE_MIN, SCORE_MAX), 2)
     band = int(round(final))

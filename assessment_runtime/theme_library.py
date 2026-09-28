@@ -3,39 +3,55 @@
 from __future__ import annotations
 
 import json
+import logging
 from copy import deepcopy
 from pathlib import Path
 
-DEFAULT_THEME_LIBRARY = {
-    "it": {
-        "label": "Italiano",
-        "themes": [
-            {"title": "Il mio ultimo viaggio all'estero", "level": "B1", "task_family": "travel_narrative"},
-            {"title": "Una festa o un evento importante a cui ho partecipato", "level": "B1", "task_family": "personal_experience"},
-            {"title": "Una giornata che ricordo molto bene", "level": "B1", "task_family": "personal_experience"},
-            {"title": "I vantaggi e gli svantaggi del lavoro da casa", "level": "B2", "task_family": "opinion_monologue"},
-            {"title": "Come il turismo è cambiato negli ultimi anni", "level": "B2", "task_family": "opinion_monologue"},
-            {"title": "Un'esperienza che mi ha cambiato il modo di vedere le cose", "level": "B2", "task_family": "personal_experience"},
-            {"title": "Il rapporto tra tecnologia e vita quotidiana", "level": "C1", "task_family": "opinion_monologue"},
-            {"title": "Il ruolo dei social media nel dibattito pubblico", "level": "C1", "task_family": "opinion_monologue"},
-            {"title": "Come conciliare libertà personale e responsabilità sociale", "level": "C1", "task_family": "opinion_monologue"},
-        ],
+_SESSION_SETUP_CONTENT_PATH = Path(__file__).with_name("data") / "session_setup_content.json"
+logger = logging.getLogger(__name__)
+_REQUIRED_SESSION_SETUP_KEYS = ("default_theme_library", "practice_brief_templates")
+_FALLBACK_SESSION_SETUP_CONTENT = {
+    "default_theme_library": {
+        "en": {"label": "English", "themes": []},
+        "de": {"label": "Deutsch", "themes": []},
+        "it": {"label": "Italiano", "themes": []},
     },
-    "en": {
-        "label": "English",
-        "themes": [
-            {"title": "My last trip abroad", "level": "B1", "task_family": "travel_narrative"},
-            {"title": "An event or celebration I still remember well", "level": "B1", "task_family": "personal_experience"},
-            {"title": "A typical day in my life", "level": "B1", "task_family": "personal_experience"},
-            {"title": "The pros and cons of working from home", "level": "B2", "task_family": "opinion_monologue"},
-            {"title": "How travel habits have changed in recent years", "level": "B2", "task_family": "opinion_monologue"},
-            {"title": "An experience that changed the way I think", "level": "B2", "task_family": "personal_experience"},
-            {"title": "Technology and the quality of daily life", "level": "C1", "task_family": "opinion_monologue"},
-            {"title": "The influence of social media on public debate", "level": "C1", "task_family": "opinion_monologue"},
-            {"title": "How to balance personal freedom with social responsibility", "level": "C1", "task_family": "opinion_monologue"},
-        ],
+    "practice_brief_templates": {
+        "en": {
+            "travel_narrative": "Speak about '{theme}' in a clear sequence.",
+            "personal_experience": "Explain '{theme}' as a personal experience.",
+            "opinion_monologue": "Give your opinion about '{theme}'.",
+            "free_monologue": "Speak in English about '{theme}'.",
+            "picture_description": "Describe '{theme}'.",
+            "default_duration_minutes": "Aim to speak for about {minutes} minutes.",
+            "default_duration_seconds": "Aim to speak for about {seconds} seconds.",
+            "success_focus": [],
+        }
     },
 }
+
+
+def _load_session_setup_content(path: Path = _SESSION_SETUP_CONTENT_PATH) -> dict:
+    try:
+        with path.open(encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (FileNotFoundError, json.JSONDecodeError, OSError) as exc:
+        logger.warning("Could not load session setup content from %s: %s", path, exc)
+        return deepcopy(_FALLBACK_SESSION_SETUP_CONTENT)
+    if not isinstance(payload, dict):
+        logger.warning("Session setup content from %s is not a JSON object.", path)
+        return deepcopy(_FALLBACK_SESSION_SETUP_CONTENT)
+    normalized = deepcopy(_FALLBACK_SESSION_SETUP_CONTENT)
+    for key in _REQUIRED_SESSION_SETUP_KEYS:
+        if isinstance(payload.get(key), dict):
+            normalized[key] = payload[key]
+        else:
+            logger.warning("Session setup content from %s is missing key %s.", path, key)
+    return normalized
+
+
+_SESSION_SETUP_CONTENT = _load_session_setup_content()
+DEFAULT_THEME_LIBRARY = deepcopy(_SESSION_SETUP_CONTENT["default_theme_library"])
 
 
 def theme_library_path(log_dir: Path) -> Path:
@@ -44,6 +60,10 @@ def theme_library_path(log_dir: Path) -> Path:
 
 def workspace_prefs_path(log_dir: Path) -> Path:
     return log_dir / "workspace_prefs.json"
+
+
+def practice_brief_templates() -> dict:
+    return deepcopy(_SESSION_SETUP_CONTENT["practice_brief_templates"])
 
 
 def _normalize_theme_library(data: dict | None) -> dict:

@@ -1,8 +1,8 @@
 import unittest
 from unittest import mock
 
-from app_shell.runtime_connections import deserialize_connections, ensure_single_default_connection, serialize_connections
-from app_shell.state import DEFAULT_MODEL, ProviderConnection
+from app_core.runtime_connections import deserialize_connections, ensure_single_default_connection, serialize_connections
+from app_core.state import DEFAULT_MODEL, ProviderConnection
 
 
 class RuntimeConnectionTests(unittest.TestCase):
@@ -34,7 +34,7 @@ class RuntimeConnectionTests(unittest.TestCase):
             },
         ]
 
-        with mock.patch("app_shell.runtime_connections.uuid4", return_value=mock.Mock(hex="generated-id")):
+        with mock.patch("app_core.runtime_connections.uuid4", return_value=mock.Mock(hex="generated-id")):
             connections = deserialize_connections(raw_connections)
 
         self.assertEqual(len(connections), 2)

@@ -15,11 +15,36 @@
 - Treat existing uncommitted changes as user-owned unless the task clearly depends on them.
 - Prefer small, local edits and verification over workflow advice.
 
+## Verification And Blocker Triage
+
+- When asked what is blocking, run or explicitly verify both the backend and the frontend before reporting status.
+- Frontend baseline: run `npm --prefix frontend test`, `npm --prefix frontend run typecheck`, and a localhost Vite smoke when browser/UI behavior is in scope.
+- Backend baseline: use `/Users/bernhard/Development/assess_speaking-codex-v6/.venv/bin/python -m pytest` for focused backend/API tests and a localhost `/v1/health` smoke when runtime behavior is in scope.
+- If browser or screenshot automation is reported blocked, rerun the smallest relevant Playwright or Browser probe and record the exact command, date, and error.
+
+## npm Dependency Safety
+
+For any change touching `frontend/package.json`, npm lockfiles, install scripts, or JS/TS build tooling:
+
+- Prefer native APIs and existing internal utilities over new npm packages.
+- Do not add or update npm dependencies casually.
+- Follow `docs/security/npm-dependency-policy.md` before approving the change.
+- Use locked, reproducible installs (`npm ci`) and inspect lockfile diffs.
+- Treat install lifecycle scripts, git/tarball dependencies, new maintainers, large transitive trees, and recently published versions as supply-chain risk.
+- CI dependency installation must not run with write tokens, cloud credentials, SSH keys, or broad GitHub permissions.
+
 ## Python Environment
 
 - Use the repository virtual environment at `/Users/bernhard/Development/assess_speaking-codex-v6/.venv` for Python commands, tests, and tooling.
 - Prefer `/Users/bernhard/Development/assess_speaking-codex-v6/.venv/bin/python` (or activate `.venv`) instead of the system `python3`.
 - If the virtual environment is missing or stale, bootstrap it with `./scripts/setup_env.sh .venv` from the repo root, then rerun the command inside that environment.
+
+## CodeRabbit
+
+- Use the CodeRabbit CLI when the user asks for an AI code review of local changes.
+- Common commands: `coderabbit review`, `coderabbit review --plain`, `coderabbit review --agent`, `coderabbit auth login`, and `coderabbit stats`.
+- Use `coderabbit review --agent` when structured findings are useful for agent follow-up, and `coderabbit review --plain` when the user wants a plain-text review of all local changes.
+- Use `coderabbit feedback <message...>` to send quick feedback about a CodeRabbit review.
 
 ## UX Optimization
 

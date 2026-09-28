@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from app_shell.runtime_providers import DEFAULT_PROVIDER, default_base_url
+from app_core.runtime_providers import DEFAULT_PROVIDER, default_base_url
 
 
 @dataclass(frozen=True)

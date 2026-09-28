@@ -1,12 +1,11 @@
 # Desktop And Hosted Product Plan
 
-Last updated: 2026-04-15
-Status: Approved migration direction; implementation not started
+Last updated: 2026-05-19
+Status: Approved product direction; React/Tauri local guest app is the primary desktop lane and Streamlit is retired from product runtime paths before hosted persistence/auth work
 
 ## Summary
 
-This plan defines the approved path from the current Streamlit desktop shell to
-a product shape that supports both:
+This plan defines the approved product shape for:
 1. a packaged desktop app
 2. a hosted web product
 
@@ -23,6 +22,13 @@ Locked decisions:
 This keeps the current local-first desktop story intact while creating a
 deliberate second deployment mode for hosted users instead of pretending the
 existing local backend can simply be deployed as-is.
+
+For the current migration sequence:
+1. macOS and Windows remain the first-class desktop packaging targets
+2. Linux remains a no-regression target until the shared frontend and backend
+   bootstrap path are stable
+3. Streamlit is no longer a product lane; React/Vite, Tauri, and the local
+   FastAPI backend own the desktop runtime
 
 ## Product Shape
 
@@ -150,8 +156,9 @@ Goal:
 
 Required changes:
 1. treat the current `/v1/*` endpoints as the stable local API contract
-2. add runtime-mode metadata so code can distinguish local desktop mode from
-   hosted mode
+2. add shared runtime metadata with `deployment_mode`, `launch_mode`,
+   `packaging_safe`, and `auth_mode` so code can distinguish local desktop mode
+   from hosted mode without inventing parallel schemas
 3. extract interfaces around history, report, upload, and job persistence
 4. keep local implementations backed by the current app-data layout
 5. keep local mode auth-free
@@ -164,7 +171,7 @@ Done when:
 ### Phase 2: Replace Streamlit with the shared frontend for local desktop
 
 Goal:
-1. replace Streamlit without taking on hosted multi-user scope yet
+1. finish replacing Streamlit without taking on hosted multi-user scope yet
 
 Required changes:
 1. build the shared React app against the existing local FastAPI contract
@@ -179,8 +186,32 @@ Required changes:
 4. preserve the current local app-data layout and backend bootstrap behavior
 5. keep localization parity with the existing locale files
 
+Implementation status as of 2026-05-01:
+1. the shared React shell is live against the phase-2 local FastAPI contract
+2. Tauri can launch the shared frontend and start or reuse the local backend
+3. local guest browser lanes now cover the shared frontend smoke path plus
+   History, Settings, Settings -> Runtime Setup return-flow, and support-bundle
+   runtime-health regression flows
+4. Runtime Setup and Settings share the local runtime-management API for saved
+   connections, secret-state preservation, UI locale, Whisper model persistence,
+   connection testing, default/delete actions, and model download state
+5. hosted auth, hosted persistence, and signed-in desktop behavior remain out of
+   scope for this phase and are still tracked in later phases
+
+Completed retirement update as of 2026-05-19:
+1. React/Vite and Tauri are the primary local desktop product direction
+2. valuable Streamlit browser coverage moved to frontend Playwright or Vitest
+3. shared Python state, i18n, bootstrap, backend-client, runtime, and service
+   logic moved to `app_core`
+4. Streamlit files, tests, and dependencies were removed from the product
+   runtime
+5. hosted persistence and auth seams should keep relying on `app_core` and the
+   backend API contract, with `tests/test_streamlit_removal_contract.py`
+   preventing Streamlit-bound modules from returning
+
 Done when:
-1. the shared frontend can fully replace the current Streamlit desktop shell
+1. the shared frontend has replaced the legacy Streamlit desktop shell for
+   normal local product use
 2. local guest mode supports the full existing assessment flow
 3. no current local-only user is forced to create an account
 
@@ -226,14 +257,17 @@ Done when:
 ### Phase 5: Rollout, parity, and cleanup
 
 Goal:
-1. finish parity and retire Streamlit as the shipped shell
+1. maintain React/Tauri parity after Streamlit removal and add separate hosted
+   lanes
 
 Required changes:
-1. port secondary screens after the main learner flow is stable
-2. keep current E2E and backend regression coverage green
-3. add separate local and hosted test lanes
-4. update packaging and deployment docs
-5. document clear support boundaries for local guest mode, signed-in desktop
+1. keep secondary screens covered in the React route set
+2. keep backend, Vitest, frontend Playwright, and Tauri bootstrap coverage green
+3. keep Streamlit-only tests deleted after React replacements exist
+4. keep Streamlit and streamlit-webrtc out of product dependencies
+5. add separate local and hosted test lanes
+6. update packaging and deployment docs
+7. document clear support boundaries for local guest mode, signed-in desktop
    mode, and hosted mode
 
 Done when:
@@ -283,6 +317,8 @@ The plan assumes these stable product contracts:
 2. current local learner flow stays green in desktop mode
 3. hosted mode adds coverage for JWT verification, per-user isolation, and
    hosted storage adapters
+4. React Playwright and Vitest own the browser regression suite; the removal
+   contract keeps Streamlit pytest/browser lanes from returning
 
 ## Assumptions And Defaults
 
@@ -293,6 +329,8 @@ The plan assumes these stable product contracts:
    job abstractions
 5. mobile remains a later follow-on and should consume stable backend contracts,
    not UI exports
-6. this plan does not replace `docs/PUBLIC_INFERENCE_ARCHITECTURE_PLAN.md`;
+6. provider credentials stored through app-shell `secret_ref` remain separate
+   from any future optional desktop sign-in tokens or hosted identity material
+7. this plan does not replace `docs/PUBLIC_INFERENCE_ARCHITECTURE_PLAN.md`;
    that document remains a separate hosted inference beta option rather than the
    default end-user product architecture

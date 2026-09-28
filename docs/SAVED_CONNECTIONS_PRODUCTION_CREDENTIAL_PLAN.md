@@ -1,6 +1,6 @@
 # Saved Connections Production Credential Plan
 
-Last updated: 2026-04-15
+Last updated: 2026-04-21
 Status: Proposed implementation plan for the desktop app shell
 
 ## Goal
@@ -16,6 +16,12 @@ This plan applies to the app shell only:
 
 This plan does not change the lower-level CLI and standalone integration test
 flows that intentionally still use environment variables outside the app shell.
+
+It must also stay compatible with the approved hosted-product direction:
+1. local guest desktop mode remains auth-free
+2. future optional desktop sign-in does not replace provider credentials
+3. provider secrets stored by `secret_ref` stay separate from any later hosted
+   identity or account-session tokens
 
 ## Confirmed Product Decisions
 
@@ -33,6 +39,8 @@ flows that intentionally still use environment variables outside the app shell.
    storage is unavailable.
 8. Legacy secure-store migration from `Speaking Studio` to `Vostavo` stays in
    place, but only within secure storage.
+9. Any future optional desktop sign-in must remain additive to, not a
+   replacement for, saved provider credentials.
 
 PAL review notes worth carrying into implementation:
 1. environment keys may be detected for messaging, but never consumed

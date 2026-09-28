@@ -1,8 +1,8 @@
 import unittest
 
-from app_shell.i18n import t
-from app_shell.runtime_resolver import RuntimeConfig
-from app_shell.runtime_status import job_status_message
+from app_core.i18n import t
+from app_core.runtime_resolver import RuntimeConfig
+from app_core.runtime_status import job_status_message, provider_display_name
 
 
 def _translate(locale: str):
@@ -55,13 +55,30 @@ class RuntimeStatusTests(unittest.TestCase):
         )
         self.assertEqual(
             message,
-            "Deine Auswertung wartet. Fuer die Review wird OpenRouter mit Modell `google/gemini-3.1-pro-preview` verwendet.",
+            "Deine Aufnahme wartet auf die Auswertung mit OpenRouter und dem Modell `google/gemini-3.1-pro-preview`.",
         )
 
     def test_job_status_message_falls_back_to_generic_unknown_copy(self):
         self.assertEqual(
             job_status_message("mystery", None, translate=_translate("en")),
             "The assessment is still processing.",
+        )
+
+    def test_provider_display_name_allows_bracketed_translations(self):
+        def translate(key, **_kwargs):
+            if key == "settings.provider_option_openrouter":
+                return "[Labs] OpenRouter"
+            return f"[{key}]"
+
+        self.assertEqual(
+            provider_display_name("openrouter", translate=translate),
+            "[Labs] OpenRouter",
+        )
+
+    def test_provider_display_name_only_falls_back_for_exact_placeholder(self):
+        self.assertEqual(
+            provider_display_name("openrouter", translate=lambda key, **_kwargs: f"[{key}]"),
+            "OpenRouter",
         )
 
 

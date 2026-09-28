@@ -62,7 +62,7 @@ class RootImportAuditTests(unittest.TestCase):
         audit = {
             "root": "/tmp/repo",
             "root_python_file_count": 2,
-            "entrypoints": ["assess_speaking.py", "streamlit_app.py"],
+            "entrypoints": ["assess_speaking.py"],
             "groups": {},
             "inbound_hubs": [],
             "high_outbound_modules": [],

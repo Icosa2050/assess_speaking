@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   quality:
     runs-on: ubuntu-latest
@@ -13,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -28,15 +33,68 @@ jobs:
         run: python scripts/check_quality.py
 
       - name: Run duplication checks
-        run: npx --yes jscpd app_backend app_shell pages streamlit_app.py --reporters console --min-lines 12 --min-tokens 80 --threshold 1
+        run: |
+          npm --prefix frontend ci --ignore-scripts
+          npm --prefix frontend run check:duplication
 
-  tests:
+  frontend-smoke:
     needs: quality
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install smoke-lane dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          npm --prefix frontend ci --ignore-scripts
+
+      - name: Check and build frontend
+        run: |
+          npm --prefix frontend run typecheck
+          npm --prefix frontend test
+          npm --prefix frontend run build
+
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npm exec --no -- playwright install --with-deps chromium
+
+      - name: Run shared-frontend browser flows
+        run: npm --prefix frontend run test:e2e
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore
+
+  tests:
+    needs: [quality, frontend-smoke]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -50,32 +108,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-          python -m pip install pytest pytest-playwright playwright
-
-      - name: Install Playwright browser
-        run: |
-          python -m playwright install chromium
-          python -m playwright install-deps chromium
+          python -m pip install pytest
 
       - name: Run unit tests
-        run: python -m unittest discover -s tests
+        run: python -m pytest
 
       - name: Run LIPS corpus pipeline smoke tests
         run: python -m unittest tests.test_lips_dataset tests.test_lips_manifest_pipeline -v
-
-      - name: Run Playwright E2E tests
-        run: python -m pytest -c pytest.e2e.ini tests/e2e
-        env:
-          STREAMLIT_HEADLESS: 'true'
-          ASSESS_SPEAKING_DRY_RUN: '1'
-
-      - name: Upload Playwright report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-artifacts
-          path: |
-            playwright-report
-            test-results
-            traces
-          if-no-files-found: ignore

@@ -1,0 +1,149 @@
+{
+  "screenshots": [
+    [
+      "01-home-default",
+      "Home default/no runtime",
+      "01-home-default.jpg"
+    ],
+    [
+      "02-runtime-setup-default",
+      "Runtime Setup default",
+      "02-runtime-setup-default.jpg"
+    ],
+    [
+      "03-session-setup-default",
+      "Session Setup default",
+      "03-session-setup-default.jpg"
+    ],
+    [
+      "04-speak-ready",
+      "Speak ready after session setup",
+      "04-speak-ready.jpg"
+    ],
+    [
+      "05-review-empty",
+      "Review empty state",
+      "05-review-empty.jpg"
+    ],
+    [
+      "06-history",
+      "History",
+      "06-history.jpg"
+    ],
+    [
+      "07-library",
+      "Library",
+      "07-library.jpg"
+    ],
+    [
+      "08-guide",
+      "Scoring Guide",
+      "08-guide.jpg"
+    ],
+    [
+      "09-settings",
+      "Settings",
+      "09-settings.jpg"
+    ],
+    [
+      "10-home-configured",
+      "Home after runtime configuration",
+      "10-home-configured.jpg"
+    ]
+  ],
+  "results": [
+    {
+      "model": "anthropic/claude-opus-4.7",
+      "status": 200,
+      "elapsed_sec": 65.45,
+      "content": "# Vostavo UX Review\n\n## 1. Top 5 UX problems (by learner impact)\n\n1. **The core task is buried under setup.** On first run (01), the entire main panel is a runtime checklist plus a \"Set up local AI\" call to action. A language learner who downloaded a \"speaking practice\" app sees zero practice affordance \u2014 no \"Start session,\" no sample, no prompt preview. Even after configuration (10), \"Start or resume\" is a small card competing with the full Startup checks block.\n2. **Sidebar exposes infrastructure as peer navigation to learning.** \"Set up local AI,\" \"Practice Home,\" \"Session Setup,\" \"Speak,\" \"Review,\" \"History,\" \"Library,\" \"Scoring Guide,\" \"Settings\" all sit at the same visual weight. A learner has to mentally separate \"things I do\" (Session Setup \u2192 Speak \u2192 Review) from \"things I configure once\" (Set up local AI, Settings). This is the strongest source of cognitive load across every screen.\n3. **The 5-language banner at the top of every screen is misleading and intrusive.** It looks like a learning-language switch (the app is a language app), but it actually changes UI chrome. It occupies prime header real estate on all ten screens, and on Session Setup (03) it sits directly above a separate \"Learning language\" dropdown, which is a classic confusion trap.\n4. **Speak screen (04) hides the recording action behind two buttons.** \"Record\" and \"Upload\" act as a mode toggle, and only then does \"Start recording\" appear as the large primary button. The actual primary action (\"record now\") is two clicks deep, and \"No recording is attached yet\" reads as an error before the user has done anything.\n5. **Dead-end empty states.** Review (05) only offers \"Go to Speak,\" and History (06) just says \"No history rows are available yet.\" Neither suggests the next concrete step (e.g., \"Start a 90-second session on Travel Story\") or links to the shipped sample visible in Library (07). New learners on a clean install hit a wall.\n\n## 2. Top 5 improvements (by implementation value)\n\nOrdered so each is small, file-bounded, and ships value without touching backend contracts.\n\n1. **Promote a single \"Start practicing\" primary action on Home, and collapse Startup checks.**\n    Home becomes: title \u2192 big \"Start new session\" button \u2192 \"Resume draft\" secondary \u2192 a collapsed `<details>` \"System status\" containing the current Startup checks block. Configured state (10) already has the right idea; apply it as the default and let the checklist degrade gracefully when something is amber/red (auto-expand only on warning). Files: Home view + its strings file + one shared \"StatusChecklist\" component. ~3 files.\n2. **Move Interface language out of the global banner into Settings.**\n    Settings (09) already has an \"Interface language\" select \u2014 it is the source of truth. Replace the header banner with a small icon-button (globe) opening a popover, or remove it entirely from non-Settings screens. This frees the header, removes the confusion with Learning language on Session Setup (03), and reclaims roughly 60px of vertical space on every screen. Files: header/layout component, Settings (no change needed), i18n keys file. ~2\u20133 files.\n3. **Reorganize the sidebar into two groups: \"Practice\" and \"Manage.\"**\n    Practice: Home, Session Setup, Speak, Review.\n    Manage (visually lighter, under a divider, or in a `<details>`): History, Library, Scoring Guide, Settings, Runtime Setup.\n    Already, the \"Other surfaces\" block on the right side of every screen acknowledges this split \u2014 make it the navigation, not a duplicate. Files: sidebar component, sidebar strings, one CSS module. ~3 files.\n4. **Collapse Speak's record/upload toggle into one default flow.**\n    Show a single large \"Start recording\" button by default and a secondary \"Upload a file instead\" link below it. Replace \"No recording is attached yet\" with a neutral hint (\"Press start when ready \u2014 target 90 s\"). Files: Speak view + strings + the recorder subcomponent. ~3 files.\n5. **Give Review and History useful empty states.**\n    Review empty (05): show the current session's prompt card and a \"Record now\" button instead of \"Go to Speak.\"\n    History empty (06): show a \"Try a shipped sample\" card mirroring Library's IT\u00b7B1 Travel Story, plus a one-line tip about what History will look like after one attempt. Files: Review view, History view, shared \"EmptyState\" component, two strings files. ~4\u20135 files.\n\n## 3. Should Interface language move from global banner to Settings?\n\n**Yes, move it to Settings.** Reasons specific to what is visible:\n\n- Settings (09) already has an \"Interface language\" dropdown \u2014 the banner is a duplicate UI for the same state.\n- On Session Setup (03), the banner sits above a \"Learning language\" dropdown showing Italian. Two language controls in one viewport is the kind of thing that produces support tickets.\n- The banner is on every screen but is realistically used once per install.\n- Acceptable compromise if you fear discoverability: a small globe icon in the header that opens a popover, but the canonical control lives in Settings. Do **not** keep five full buttons in the header.\n\nStage it: first add a clear control in Settings (it's there), then in a follow-up remove the banner. This avoids a \"where did the language switcher go\" moment.\n\n## 4. Should Runtime Setup be hidden from primary navigation or only demoted?\n\n**Demote, do not hide.** Specifically:\n\n- It must remain reachable because Startup checks (01) and Settings (09) both link conceptually into it, and a broken runtime is exactly when users need it most.\n- It should not sit as a peer of \"Speak\" in the sidebar. Move it into the \"Manage\" group (see improvement #3), or into Settings as an \"Open guided setup\" button (already present in Settings 09 \u2014 good).\n- On first-run with no runtime configured, surface it as an inline banner on Home (\"Finish AI setup to enable scoring\") with a link, rather than as a navigation item. This is the same information the Startup checks already convey; just give it one prominent home instead of two equal homes.\n- Keep the route and semantic ID intact so deep links from checklists keep working.\n\nSo: remove from sidebar primary list, keep route, expose via (a) Settings \"Open guided setup\" button, (b) inline Home banner when runtime is missing, (c) clickable Startup-checks row.\n\n## 5. Changes to the existing implementation plan\n\nAssuming the current plan is \"build screens, then localize, then polish,\" adjust as follows:\n\n- **Re-sequence around the learner journey, not the file tree.** Implement in this order so each PR is independently valuable:\n    1. Layout/header (remove banner, add globe popover) + sidebar regrouping. ~3 files.\n    2. Home reshape (primary CTA + collapsed checklist). ~3 files.\n    3. Speak flow simplification. ~3 files.\n    4. Review and History empty states. ~4 files.\n    5. Settings copy tightening (the \"UI language and provider choices stay separate from the learning task itself\" sentence is repeated three times on screen 09 \u2014 collapse to one). ~1\u20132 files.\n    Each step stays under the five-file ceiling.\n- **Add an i18n audit subtask before step 1.** Several visible strings look like they may be hardcoded (e.g., \"Other surfaces,\" \"Guided speaking practice, assessment, and review,\" \"Interface language,\" \"Section A \u00b7 Whisper\"). Confirm every one has a key before the layout refactor, otherwise the banner removal will silently drop translations. Keep it to the strings files only.\n- **Do not introduce a new design system.** All ten screens share a consistent card/border/spacing language already; the wins above are layout and information hierarchy, not visual redesign. The plan should explicitly forbid restyling cards, buttons, or color tokens in this pass.\n- **Preserve semantic IDs explicitly in each subtask's acceptance criteria.** The sidebar regroup and Home reshape both risk renaming anchors that the Tauri shell or tests may rely on. Make \"no ID renames\" a checklist item per PR.\n- **Defer Scoring Guide changes.** Screen 08 is dense but accurate and is a reference page, not a flow page. It is the lowest-impact target right now; push any rework to a later milestone.\n- **Add one explicit non-goal:** no changes to runtime detection, Whisper caching, or provider contracts. The screenshots show the backend surface (paths, model IDs, base URLs) is already stable \u2014 the review is purely about what the learner sees and clicks.",
+      "reasoning": null,
+      "raw_model": "anthropic/claude-4.7-opus-20260416",
+      "usage": {
+        "prompt_tokens": 25038,
+        "completion_tokens": 2858,
+        "total_tokens": 27896,
+        "cost": 0.1946736,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.19664,
+          "upstream_inference_prompt_cost": 0.12519,
+          "upstream_inference_completions_cost": 0.07145
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "model": "google/gemini-3.1-pro-preview",
+      "status": 200,
+      "elapsed_sec": 38.93,
+      "content": "Based on the screenshots provided, Vostavo has a robust, highly transparent technical foundation, but its current UI exposes too much of that underlying architecture to the user. For a language learner, the cognitive load should be spent on the target language, not on managing file paths, inference runtimes, and validation gates.\n\nHere is the review and actionable plan to make the UX more enticing and learner-focused, adhering strictly to your constraints.\n\n### 1. Top 5 UX Problems (Ordered by Learner Impact)\n\n1.  **Technical Intimidation on the Home Screen:** (Screenshots 01 & 10) Greeting a language learner with file paths (`/Users/.../tmp`), `ffmpeg` binaries, and HuggingFace cache directories creates immediate anxiety. It feels like a developer diagnostic tool rather than a welcoming learning environment.\n2.  **Overwhelming, Flat Navigation:** (All Screenshots) The left sidebar contains 9 equally weighted items. \"Set up local AI\" and \"Session Setup\" are steps in a process, not permanent destinations. This clutters the user's mental model of the app's core loop (Practice -> Review -> History).\n3.  **Academic and Clinical Terminology:** (Screenshots 03, 04, 08) Terms like \"Speaker ID\", \"Task family\", \"Validation gates\", and \"Deterministic score signals\" are cold and academic. They remind the user of a stressful testing center rather than an engaging practice tool.\n4.  **Distracting Metadata during Practice:** (Screenshot 04) On the \"Speak\" screen, the \"Assessment\" panel shows the provider (`ollama`) and model (`llama3.2:3b`). This is irrelevant to the immediate task of speaking and distracts from the prompt.\n5.  **Redundant UI Elements:** The \"Interface language\" switcher dominates the top header on every screen, despite users rarely changing this after the first launch. Additionally, the \"Other surfaces\" box on the Home screen duplicates the sidebar navigation.\n\n### 2. Top 5 Improvements (Ordered by Implementation Value)\n\n1.  **Clean Up the Home Screen (High Value, Low Effort):** Hide the \"Startup checks\" checklist behind a single, friendly status indicator (e.g., \"\u2705 System Ready\" or \"\u26a0\ufe0f Setup Required\"). Make the \"Start new session\" button the massive, undeniable focal point of the Home screen.\n2.  **Restructure the Sidebar Navigation (High Value, Medium Effort):** Group the navigation into two distinct sections.\n    *   *Primary:* Home, Library, History.\n    *   *Bottom/Secondary:* Settings, Scoring Guide.\n    *   *Remove:* \"Set up local AI\", \"Session Setup\", \"Speak\", and \"Review\" from the persistent sidebar. These should be treated as a linear wizard/flow triggered from the Home screen.\n3.  **Humanize the Copy via Localization Files (High Value, Low Effort):** Update the localization JSON files to use friendlier terms. (e.g., Change \"Speaker ID\" to \"Learner Profile\" or \"Your Name\"; change \"Task family\" to \"Practice Type\"; change \"Target duration\" to \"Goal time\"). *This requires zero backend changes.*\n4.  **Declutter the Speak Screen (Medium Value, Low Effort):** Remove the technical AI model metadata from the right-hand column of the Speak screen. Center the \"Current prompt\" and the \"Recording\" box to focus the user entirely on the speaking task.\n5.  **Consolidate AI Setup into Settings (Medium Value, Medium Effort):** Move the entire \"Set up local AI\" screen into a dedicated tab within the \"Settings\" page. If the app detects missing runtimes on launch, route the user there via a modal or banner, rather than dedicating a permanent top-level page to it.\n\n### 3. UI Language Placement: Global Banner vs. Settings\n\n**Move it to Settings.**\nThe global banner takes up prime vertical real estate and adds visual clutter to every single screen. Users typically set their native interface language once and never touch it again. It is already present in the Settings screen (Screenshot 09). You can safely remove the top-right banner entirely.\n\n### 4. Runtime Setup: Hide vs. Demote\n\n**Hide from primary navigation.**\n\"Set up local AI\" should not be in the sidebar. It should live entirely inside **Settings -> AI Configuration**.\n*How it should work:* On the Home screen, if the system check fails (no runtime), show a prominent warning card: \"Local AI needs configuration to assess your speech. [Go to Settings]\". Once configured, the user never needs to see it in their daily practice flow.\n\n### 5. Recommended Changes to the Implementation Plan\n\nGiven your constraints (file-bounded, max 5 files per subtask, preserve semantic IDs), here is how to stage the implementation plan:\n\n*   **Subtask 1: Header & Nav Refactor (Files: `Layout`, `Sidebar`, `Header`, `en.json`)**\n    *   Remove the language switcher from the Header.\n    *   Update the Sidebar to group items (Primary vs. Bottom).\n    *   Remove flow-specific steps (Setup, Speak, Review) from the persistent Sidebar.\n*   **Subtask 2: Home Screen Simplification (Files: `Home`, `SystemCheck`, `en.json`)**\n    *   Remove the \"Other surfaces\" duplicate box.\n    *   Condense the 5-box technical checklist into a single \"System Status\" component.\n    *   Elevate the \"Start new session\" CTA.\n*   **Subtask 3: Terminology & Copy Pass (Files: `en.json`, `[other_langs].json`)**\n    *   Do a pure localization file update to humanize the UI strings (e.g., `speaker_id_label`: \"Learner Name\"). No React/Tauri code needs to change here, preserving all semantic IDs.\n*   **Subtask 4: Speak Screen Focus (Files: `Speak`, `AssessmentPanel`)**\n    *   Hide the AI provider/model strings from the UI during the active speaking step.\n    *   Adjust CSS/layout to center the recording controls.\n*   **Subtask 5: Settings Consolidation (Files: `Settings`, `RuntimeSetup`, `AppRouter`)**\n    *   Move the `RuntimeSetup` component to render inside a section of the `Settings` view rather than as a standalone top-level route.",
+      "reasoning": "**Defining the Objective**\n\nI'm currently focused on defining the core objective and constraints of the project. Specifically, the goal is to enhance the user experience of Vostavo, the local-first speaking-practice app. The main constraints have been identified but are not yet fully specified.\n\n\n**Refining the Deliverables**\n\nI've refined the list of deliverables, specifying five key UX problems and improvements, alongside decisions on UI language placement, runtime setup, and potential implementation plan updates. I'm prioritizing user impact and implementation value in the ordering.\n\nI am now conducting a mental walkthrough of the screenshots.\n\n\n**Analyzing the User Interface**\n\nI'm now conducting a detailed UI review, scrutinizing each screen for usability. The setup screens are form-heavy and feel developer-focused, which could hinder a learning-app experience. The \"Speak Ready\" screen has promise, but is offset by the sterility of the UI. I'm noting the academic and dense feeling across several screens, which contrasts with the app's potential user base.\n\n\n**Identifying Key UX Problems**\n\nI'm now drafting responses to the key UX questions. I've identified five critical problems, starting with technical intimidation on the home screen \u2013 file paths and runtimes are not user-friendly. Overwhelming navigation is next, followed by academic terminology, then redundant UI elements, and finally, a weak visual hierarchy. I'm carefully ordering these by learner impact.\n\n\n**Prioritizing Improvements**\n\nI'm now zeroing in on actionable improvements, starting with the Home screen. The initial focus is on simplifying the Home screen by hiding the technical checklist. I'm also streamlining the sidebar navigation, grouping primary and secondary navigation items. Furthermore, I'm working to humanize the copy, and clean up the Speak screen, hiding technical assessment details behind a tooltip.\n\n\n**Streamlining the Experience**\n\nI'm now prioritizing the most critical fixes. I'm focusing on consolidation and reduction. I am removing technical details from the primary practice view, and also moving the UI language and runtime setups to a single settings panel. This reduces clutter.\n\n\n**Refining the Implementation**\n\nI've been refining the implementation plan further. I've decided that the AI configuration specifically, does not belong in the daily practice loop. The proposed phases of the implementation plan are as follows: layout and navigation, home screen refactor, copy and localization pass, and flow cleanup. I'm focusing on ensuring a clear user flow.\n\n\n",
+      "raw_model": "google/gemini-3.1-pro-preview-20260219",
+      "usage": {
+        "prompt_tokens": 11204,
+        "completion_tokens": 3178,
+        "total_tokens": 14382,
+        "cost": 0,
+        "is_byok": true,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.060544,
+          "upstream_inference_prompt_cost": 0.022408,
+          "upstream_inference_completions_cost": 0.038136
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 1787,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "model": "x-ai/grok-4.3",
+      "status": 200,
+      "elapsed_sec": 14.7,
+      "content": "**1. Top 5 UX problems (by learner impact)**\n\n1. **Home default (01) buries the core practice loop**: The largest card is \u201cSet up local AI\u201d + full startup checklist; \u201cPractice Home\u201d is a passive sidebar label with no prominent entry point, quick-start button, or motivational copy. New learners see infrastructure before any speaking task.\n\n2. **Global language banner (all screens) collides with learning language**: The English/German/Spanish\u2026 pills sit in the top-right on every page. Learners cannot immediately distinguish \u201cUI language\u201d from the Italian they are practicing (visible in Session Setup/Speak).\n\n3. **Review and History empty states give no forward path**: Screenshot 05 only offers \u201cGo to Speak\u201d; screenshot 06 shows literally nothing. No recent attempts, no \u201ctry a sample\u201d, no progress hint.\n\n4. **Runtime Setup remains a top-level nav item even after configuration**: In 01-home-default it is highlighted; the existence of 10-home-configured implies it stays visible, creating permanent competition with Speak/Review.\n\n5. **Session Setup (03) has no live preview of what will actually be recorded**: The right-hand \u201cPrompt preview\u201d and \u201cCurrent session shape\u201d cards are static; the learner cannot see how the chosen theme + duration will appear on the Speak screen until after navigation.\n\n**2. Top 5 improvements (by implementation value)**\n\n1. **Replace the default Home card with a \u201cStart speaking\u201d primary action** (Practice Home view). One file change + localized strings; immediately raises perceived value of the app.\n\n2. **Demote Runtime Setup in the sidebar** (keep it reachable via Settings or a footer link). Low-risk nav edit, prevents the setup flow from competing once the user has a working runtime.\n\n3. **Move the Interface language pills into Settings** (remove the global banner). Single Settings file + existing localization pattern; eliminates the most obvious source of learner confusion.\n\n4. **Add a \u201cUse sample in Speak\u201d CTA on the Library sample row** (already present in 07) and surface the same control on Review/History empty states. Reuses existing theme data, two small components.\n\n5. **Make the right-hand cards on Session Setup reactive** so they mirror the exact prompt text and constraints that will appear on Speak. Mostly prop wiring inside the existing Session Setup file.\n\n**3. UI language location**  \nYes \u2014 move from global banner to Settings. The current placement is the single most visible source of \u201cwhich language am I choosing?\u201d confusion and can be removed with a one-file Settings change plus deletion of the banner component.\n\n**4. Runtime Setup visibility**  \nHide from primary navigation once a connection exists (show only in Settings or as a subtle \u201cReconfigure\u201d link on the configured Home). Demotion alone is insufficient; the item should disappear from the main sidebar list after first successful save.\n\n**5. Changes to existing implementation plan**  \n- Split the planned \u201cHome\u201d task into two file-bounded subtasks: (a) default empty state, (b) configured state (\u22645 files each).  \n- Add an explicit \u201cRemove global language banner + add to Settings\u201d subtask (1\u20132 files).  \n- Add a \u201cConditional nav item\u201d subtask for Runtime Setup (sidebar + settings files only).  \n- No other structural changes needed; all recommendations stay within the \u201cpreserve semantic IDs / existing patterns / localization required\u201d constraints.",
+      "reasoning": "The task is to review screenshots of Vostavo and provide specific feedback on UX problems, improvements, and some decisions about UI language and Runtime Setup.\n",
+      "raw_model": "x-ai/grok-4.3-20260430",
+      "usage": {
+        "prompt_tokens": 13759,
+        "completion_tokens": 1221,
+        "total_tokens": 14980,
+        "cost": 0.0199156815,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 128,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.02011685,
+          "upstream_inference_prompt_cost": 0.01706435,
+          "upstream_inference_completions_cost": 0.0030525
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 514,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    }
+  ]
+}

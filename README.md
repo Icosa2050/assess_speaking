@@ -147,20 +147,27 @@ The CLI dashboard renders the history table (via `rich`) and can export an HTML
 snapshot. It also supports speaker and task-family filters so progress on
 `travel_narrative` is not mixed with unrelated speaking tasks.
 
-### Primary multipage app shell
+### Primary desktop app shell
 
-The primary product-facing UI is now the multipage app shell. The preferred
-launcher is the local bootstrap wrapper:
+The primary product-facing UI is the shared React/Vite frontend, packaged for
+desktop through Tauri and backed by the localhost FastAPI runtime. Streamlit is
+no longer a product dependency or launch path.
+
+For local frontend development, start the backend and frontend separately:
+
+```bash
+./scripts/python.sh scripts/run_backend.py --host 127.0.0.1 --port 8800
+cd frontend
+NODE_ENV=development VITE_LOCAL_API_BASE_URL=http://127.0.0.1:8800 npm run dev -- --host 127.0.0.1 --port 4173 --strictPort
+```
+
+The backend bootstrap wrapper prints diagnostics and starts or reuses the local
+FastAPI runtime:
 
 ```bash
 ./scripts/python.sh scripts/run_app.py
 ./scripts/python.sh scripts/run_app.py --check
 ```
-
-`streamlit run streamlit_app.py` remains the stable entrypoint, but the launcher
-is better for local product use and later desktop packaging because it resolves
-stable app-data paths, bootstraps cache defaults, and can be run from outside
-the repo root.
 
 The learner-facing flow is now optimized for a single local user:
 
@@ -207,10 +214,44 @@ directory on backend startup when the new location is still empty.
 The wrapper writes reports/history under the app-data root by default, so the
 UI keeps working even when launched from an arbitrary working directory.
 
+Settings includes a `Troubleshooting and support` section for local desktop
+maintenance:
+
+- `Saved Connections`, `Runtime Defaults`, and `Runtime Setup` now read and
+  persist through the localhost runtime-management API rather than browser
+  `localStorage`, so saved connection state, secret presence, UI locale, and
+  Whisper model choice stay consistent across the shared frontend.
+- `Refresh storage usage` reads the backend storage summary without scanning from
+  the UI process.
+- `Preview cleanup` and `Run safe cleanup` target temporary files, expired
+  support bundles, stale job metadata, and rotated logs. Reports, recordings,
+  and uploaded audio are preserved.
+- `Create support bundle` creates a local ZIP with sanitized app state,
+  diagnostics, storage summary, backend logs, and recent sanitized job metadata.
+  Saved reports, recordings, uploads, and live runtime health checks are excluded
+  by default and require explicit opt-in.
+
+Support bundles fully remove `secret_ref` fields and redact secret-looking
+values. Credential state is represented by sanitized booleans such as whether a
+saved secret exists, never by copying keys or secret references into the bundle.
+
 ### Tests & CI
 - **Unit tests**: `./scripts/run_tests.sh`
 - **Source coverage**: `./scripts/run_coverage.sh`
 - **Full coverage (including tests)**: `./scripts/run_coverage.sh --full`
+- **Shared-frontend browser lanes**:
+  `cd frontend && npm ci && npx playwright install chromium && NODE_ENV=development npx playwright test -c playwright.config.ts`
+- Focused local-guest smoke:
+  `cd frontend && NODE_ENV=development npx playwright test -c playwright.config.ts tests/e2e/smokeLocalGuest.spec.ts`
+- Full local-guest regression:
+  `cd frontend && NODE_ENV=development npx playwright test -c playwright.config.ts tests/e2e/smokeLocalGuest.spec.ts tests/e2e/localGuestFlow.spec.ts tests/e2e/settingsSupportFlow.spec.ts tests/e2e/reviewHistoryFlow.spec.ts`
+- The Playwright config starts the shared frontend on `127.0.0.1:4173` and the
+  localhost-only backend on `127.0.0.1:8800`, so the browser lanes exercise the
+  same local guest desktop stack the Tauri shell uses.
+- Optional live runtime setup E2E:
+  `cd frontend && RUN_VOSTAVO_LOCAL_RUNTIME_E2E=1 NODE_ENV=development npx playwright test -c playwright.config.ts tests/e2e/runtimeSetupLive.spec.ts`
+- Optional real-audio E2E:
+  `cd frontend && RUN_VOSTAVO_REAL_E2E=1 OPENROUTER_API_KEY="$OPENROUTER_API_KEY" NODE_ENV=development npx playwright test -c playwright.config.ts tests/e2e/realAudioHistory.spec.ts`
 - The test and coverage wrappers always use the repo-local `.venv` via
   `./scripts/python.sh`, so they stay consistent even when a global `pytest` or
   `coverage` installation points at a different Python.
@@ -221,6 +262,13 @@ UI keeps working even when launched from an arbitrary working directory.
   `RUN_OPENROUTER_INTEGRATION=1 ./scripts/python.sh -m unittest tests.test_integration_openrouter -v`
 - **Optional sample-audio integration test (no microphone required)**:
   `RUN_AUDIO_INTEGRATION=1 WHISPER_MODEL=tiny ./scripts/python.sh -m unittest tests.test_sample_integration`
+
+The shared-frontend lanes boot a clean localhost backend on port `8800` and the
+Vite frontend on port `4173`. The smoke lane covers Home -> Runtime Setup; the
+full local-guest regression also covers Home -> History -> Settings,
+origin-preserving Settings return/setup navigation, and support bundles with
+the live runtime-health opt-in.
+
 - **Self-hosted real-ASR lane**:
   `.github/workflows/real-asr-selfhosted.yml` runs the sample-audio integration on a
   self-hosted Apple Silicon runner with labels `self-hosted`, `macOS`, `ARM64`,
@@ -231,14 +279,11 @@ UI keeps working even when launched from an arbitrary working directory.
   opt-in and does not slow down or destabilize the default hosted PR checks.
   Each run uploads an artifact bundle with the sample integration log, CLI output,
   saved report JSON/history, and a cache/runner metadata snapshot.
-- **End-to-end tests (Playwright + pytest)**: `./scripts/run_e2e.sh`
-  * Traces, videos, and screenshots are saved automatically on failure in
-    `test-results/` and `playwright-report/` (see
-    [Playwright Test](https://playwright.dev/docs/intro) and
-    [pytest-playwright](https://playwright.dev/python/docs/intro)).
-  * The wrapper always uses the repo-local virtualenv and the Playwright-only
-    pytest config, so plain `pytest` no longer depends on Playwright plugins
-    being installed globally.
+- **Retired Streamlit browser lane**:
+  Streamlit pytest/Playwright E2E coverage has been removed. Replacement browser
+  coverage lives under `frontend/tests/e2e`, and
+  `tests/test_streamlit_removal_contract.py` guards against reintroducing
+  Streamlit product files, imports, or dependencies.
 - **Interactive research browser (Playwright CLI + dedicated Chrome profile)**:
   use `./scripts/playwright_research.sh open 'https://example.com'` for a stable,
   Playwright-owned Chrome profile under `.playwright/profiles/research`. Reuse it

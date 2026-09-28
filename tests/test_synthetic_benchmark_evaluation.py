@@ -23,6 +23,21 @@ from benchmarking.synthetic_seed_manifests import load_seed_manifest
 
 
 SEED_FIXTURE_PATH = Path(__file__).parent / "fixtures" / "seeds" / "english_monologue_seeds_v1.json"
+ROOT_OPTION_ARTIFACTS = (Path("-o"), Path("--file-format=AIFF"))
+
+
+def _clear_root_option_artifacts() -> None:
+    for path in ROOT_OPTION_ARTIFACTS:
+        path.unlink(missing_ok=True)
+
+
+def _assert_no_root_option_artifacts(test_case: unittest.TestCase) -> None:
+    for path in ROOT_OPTION_ARTIFACTS:
+        test_case.assertFalse(path.exists(), f"{path} leaked into the repo root")
+
+
+def _fake_say_output_path(command: list[str]) -> Path:
+    return Path(command[command.index("-o") + 1])
 
 
 class SyntheticBenchmarkEvaluationTests(unittest.TestCase):
@@ -42,7 +57,7 @@ class SyntheticBenchmarkEvaluationTests(unittest.TestCase):
 
     def _fake_render_run(self, command: list[str], *, input_text: str | None = None) -> None:
         if command[0] == "say":
-            Path(command[7]).write_bytes(b"AIFF")
+            _fake_say_output_path(command).write_bytes(b"AIFF")
         elif command[0] == "ffmpeg":
             Path(command[-1]).write_bytes(b"WAV")
 
@@ -116,6 +131,7 @@ class SyntheticBenchmarkEvaluationTests(unittest.TestCase):
         self.assertIsNone(compare_cefr_levels("B2", "unknown"))
 
     def test_evaluate_rendered_audio_contract_suite_emits_case_results_and_manifest(self):
+        _clear_root_option_artifacts()
         with tempfile.TemporaryDirectory() as tmp_dir:
             contract_suite = self._build_contract_suite(tmp_dir)
             evaluated = evaluate_rendered_audio_contract_suite(
@@ -150,6 +166,7 @@ class SyntheticBenchmarkEvaluationTests(unittest.TestCase):
             self.assertEqual(payload["cases"][0]["feedback_language"], "en")
             self.assertEqual(payload["cases"][0]["llm_contract"]["response_parser"], "extract_json_object")
             self.assertEqual(payload["cases"][0]["llm_contract"]["language_profile_key"], "en")
+            _assert_no_root_option_artifacts(self)
 
     def test_evaluate_rendered_audio_contract_suite_ignores_legacy_cefr_estimate_keys(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
