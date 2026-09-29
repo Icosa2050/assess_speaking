@@ -19,6 +19,9 @@ Verification has been extended to the full backend/frontend suites, ten bilingua
 
 Remaining: the new four-dimension practice rating, full prompt-aware coaching, stable skill/focus tracking, assistance declarations, transcript comparison, revised exercise banks, weekly queue, resilient uploads and full exam/conversation modes. The chart deliberately labels the current score as existing overall performance; it is not the planned new rating. Claude CLI and OCR delegate reviews are complete; five confirmed findings were fixed. See `docs/reviews/2026-09-29-practice-review.md` for the findings, coverage and verification. Standing Claude review approval is recorded in AGENTS.md.
 
+
+Local usability follow-up: complete macOS/browser launcher, bounded multipart uploads with dynamic disk limits and recovery, one assessment at a time, LM Studio live verification, and WebKit upload/replay journeys are implemented. See [local practice readiness](../../reviews/2026-09-29-local-practice-readiness.md). Long-upload resume after app restart and full exam/conversation modes remain planned.
+
 **Canonical plan:** This replaces the earlier CEFR/upload and CILS-only plans. It also supersedes the product direction in `docs/MULTILINGUAL_CEFR_ASSESSMENT_PLAN.md`.
 
 ## 1. Product purpose and boundaries

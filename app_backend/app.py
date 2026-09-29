@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import csv
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException, Request
+from starlette.concurrency import run_in_threadpool
+from starlette.formparsers import MultiPartException
+from starlette.requests import ClientDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from app_backend.config import BackendRuntimeConfig, build_backend_runtime_config, clear_backend_state, write_backend_state
+from app_backend.uploads import UploadRejected, parse_upload, upload_limits
 from app_backend.contracts import (
     AssessmentCreateRequest,
     AssessmentCreateResponse,
@@ -43,7 +48,7 @@ from app_backend.contracts import (
     UploadResponse,
     WhisperModelStatusResponse,
 )
-from app_backend.jobs import JobManager
+from app_backend.jobs import AssessmentBusyError, JobManager
 from app_backend.maintenance import execute_cleanup
 from app_backend.support_bundle import (
     build_storage_summary,
@@ -369,6 +374,7 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
     runtime_config = config or build_backend_runtime_config()
     started_at = datetime.now(UTC)
     job_manager = JobManager(runtime_config)
+    upload_slots = asyncio.Semaphore(2)
     
     @asynccontextmanager
     async def _lifespan(app: FastAPI):
@@ -574,18 +580,42 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
             raise _http_error(404, ErrorCode.VALIDATION, f"Support bundle {bundle_id} does not exist.")
         return FileResponse(bundle_path, media_type="application/zip", filename=bundle_path.name)
 
+    @app.get("/v1/uploads/limits", tags=[PRODUCT_API_TAG])
+    def current_upload_limits() -> dict[str, int]:
+        return upload_limits(runtime_config.app_data.uploads_dir)
+
     @app.post("/v1/uploads", response_model=UploadResponse, tags=[PRODUCT_API_TAG])
-    async def upload_audio(file: UploadFile = File(...)) -> UploadResponse:
-        data = await file.read()
-        if not data:
-            raise _http_error(400, ErrorCode.VALIDATION, "Uploaded audio file is empty.")
-        return app.state.job_manager.register_upload(data=data, filename=file.filename or "audio.wav")
+    async def upload_audio(request: Request) -> UploadResponse:
+        if upload_slots.locked():
+            raise _http_error(429, ErrorCode.RUNTIME, "Two uploads are already in progress. Wait and retry.")
+        await upload_slots.acquire()
+        form = None
+        try:
+            form, file = await parse_upload(request, runtime_config.app_data.uploads_dir)
+            return await run_in_threadpool(app.state.job_manager.register_upload_stream,
+                                          source=file.file, filename=file.filename or "audio.wav")
+        except UploadRejected as exc:
+            raise _http_error(exc.status, ErrorCode(exc.code), exc.message) from exc
+        except MultiPartException as exc:
+            raise _http_error(400, ErrorCode.VALIDATION, exc.message) from exc
+        except ClientDisconnect as exc:
+            raise _http_error(499, ErrorCode.CANCELLATION, "Upload cancelled by the client.") from exc
+        except OSError as exc:
+            raise _http_error(507, ErrorCode.STORAGE, "Unable to save audio. Check free disk space and retry.") from exc
+        finally:
+            try:
+                if form is not None:
+                    await form.close()
+            finally:
+                upload_slots.release()
 
     @app.post("/v1/assessments", response_model=AssessmentCreateResponse, tags=[PRODUCT_API_TAG])
     def create_assessment(request: AssessmentCreateRequest) -> AssessmentCreateResponse:
         try:
             state = _load_persisted_state(runtime_config)
             return app.state.job_manager.submit(_assessment_request_with_saved_runtime_secret(state, request))
+        except AssessmentBusyError as exc:
+            raise _http_error(409, ErrorCode.RUNTIME, str(exc)) from exc
         except FileNotFoundError as exc:
             raise _http_error(404, ErrorCode.VALIDATION, str(exc)) from exc
         except OSError as exc:

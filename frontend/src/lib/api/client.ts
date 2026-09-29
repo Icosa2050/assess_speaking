@@ -39,6 +39,7 @@ type JsonRequestOptions = ClientOptions & {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const LONG_RUNNING_TIMEOUT_MS = 30_000;
+const UPLOAD_TIMEOUT_MS = 180_000;
 const pathSegment = (value: string): string => encodeURIComponent(value);
 
 const isErrorCode = (value: string): value is ErrorCode =>
@@ -158,6 +159,10 @@ const requestBlob = async (
 };
 
 export const createApiClient = (baseUrl?: string) => ({
+  getUploadLimits: (options?: ClientOptions) =>
+    requestJson<{ max_bytes: number; available_bytes: number }>(
+      "/v1/uploads/limits", { method: "GET" }, { ...options, baseUrl },
+    ),
   getHealth: (options?: ClientOptions) =>
     requestJson<HealthResponse>("/v1/health", { method: "GET" }, { ...options, baseUrl }),
 
@@ -246,9 +251,40 @@ export const createApiClient = (baseUrl?: string) => ({
       },
     ),
 
-  uploadAudio: (file: File, options?: ClientOptions & { filename?: string }) => {
+  uploadAudio: (file: File, options?: ClientOptions & { filename?: string; onProgress?: (percent: number) => void }) => {
     const formData = new FormData();
     formData.append("file", file, options?.filename || file.name || "audio.wav");
+
+    if (options?.onProgress) {
+      return new Promise<UploadResponse>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        const abort = () => xhr.abort();
+        const cleanup = () => options.signal?.removeEventListener("abort", abort);
+        xhr.open("POST", buildApiUrl("/v1/uploads", baseUrl));
+        xhr.timeout = options.timeoutMs ?? UPLOAD_TIMEOUT_MS;
+        xhr.setRequestHeader("Accept", "application/json");
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) options.onProgress?.(Math.round(event.loaded / event.total * 100));
+        };
+        xhr.onload = async () => {
+          cleanup();
+          try {
+            if (xhr.status < 200 || xhr.status >= 300) {
+              reject(new ApiClientError(xhr.status, await parseErrorResponse(new Response(xhr.responseText, { status: xhr.status, statusText: xhr.statusText }))));
+              return;
+            }
+            resolve(JSON.parse(xhr.responseText) as UploadResponse);
+          }
+          catch { reject(new DOMException("The upload response could not be read.", "NetworkError")); }
+        };
+        xhr.onerror = () => { cleanup(); reject(new DOMException("Upload connection lost.", "NetworkError")); };
+        xhr.ontimeout = () => { cleanup(); reject(new DOMException("Upload timed out.", "TimeoutError")); };
+        xhr.onabort = () => { cleanup(); reject(new DOMException("Upload cancelled", "AbortError")); };
+        if (options.signal?.aborted) { reject(new DOMException("Upload cancelled", "AbortError")); return; }
+        options.signal?.addEventListener("abort", abort, { once: true });
+        xhr.send(formData);
+      });
+    }
 
     return requestJson<UploadResponse>(
       "/v1/uploads",
@@ -259,7 +295,7 @@ export const createApiClient = (baseUrl?: string) => ({
       {
         ...options,
         baseUrl,
-        timeoutMs: options?.timeoutMs ?? LONG_RUNNING_TIMEOUT_MS,
+        timeoutMs: options?.timeoutMs ?? UPLOAD_TIMEOUT_MS,
       },
     );
   },

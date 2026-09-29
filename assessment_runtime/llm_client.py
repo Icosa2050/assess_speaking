@@ -15,6 +15,7 @@ from app_core.runtime_providers import normalize_provider, runtime_base_url, ser
 DEFAULT_OPENROUTER_HTTP_REFERER = "http://localhost:8503"
 DEFAULT_OPENROUTER_APP_TITLE = "Vostavo"
 OLLAMA_INFERENCE_PROFILE = "ollama_json_no_thinking_v1"
+LMSTUDIO_INFERENCE_PROFILE = "lmstudio_bounded_v1"
 
 
 class LLMClientError(RuntimeError):
@@ -215,6 +216,8 @@ def _chat_completion(
         # Short structured feedback should return an answer within the request budget.
         # Ollama maps "none" to no thinking for models supporting this control.
         payload.update(reasoning_effort="none", max_tokens=4096)
+    elif normalized_provider == "lmstudio":
+        payload["max_tokens"] = 4096
     if extra_payload:
         payload.update(extra_payload)
     if normalized_provider in {"openrouter", "ollama"} and require_json_object:

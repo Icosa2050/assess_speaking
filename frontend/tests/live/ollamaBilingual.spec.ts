@@ -4,8 +4,11 @@ import path from "node:path";
 import type { AssessmentStatusResponse, JsonRecord } from "../../src/lib/api/types";
 
 const backend = "http://127.0.0.1:8816";
-const ollama = "http://127.0.0.1:11434/v1";
-const model = process.env.OLLAMA_E2E_MODEL || "qwen3.5:4b";
+const provider = process.env.LOCAL_E2E_PROVIDER === "lmstudio" ? "lmstudio" : "ollama";
+const providerChoice = provider === "lmstudio" ? "lmstudio_local" : "ollama_local";
+const providerName = provider === "lmstudio" ? "LM Studio" : "Ollama";
+const ollama = process.env.LOCAL_E2E_BASE_URL || (provider === "lmstudio" ? "http://127.0.0.1:1234/v1" : "http://127.0.0.1:11434/v1");
+const model = process.env.LOCAL_E2E_MODEL || process.env.OLLAMA_E2E_MODEL || (provider === "lmstudio" ? "vostavo-qwen2.5-3b" : "qwen3.5:4b");
 const whisper = process.env.OLLAMA_E2E_WHISPER || "large-v3";
 const root = fileURLToPath(new URL("../../..", import.meta.url));
 const cases = [
@@ -14,9 +17,9 @@ const cases = [
   { goal: "C1", file: "public_debate.wav", en: "Public debate and digital platforms", it: "Dibattito pubblico e piattaforme digitali" },
 ];
 
-test("Ollama setup discovers the installed model and tests its connection", async ({ page }) => {
+test(`${providerName} setup discovers the installed model and tests its connection`, async ({ page }) => {
   await page.goto("/runtime-setup");
-  await page.getByTestId("runtime_connection.provider").selectOption("ollama_local");
+  await page.getByTestId("runtime_connection.provider").selectOption(providerChoice);
   await page.getByTestId("runtime_connection.base_url").fill(ollama);
   await page.getByTestId("runtime_setup.detect_local_models").click();
   await expect(page.getByRole("combobox", { name: "Detected local models" })).toBeVisible();
@@ -34,16 +37,16 @@ for (const language of ["en", "it"] as const) {
   test.describe(language, () => {
     test.use({ locale: language });
     for (const item of cases) {
-      test(`${language} ${item.goal}: real Whisper + Ollama feedback, saved history${item.goal === "B1" ? " and retry" : ""}`, async ({ page, request }, testInfo) => {
+      test(`${language} ${item.goal}: real Whisper + ${providerName} feedback, saved history${item.goal === "B1" ? " and retry" : ""}`, async ({ page, request }, testInfo) => {
         expect(path.basename(testInfo.config.configFile || "")).toBe("playwright.ollama.config.ts");
         const modelsResponse = await request.get(`${ollama}/models`);
-        expect(modelsResponse.ok(), "Ollama must be running").toBeTruthy();
+        expect(modelsResponse.ok(), `${providerName} must be running`).toBeTruthy();
         expect((await modelsResponse.json()).data).toEqual(expect.arrayContaining([expect.objectContaining({ id: model })]));
         const cached = await request.get(`${backend}/v1/runtime/whisper-models/${whisper}`);
         expect((await cached.json()).cached, "Download Whisper before running this offline-ASR test").toBe(true);
         const saved = await request.put(`${backend}/v1/runtime/settings`, { data: {
           ui_locale: language, whisper_model: whisper,
-          connection: { provider_choice: "ollama_local", label: "Ollama bilingual live test", model, base_url: ollama },
+          connection: { provider_choice: providerChoice, label: `${providerName} bilingual live test`, model, base_url: ollama },
         } });
         expect(saved.ok()).toBeTruthy();
         await page.goto("/session-setup");
@@ -65,7 +68,7 @@ for (const language of ["en", "it"] as const) {
           const created = await createdPromise;
           expect(created.ok()).toBeTruthy();
           const submission = created.request().postDataJSON();
-          expect(submission).toMatchObject({ provider: "ollama", llm_model: model, whisper, expected_language: language, feedback_language: language, target_cefr: item.goal, retry_of_session_id: parent });
+          expect(submission).toMatchObject({ provider, llm_model: model, whisper, expected_language: language, feedback_language: language, target_cefr: item.goal, retry_of_session_id: parent });
           if (attempt) expect(submission.prompt_text).toBe(firstPrompt);
           else firstPrompt = submission.prompt_text;
           const { assessment_id: id } = await created.json();
@@ -83,8 +86,9 @@ for (const language of ["en", "it"] as const) {
           const transcript = String(payload.transcript_full || "");
           expect(transcript.split(/\s+/).length).toBeGreaterThan(10);
           const input = report.input as JsonRecord;
-          expect(input).toMatchObject({ provider: "ollama", llm_model: model, expected_language: language, detected_language: language });
+          expect(input).toMatchObject({ provider, llm_model: model, expected_language: language, detected_language: language });
           expect(input.coaching_prompt_version).toBe("coaching_multilingual_v2");
+          expect(input.llm_inference_profile).toBe(provider === "lmstudio" ? "lmstudio_bounded_v1" : "ollama_json_no_thinking_v1");
           expect(input.dry_run).not.toBe(true);
           expect(input.fixture_inference).not.toBe(true);
           expect(input.scoring_model_version).not.toBe("journey-fixture-v1");

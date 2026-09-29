@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 import hashlib
+import io
 import json
 import logging
 import multiprocessing
 import os
 from pathlib import Path
 import signal
-from typing import Any
+import threading
+from typing import Any, BinaryIO
 from uuid import uuid4
 
 from app_backend.config import BackendRuntimeConfig, DEFAULT_JOB_METADATA_RETENTION_DAYS
@@ -23,12 +25,17 @@ from app_backend.contracts import (
     UploadResponse,
 )
 from assessment_runtime.runner import AssessmentRunRequest, execute_assessment_run
+from app_backend.uploads import COPY_CHUNK_BYTES, MAX_UPLOAD_BYTES, UploadRejected, ensure_copy_space, upload_limits, validate_audio_duration
 
 INCOMPLETE_JOB_STATUSES = {JobStatus.QUEUED.value, JobStatus.RUNNING.value}
 TERMINAL_JOB_STATUSES = {JobStatus.COMPLETED.value, JobStatus.FAILED.value, JobStatus.CANCELLED.value}
 TERMINAL_JOB_STATUSES_NORMALIZED = {status.lower() for status in TERMINAL_JOB_STATUSES}
 
 logger = logging.getLogger(__name__)
+
+
+class AssessmentBusyError(RuntimeError):
+    pass
 
 
 def _now_iso() -> str:
@@ -215,6 +222,7 @@ def _job_worker(job_file: str, request_payload: dict[str, Any], audio_path: str)
             os.environ["OPENROUTER_HTTP_REFERER"] = str(request_payload["openrouter_http_referer"])
         if request_payload.get("openrouter_app_title"):
             os.environ["OPENROUTER_APP_TITLE"] = str(request_payload["openrouter_app_title"])
+        validate_audio_duration(Path(audio_path))
         result = execute_assessment_run(
             AssessmentRunRequest(
                 audio=Path(audio_path),
@@ -273,6 +281,7 @@ class JobManager:
         self._config = config
         self._ctx = multiprocessing.get_context("spawn")
         self._processes: dict[str, multiprocessing.Process] = {}
+        self._submit_lock = threading.Lock()
         self._recover_existing_jobs()
 
     @property
@@ -283,21 +292,36 @@ class JobManager:
         recover_incomplete_job_metadata(self._config.jobs_dir)
 
     def register_upload(self, *, data: bytes, filename: str) -> UploadResponse:
+        return self.register_upload_stream(source=io.BytesIO(data), filename=filename)
+
+    def register_upload_stream(self, *, source: BinaryIO, filename: str) -> UploadResponse:
         audio_id = f"aud_{uuid4().hex}"
-        suffix = Path(filename or "audio.wav").suffix or ".wav"
+        suffix = Path(filename or "audio.wav").suffix.lower()
+        if suffix not in {".wav", ".mp3", ".webm", ".ogg", ".opus", ".m4a", ".mp4", ".aac", ".flac", ".aiff", ".aif"}:
+            suffix = ".audio"
         stored_path = self.uploads_dir / f"{audio_id}{suffix}"
         stored_path.parent.mkdir(parents=True, exist_ok=True)
-        stored_path.write_bytes(data)
-        digest = hashlib.sha1(data).hexdigest()
-        _write_json(
-            _upload_meta_file(self.uploads_dir, audio_id),
-            {
-                "audio_id": audio_id,
-                "stored_path": str(stored_path.resolve()),
-                "sha1": digest,
-                "original_name": filename,
-            },
-        )
+        metadata_path = _upload_meta_file(self.uploads_dir, audio_id)
+        hasher = hashlib.sha1()
+        total = 0
+        # The multipart spool already exists. Reserve only its durable copy now.
+        limit = MAX_UPLOAD_BYTES
+        try:
+            with stored_path.open("xb") as target:
+                while chunk := source.read(COPY_CHUNK_BYTES):
+                    total += len(chunk)
+                    if total > limit:
+                        raise UploadRejected("Audio exceeds the available upload limit.")
+                    ensure_copy_space(self.uploads_dir, len(chunk))
+                    target.write(chunk)
+                    hasher.update(chunk)
+            digest = hasher.hexdigest()
+            _write_json(metadata_path, {"audio_id": audio_id, "stored_path": str(stored_path.resolve()),
+                                      "sha1": digest, "original_name": filename})
+        except BaseException:
+            stored_path.unlink(missing_ok=True)
+            metadata_path.unlink(missing_ok=True)
+            raise
         return UploadResponse(
             audio_id=audio_id,
             stored_path=str(stored_path.resolve()),
@@ -313,6 +337,14 @@ class JobManager:
         return candidate
 
     def submit(self, request: AssessmentCreateRequest) -> AssessmentCreateResponse:
+        with self._submit_lock:
+            if any(process.is_alive() for process in list(self._processes.values())):
+                raise AssessmentBusyError("Another attempt is still being analysed. Wait for it to finish or cancel it, then retry.")
+            if upload_limits(self.uploads_dir)["available_bytes"] <= 0:
+                raise OSError("Not enough free disk space to analyse audio. Free some space and retry.")
+            return self._submit(request)
+
+    def _submit(self, request: AssessmentCreateRequest) -> AssessmentCreateResponse:
         assessment_id = f"asmt_{uuid4().hex}"
         audio_path = self._resolve_audio_path(request.audio_id)
         worker_request = {

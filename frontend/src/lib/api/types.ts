@@ -18,6 +18,7 @@ export type CleanupTarget = "tmp" | "jobs" | "logs" | "all_safe";
 export type ConnectionSecretState = "absent" | "present" | "missing";
 
 export type FrozenApiRoute =
+  | "/v1/uploads/limits"
   | "/v1/health"
   | "/v1/diagnostics"
   | "/v1/runtime"

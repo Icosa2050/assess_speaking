@@ -2,7 +2,8 @@
 
 ![Vostavo logo](branding/vostavo-logo-playful.svg)
 
-OpenRouter-first assessment core and local speaking coach app.
+A local speaking training ground for English and Italian. Choose B1, B2 or C1 as
+your practice goal, record a response, get coaching, retry, and compare attempts.
 
 Internal repo and module names still use `assess_speaking` in places for compatibility.
 
@@ -59,16 +60,53 @@ If you do not want to activate the venv manually, use the repo-local launcher:
 `./scripts/python.sh ...`
 
 ## 2) Beginner app quick start
-Recommended first path:
 
-1. Install `ffmpeg`.
-2. Optionally install `ollama` and pull a local model such as `llama3.1`.
-3. Launch the app with `./scripts/run_app.py`.
-4. On the Home screen, choose `Set up local AI`.
-5. In `Runtime Setup`, keep the default local path unless you specifically need advanced provider options.
-6. Continue with `Session Setup -> Speak -> Review -> History`.
+On this Mac, double-click **Start Vostavo.command** in the repository. It uses
+Node 24 and the project Python environment, builds the UI, starts both local
+servers, and opens your default browser. Keep its Terminal window open while
+practising; press Ctrl+C when finished. No Chrome installation is required.
 
-The app now starts a localhost-only backend automatically and keeps user data under the app-data root instead of depending on the repo working directory.
+Terminal equivalent:
+
+```bash
+nvm use 24
+./scripts/python.sh scripts/start_practice.py
+```
+
+On a fresh checkout, first run `./scripts/setup_env.sh`,
+`npm --prefix frontend ci`, and install ffmpeg. The launcher explains missing
+prerequisites; it does not install packages automatically. `scripts/run_app.py`
+is the backend/bootstrap tool and does not open the practice UI.
+
+1. Open **Set up local AI** and select **Ollama (local)**.
+2. Detect local models, choose **qwen3.5:4b**, test the connection, and save.
+   Install that model with `ollama pull qwen3.5:4b` if it is absent.
+3. Choose a cached Whisper model for transcription. This Mac has `large-v3`;
+   use the download control only when the chosen model is missing.
+4. Open **Session Setup**, enter a learner name, select English or Italian and
+   a B1/B2/C1 goal, then continue to **Speak**.
+5. Record 60–180 seconds, listen to it, then submit. Allow the browser's microphone
+   prompt when recording. An existing audio file also works.
+6. On **Review**, choose one improvement and **Try again**. Open **History** to
+   compare measurements and listen to both attempts.
+
+For **LM Studio**, start its local server, load a text-generation model, select
+**LM Studio (local)** in Runtime Setup, detect/select the model, test and save.
+The server URL is `http://127.0.0.1:1234/v1`. An embedding model cannot provide
+coaching. The local verification uses Qwen2.5 3B Instruct; Ollama's Qwen GGUF
+was not compatible with the installed LM Studio loader. Use one provider at a
+time; history separates results when the model or analysis settings change.
+
+Uploads use multipart HTTP with progress and cancellation. Maximum: **100 MiB
+and 20 minutes** per file; available disk space can lower the byte limit. The
+recorder stops after five minutes. Failed uploads retain the selected recording;
+**Save a copy** keeps a local backup before leaving or reloading the page.
+Only one assessment runs at a time. The launcher allows up to 180 seconds per
+model request; transcription and feedback are separate stages.
+
+User recordings, settings and history persist under the app-data root, outside
+the checkout. This release supports individual oral practice parts. A complete
+exam simulation with a speaking partner is still a separate planned feature.
 
 ## 3) Sample audio library
 ```bash

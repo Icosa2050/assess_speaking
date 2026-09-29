@@ -11,7 +11,8 @@
     "history": "History",
     "guide": "Scoring Guide",
     "library": "Library",
-    "settings": "Settings"
+    "settings": "Settings",
+    "reload_page": "Reload this page to continue"
   },
   "locale": {
     "en": "English",
@@ -290,7 +291,7 @@
     "recording_empty": "No audio was captured. Try again or use Upload.",
     "upload": "Or upload an audio file",
     "upload_choose": "Choose audio file",
-    "upload_help": "Tip: drag a file into this area or click anywhere inside the upload box. If the chooser stays closed, reload the tab or restart the browser.",
+    "upload_help": "Audio files up to 100 MiB. The limit decreases when disk space is low. Keep this page open until your attempt is saved.",
     "status_idle": "No recording is attached yet.",
     "status_missing_file": "A recording was selected earlier, but the audio file is no longer available.",
     "status_ready": "A recording is attached and ready for assessment.",
@@ -333,7 +334,14 @@
     "job_phase_finalizing_report": "Finalizing report",
     "refresh_progress": "Check progress",
     "cancel_assessment": "Cancel assessment",
-    "assessment_error": "Assessment failed: {detail}"
+    "assessment_error": "Assessment failed: {detail}",
+    "upload_size_error": "Choose a nonempty audio file up to 100 MiB.",
+    "upload_disk_error": "There is not enough free disk space for this recording. Free some space and retry.",
+    "upload_cancelled": "Upload cancelled. Your recording is still selected; you can retry.",
+    "upload_progress": "Uploading audio: {percent}%",
+    "download_recording": "Save a copy of this recording",
+    "upload_connection_lost": "Upload connection lost. Your recording is still selected; please retry.",
+    "upload_timeout": "Upload timed out. Your recording is still selected; please retry."
   },
   "review": {
     "title": "Review one attempt",
