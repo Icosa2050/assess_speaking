@@ -12,24 +12,24 @@ class PlaywrightTaskSetupTests(unittest.TestCase):
     def test_research_config_is_valid_and_uses_dedicated_profile(self) -> None:
         config_path = REPO_ROOT / ".playwright" / "research-cli.config.json"
         payload = json.loads(config_path.read_text(encoding="utf-8"))
-        self.assertEqual(payload["browser"]["launchOptions"]["channel"], "chrome")
+        self.assertEqual(payload["browser"]["launchOptions"]["channel"], "chromium")
         self.assertFalse(payload["browser"]["launchOptions"]["headless"])
-        self.assertEqual(payload["browser"]["userDataDir"], ".playwright/profiles/research")
+        self.assertEqual(payload["browser"]["userDataDir"], ".playwright/profiles/research-chromium")
         self.assertEqual(payload["outputDir"], "output/playwright/research")
 
     def test_celi_config_is_valid_and_uses_dedicated_profile(self) -> None:
         config_path = REPO_ROOT / ".playwright" / "celi-cli.config.json"
         payload = json.loads(config_path.read_text(encoding="utf-8"))
-        self.assertEqual(payload["browser"]["launchOptions"]["channel"], "chrome")
+        self.assertEqual(payload["browser"]["launchOptions"]["channel"], "chromium")
         self.assertFalse(payload["browser"]["launchOptions"]["headless"])
-        self.assertEqual(payload["browser"]["userDataDir"], ".playwright/profiles/celi")
+        self.assertEqual(payload["browser"]["userDataDir"], ".playwright/profiles/celi-chromium")
         self.assertEqual(payload["outputDir"], "output/playwright/celi")
 
     def test_research_helper_script_points_to_repo_local_config_and_profile(self) -> None:
         script_path = REPO_ROOT / "scripts" / "playwright_research.sh"
         content = script_path.read_text(encoding="utf-8")
         self.assertIn(".playwright/research-cli.config.json", content)
-        self.assertIn(".playwright/profiles/research", content)
+        self.assertIn(".playwright/profiles/research-chromium", content)
         self.assertIn("--session", content)
         self.assertIn("--persistent", content)
 
@@ -37,7 +37,7 @@ class PlaywrightTaskSetupTests(unittest.TestCase):
         script_path = REPO_ROOT / "scripts" / "playwright_celi.sh"
         content = script_path.read_text(encoding="utf-8")
         self.assertIn(".playwright/celi-cli.config.json", content)
-        self.assertIn(".playwright/profiles/celi", content)
+        self.assertIn(".playwright/profiles/celi-chromium", content)
         self.assertIn("playwright_research.sh", content)
 
 

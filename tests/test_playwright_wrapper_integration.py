@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -12,30 +13,20 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class PlaywrightWrapperIntegrationTests(unittest.TestCase):
-    def _make_fake_codex_home(self, tmp_path: Path) -> tuple[Path, Path]:
-        codex_home = tmp_path / "codex-home"
-        wrapper_path = codex_home / "skills" / "playwright" / "scripts" / "playwright_cli.sh"
-        wrapper_path.parent.mkdir(parents=True, exist_ok=True)
-        wrapper_path.write_text(
-            """#!/usr/bin/env bash
-set -euo pipefail
-python3 - "$@" <<'PY'
-import json
-import os
-import sys
-from pathlib import Path
-
-payload = {
-    "argv": sys.argv[1:],
-    "playwright_cli_session": os.environ.get("PLAYWRIGHT_CLI_SESSION"),
-}
-Path(os.environ["FAKE_PWCLI_OUT"]).write_text(json.dumps(payload), encoding="utf-8")
-PY
-""",
+    def _make_fake_node(self, tmp_path: Path) -> Path:
+        # Capture the actual project CLI invocation without starting a browser daemon.
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        node = bin_dir / "node"
+        node.write_text(
+            f"#!{sys.executable}\n"
+            "import json, os, sys\n"
+            "from pathlib import Path\n"
+            "Path(os.environ['FAKE_PWCLI_OUT']).write_text(json.dumps({'argv': sys.argv[1:]}))\n",
             encoding="utf-8",
         )
-        wrapper_path.chmod(0o755)
-        return codex_home, wrapper_path
+        node.chmod(0o755)
+        return bin_dir
 
     def _run_wrapper(
         self,
@@ -47,9 +38,9 @@ PY
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             out_path = tmp_path / "pwcli-args.json"
-            codex_home, _ = self._make_fake_codex_home(tmp_path)
+            bin_dir = self._make_fake_node(tmp_path)
             env = os.environ.copy()
-            env["CODEX_HOME"] = str(codex_home)
+            env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
             env["FAKE_PWCLI_OUT"] = str(out_path)
             if env_overrides:
                 env.update(env_overrides)
@@ -78,6 +69,7 @@ PY
         self.assertEqual(
             payload["argv"],
             [
+                str(REPO_ROOT / "frontend/node_modules/playwright-core/lib/tools/cli-client/cli.js"),
                 "--session",
                 "research",
                 "--config",
@@ -85,6 +77,7 @@ PY
                 "open",
                 "--persistent",
                 "https://example.com/?q=1",
+                f"--profile={REPO_ROOT / '.playwright/profiles/research-chromium'}",
             ],
         )
 
@@ -105,6 +98,7 @@ PY
             self.assertEqual(
                 payload["argv"],
                 [
+                    str(REPO_ROOT / "frontend/node_modules/playwright-core/lib/tools/cli-client/cli.js"),
                     "--session",
                     "custom-session",
                     "--config",
@@ -112,6 +106,7 @@ PY
                     "open",
                     "--persistent",
                     "https://example.com/",
+                    f"--profile={profile_dir}",
                 ],
             )
             self.assertTrue(profile_dir.exists())
@@ -125,6 +120,7 @@ PY
         self.assertEqual(
             payload["argv"],
             [
+                str(REPO_ROOT / "frontend/node_modules/playwright-core/lib/tools/cli-client/cli.js"),
                 "--session",
                 "celi",
                 "--config",

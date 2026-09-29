@@ -17,6 +17,9 @@ class AssessmentRunRequest:
     feedback_enabled: bool = False
     train_dir: Path = Path("training")
     target_cefr: Optional[str] = None
+    prompt_id: str = ""
+    prompt_text: str = ""
+    retry_of_session_id: str = ""
     theme: str = "tema libero"
     task_family: Optional[str] = None
     speaker_id: Optional[str] = None
@@ -49,6 +52,15 @@ class AssessmentRunResult:
 
 def _build_meta(*, request: AssessmentRunRequest, report: dict[str, Any], timestamp: str) -> dict[str, Any]:
     report_input = report.get("input") if isinstance(report.get("input"), dict) else {}
+    scores = report.get("scores") if isinstance(report.get("scores"), dict) else {}
+    # A report schema version describes its shape, not how the score or measurements were produced.
+    analysis_signature = json.dumps(
+        {key: report_input.get(key) for key in (
+            "rubric_prompt_version", "transcription_basis", "language_profile_key",
+            "asr_compute_type_used", "pause_threshold_offset_db", "llm_inference_profile",
+        )},
+        sort_keys=True,
+    )
     return {
         "timestamp": timestamp,
         "audio_path": str(request.audio.resolve()),
@@ -61,6 +73,22 @@ def _build_meta(*, request: AssessmentRunRequest, report: dict[str, Any], timest
         "speaker_id": str(report_input.get("speaker_id") or request.speaker_id or ""),
         "target_duration_sec": report_input.get("target_duration_sec", request.target_duration_sec),
         "feedback_language": str(report_input.get("feedback_language") or request.feedback_language or request.expected_language or ""),
+        "practice": {
+            "version": 1,
+            "goal": (request.target_cefr or "").strip().upper() or None,
+            "prompt_id": request.prompt_id,
+            "prompt_text": request.prompt_text,
+            "retry_of_session_id": request.retry_of_session_id,
+            "target_duration_sec": request.target_duration_sec,
+            "scoring_version": str(report_input.get("scoring_model_version") or ""),
+            "scoring_mode": str(scores.get("mode") or ""),
+            "analysis_signature": analysis_signature,
+            "provider": str(report_input.get("provider") or request.provider or ""),
+            "model": str(report_input.get("llm_model") or request.llm_model or ""),
+            "asr_provider": str(report_input.get("asr_provider") or request.asr_provider or ""),
+            "whisper_model": request.whisper_model,
+            "dry_run": request.dry_run,
+        },
         **({"label": request.label} if request.label else {}),
     }
 

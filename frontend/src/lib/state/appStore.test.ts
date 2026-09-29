@@ -3,6 +3,24 @@ import { describe, expect, it } from "vitest";
 import { createAppStore, selectCanSubmitAssessment } from "./appStore";
 
 describe("app store recording jobs", () => {
+  it("links each retry to the saved report session, and clears the link for a new task", () => {
+    const store = createAppStore({
+      draft: { promptText: "Explain your choice", cefrLevel: "C1" },
+      review: { reportId: "/tmp/report.json", payload: { report: { session_id: "saved-first" } } },
+    });
+    const originalDraftId = store.getState().draft.sessionId;
+    store.getState().clearAttempt({ keepSetup: true });
+    expect(store.getState().draft.retryOfSessionId).toBe("saved-first");
+    expect(store.getState().draft.sessionId).not.toBe(originalDraftId);
+    expect(store.getState().draft.cefrLevel).toBe("C1");
+    expect(store.getState().draft.promptText).toBe("Explain your choice");
+    store.getState().updateReview({ payload: { report: { session_id: "saved-second" } } });
+    store.getState().clearAttempt({ keepSetup: true });
+    expect(store.getState().draft.retryOfSessionId).toBe("saved-second");
+    store.getState().clearAttempt({ keepSetup: false });
+    expect(store.getState().draft.retryOfSessionId).toBe("");
+  });
+
   it.each(["upload", "assessment"])("allows retry after an %s failure without losing the recording", (phase) => {
     const store = createAppStore({
       draft: { speakerId: "learner", themeId: "travel", promptText: "Describe a trip", cefrLevel: "B1" },

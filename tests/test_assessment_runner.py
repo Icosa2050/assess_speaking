@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from assessment_runtime.runner import AssessmentRunRequest, execute_assessment_run
+from assessment_runtime.runner import AssessmentRunRequest, _build_meta, execute_assessment_run
 
 
 def _assessment_payload() -> dict:
@@ -60,6 +60,22 @@ def _assessment_payload() -> dict:
 
 
 class AssessmentRunnerTests(unittest.TestCase):
+    def test_comparison_context_uses_actual_scorer_mode_and_measurement_settings(self):
+        report = _assessment_payload()["report"]
+        report["input"].update(scoring_model_version="scorer-v4", rubric_prompt_version="rubric-v2", pause_threshold_offset_db=14)
+        report["scores"]["mode"] = "hybrid"
+        request = AssessmentRunRequest(audio=Path("sample.wav"), target_cefr="b2")
+        original = _build_meta(request=request, report=report, timestamp="now")["practice"]
+        self.assertEqual(original["scoring_version"], "scorer-v4")
+        self.assertEqual(original["goal"], "B2")
+        self.assertEqual(original["scoring_mode"], "hybrid")
+        report["scores"]["mode"] = "deterministic_only"
+        fallback = _build_meta(request=request, report=report, timestamp="now")["practice"]
+        self.assertNotEqual(original["scoring_mode"], fallback["scoring_mode"])
+        report["input"]["pause_threshold_offset_db"] = 18
+        changed = _build_meta(request=request, report=report, timestamp="now")["practice"]
+        self.assertNotEqual(original["analysis_signature"], changed["analysis_signature"])
+
     @mock.patch("assess_speaking.build_progress_delta", return_value=None)
     @mock.patch("assess_speaking.run_assessment")
     def test_execute_assessment_run_no_log_returns_stdout_payload(self, mock_run_assessment, _mock_progress):
@@ -114,6 +130,10 @@ class AssessmentRunnerTests(unittest.TestCase):
                     target_duration_sec=90,
                     log_dir=Path(tmpdir),
                     notes="Remember examples",
+                    target_cefr="B2",
+                    prompt_id="travel-b2",
+                    prompt_text="Describe your trip and explain what you learned.",
+                    retry_of_session_id="previous-session",
                 )
             )
 
@@ -123,6 +143,14 @@ class AssessmentRunnerTests(unittest.TestCase):
             saved = json.loads(result.report_path.read_text(encoding="utf-8"))
             self.assertEqual(saved["transcript_full"], "hello world")
             self.assertEqual(saved["notes"], "Remember examples")
+            self.assertEqual(saved["meta"]["practice"]["goal"], "B2")
+            self.assertEqual(saved["meta"]["practice"]["retry_of_session_id"], "previous-session")
+            from app_core.services import history_rows
+            rows = history_rows(tmpdir)
+            self.assertEqual(rows[0]["practice"]["prompt_text"], "Describe your trip and explain what you learned.")
+            self.assertEqual(rows[0]["practice"]["goal"], "B2")
+            self.assertEqual(rows[0]["elapsed_wpm"], 100.0)
+            self.assertIsNone(rows[0]["pause_total_sec"])
 
     @mock.patch("assess_speaking.build_progress_delta", return_value=None)
     @mock.patch("assess_speaking.run_assessment")

@@ -39,6 +39,12 @@ For any change touching `frontend/package.json`, npm lockfiles, install scripts,
 - Prefer `/Users/bernhard/Development/assess_speaking-codex-v6/.venv/bin/python` (or activate `.venv`) instead of the system `python3`.
 - If the virtual environment is missing or stale, bootstrap it with `./scripts/setup_env.sh .venv` from the repo root, then rerun the command inside that environment.
 
+## Standing Claude CLI Review Approval
+
+- The user explicitly approved Claude CLI reviews on 2026-09-29 and stated that Claude CLI review is always approved.
+- For code reviews, sending selected repository source files, diffs, tests, and relevant project documentation to Claude through the logged-in CLI is authorized. Do not ask for renewed permission for each review or exact code bundle.
+- This approval covers review input; it does not authorize sending credentials, unrelated personal files, recordings, or learner reports, nor does it authorize unrelated external actions.
+
 ## CodeRabbit
 
 - Use the CodeRabbit CLI when the user asks for an AI code review of local changes.

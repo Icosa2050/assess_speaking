@@ -64,6 +64,27 @@ def persist_runtime_settings_seed(config, state: AppState) -> None:
 
 
 class BackendApiTests(unittest.TestCase):
+    def test_history_audio_supports_ranges_and_refuses_paths_outside_audio_storage(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = build_backend_runtime_config(app_data_dir=tmpdir, port=8765)
+            client = TestClient(create_app(config))
+            recording = config.app_data.uploads_dir / "test.wav"
+            recording.parent.mkdir(parents=True, exist_ok=True)
+            recording.write_bytes(b"RIFFaudio-data")
+            with mock.patch("app_backend.app._find_history_payload", return_value={"meta": {"audio_path": str(recording)}}):
+                response = client.get("/v1/history/session/audio", headers={"Range": "bytes=0-3"})
+                self.assertEqual(response.status_code, 206)
+                self.assertEqual(response.content, b"RIFF")
+            outside = Path(tmpdir) / "private.wav"
+            outside.write_bytes(b"private")
+            linked = recording.parent / "linked.wav"
+            linked.symlink_to(outside)
+            for forbidden in (outside, linked, recording.parent / "missing.wav"):
+                with mock.patch("app_backend.app._find_history_payload", return_value={"meta": {"audio_path": str(forbidden)}}):
+                    self.assertEqual(client.get("/v1/history/session/audio").status_code, 404)
+            with mock.patch("app_backend.app._find_history_payload", return_value=None):
+                self.assertEqual(client.get("/v1/history/unknown/audio").status_code, 404)
+
     def test_runtime_config_honors_app_data_and_cache_overrides(self):
         with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
             config = build_backend_runtime_config(

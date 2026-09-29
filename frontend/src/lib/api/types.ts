@@ -200,6 +200,9 @@ export interface AssessmentCreateRequest {
   theme: string;
   target_duration_sec: number;
   target_cefr?: string | null;
+  prompt_id?: string;
+  prompt_text?: string;
+  retry_of_session_id?: string;
   language_profile_key?: string | null;
   label?: string;
   notes?: string;
@@ -232,7 +235,30 @@ export interface AssessmentStatusResponse {
   payload?: JsonRecord | null;
 }
 
+export interface PracticeContext {
+  version: number;
+  goal: string | null;
+  prompt_id: string;
+  prompt_text: string;
+  retry_of_session_id: string;
+  target_duration_sec: number;
+  scoring_version: string;
+  scoring_mode?: string;
+  analysis_signature?: string;
+  provider: string;
+  model: string;
+  asr_provider: string;
+  whisper_model: string;
+  dry_run: boolean;
+}
+
 export interface HistoryRow {
+  practice?: PracticeContext | null;
+  duration_sec?: number | null;
+  word_count?: number | null;
+  elapsed_wpm?: number | null;
+  pause_count?: number | null;
+  pause_total_sec?: number | null;
   timestamp: string;
   session_id: string;
   speaker_id: string;

@@ -620,6 +620,19 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
             raise _http_error(404, ErrorCode.VALIDATION, f"History entry {session_id} does not exist.")
         return HistoryDetailResponse(payload=payload)
 
+    @app.get("/v1/history/{session_id}/audio", tags=[PRODUCT_API_TAG])
+    def history_audio(session_id: str) -> FileResponse:
+        payload = _find_history_payload(session_id, runtime_config.app_data.reports_dir) or {}
+        meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+        saved_path = meta.get("audio_path")
+        path = Path(saved_path).resolve() if isinstance(saved_path, str) and saved_path else None
+        roots = (runtime_config.app_data.uploads_dir.resolve(), runtime_config.app_data.recordings_dir.resolve())
+        if path is None or not any(path.is_relative_to(root) for root in roots) or not path.is_file():
+            raise _http_error(404, ErrorCode.VALIDATION, "The saved recording is no longer available.")
+        if path.suffix.lower() not in {".wav", ".mp3", ".m4a", ".mp4", ".ogg", ".webm", ".flac", ".aac"}:
+            raise _http_error(404, ErrorCode.VALIDATION, "The saved recording is no longer available.")
+        return FileResponse(path)
+
     @app.get("/v1/samples", response_model=SamplesResponse, tags=[PRODUCT_API_TAG])
     def samples() -> SamplesResponse:
         return SamplesResponse(items=_sample_items())

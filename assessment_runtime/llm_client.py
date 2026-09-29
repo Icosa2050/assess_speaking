@@ -14,10 +14,15 @@ from app_core.runtime_providers import normalize_provider, runtime_base_url, ser
 
 DEFAULT_OPENROUTER_HTTP_REFERER = "http://localhost:8503"
 DEFAULT_OPENROUTER_APP_TITLE = "Vostavo"
+OLLAMA_INFERENCE_PROFILE = "ollama_json_no_thinking_v1"
 
 
 class LLMClientError(RuntimeError):
     pass
+
+
+class LLMSchemaError(LLMClientError):
+    """The provider answered, but its output failed the required schema."""
 
 
 def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeout_sec: float) -> dict[str, Any]:
@@ -206,9 +211,13 @@ def _chat_completion(
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2,
     }
+    if normalized_provider == "ollama":
+        # Short structured feedback should return an answer within the request budget.
+        # Ollama maps "none" to no thinking for models supporting this control.
+        payload.update(reasoning_effort="none", max_tokens=4096)
     if extra_payload:
         payload.update(extra_payload)
-    if normalized_provider == "openrouter" and require_json_object:
+    if normalized_provider in {"openrouter", "ollama"} and require_json_object:
         payload["response_format"] = {"type": "json_object"}
     try:
         result = _post_json(url, payload, headers, timeout_sec)
@@ -268,7 +277,7 @@ def generate_rubric(
                     + "\n\nATTENZIONE: la risposta precedente non rispettava lo schema JSON."
                     + f"\nErrore: {exc}\nRispondi SOLO con JSON valido nello schema richiesto."
                 )
-    raise LLMClientError(f"Failed to produce valid rubric output: {last_error}")
+    raise LLMSchemaError(f"Failed to produce valid rubric output: {last_error}")
 
 
 def generate_coaching_summary(

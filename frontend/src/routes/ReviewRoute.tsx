@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ReviewSummary, selectReviewSummary } from "@/components/review/ReviewSummary";
 import { WarningsPanel } from "@/components/review/WarningsPanel";
@@ -161,6 +161,7 @@ const GuardCard = ({
 
 export const ReviewRoute = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const recording = useAppStore((state) => state.recording);
   const review = useAppStore((state) => state.review);
@@ -173,6 +174,11 @@ export const ReviewRoute = () => {
 
   const translate = createTranslator(locale);
   const hasReview = hasReviewState(review);
+  useEffect(() => {
+    if (review.reportId) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.history });
+    }
+  }, [queryClient, review.reportId]);
   const assessmentId = recording.job.assessmentId;
   const shouldPoll = !hasReview && Boolean(assessmentId);
   const isStillAssessing = !hasReview && recording.status === "assessing" && Boolean(assessmentId);

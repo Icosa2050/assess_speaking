@@ -1,5 +1,7 @@
 # Multilingual CEFR Assessment Plan
 
+> Historical research, superseded on 2026-09-29 by [Oral-exam preparation: product and implementation plan](superpowers/plans/2026-09-29-oral-exam-preparation.md). The active product direction is preparation for named oral exams. The CEFR classifier and calibration programme below are not the current implementation roadmap.
+
 Last updated: 2026-03-13
 Status: Research-backed implementation plan
 

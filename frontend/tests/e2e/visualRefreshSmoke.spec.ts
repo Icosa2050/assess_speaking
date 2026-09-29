@@ -442,27 +442,10 @@ test("renders primary visual-refresh artifacts without serif typography", async 
 
   await page.getByTestId("review-action-view-history").click();
   await expect(page).toHaveURL(/\/history$/);
-  await expect(page.getByTestId("history-progress-story")).toBeVisible();
-  await expect(page.getByTestId("history-progress-story-score")).toContainText("4.1");
-  await expect(page.getByTestId("history-progress-story-score")).toContainText(
-    "+0.3 since the previous attempt",
-  );
-  await expect(page.getByTestId("history-progress-story-pace")).toContainText(
-    "+14.0 WPM since the previous attempt",
-  );
-  await expect(page.getByTestId("history-progress-story-observed-focus")).toContainText(
-    "Add one clearer closing sentence",
-  );
-  await expect(page.getByTestId("history-progress-story-no-longer-flagged")).toContainText(
-    "Stay closer to the travel theme",
-  );
-  await expect(page.getByTestId("history-priority-latest")).toHaveCount(0);
-  await expect(page.getByTestId("history-priority-new")).toHaveCount(0);
+  await expect(page.getByTestId("practice-progress")).toBeVisible();
+  // These legacy reports have no saved analysis context; don't chart unlike attempts.
+  await expect(page.getByTestId("practice-legacy")).toBeVisible();
   await expect(page.getByTestId("history-priority-resolved")).toHaveCount(0);
-  await expect(page.getByRole("img", { name: "Score trend" })).toBeVisible();
-  await expect(page.getByTestId("history-chart-score-sparkline-summary")).toHaveText("3.8 to 4.1");
-  await expect(page.getByRole("img", { name: "Speaking pace trend" })).toBeVisible();
-  await expect(page.getByTestId("history-chart-pace-sparkline-summary")).toHaveText("104.0 to 118.0");
   await expect(page.getByTestId("history-attempts-table")).toBeVisible();
   await expect(page.getByTestId("history-attempts-mobile-list")).not.toBeVisible();
   await expect(page.getByTestId("history-detail-digest")).toBeVisible();
@@ -485,21 +468,18 @@ test("renders primary visual-refresh artifacts without serif typography", async 
   await page.getByTestId("history-detail-full-report-summary").click();
   await expect(page.getByTestId("history-detail-full-report")).not.toHaveAttribute("open", "");
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByTestId("history-progress-story")).toBeVisible();
+  await expect(page.getByTestId("practice-progress")).toBeVisible();
   await expect(page.getByTestId("history-attempt-card-visual-second")).toBeVisible();
   await expect(page.getByTestId("history-attempt-card-visual-second")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("history-attempt-card-visual-second")).toContainText("Score 4.1");
   await expect(page.getByTestId("history-attempts-table")).not.toBeVisible();
   await expect(page.getByTestId("history-detail-select")).not.toBeVisible();
   await expect(page.getByTestId("history-detail-digest")).toBeVisible();
-  const storyBox = await page.getByTestId("history-progress-story").boundingBox();
-  const metricsBox = await page.getByTestId("history-metrics").boundingBox();
+  const storyBox = await page.getByTestId("practice-progress").boundingBox();
   expect(storyBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(844);
-  expect(metricsBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(844);
-  await expect(page.getByRole("img", { name: "Score trend" })).toBeVisible();
   await expectMobileRouteAudit(page, "visual-refresh-smoke-history-mobile.png");
   await page.setViewportSize(narrowMobileViewport);
-  await expect(page.getByTestId("history-progress-story")).toBeVisible();
+  await expect(page.getByTestId("practice-progress")).toBeVisible();
   await expectNoPageHorizontalOverflow(page);
   await captureScreenshot(page, "visual-refresh-smoke-history-narrow-mobile.png");
   await page.setViewportSize(desktopViewport);

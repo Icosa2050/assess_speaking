@@ -1,0 +1,713 @@
+{
+  "date": "2026-09-29",
+  "mode": "workspace",
+  "snapshot": "Before writing final verification artifacts",
+  "total_files": 44,
+  "reviewed_files": 39,
+  "skipped_files": 5,
+  "coverage_rate": 0.8863636363636364,
+  "automatic_exclusions": [
+    {
+      "path": "AGENTS.md",
+      "status": "modified",
+      "insertions": 6,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "README.md",
+      "status": "modified",
+      "insertions": 45,
+      "deletions": 6,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/MULTILINGUAL_CEFR_ASSESSMENT_PLAN.md",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "frontend/src/lib/state/appStore.test.ts",
+      "status": "modified",
+      "insertions": 18,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "frontend/src/routes/tests/HistoryRoute.test.tsx",
+      "status": "modified",
+      "insertions": 50,
+      "deletions": 45,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "frontend/src/routes/tests/HomeSetupRoutes.test.tsx",
+      "status": "modified",
+      "insertions": 1,
+      "deletions": 1,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "frontend/src/routes/tests/ReviewRoute.test.tsx",
+      "status": "modified",
+      "insertions": 5,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "frontend/tests/e2e/reviewHistoryFlow.spec.ts",
+      "status": "modified",
+      "insertions": 35,
+      "deletions": 2,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "frontend/tests/e2e/visualRefreshSmoke.spec.ts",
+      "status": "modified",
+      "insertions": 6,
+      "deletions": 26,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_app_backend_api.py",
+      "status": "modified",
+      "insertions": 21,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_app_core_services.py",
+      "status": "modified",
+      "insertions": 9,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_assess_speaking.py",
+      "status": "modified",
+      "insertions": 18,
+      "deletions": 23,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_assessment_runner.py",
+      "status": "modified",
+      "insertions": 29,
+      "deletions": 1,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_llm_client.py",
+      "status": "modified",
+      "insertions": 15,
+      "deletions": 1,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_playwright_task_setup.py",
+      "status": "modified",
+      "insertions": 6,
+      "deletions": 6,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_playwright_wrapper_integration.py",
+      "status": "modified",
+      "insertions": 20,
+      "deletions": 24,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_sample_integration.py",
+      "status": "modified",
+      "insertions": 4,
+      "deletions": 5,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "docs/materials/plida-parlare-rubrics/PLIDA-B1-Criteri-valutazione-prove-Parlare.pdf",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "docs/materials/plida-parlare-rubrics/PLIDA-B2-Criteri-valutazione-prove-Parlare.pdf",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "docs/materials/plida-parlare-rubrics/PLIDA-C1-Criteri-valutazione-prove-Parlare.pdf",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "docs/materials/plida-parlare-rubrics/README.md",
+      "status": "added",
+      "insertions": 55,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/materials/telc-deutsch-b2-medizin-zugangspruefung/README.md",
+      "status": "added",
+      "insertions": 126,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/materials/telc-deutsch-b2-medizin-zugangspruefung/deutsch_b2_medizin_zugangspruefung.mp3",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "docs/materials/telc-deutsch-b2-medizin-zugangspruefung/uebungstest_deutsch_b2_medizin_zugangspruefung.pdf",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "docs/materials/telc-english-b2-school/README.md",
+      "status": "added",
+      "insertions": 106,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/materials/telc-english-b2-school/telc-english-b2-school-uebungstest.pdf",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "docs/materials/telc-english-b2-school/telc-english-b2-school.mp3",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "docs/materials/telc-italiano-b2/README.md",
+      "status": "added",
+      "insertions": 99,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/materials/telc-italiano-b2/telc-italiano-b2.mp3",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "docs/materials/telc-italiano-b2/telc_italiano_b2_uebungstest_1_01.pdf",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "docs/reviews/2026-09-29-claude-journey-review.md",
+      "status": "added",
+      "insertions": 100,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/reviews/2026-09-29-claude-ollama-review.md",
+      "status": "added",
+      "insertions": 69,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/reviews/2026-09-29-claude-practice-review.md",
+      "status": "added",
+      "insertions": 52,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/reviews/2026-09-29-practice-review.md",
+      "status": "added",
+      "insertions": 58,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-29-assessment-reliability-cefr-upload.md",
+      "status": "added",
+      "insertions": 5,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-29-cils-oral-exam-preparation.md",
+      "status": "added",
+      "insertions": 5,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-29-oral-exam-preparation.md",
+      "status": "added",
+      "insertions": 470,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "frontend/src/lib/history/practiceProgress.test.ts",
+      "status": "added",
+      "insertions": 48,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "frontend/tests/journeys/bilingualPractice.spec.ts",
+      "status": "added",
+      "insertions": 205,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "frontend/tests/live/ollamaBilingual.spec.ts",
+      "status": "added",
+      "insertions": 134,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "last_conversation_and_missing_baseline.txt",
+      "status": "added",
+      "insertions": 171,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "prompts/b2_script.txt",
+      "status": "added",
+      "insertions": 3,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "prompts/c1_script.txt",
+      "status": "added",
+      "insertions": 3,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "prompts/sample_b2.wav",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "prompts/sample_c1.wav",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "tests/test_sample_workflow.py",
+      "status": "added",
+      "insertions": 28,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    }
+  ],
+  "files": [
+    {
+      "path": ".playwright/celi-cli.config.json",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 2,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": ".playwright/research-cli.config.json",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 2,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "app_backend/app.py",
+      "status": "modified",
+      "insertions": 13,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "app_backend/contracts.py",
+      "status": "modified",
+      "insertions": 10,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "app_backend/jobs.py",
+      "status": "modified",
+      "insertions": 3,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "app_core/services.py",
+      "status": "modified",
+      "insertions": 15,
+      "deletions": 1,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "assess_speaking.py",
+      "status": "modified",
+      "insertions": 30,
+      "deletions": 43,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "assessment_runtime/assessment_prompts.py",
+      "status": "modified",
+      "insertions": 7,
+      "deletions": 4,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "assessment_runtime/llm_client.py",
+      "status": "modified",
+      "insertions": 11,
+      "deletions": 2,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "assessment_runtime/runner.py",
+      "status": "modified",
+      "insertions": 28,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "frontend/src/lib/api/types.ts",
+      "status": "modified",
+      "insertions": 26,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "frontend/src/lib/state/appStore.ts",
+      "status": "modified",
+      "insertions": 8,
+      "deletions": 1,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "frontend/src/lib/state/sessionDraft.ts",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "frontend/src/routes/HistoryRoute.tsx",
+      "status": "modified",
+      "insertions": 33,
+      "deletions": 179,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "frontend/src/routes/ReviewRoute.tsx",
+      "status": "modified",
+      "insertions": 7,
+      "deletions": 1,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "frontend/src/routes/SpeakRoute.tsx",
+      "status": "modified",
+      "insertions": 3,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "frontend/tsconfig.json",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 3,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "locales/de.json",
+      "status": "modified",
+      "insertions": 36,
+      "deletions": 1,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "locales/en.json",
+      "status": "modified",
+      "insertions": 36,
+      "deletions": 1,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "locales/es.json",
+      "status": "modified",
+      "insertions": 36,
+      "deletions": 1,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "locales/fr.json",
+      "status": "modified",
+      "insertions": 36,
+      "deletions": 1,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "locales/it.json",
+      "status": "modified",
+      "insertions": 36,
+      "deletions": 1,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "scripts/playwright_celi.sh",
+      "status": "modified",
+      "insertions": 1,
+      "deletions": 1,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "scripts/playwright_research.sh",
+      "status": "modified",
+      "insertions": 16,
+      "deletions": 9,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": ".claude/settings.json",
+      "status": "added",
+      "insertions": 13,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": ".nvmrc",
+      "status": "added",
+      "insertions": 1,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "docs/materials/plida-parlare-rubrics/manifest.json",
+      "status": "added",
+      "insertions": 77,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "docs/materials/telc-deutsch-b2-medizin-zugangspruefung/manifest.json",
+      "status": "added",
+      "insertions": 84,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "docs/materials/telc-english-b2-school/manifest.json",
+      "status": "added",
+      "insertions": 60,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "docs/materials/telc-italiano-b2/manifest.json",
+      "status": "added",
+      "insertions": 54,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "docs/reviews/2026-09-29-ocr-rules.json",
+      "status": "added",
+      "insertions": 71,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "docs/reviews/2026-09-29-practice-review-coverage.json",
+      "status": "added",
+      "insertions": 571,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "frontend/playwright.journeys.config.ts",
+      "status": "added",
+      "insertions": 41,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "frontend/playwright.ollama.config.ts",
+      "status": "added",
+      "insertions": 35,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "frontend/src/components/history/PracticeProgress.module.css",
+      "status": "added",
+      "insertions": 26,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "frontend/src/components/history/PracticeProgress.tsx",
+      "status": "added",
+      "insertions": 97,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "frontend/src/components/history/RecordingReplay.tsx",
+      "status": "added",
+      "insertions": 14,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "frontend/src/lib/history/practiceProgress.ts",
+      "status": "added",
+      "insertions": 68,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    },
+    {
+      "path": "scripts/bootstrap_env.sh",
+      "status": "added",
+      "insertions": 92,
+      "deletions": 0,
+      "review_status": "skipped",
+      "basis": "Unrelated pre-existing user-owned file; outside the requested changes and commit."
+    },
+    {
+      "path": "scripts/generate_b2_sample.sh",
+      "status": "added",
+      "insertions": 7,
+      "deletions": 0,
+      "review_status": "skipped",
+      "basis": "Unrelated pre-existing user-owned file; outside the requested changes and commit."
+    },
+    {
+      "path": "scripts/generate_c1_sample.sh",
+      "status": "added",
+      "insertions": 7,
+      "deletions": 0,
+      "review_status": "skipped",
+      "basis": "Unrelated pre-existing user-owned file; outside the requested changes and commit."
+    },
+    {
+      "path": "scripts/run_sample_workflow.py",
+      "status": "added",
+      "insertions": 34,
+      "deletions": 0,
+      "review_status": "skipped",
+      "basis": "Unrelated pre-existing user-owned file; outside the requested changes and commit."
+    },
+    {
+      "path": "tests/data/sample_metrics.json",
+      "status": "added",
+      "insertions": 24,
+      "deletions": 0,
+      "review_status": "skipped",
+      "basis": "Unrelated pre-existing user-owned file; outside the requested changes and commit."
+    },
+    {
+      "path": "tests/e2e/journey_backend.py",
+      "status": "added",
+      "insertions": 68,
+      "deletions": 0,
+      "review_status": "reviewed",
+      "basis": "Initial practice review carried forward where unchanged; final diff/source and applicable OCR rules reviewed for the changed implementation."
+    }
+  ],
+  "findings": [
+    {
+      "path": "frontend/src/routes/HistoryRoute.tsx",
+      "category": "bug",
+      "severity": "medium",
+      "content": "Initial language filter could settle on all languages from stale history. Fixed by waiting for initial refresh; bilingual journeys and deferred-query regression pass."
+    },
+    {
+      "path": "assess_speaking.py",
+      "category": "bug",
+      "severity": "medium",
+      "content": "Default-local Ollama bypassed bounded validation and request settings. All assessment paths now share generate_rubric; live timeout and successful structured feedback verified."
+    },
+    {
+      "path": "assessment_runtime/assessment_prompts.py",
+      "category": "bug",
+      "severity": "medium",
+      "content": "Coaching misread assessor confidence as learner confidence in real output. Remove the field from coaching input and version the spoken-practice prompt."
+    },
+    {
+      "path": "frontend/src/components/history/PracticeProgress.tsx",
+      "category": "bug",
+      "severity": "medium",
+      "content": "Dynamic overall-score maximum made each cohort best score look like the top of the scale. Fixed to a stable 0\u20135 axis."
+    }
+  ]
+}

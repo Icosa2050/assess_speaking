@@ -1,9 +1,9 @@
 {
   "browser": {
     "browserName": "chromium",
-    "userDataDir": ".playwright/profiles/research",
+    "userDataDir": ".playwright/profiles/research-chromium",
     "launchOptions": {
-      "channel": "chrome",
+      "channel": "chromium",
       "headless": false
     },
     "contextOptions": {

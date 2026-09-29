@@ -35,6 +35,20 @@ VALID_JSON = """
 
 
 class LlmClientTests(unittest.TestCase):
+    @mock.patch("assessment_runtime.llm_client._post_json")
+    def test_ollama_requests_bounded_json_without_thinking(self, mock_post):
+        mock_post.return_value = {"choices": [{"message": {"content": VALID_JSON}}]}
+        rubric, _raw = llm_client.generate_rubric(
+            provider="ollama", model="qwen3.5:4b", prompt="rubric", timeout_sec=12,
+        )
+        self.assertEqual(rubric.overall, 4)
+        url, payload, _headers, timeout = mock_post.call_args.args
+        self.assertEqual(url, "http://localhost:11434/v1/chat/completions")
+        self.assertEqual(timeout, 12)
+        self.assertEqual(payload["reasoning_effort"], "none")
+        self.assertEqual(payload["response_format"], {"type": "json_object"})
+        self.assertEqual(payload["max_tokens"], 4096)
+
     def test_extract_json_object_accepts_dict_input(self):
         payload = {"overall": 4}
         self.assertIs(llm_client.extract_json_object(payload), payload)
@@ -285,7 +299,7 @@ class LlmClientTests(unittest.TestCase):
 
     def test_generate_rubric_retries_then_fails(self):
         with mock.patch("assessment_runtime.llm_client._chat_completion", return_value='{"overall": 4}'):
-            with self.assertRaises(LLMClientError):
+            with self.assertRaises(llm_client.LLMSchemaError):
                 llm_client.generate_rubric(provider="ollama", model="x", prompt="p", max_validation_retries=1)
 
     @mock.patch("assessment_runtime.llm_client.request.urlopen", side_effect=socket.timeout("slow"))

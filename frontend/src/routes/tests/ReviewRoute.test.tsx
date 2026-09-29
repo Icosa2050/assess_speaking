@@ -4,6 +4,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppFrame } from "@/App";
+import { createQueryClient, queryKeys } from "@/lib/query/queryClient";
 import { renderWithProviders } from "@/test/renderWithProviders";
 
 vi.mock("@/lib/api/client", () => ({
@@ -267,6 +268,8 @@ describe("Review route", () => {
   });
 
   it("restores a completed review from the assessment status endpoint", async () => {
+    const queryClient = createQueryClient();
+    queryClient.setQueryData(queryKeys.history, { items: [] });
     mockedGetAssessmentStatus.mockResolvedValueOnce({
       assessment_id: "asmt-1",
       status: "completed",
@@ -283,6 +286,7 @@ describe("Review route", () => {
     });
 
     const { store } = renderWithProviders(<AppFrame />, {
+      queryClient,
       initialEntries: ["/review"],
       locale: "en",
       appState: {
@@ -307,6 +311,7 @@ describe("Review route", () => {
     expect(mockedGetAssessmentStatus).toHaveBeenCalledTimes(1);
     expect(store.getState().review.reportId).toBe("report-1");
     expect(store.getState().review.transcript).toBe("Full transcript text");
+    expect(queryClient.getQueryState(queryKeys.history)?.isInvalidated).toBe(true);
   });
 
   it("keeps setup details when the learner chooses try again", async () => {

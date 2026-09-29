@@ -1,9 +1,9 @@
 {
   "browser": {
     "browserName": "chromium",
-    "userDataDir": ".playwright/profiles/celi",
+    "userDataDir": ".playwright/profiles/celi-chromium",
     "launchOptions": {
-      "channel": "chrome",
+      "channel": "chromium",
       "headless": false
     },
     "contextOptions": {

@@ -410,6 +410,9 @@ def _history_draft_preferences(record: object) -> dict[str, Any]:
     baseline = payload.get("baseline_comparison") if isinstance(payload, dict) and isinstance(payload.get("baseline_comparison"), dict) else {}
     scores = report.get("scores") if isinstance(report.get("scores"), dict) else {}
     cefr_estimate = scores.get("cefr_estimate") if isinstance(scores.get("cefr_estimate"), dict) else {}
+    meta = payload.get("meta") if isinstance(payload, dict) and isinstance(payload.get("meta"), dict) else {}
+    practice = meta.get("practice") if isinstance(meta.get("practice"), dict) else {}
+    saved_goal = practice.get("goal") if practice else baseline.get("level") or cefr_estimate.get("level")
     return {
         "speaker_id": str(getattr(record, "speaker_id", "") or report_input.get("speaker_id") or "").strip(),
         "learning_language": str(
@@ -419,7 +422,7 @@ def _history_draft_preferences(record: object) -> dict[str, Any]:
             or report_input.get("language_profile_key")
             or ""
         ).strip().lower(),
-        "cefr_level": str(baseline.get("level") or cefr_estimate.get("level") or "").strip().upper(),
+        "cefr_level": str(saved_goal or "").strip().upper(),
         "theme": str(getattr(record, "theme", "") or report_input.get("theme") or "").strip(),
         "task_family": str(getattr(record, "task_family", "") or report_input.get("task_family") or "").strip(),
         "target_duration_sec": report_input.get("target_duration_sec") or getattr(record, "target_duration_sec", ""),
@@ -1221,8 +1224,19 @@ def _history_str(value: Any) -> str:
 def history_rows(log_dir: str | Path | None = None) -> list[dict[str, Any]]:
     rows = []
     for record in load_history_records(log_dir):
+        payload = load_report_payload(getattr(record, "report_path", "")) or {}
+        meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+        metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
+        duration = getattr(record, "duration_sec", None)
+        words = getattr(record, "word_count", None)
         rows.append(
             {
+                "practice": meta.get("practice") if isinstance(meta.get("practice"), dict) else None,
+                "duration_sec": duration,
+                "word_count": words,
+                "elapsed_wpm": words * 60 / duration if words is not None and duration and duration > 0 else None,
+                "pause_count": metrics.get("pause_count"),
+                "pause_total_sec": metrics.get("pause_total_sec"),
                 "timestamp": _history_str(getattr(record, "timestamp", "")),
                 "session_id": _history_str(getattr(record, "session_id", "")),
                 "speaker_id": _history_str(getattr(record, "speaker_id", "")),

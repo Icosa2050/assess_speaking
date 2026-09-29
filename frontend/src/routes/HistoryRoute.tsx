@@ -4,11 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 
 import { HistoryDetailPanel } from "@/components/history/HistoryDetailPanel";
 import { HistoryList } from "@/components/history/HistoryList";
-import {
-  HistoryProgressStory,
-  type HistoryProgressStoryRecord,
-} from "@/components/history/HistoryProgressStory";
-import { Sparkline } from "@/components/ui/Sparkline";
+import { PracticeProgress } from "@/components/history/PracticeProgress";
+import { measurement, retryDraft } from "@/lib/history/practiceProgress";
 import layoutStyles from "@/components/ui/layout.module.css";
 import { apiClient } from "@/lib/api/client";
 import { createTranslator } from "@/lib/i18n";
@@ -27,12 +24,6 @@ const cardStyle = {
   borderRadius: "8px",
   backgroundColor: "rgba(255, 255, 255, 0.94)",
   boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
-} as const;
-
-const metricGridStyle = {
-  display: "grid",
-  gap: "0.875rem",
-  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
 } as const;
 
 const routeGridStyle = {
@@ -93,10 +84,7 @@ type HistoryViewRecord = {
   wpm: number | null;
 };
 
-const safeFloat = (value: unknown): number | null => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-};
+const safeFloat = measurement;
 
 const safeInt = (value: unknown): number | null => {
   const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -273,23 +261,6 @@ const scopeCaption = ({
   return translate("history.scope_all", { count });
 };
 
-const formatTopCounts = (values: string[]): string => {
-  if (values.length === 0) {
-    return "–";
-  }
-
-  const counts = new Map<string, number>();
-  values.forEach((value) => {
-    counts.set(value, (counts.get(value) ?? 0) + 1);
-  });
-
-  return [...counts.entries()]
-    .sort((left, right) => right[1] - left[1])
-    .slice(0, 3)
-    .map(([name, count]) => `${name} (${count})`)
-    .join(", ");
-};
-
 export const formatTrendSummary = (
   values: number[],
   locale: string,
@@ -314,8 +285,9 @@ export const HistoryRoute = () => {
   const navigate = useNavigate();
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const draft = useAppStore((state) => state.draft);
+  const applySetup = useAppStore((state) => state.applySetup);
   const setCurrentPage = useAppStore((state) => state.setCurrentPage);
-  const translate = createTranslator(locale);
+  const translate = useMemo(() => createTranslator(locale), [locale]);
   const speakerScope = String(draft.speakerId || "").trim();
 
   const historyQuery = useQuery({
@@ -329,7 +301,8 @@ export const HistoryRoute = () => {
 
   const scopedRecords = useMemo(() => {
     const rows = historyQuery.data?.items ?? [];
-    const normalized = rows.map((row) => normalizeHistoryRecord(row, locale, translate));
+    const normalized = rows.map((row) => normalizeHistoryRecord(row, locale, translate))
+      .sort((a, b) => (a.timestampDate?.getTime() ?? 0) - (b.timestampDate?.getTime() ?? 0));
 
     return speakerScope
       ? normalized.filter((row) => row.speakerId === speakerScope)
@@ -353,6 +326,8 @@ export const HistoryRoute = () => {
     }
 
     if (!hasInitializedLanguage) {
+      // A cached list may predate the just-completed attempt in a new language.
+      if (historyQuery.isFetching) return;
       setSelectedLanguage(
         preferredLanguage && availableLanguages.includes(preferredLanguage)
           ? preferredLanguage
@@ -371,7 +346,7 @@ export const HistoryRoute = () => {
         ? preferredLanguage
         : ALL_HISTORY_LANGUAGES,
     );
-  }, [availableLanguages, hasInitializedLanguage, preferredLanguage, selectedLanguage]);
+  }, [availableLanguages, hasInitializedLanguage, historyQuery.isFetching, preferredLanguage, selectedLanguage]);
 
   const filteredRecords = useMemo(
     () =>
@@ -407,29 +382,6 @@ export const HistoryRoute = () => {
   });
 
   const attempts = filteredRecords.slice().reverse();
-  const finalScores = filteredRecords.map((row) => row.finalScore).filter((value): value is number => value !== null);
-  const wpmValues = filteredRecords.map((row) => row.wpm).filter((value): value is number => value !== null);
-  const bandValues = filteredRecords.map((row) => row.bandValue).filter((value): value is number => value !== null);
-  const taskFamilyRows = [...new Set(filteredRecords.map((row) => row.taskFamily).filter(Boolean))]
-    .sort()
-    .map((family) => {
-      const familyRecords = filteredRecords.filter((row) => row.taskFamily === family);
-      const familyScores = familyRecords
-        .map((row) => row.finalScore)
-        .filter((value): value is number => value !== null);
-      return {
-        avgFinal:
-          familyScores.length > 0
-            ? (familyScores.reduce((sum, value) => sum + value, 0) / familyScores.length).toFixed(2)
-            : null,
-        coherence: formatTopCounts(familyRecords.flatMap((row) => row.coherenceIssueCategories)),
-        count: familyRecords.length,
-        grammar: formatTopCounts(familyRecords.flatMap((row) => row.grammarErrorCategories)),
-        latestFinal: familyRecords.at(-1)?.finalScore ?? null,
-        taskFamilyLabel: taskFamilyLabel(family, translate),
-      };
-    });
-
   if (historyQuery.isError) {
     return (
       <section style={cardStyle} data-testid="history-error" data-semantic-id="history-error">
@@ -466,24 +418,14 @@ export const HistoryRoute = () => {
     );
   }
 
-  const scoreTrendValues = filteredRecords
-    .map((row) => row.finalScore)
-    .filter((value): value is number => value !== null);
-  const paceTrendValues = filteredRecords
-    .map((row) => row.wpm)
-    .filter((value): value is number => value !== null);
-  const progressStoryRecords: HistoryProgressStoryRecord[] = filteredRecords.map((row) => ({
-    finalScore: row.finalScore,
-    languageLabel: row.languageLabel,
-    scoreLabel: row.scoreLabel,
-    sessionId: row.sessionId,
-    taskFamily: row.taskFamily,
-    theme: row.theme,
-    timestamp: row.timestamp,
-    timestampLabel: row.timestampLabel,
-    topPriorities: row.topPriorities,
-    wpm: row.wpm,
-  }));
+  // Legacy session IDs can be blank: apply the scope to rows, not an ID-based join.
+  const practiceRows = (historyQuery.data?.items ?? []).filter((row) =>
+    (!speakerScope || String(row.speaker_id || "") === speakerScope) &&
+    (selectedLanguage === ALL_HISTORY_LANGUAGES || String(row.learning_language || "").trim().toLowerCase() === selectedLanguage),
+  );
+  const selectedPractice = selectedSessionId
+    ? practiceRows.find((row) => row.session_id === selectedSessionId) ?? null
+    : null;
 
   return (
     <div
@@ -519,110 +461,22 @@ export const HistoryRoute = () => {
         </section>
       ) : null}
 
-      <HistoryProgressStory
-        records={progressStoryRecords}
-        translate={translate}
+      <PracticeProgress
+        rows={practiceRows}
+        selected={selectedPractice}
+        locale={locale}
+        onSelect={setSelectedSessionId}
+        onRetry={(row) => {
+          const savedDraft = retryDraft(row);
+          if (savedDraft) {
+            applySetup(savedDraft);
+            navigate("/speak");
+          }
+        }}
       />
-
-      <section style={cardStyle}>
-        <p
-          style={{ margin: 0, color: "#33514b", lineHeight: 1.6 }}
-          data-testid="history-scope-caption"
-          data-semantic-id="history-scope-caption"
-        >
-          {scopeCaption({
-            count: filteredRecords.length,
-            selectedLanguage,
-            speakerScope,
-            translate,
-          })}
-        </p>
-        <div style={metricGridStyle} data-testid="history-metrics" data-semantic-id="history-metrics">
-          {[
-            ["history-metric-runs", translate("history.metric_runs"), String(filteredRecords.length)],
-            ["history-metric-avg-final", translate("history.metric_avg_final"), finalScores.length > 0 ? (finalScores.reduce((sum, value) => sum + value, 0) / finalScores.length).toFixed(2) : translate("history.none")],
-            ["history-metric-best-final", translate("history.metric_best_final"), finalScores.length > 0 ? Math.max(...finalScores).toFixed(2) : translate("history.none")],
-            ["history-metric-avg-wpm", translate("history.metric_avg_wpm"), wpmValues.length > 0 ? (wpmValues.reduce((sum, value) => sum + value, 0) / wpmValues.length).toFixed(1) : translate("history.none")],
-            ["history-metric-best-band", translate("history.metric_best_band"), bandValues.length > 0 ? String(Math.max(...bandValues)) : translate("history.none")],
-          ].map(([testId, label, value]) => (
-            <div key={testId} style={cardStyle} data-testid={testId} data-semantic-id={testId}>
-              <strong style={{ color: "#33514b" }}>{label}</strong>
-              <span style={{ color: "#10201c", fontSize: "1.2rem", fontWeight: 700 }}>{value}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section style={cardStyle} data-testid="history-trends" data-semantic-id="history-trends">
-        <h2 style={{ margin: 0, fontSize: "1.35rem", color: "#10201c" }}>{translate("history.trends_title")}</h2>
-        {filteredRecords.length >= 2 ? (
-          <div style={{ display: "grid", gap: "1rem", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
-            {scoreTrendValues.length >= 2 ? (
-              <div data-testid="history-chart-score" data-semantic-id="history-chart-score" style={cardStyle}>
-                <strong style={{ color: "#33514b" }}>{translate("history.score_chart_title")}</strong>
-                <Sparkline
-                  label={translate("history.score_chart_title")}
-                  summary={formatTrendSummary(scoreTrendValues, locale, translate)}
-                  testId="history-chart-score-sparkline"
-                  values={scoreTrendValues}
-                />
-              </div>
-            ) : null}
-            {paceTrendValues.length >= 2 ? (
-              <div data-testid="history-chart-pace" data-semantic-id="history-chart-pace" style={cardStyle}>
-                <strong style={{ color: "#33514b" }}>{translate("history.pace_chart_title")}</strong>
-                <Sparkline
-                  label={translate("history.pace_chart_title")}
-                  summary={formatTrendSummary(paceTrendValues, locale, translate)}
-                  testId="history-chart-pace-sparkline"
-                  values={paceTrendValues}
-                />
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          <p
-            style={{ margin: 0, color: "#33514b", lineHeight: 1.6 }}
-            data-testid="history-trends-empty"
-            data-semantic-id="history-trends-empty"
-          >
-            {translate("history.trends_not_enough")}
-          </p>
-        )}
-      </section>
-
-      <section style={cardStyle} data-testid="history-task-family" data-semantic-id="history-task-family">
-        <h2 style={{ margin: 0, fontSize: "1.35rem", color: "#10201c" }}>{translate("history.task_family_title")}</h2>
-        {taskFamilyRows.length === 0 ? (
-          <p style={{ margin: 0, color: "#33514b" }} data-testid="history-task-family-empty" data-semantic-id="history-task-family-empty">
-            {translate("history.task_family_empty")}
-          </p>
-        ) : (
-          <div style={{ display: "grid", gap: "0.75rem" }}>
-            {taskFamilyRows.map((row, index) => (
-              <div
-                key={`${row.taskFamilyLabel}-${index}`}
-                style={{
-                  display: "grid",
-                  gap: "0.5rem",
-                  gridTemplateColumns: "minmax(150px, 1.2fr) repeat(4, minmax(0, 1fr))",
-                  padding: "0.875rem",
-                  borderRadius: "8px",
-                  backgroundColor: "rgba(248, 251, 250, 0.96)",
-                }}
-                data-testid={`history-task-family-row-${index}`}
-                data-semantic-id={`history-task-family-row-${index}`}
-              >
-                <strong style={{ color: "#10201c" }}>{row.taskFamilyLabel}</strong>
-                <span style={{ color: "#33514b" }}>{row.count}</span>
-                <span style={{ color: "#33514b" }}>{row.avgFinal ?? translate("history.none")}</span>
-                <span style={{ color: "#33514b" }}>{row.latestFinal !== null ? row.latestFinal.toFixed(2) : translate("history.none")}</span>
-                <span style={{ color: "#33514b" }}>{`${row.grammar} · ${row.coherence}`}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+      <p data-testid="history-scope-caption">
+        {scopeCaption({ count: filteredRecords.length, selectedLanguage, speakerScope, translate })}
+      </p>
 
       <HistoryList
         attempts={attempts.map((row) => ({

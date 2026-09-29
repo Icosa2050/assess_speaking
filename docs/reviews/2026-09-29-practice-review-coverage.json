@@ -1,0 +1,571 @@
+{
+  "date": "2026-09-29",
+  "tool": "open-code-review v1.12.10",
+  "mode": "workspace",
+  "scope": "OCR initial workspace preview; total_files below counts reviewable entries, not automatic exclusions.",
+  "workspace_files_seen": 67,
+  "total_files": 34,
+  "reviewed_files": 34,
+  "skipped_files": 0,
+  "coverage_rate": 1.0,
+  "automatic_exclusions": [
+    {
+      "path": "AGENTS.md",
+      "status": "modified",
+      "insertions": 8,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "README.md",
+      "status": "modified",
+      "insertions": 20,
+      "deletions": 4,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/MULTILINGUAL_CEFR_ASSESSMENT_PLAN.md",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "frontend/src/lib/state/appStore.test.ts",
+      "status": "modified",
+      "insertions": 18,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "frontend/src/routes/tests/HistoryRoute.test.tsx",
+      "status": "modified",
+      "insertions": 6,
+      "deletions": 44,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "frontend/tests/e2e/reviewHistoryFlow.spec.ts",
+      "status": "modified",
+      "insertions": 35,
+      "deletions": 2,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_app_backend_api.py",
+      "status": "modified",
+      "insertions": 21,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_app_core_services.py",
+      "status": "modified",
+      "insertions": 9,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_assessment_runner.py",
+      "status": "modified",
+      "insertions": 12,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_playwright_task_setup.py",
+      "status": "modified",
+      "insertions": 6,
+      "deletions": 6,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "docs/materials/plida-parlare-rubrics/PLIDA-B1-Criteri-valutazione-prove-Parlare.pdf",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "docs/materials/plida-parlare-rubrics/PLIDA-B2-Criteri-valutazione-prove-Parlare.pdf",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "docs/materials/plida-parlare-rubrics/PLIDA-C1-Criteri-valutazione-prove-Parlare.pdf",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "docs/materials/plida-parlare-rubrics/README.md",
+      "status": "added",
+      "insertions": 55,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/materials/telc-deutsch-b2-medizin-zugangspruefung/README.md",
+      "status": "added",
+      "insertions": 126,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/materials/telc-deutsch-b2-medizin-zugangspruefung/deutsch_b2_medizin_zugangspruefung.mp3",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "docs/materials/telc-deutsch-b2-medizin-zugangspruefung/uebungstest_deutsch_b2_medizin_zugangspruefung.pdf",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "docs/materials/telc-english-b2-school/README.md",
+      "status": "added",
+      "insertions": 106,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/materials/telc-english-b2-school/telc-english-b2-school-uebungstest.pdf",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "docs/materials/telc-english-b2-school/telc-english-b2-school.mp3",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "docs/materials/telc-italiano-b2/README.md",
+      "status": "added",
+      "insertions": 99,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/materials/telc-italiano-b2/telc-italiano-b2.mp3",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "docs/materials/telc-italiano-b2/telc_italiano_b2_uebungstest_1_01.pdf",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-29-assessment-reliability-cefr-upload.md",
+      "status": "added",
+      "insertions": 5,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-29-cils-oral-exam-preparation.md",
+      "status": "added",
+      "insertions": 5,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-29-oral-exam-preparation.md",
+      "status": "added",
+      "insertions": 470,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "frontend/src/lib/history/practiceProgress.test.ts",
+      "status": "added",
+      "insertions": 47,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "last_conversation_and_missing_baseline.txt",
+      "status": "added",
+      "insertions": 171,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "prompts/b2_script.txt",
+      "status": "added",
+      "insertions": 3,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "prompts/c1_script.txt",
+      "status": "added",
+      "insertions": 3,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "prompts/sample_b2.wav",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "prompts/sample_c1.wav",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "tests/test_sample_workflow.py",
+      "status": "added",
+      "insertions": 28,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    }
+  ],
+  "checklist": [
+    {
+      "path": ".playwright/celi-cli.config.json",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 2,
+      "rule_group": 1,
+      "review_status": "reviewed"
+    },
+    {
+      "path": ".playwright/research-cli.config.json",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 2,
+      "rule_group": 1,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "app_backend/app.py",
+      "status": "modified",
+      "insertions": 13,
+      "deletions": 0,
+      "rule_group": 2,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "app_backend/contracts.py",
+      "status": "modified",
+      "insertions": 10,
+      "deletions": 0,
+      "rule_group": 2,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "app_backend/jobs.py",
+      "status": "modified",
+      "insertions": 3,
+      "deletions": 0,
+      "rule_group": 2,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "app_core/services.py",
+      "status": "modified",
+      "insertions": 15,
+      "deletions": 1,
+      "rule_group": 2,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "assessment_runtime/runner.py",
+      "status": "modified",
+      "insertions": 17,
+      "deletions": 0,
+      "rule_group": 2,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/src/lib/api/types.ts",
+      "status": "modified",
+      "insertions": 24,
+      "deletions": 0,
+      "rule_group": 3,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/src/lib/state/appStore.ts",
+      "status": "modified",
+      "insertions": 8,
+      "deletions": 1,
+      "rule_group": 3,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/src/lib/state/sessionDraft.ts",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 0,
+      "rule_group": 3,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/src/routes/HistoryRoute.tsx",
+      "status": "modified",
+      "insertions": 24,
+      "deletions": 177,
+      "rule_group": 3,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/src/routes/SpeakRoute.tsx",
+      "status": "modified",
+      "insertions": 3,
+      "deletions": 0,
+      "rule_group": 3,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/de.json",
+      "status": "modified",
+      "insertions": 35,
+      "deletions": 1,
+      "rule_group": 1,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/en.json",
+      "status": "modified",
+      "insertions": 35,
+      "deletions": 1,
+      "rule_group": 1,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/es.json",
+      "status": "modified",
+      "insertions": 35,
+      "deletions": 1,
+      "rule_group": 1,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/fr.json",
+      "status": "modified",
+      "insertions": 35,
+      "deletions": 1,
+      "rule_group": 1,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/it.json",
+      "status": "modified",
+      "insertions": 35,
+      "deletions": 1,
+      "rule_group": 1,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "scripts/playwright_celi.sh",
+      "status": "modified",
+      "insertions": 1,
+      "deletions": 1,
+      "rule_group": 4,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "scripts/playwright_research.sh",
+      "status": "modified",
+      "insertions": 16,
+      "deletions": 9,
+      "rule_group": 4,
+      "review_status": "reviewed"
+    },
+    {
+      "path": ".claude/settings.json",
+      "status": "added",
+      "insertions": 13,
+      "deletions": 0,
+      "rule_group": 1,
+      "review_status": "reviewed"
+    },
+    {
+      "path": ".nvmrc",
+      "status": "added",
+      "insertions": 1,
+      "deletions": 0,
+      "rule_group": 4,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "docs/materials/plida-parlare-rubrics/manifest.json",
+      "status": "added",
+      "insertions": 77,
+      "deletions": 0,
+      "rule_group": 1,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "docs/materials/telc-deutsch-b2-medizin-zugangspruefung/manifest.json",
+      "status": "added",
+      "insertions": 84,
+      "deletions": 0,
+      "rule_group": 1,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "docs/materials/telc-english-b2-school/manifest.json",
+      "status": "added",
+      "insertions": 60,
+      "deletions": 0,
+      "rule_group": 1,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "docs/materials/telc-italiano-b2/manifest.json",
+      "status": "added",
+      "insertions": 54,
+      "deletions": 0,
+      "rule_group": 1,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/src/components/history/PracticeProgress.module.css",
+      "status": "added",
+      "insertions": 26,
+      "deletions": 0,
+      "rule_group": 4,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/src/components/history/PracticeProgress.tsx",
+      "status": "added",
+      "insertions": 97,
+      "deletions": 0,
+      "rule_group": 3,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/src/components/history/RecordingReplay.tsx",
+      "status": "added",
+      "insertions": 14,
+      "deletions": 0,
+      "rule_group": 3,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/src/lib/history/practiceProgress.ts",
+      "status": "added",
+      "insertions": 66,
+      "deletions": 0,
+      "rule_group": 3,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "scripts/bootstrap_env.sh",
+      "status": "added",
+      "insertions": 92,
+      "deletions": 0,
+      "rule_group": 4,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "scripts/generate_b2_sample.sh",
+      "status": "added",
+      "insertions": 7,
+      "deletions": 0,
+      "rule_group": 4,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "scripts/generate_c1_sample.sh",
+      "status": "added",
+      "insertions": 7,
+      "deletions": 0,
+      "rule_group": 4,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "scripts/run_sample_workflow.py",
+      "status": "added",
+      "insertions": 34,
+      "deletions": 0,
+      "rule_group": 2,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "tests/data/sample_metrics.json",
+      "status": "added",
+      "insertions": 24,
+      "deletions": 0,
+      "rule_group": 1,
+      "review_status": "reviewed"
+    }
+  ],
+  "supplemental_review": [
+    "frontend/src/routes/ReviewRoute.tsx",
+    "changed regression tests",
+    "AGENTS.md standing approval note"
+  ],
+  "findings": [
+    {
+      "path": "assessment_runtime/runner.py",
+      "start_line": 83,
+      "category": "bug",
+      "severity": "medium",
+      "reviewer": "OCR delegate",
+      "status": "fixed",
+      "content": "Comparison metadata used the report schema version rather than the actual scoring version, and omitted fallback scoring mode and resolved analysis settings. Hybrid and deterministic-only runs, or changed rubric/pause settings, could be compared as matching. Persist the actual scorer, mode and analysis signature and include them in the comparison key."
+    },
+    {
+      "path": "frontend/src/routes/ReviewRoute.tsx",
+      "start_line": 176,
+      "category": "bug",
+      "severity": "medium",
+      "reviewer": "OCR delegate",
+      "status": "fixed",
+      "content": "History remained fresh in React Query for 30 seconds after a completed attempt. Returning quickly after a retry could show old results. Invalidate history when a saved review becomes available; the browser fixture now exposes only completed submissions so the test detects stale caching."
+    },
+    {
+      "path": "frontend/src/routes/HistoryRoute.tsx",
+      "start_line": 419,
+      "category": "bug",
+      "severity": "medium",
+      "reviewer": "Claude, validated locally",
+      "status": "fixed",
+      "content": "Joining scoped history rows back to all raw rows by session ID allowed blank legacy IDs to bring in rows from other speakers or languages. Apply the speaker/language filters directly to raw rows and do not select a blank session ID."
+    },
+    {
+      "path": "frontend/src/components/history/PracticeProgress.tsx",
+      "start_line": 88,
+      "category": "bug",
+      "severity": "medium",
+      "reviewer": "Claude, validated locally",
+      "status": "fixed",
+      "content": "An explicit retry with a missing or incompatible parent displayed the first-attempt message. Show a distinct explanation for an unavailable or differently analysed parent."
+    },
+    {
+      "path": "assessment_runtime/runner.py",
+      "start_line": 78,
+      "category": "bug",
+      "severity": "medium",
+      "reviewer": "Claude, validated locally",
+      "status": "fixed",
+      "content": "The assessment API accepts lowercase goal strings and baseline evaluation uppercases them, but saved practice metadata did not. This split comparison groups and disabled retry for b2. Normalize the persisted goal to uppercase."
+    }
+  ],
+  "claude_bundle_sha256": "5c61c44197995957f5ae554d49f4a210d455e5e80a4623acbeb3f2d0a356b001"
+}

@@ -62,6 +62,7 @@ export interface SessionDraft {
   durationSec: DurationOption;
   promptId: string;
   promptText: string;
+  retryOfSessionId: string;
 }
 
 export interface AssessmentJobState {
@@ -132,6 +133,7 @@ export const buildSessionDraft = (
   durationSec: overrides.durationSec ?? 90,
   promptId: overrides.promptId ?? "",
   promptText: overrides.promptText ?? "",
+  retryOfSessionId: overrides.retryOfSessionId ?? "",
 });
 
 export const buildAssessmentJobState = (

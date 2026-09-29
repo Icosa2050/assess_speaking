@@ -1,0 +1,84 @@
+{
+  "manifest_version": 1,
+  "material_id": "telc-deutsch-b2-medizin-zugangspruefung-uebungstest-1-2015",
+  "added_on": "2026-09-29",
+  "source": {
+    "kind": "user_supplied_directory",
+    "path": "/Users/bernhard/Desktop/telc_deutsch_b2_medizin_zugangspruefung/"
+  },
+  "provider": "telc",
+  "language": "de",
+  "target_level": "B2",
+  "exam_variant": "Medizin Zugangsprüfung",
+  "edition": {
+    "year": 2015,
+    "imprint_edition_statement": "1. Auflage 2015",
+    "book_isbn": "978-3-86375-301-6",
+    "audio_isbn": "978-3-86375-302-3",
+    "book_order_number": "5039-B00-010101",
+    "audio_order_number": "5039-CD0-010101",
+    "current_exam_format_independently_verified": false
+  },
+  "usage": "project_reference_material",
+  "publisher_copyright_notice_present": true,
+  "product_redistribution_permission_established": false,
+  "source_conflicts": [
+    {
+      "field": "intermediate_preparation_minutes",
+      "claims": [
+        {"value": 2.5, "pdf_pages": [7, 22, 23]},
+        {"value": 5, "pdf_pages": [47, 48]}
+      ],
+      "status": "unresolved"
+    },
+    {
+      "field": "part_2_minutes_per_presenter",
+      "claims": [
+        {"value": 2.5, "pdf_pages": [7, 23, 47]},
+        {"value": 5, "pdf_pages": [48], "note": "Narrative says to switch presenters after about five minutes."}
+      ],
+      "status": "unresolved"
+    }
+  ],
+  "files": [
+    {
+      "path": "uebungstest_deutsch_b2_medizin_zugangspruefung.pdf",
+      "role": "practice_exam_specification_role_cards_and_rubric",
+      "bytes": 6599181,
+      "sha256": "ff34bd8628e929d25d51097016bf39aa1c873b767c77cb4f4127fee41faf2611",
+      "media_type": "application/pdf",
+      "pages": 56,
+      "encrypted": false,
+      "page_map": {
+        "format": [7],
+        "oral_overview": [22, 23],
+        "patient_role_cards": [24, 25, 26, 27],
+        "doctor_role_cards": [28, 29],
+        "oral_tasks": [30, 31, 32],
+        "oral_rubric": [41, 42],
+        "weighting_and_score_conversion": [43, 44],
+        "passing_requirements": [45],
+        "oral_administration": [47, 48],
+        "oral_rating_sheet": [49],
+        "listening_transcripts": [50, 51, 52],
+        "answer_key": [53]
+      },
+      "page_numbering": "one_based_pdf_viewer"
+    },
+    {
+      "path": "deutsch_b2_medizin_zugangspruefung.mp3",
+      "role": "listening_comprehension_stimulus",
+      "bytes": 12124673,
+      "sha256": "5d28d19b64bce8782ab9a1d76ed098c9e29a808c46303d535d94fbc995dfe73d",
+      "media_type": "audio/mpeg",
+      "duration_seconds": 1515.320375,
+      "sample_rate_hz": 44100,
+      "channels": 1,
+      "bit_rate_bps": 64000,
+      "embedded_title": "DeuB2MedZugang_PFG-UeT1",
+      "full_ffmpeg_decode_errors_reported": false,
+      "local_asr_spot_checks_seconds": [[0, 40], [700, 720], [1460, 1480]],
+      "is_scored_candidate_performance": false
+    }
+  ]
+}

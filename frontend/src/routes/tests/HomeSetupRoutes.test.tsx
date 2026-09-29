@@ -751,7 +751,7 @@ describe("Home and Runtime Setup routes", () => {
     ).toBeVisible();
     expect(screen.queryByTestId("runtime_connection.api_key")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Replace saved key" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Replace saved key" }));
 
     expect(screen.getByTestId("runtime_connection.api_key")).toBeVisible();
 

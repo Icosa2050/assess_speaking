@@ -15,7 +15,7 @@ test.describe("live local runtime setup replacement", () => {
     await page.getByTestId("runtime_connection.base_url").fill("http://localhost:11434/");
     await page.getByTestId("runtime_setup.detect_local_models").click();
 
-    await expect(page.getByText(/Detected \d+ local model/)).toBeVisible({
+    await expect(page.getByText(/Local models found via/)).toBeVisible({
       timeout: 30_000,
     });
     await expect(page.getByTestId("runtime_connection.base_url")).toHaveValue(

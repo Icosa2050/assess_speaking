@@ -1,7 +1,9 @@
 import "@testing-library/jest-dom/vitest";
 
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { createQueryClient, queryKeys } from "@/lib/query/queryClient";
 
 import { AppFrame } from "@/App";
 import { createTranslator } from "@/lib/i18n";
@@ -214,6 +216,24 @@ describe("History route", () => {
     expect(await screen.findByRole("heading", { name: "Set up today's speaking practice" })).toBeVisible();
   });
 
+  it("waits for refreshed history before choosing the new practice language", async () => {
+    const queryClient = createQueryClient();
+    queryClient.setQueryData(queryKeys.history, { items: historyRows.filter(row => row.learning_language === "en") });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.history });
+    let finish!: (value: { items: typeof historyRows }) => void;
+    mockedGetHistory.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/history"], locale: "en", appState: validDraftState, queryClient,
+    });
+    await waitFor(() => expect(mockedGetHistory).toHaveBeenCalled());
+    await act(async () => finish({ items: historyRows }));
+    await waitFor(() => expect(screen.getByTestId("history-language-filter")).toHaveValue("it"));
+    // Explicitly selecting all languages must survive subsequent refreshes.
+    fireEvent.change(screen.getByTestId("history-language-filter"), { target: { value: "__all__" } });
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.history }); });
+    expect(screen.getByTestId("history-language-filter")).toHaveValue("__all__");
+  });
+
   it("defaults the language filter to the current draft language and scopes to the current speaker", async () => {
     renderWithProviders(<AppFrame />, {
       initialEntries: ["/history"],
@@ -225,41 +245,10 @@ describe("History route", () => {
     expect(screen.getByTestId("history-scope-caption")).toHaveTextContent(
       "Saved attempts for bern in Italian: 2.",
     );
-    expect(screen.getByRole("region", { name: "Your progress story" })).toBeVisible();
-    expect(screen.getByTestId("history-progress-story-score")).toHaveTextContent("4.2");
-    expect(screen.getByTestId("history-progress-story-score")).toHaveTextContent(
-      "+0.2 since the previous attempt",
-    );
-    expect(screen.getByTestId("history-progress-story-pace")).toHaveTextContent(
-      "+21.8 WPM since the previous attempt",
-    );
-    expect(screen.getByTestId("history-progress-story-observed-focus")).toHaveTextContent(
-      "Noticed last time",
-    );
-    expect(screen.getByTestId("history-progress-story-observed-focus")).toHaveTextContent(
-      "More precision",
-    );
-    expect(screen.getByTestId("history-progress-story-next-practice")).toHaveTextContent(
-      "Try Holiday return again with this focus: More precision",
-    );
-    expect(screen.queryByTestId("history-progress-story-no-longer-flagged")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("history-priority-latest")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("history-priority-new")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("history-priority-resolved")).not.toBeInTheDocument();
-    expect(screen.getByTestId("history-metric-runs")).toHaveTextContent("2");
-    expect(screen.getByTestId("history-chart-score")).toBeVisible();
-    expect(screen.getByTestId("history-chart-score")).toHaveAttribute(
-      "data-semantic-id",
-      "history-chart-score",
-    );
-    expect(screen.getByRole("img", { name: "Score trend" })).toBeVisible();
-    expect(screen.getByTestId("history-chart-score-sparkline-summary")).toHaveTextContent(
-      "4.0 to 4.2",
-    );
-    expect(screen.getByRole("img", { name: "Speaking pace trend" })).toBeVisible();
-    expect(screen.getByTestId("history-chart-pace-sparkline-summary")).toHaveTextContent(
-      "110.2 to 132.0",
-    );
+    expect(screen.getByTestId("practice-progress")).toHaveTextContent("Attempts: 2");
+    expect(screen.getByTestId("practice-legacy")).toBeVisible();
+    expect(screen.getByTestId("practice-comparison")).toHaveTextContent("No earlier comparable attempt");
+    expect(screen.queryByRole("img", { name: "Overall performance" })).not.toBeInTheDocument();
     expect(screen.getByTestId("history-attempts-row-s4")).toBeVisible();
     expect(screen.queryByTestId("history-attempts-row-s3")).not.toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Timestamp" })).toHaveAttribute("scope", "col");
@@ -271,6 +260,29 @@ describe("History route", () => {
     expect(screen.getByTestId("history-attempt-card-s4")).toHaveTextContent("Band 5");
     expect(screen.getByTestId("history-attempt-card-s4")).toHaveTextContent("Done");
     expect(screen.getByTestId("history-attempt-card-s2")).toHaveTextContent("Spring trip");
+  });
+
+  it("does not pull other learners or languages into the journal through blank legacy IDs", async () => {
+    mockedGetHistory.mockResolvedValueOnce({ items: [
+      { ...historyRows[0], session_id: "", speaker_id: "bern", learning_language: "it", report_path: "" },
+      { ...historyRows[0], session_id: "", speaker_id: "anna", learning_language: "it", report_path: "" },
+      { ...historyRows[0], session_id: "", speaker_id: "bern", learning_language: "en", report_path: "" },
+    ] });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/history"], locale: "en", appState: validDraftState });
+    await waitFor(() => expect(screen.getByTestId("history-language-filter")).toHaveValue("it"));
+    expect(screen.getByTestId("practice-progress")).toHaveTextContent("Attempts: 1");
+  });
+
+  it("explains an unavailable retry parent without calling it a first attempt", async () => {
+    mockedGetHistory.mockResolvedValueOnce({ items: [{ ...historyRows[3], practice: {
+      version: 1, goal: "B2", prompt_id: "travel", prompt_text: "Describe your trip", retry_of_session_id: "missing",
+      target_duration_sec: 120, scoring_version: "scorer-v1", scoring_mode: "hybrid", analysis_signature: "v1",
+      provider: "ollama", model: "model", asr_provider: "faster_whisper", whisper_model: "small", dry_run: false,
+    } }] });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/history"], locale: "en", appState: validDraftState });
+    await waitFor(() => expect(screen.getByTestId("practice-comparison")).toHaveTextContent("This retry has a saved parent"));
+    expect(screen.getByTestId("practice-comparison")).not.toHaveTextContent("No earlier comparable attempt");
+    expect(within(screen.getByRole("img", { name: "Overall performance" })).getByText("5", { exact: true })).toBeInTheDocument();
   });
 
   it("opens the most recent saved detail and lets the learner jump to another attempt", async () => {
@@ -337,16 +349,9 @@ describe("History route", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("history-progress-story-score")).toHaveTextContent("3.7");
-      expect(screen.getByTestId("history-progress-story-score")).toHaveTextContent(
-        "First saved attempt for this filter",
-      );
-      expect(screen.getByTestId("history-progress-story-observed-focus")).toHaveTextContent(
-        "Stay on topic",
-      );
+      expect(screen.getByTestId("practice-progress")).toHaveTextContent("Attempts: 1");
+      expect(screen.getByTestId("practice-progress")).toHaveTextContent("Stay on topic");
     });
-    expect(screen.queryByTestId("history-progress-story-next-practice")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("history-progress-story-no-longer-flagged")).not.toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByTestId("history-detail-digest-coach-summary")).toHaveTextContent(
         "Coach summary for s3",

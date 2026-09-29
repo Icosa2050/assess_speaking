@@ -1,0 +1,60 @@
+{
+  "manifest_version": 1,
+  "material_id": "telc-english-b2-school-mock-examination-1-2018",
+  "added_on": "2026-09-29",
+  "source": {
+    "kind": "user_supplied_directory",
+    "path": "/Users/bernhard/Desktop/telc_english_b2_schule/"
+  },
+  "provider": "telc",
+  "language": "en",
+  "target_level": "B2",
+  "exam_variant": "School",
+  "edition": {
+    "year": 2018,
+    "imprint_edition_statement": "First edition",
+    "isbn": "978-3-940728-92-0",
+    "book_order_number": "5114-B00-010101",
+    "audio_order_number": "5114-CD0-010101",
+    "current_exam_format_independently_verified": false
+  },
+  "usage": "project_reference_material",
+  "publisher_copyright_notice_present": true,
+  "product_redistribution_permission_established": false,
+  "files": [
+    {
+      "path": "telc-english-b2-school-uebungstest.pdf",
+      "role": "practice_exam_specification_and_rubric",
+      "bytes": 2122099,
+      "sha256": "7e74533d67ec262c13cbe2962161867fbd00b2affa9b88453aebeed1471b9e54",
+      "media_type": "application/pdf",
+      "pages": 48,
+      "encrypted": false,
+      "page_map": {
+        "oral_format_and_tasks": [24, 25, 26, 27, 28],
+        "oral_rubric": [36, 37],
+        "scores_and_thresholds": [38, 39],
+        "oral_administration": [41, 42],
+        "oral_score_sheet": [43],
+        "listening_answer_key": [44],
+        "listening_transcripts": [45, 46]
+      },
+      "page_numbering": "one_based_pdf_viewer"
+    },
+    {
+      "path": "telc-english-b2-school.mp3",
+      "role": "listening_comprehension_stimulus",
+      "bytes": 20395473,
+      "sha256": "38c008d6f565c190793825b2a579a3575b61c8d51a8a8daab1efa035894ad1b4",
+      "media_type": "audio/mpeg",
+      "duration_seconds": 1274.585563,
+      "sample_rate_hz": 44100,
+      "channels": 1,
+      "bit_rate_bps": 128000,
+      "embedded_title": "EngB2_School_ModT",
+      "full_ffmpeg_decode_errors_reported": false,
+      "local_asr_spot_checks_seconds": [[0, 40], [600, 620], [1220, 1240]],
+      "is_scored_candidate_performance": false
+    }
+  ]
+}

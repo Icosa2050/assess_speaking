@@ -53,6 +53,7 @@ CANONICAL_PRODUCT_API_ROUTES: tuple[str, ...] = (
     "/v1/assessments/{assessment_id}/cancel",
     "/v1/history",
     "/v1/history/{session_id}",
+    "/v1/history/{session_id}/audio",
     "/v1/samples",
 )
 
@@ -245,6 +246,9 @@ class AssessmentCreateRequest(BaseModel):
     theme: str
     target_duration_sec: int
     target_cefr: str | None = None
+    prompt_id: str = Field(default="", max_length=500)
+    prompt_text: str = Field(default="", max_length=12000)
+    retry_of_session_id: str = Field(default="", max_length=128)
     language_profile_key: str | None = None
     label: str = ""
     notes: str = ""
@@ -297,6 +301,12 @@ class HistoryRow(BaseModel):
     coherence_issue_categories: Any = []
     final_score: Any = ""
     band: Any = ""
+    practice: dict[str, Any] | None = None
+    duration_sec: float | None = None
+    word_count: int | None = None
+    elapsed_wpm: float | None = None
+    pause_count: int | None = None
+    pause_total_sec: float | None = None
 
 
 class HistoryResponse(BaseModel):

@@ -1,0 +1,77 @@
+{
+  "manifest_version": 1,
+  "material_id": "plida-parlare-rubrics-b1-b2-c1",
+  "added_on": "2026-09-29",
+  "source": {
+    "kind": "user_supplied_files",
+    "path": "/Users/bernhard/Desktop/"
+  },
+  "provider": "PLIDA / Società Dante Alighieri",
+  "language": "it",
+  "target_levels": ["B1", "B2", "C1"],
+  "usage": "project_reference_material",
+  "publication_edition_confirmed": false,
+  "current_exam_format_independently_verified": false,
+  "publisher_copyright_notice_present": true,
+  "product_redistribution_permission_established": false,
+  "rubric": {
+    "criteria": ["Efficacia comunicativa", "Interazione", "Lessico", "Grammatica", "Pronuncia"],
+    "shared_descriptor_point_bands": [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10]],
+    "within_band_point_selection_rule_supplied": false,
+    "explicit_interaction_only_scope_levels": ["B2", "C1"],
+    "b1_accent_note": "A strong foreign accent is expected in every described score band.",
+    "aggregation_rule": null,
+    "pass_threshold": null,
+    "zero_score_rule": null
+  },
+  "missing_specifications": [
+    "Task sequence, prompts and administration timings",
+    "Complete criterion scope and aggregation, weights, conversion and pass rules",
+    "Within-band point selection and zero-score rules",
+    "B1 oral commissions manual, pp. 18 onward, and B2 manual, pp. 19 onward"
+  ],
+  "files": [
+    {
+      "path": "PLIDA-B1-Criteri-valutazione-prove-Parlare.pdf",
+      "target_level": "B1",
+      "role": "oral_assessment_rubric",
+      "bytes": 482611,
+      "sha256": "040ff4760d866500637750634f169de85c5978b7e2a4923c005d411ee796b82a",
+      "media_type": "application/pdf",
+      "pages": 1,
+      "rubric_pdf_page": 1,
+      "pdf_metadata_creation_date": "2021-03-25T16:33:41+01:00",
+      "encrypted": false,
+      "text_extractable": true,
+      "visually_inspected": true
+    },
+    {
+      "path": "PLIDA-B2-Criteri-valutazione-prove-Parlare.pdf",
+      "target_level": "B2",
+      "role": "oral_assessment_rubric",
+      "bytes": 382529,
+      "sha256": "a41e02afa79d668912c36c6d7e1ec8544ac427b41fcec957b7c0d3cafedd3008",
+      "media_type": "application/pdf",
+      "pages": 1,
+      "rubric_pdf_page": 1,
+      "pdf_metadata_creation_date": "2021-03-29T12:11:08+02:00",
+      "encrypted": false,
+      "text_extractable": true,
+      "visually_inspected": true
+    },
+    {
+      "path": "PLIDA-C1-Criteri-valutazione-prove-Parlare.pdf",
+      "target_level": "C1",
+      "role": "oral_assessment_rubric",
+      "bytes": 299472,
+      "sha256": "8209a5fd0819d7fdf055e0f76f4a5bc3daeeb5e3ccb3ce3adc1c17f95a98c196",
+      "media_type": "application/pdf",
+      "pages": 1,
+      "rubric_pdf_page": 1,
+      "pdf_metadata_creation_date": "2021-03-29T12:17:39+02:00",
+      "encrypted": false,
+      "text_extractable": true,
+      "visually_inspected": true
+    }
+  ]
+}

@@ -236,11 +236,15 @@ values. Credential state is represented by sanitized booleans such as whether a
 saved secret exists, never by copying keys or secret references into the bundle.
 
 ### Tests & CI
+
+- **Local Node runtime:** use Node 24 (`.nvmrc`). From the repository root, run
+  `nvm install` if needed, then `nvm use`. Install Playwright browsers with the
+  project's pinned CLI; its Chromium builds are separate from desktop Chrome.
 - **Unit tests**: `./scripts/run_tests.sh`
 - **Source coverage**: `./scripts/run_coverage.sh`
 - **Full coverage (including tests)**: `./scripts/run_coverage.sh --full`
 - **Shared-frontend browser lanes**:
-  `cd frontend && npm ci && npx playwright install chromium && NODE_ENV=development npx playwright test -c playwright.config.ts`
+  `cd frontend && npm ci --ignore-scripts && npm exec --no -- playwright install chromium && NODE_ENV=development npm exec --no -- playwright test -c playwright.config.ts`
 - Focused local-guest smoke:
   `cd frontend && NODE_ENV=development npx playwright test -c playwright.config.ts tests/e2e/smokeLocalGuest.spec.ts`
 - Full local-guest regression:
@@ -248,6 +252,11 @@ saved secret exists, never by copying keys or secret references into the bundle.
 - The Playwright config starts the shared frontend on `127.0.0.1:4173` and the
   localhost-only backend on `127.0.0.1:8800`, so the browser lanes exercise the
   same local guest desktop stack the Tauri shell uses.
+- If a Playwright executable is missing, rerun the browser installation command
+  above using the pinned project CLI. Keep the default bundled Chromium for
+  these tests. On macOS, a restricted agent shell can also prevent browser
+  startup; use the approved browser execution path. Successful checks do not
+  require resetting privacy permissions or granting App Management access.
 - Optional live runtime setup E2E:
   `cd frontend && RUN_VOSTAVO_LOCAL_RUNTIME_E2E=1 NODE_ENV=development npx playwright test -c playwright.config.ts tests/e2e/runtimeSetupLive.spec.ts`
 - Optional real-audio E2E:
@@ -284,15 +293,22 @@ the live runtime-health opt-in.
   coverage lives under `frontend/tests/e2e`, and
   `tests/test_streamlit_removal_contract.py` guards against reintroducing
   Streamlit product files, imports, or dependencies.
-- **Interactive research browser (Playwright CLI + dedicated Chrome profile)**:
+- **Interactive research browser (project Playwright CLI + dedicated Chromium profile)**:
   use `./scripts/playwright_research.sh open 'https://example.com'` for a stable,
-  Playwright-owned Chrome profile under `.playwright/profiles/research`. Reuse it
+  Playwright-owned Chromium profile under `.playwright/profiles/research-chromium`. Reuse it
   with `./scripts/playwright_research.sh snapshot`, `click`, `type`, and `run-code`.
   For CELI specifically, `./scripts/playwright_celi.sh open 'https://apps.unistrapg.it/cqpweb/celi/'`
-  uses a separate dedicated profile under `.playwright/profiles/celi` so corpus
+  uses a separate dedicated profile under `.playwright/profiles/celi-chromium` so corpus
   logins do not mix with general research state. Quote URLs that contain `?`,
   and run commands sequentially (`open`, then `snapshot`, then `click`, etc.)
   rather than in parallel so the session has time to settle after navigation.
+  The scripts use the CLI included in the locked frontend Playwright dependency;
+  no global CLI, Codex skill wrapper or desktop Chrome installation is needed.
+  After `npm --prefix frontend ci --ignore-scripts`, install its browser with
+  `node frontend/node_modules/playwright/cli.js install chromium`.
+  The former Chrome profiles (`research` and `celi`) are preserved; Chromium uses
+  fresh profiles, so corpus sign-in may be required again. Close only the session
+  you opened with the corresponding script's `close` command.
   To fully reset a profile, close the browser session and remove the matching
   directory under `.playwright/profiles/`.
 - **CELI harvesting CLI**: after logging into CELI once with
@@ -333,8 +349,8 @@ the live runtime-health opt-in.
 - If Whisper cannot download models because the proxy or network blocks
   Hugging Face access, rerun once network access is available or pre-download
   the requested faster-whisper model locally.
-- The sample-audio integration test is intentionally opt-in and may skip when
-  ASR runtime prerequisites or model downloads are unavailable.
+- The sample-audio integration test is intentionally opt-in. Once enabled,
+  missing ASR prerequisites or failed transcription fail the test rather than silently skipping.
 
 ## Notes
 - Default provider is **OpenRouter**.
@@ -390,3 +406,26 @@ python assess_speaking.py sample.wav \
   --lms-score 75 \
   --lms-dry-run
 ```
+
+## English and Italian practice journeys
+
+The history journal saves the chosen goal and exact prompt, links retries to their original attempt, and compares measurements under matching practice/analysis conditions. Saved recordings support playback and seeking. The current score is an overall practice result; B1/B2/C1 remain the learner's selected goals. The [oral-practice plan](docs/superpowers/plans/2026-09-29-oral-exam-preparation.md) describes the remaining exam-simulation work.
+
+Run from the repository root with Node 24, the locked frontend install, and the project `.venv`:
+
+```bash
+# Real uploads, MediaRecorder, jobs, measurements, reports, history and replay.
+# Only ASR and AI feedback are fixtures; no model or API key is required.
+NODE_ENV=development node frontend/node_modules/playwright/cli.js test --config frontend/playwright.journeys.config.ts
+
+# Real local transcription and Ollama feedback across English/Italian B1/B2/C1.
+# Start Ollama first. The default model is qwen3.5:4b; Whisper large-v3 must be cached.
+ollama pull qwen3.5:4b
+NODE_ENV=development node frontend/node_modules/playwright/cli.js test --config frontend/playwright.ollama.config.ts
+```
+
+The live suite also checks model discovery, provider connection, B1 retries, feedback language, report persistence and saved-audio playback. Override `OLLAMA_E2E_MODEL` or `OLLAMA_E2E_WHISPER` to use another installed model. It fails when real feedback falls back or prerequisites are missing. These suites use separate ports and fresh temporary app-data directories; they leave the normal app's configuration/history alone. Workers share their run's isolated directory. Keep `workers: 1` and `retries: 0`; simultaneous invocations of the same suite need different ports. Temporary test reports remain available for diagnosis, and screenshots are saved under `frontend/output/playwright/`.
+
+Ollama feedback uses JSON output, requests no thinking output, and caps output at 4096 tokens. Each request uses the configured LLM timeout; an invalid schema gets one validation retry. Schema failures and connection/timeouts retain distinct warnings. Coaching excludes assessor confidence and requests a spoken follow-up exercise.
+
+See the [journey verification report](docs/reviews/2026-09-29-bilingual-journeys.md) for tested coverage, results, fixes, review dispositions and remaining limits.

@@ -254,7 +254,14 @@ export const createAppStore = (seed: AppStoreSeed = {}): AppStoreApi => {
     clearAttempt: ({ keepSetup = true } = {}) =>
       set((state) => ({
         draft: keepSetup
-          ? state.draft
+          ? buildSessionDraft({
+              ...state.draft,
+              sessionId: undefined,
+              retryOfSessionId:
+                typeof (state.review.payload.report as Record<string, unknown> | undefined)?.session_id === "string"
+                  ? String((state.review.payload.report as Record<string, unknown>).session_id)
+                  : "",
+            })
           : buildSessionDraft({
               sessionId: state.draft.sessionId,
               speakerId: state.draft.speakerId,

@@ -56,6 +56,15 @@ class _ReadOnlyUpload:
 
 
 class AppShellServiceTests(unittest.TestCase):
+    def test_saved_practice_goal_takes_precedence_over_estimated_level(self):
+        from app_core.services import _history_draft_preferences
+        with mock.patch("app_core.services.load_report_payload", return_value={
+            "meta": {"practice": {"version": 1, "goal": "B2"}},
+            "baseline_comparison": {"level": "B1"},
+            "report": {"scores": {"cefr_estimate": {"level": "C1"}}},
+        }):
+            self.assertEqual(_history_draft_preferences(object())["cefr_level"], "B2")
+
     def test_build_provider_connection_rejects_invalid_openrouter_referer(self):
         with self.assertRaisesRegex(ValueError, "OpenRouter HTTP Referer"):
             build_provider_connection(

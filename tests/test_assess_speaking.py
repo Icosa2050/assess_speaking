@@ -245,7 +245,7 @@ class MetricsAndPromptTests(unittest.TestCase):
         }
         prompt = assessment_prompts.coaching_prompt(
             metrics,
-            {"overall_comment": "ok", "language_ok": True},
+            {"overall_comment": "ok", "language_ok": True, "confidence": "high"},
             "remote work",
             180.0,
             expected_language="it",
@@ -253,7 +253,9 @@ class MetricsAndPromptTests(unittest.TestCase):
         )
         self.assertIn("learners of Italian", prompt)
         self.assertIn("Write every natural-language string value in English", prompt)
-        self.assertIn("Do NOT translate `category` or `confidence` values", prompt)
+        self.assertIn("Do NOT translate `category` values", prompt)
+        self.assertNotIn('"confidence": "high"', prompt)
+        self.assertIn("concrete spoken retry", prompt)
         self.assertIn("Write all generated text fields", prompt)
         self.assertIn("do NOT translate the quote", prompt)
 
@@ -384,27 +386,19 @@ class ParsingAndBaselineTests(unittest.TestCase):
 
 
 class OllamaHelpersTests(unittest.TestCase):
-    @mock.patch("assess_speaking.subprocess.run")
-    def test_call_ollama_parses_json_response(self, mock_run):
-        mock_run.return_value = mock.Mock(stdout=json.dumps({"response": "ok"}))
-        result = assess_speaking.call_ollama("llama", "prompt")
-        self.assertEqual(result, "ok")
+    @mock.patch("assess_speaking.generate_rubric")
+    def test_call_ollama_uses_bounded_validated_client(self, mock_generate):
+        mock_generate.return_value = (mock.Mock(), '{"overall": 4}')
+        result = assess_speaking.call_ollama("llama", "prompt", timeout_sec=7)
+        self.assertEqual(result, '{"overall": 4}')
+        self.assertEqual(mock_generate.call_args.kwargs["timeout_sec"], 7)
+        self.assertEqual(mock_generate.call_args.kwargs["provider"], "ollama")
 
-    @mock.patch("assess_speaking.subprocess.run")
-    def test_call_ollama_returns_raw_on_invalid_json(self, mock_run):
-        mock_run.return_value = mock.Mock(stdout="not-json")
-        result = assess_speaking.call_ollama("llama", "prompt")
-        self.assertEqual(result, "not-json")
-
-    @mock.patch(
-        "assess_speaking.subprocess.run",
-        side_effect=subprocess.CalledProcessError(1, "curl", stderr="boom"),
-    )
-    def test_call_ollama_handles_subprocess_errors(self, _mock_run):
-        result = assess_speaking.call_ollama("llama", "prompt")
-        payload = json.loads(result)
+    @mock.patch("assess_speaking.generate_rubric", side_effect=assess_speaking.LLMClientError("Request timed out"))
+    def test_call_ollama_reports_timeout(self, _mock_generate):
+        payload = json.loads(assess_speaking.call_ollama("llama", "prompt"))
         self.assertEqual(payload["error"], "ollama_not_running_or_model_missing")
-        self.assertIn("boom", payload["detail"])
+        self.assertIn("timed out", payload["detail"])
 
     @mock.patch("assess_speaking.subprocess.run")
     def test_list_ollama_models_success(self, mock_run):
@@ -883,7 +877,7 @@ class RunAssessmentTests(unittest.TestCase):
             '{"coach_summary":"ok"}',
         ),
     )
-    @mock.patch.object(assess_speaking, "call_ollama", return_value=json.dumps(_sample_report()["rubric"]))
+    @mock.patch.object(assess_speaking, "generate_rubric", return_value=(RubricResult.from_dict(_sample_report()["rubric"]), json.dumps(_sample_report()["rubric"])))
     @mock.patch.object(assess_speaking, "load_audio_features", return_value={"duration_sec": 40.0, "pauses": [(1.0, 2.0, 1.0)]})
     @mock.patch.object(
         assess_speaking,
@@ -914,6 +908,7 @@ class RunAssessmentTests(unittest.TestCase):
     ):
         result = assess_speaking.run_assessment(Path("sample.wav"), llm_model="llama3.1", provider="ollama")
         self.assertEqual(result["report"]["input"]["provider"], "ollama")
+        self.assertEqual(_mock_call.call_args.kwargs["timeout_sec"], assess_speaking.Settings.from_env().llm_timeout_sec)
         self.assertEqual(result["report"]["scores"]["mode"], "hybrid")
         self.assertIsNotNone(result["report"]["coaching"])
         self.assertIn("llm_rubric", result)

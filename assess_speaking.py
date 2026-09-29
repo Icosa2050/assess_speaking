@@ -38,6 +38,8 @@ from assessment_runtime.dimension_scoring import aggregate_dimension_scores, sco
 from assessment_runtime.feedback import build_fallback_coaching, generate_feedback
 from assessment_runtime.llm_client import (
     LLMClientError,
+    LLMSchemaError,
+    OLLAMA_INFERENCE_PROFILE,
     extract_json_object as _extract_json_object,
     generate_coaching_summary,
     generate_rubric,
@@ -177,27 +179,17 @@ def coaching_prompt_it(metrics: dict, rubric: dict, theme: str, target_sec: floa
     return _coaching_prompt_it(metrics, rubric, theme, target_sec)
 
 
-def call_ollama(model: str, prompt: str) -> str:
+def call_ollama(model: str, prompt: str, timeout_sec: float | None = None) -> str:
+    """Compatibility helper using the same bounded, validated client as assessment jobs."""
     try:
-        proc = subprocess.run(
-            [
-                "curl",
-                "-s",
-                "http://localhost:11434/api/generate",
-                "-d",
-                json.dumps({"model": model, "prompt": prompt, "stream": False}),
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
+        _rubric, raw = generate_rubric(
+            provider="ollama", model=model, prompt=prompt,
+            timeout_sec=timeout_sec if timeout_sec is not None else Settings.from_env().llm_timeout_sec,
+            max_validation_retries=1,
         )
-        raw = proc.stdout
-        try:
-            return json.loads(raw)["response"]
-        except Exception:
-            return raw
-    except subprocess.CalledProcessError as exc:
-        return json.dumps({"error": "ollama_not_running_or_model_missing", "detail": exc.stderr})
+        return raw
+    except LLMClientError as exc:
+        return json.dumps({"error": "ollama_not_running_or_model_missing", "detail": str(exc)})
 
 
 def list_ollama_models() -> str:
@@ -574,7 +566,7 @@ def selftest(
     prompt = selftest_prompt_it()
 
     if chosen_provider == "ollama" and chosen_base_url == default_base_url("ollama") and not api_key:
-        return call_ollama(chosen_model, prompt)
+        return call_ollama(chosen_model, prompt, timeout_sec=timeout_sec or settings.llm_timeout_sec)
 
     try:
         rubric, _raw = generate_rubric(
@@ -757,6 +749,7 @@ def _dry_run_assessment(
             "dry_run": True,
             "audio_path": str(audio),
             "scoring_model_version": SCORING_MODEL_VERSION,
+            "llm_inference_profile": None,
             "language_profile": profile.code if profile is not None else None,
             "language_profile_key": language_profile_key,
             "language_profile_version": profile.scorer_version if profile is not None else None,
@@ -945,29 +938,22 @@ def run_assessment(
                 )
                 stage_start = time.perf_counter()
                 try:
-                    if (
-                        chosen_provider == "ollama"
-                        and chosen_llm_base_url == default_base_url("ollama")
-                        and not chosen_llm_api_key
-                    ):
-                        llm_raw = call_ollama(chosen_model, prompt)
-                        rubric_obj = _validate_rubric_payload(extract_rubric_json(llm_raw))
-                        if rubric_obj is None:
-                            warnings.append("llm_invalid_schema")
-                            errors.append("LLM response did not match rubric schema.")
-                    else:
-                        rubric_obj, llm_raw = generate_rubric(
-                            provider=chosen_provider,
-                            model=chosen_model,
-                            prompt=prompt,
-                            timeout_sec=chosen_llm_timeout,
-                            openrouter_api_key=os.getenv("OPENROUTER_API_KEY"),
-                            base_url=chosen_llm_base_url,
-                            api_key=chosen_llm_api_key,
-                            openrouter_http_referer=os.getenv("OPENROUTER_HTTP_REFERER"),
-                            openrouter_app_title=os.getenv("OPENROUTER_APP_TITLE"),
-                            max_validation_retries=1,
-                        )
+                    rubric_obj, llm_raw = generate_rubric(
+                        provider=chosen_provider,
+                        model=chosen_model,
+                        prompt=prompt,
+                        timeout_sec=chosen_llm_timeout,
+                        openrouter_api_key=os.getenv("OPENROUTER_API_KEY"),
+                        base_url=chosen_llm_base_url,
+                        api_key=chosen_llm_api_key,
+                        openrouter_http_referer=os.getenv("OPENROUTER_HTTP_REFERER"),
+                        openrouter_app_title=os.getenv("OPENROUTER_APP_TITLE"),
+                        max_validation_retries=1,
+                    )
+                except LLMSchemaError as exc:
+                    warnings.append("llm_invalid_schema")
+                    errors.append(str(exc))
+                    llm_raw = json.dumps({"error": "llm_invalid_schema", "detail": str(exc)})
                 except LLMClientError as exc:
                     warnings.append("llm_unavailable")
                     errors.append(str(exc))
@@ -1091,6 +1077,7 @@ def run_assessment(
                 "asr_compute_fallback_used": bool(asr_result.get("compute_fallback_used", False)),
                 "pause_threshold_offset_db": chosen_pause_threshold,
                 "scoring_model_version": SCORING_MODEL_VERSION,
+                "llm_inference_profile": OLLAMA_INFERENCE_PROFILE if chosen_provider == "ollama" and rubric_obj is not None else None,
                 "language_profile": profile.code if profile is not None else None,
                 "language_profile_key": chosen_profile_key,
                 "language_profile_version": profile.scorer_version if profile is not None else None,

@@ -1,0 +1,26 @@
+.panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; padding: clamp(1rem, 3vw, 1.75rem); background: #fff; border: 1px solid #d2e2dc; border-radius: 12px; color: #163c33; min-width: 0; overflow-wrap: anywhere; }
+.panel > *, .header > *, .comparison > * { min-width: 0; }
+.panel h2, .panel h3, .panel p { margin: 0; }
+.panel p { line-height: 1.6; }
+.header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
+.eyebrow { text-transform: uppercase; letter-spacing: .09em; font-size: .75rem; font-weight: 700; }
+.panel button, .panel select { font: inherit; color: inherit; padding: .7rem .9rem; border: 1px solid #9dbab0; border-radius: 7px; background: #f2f8f5; min-height: 44px; cursor: pointer; max-width: 100%; overflow-wrap: anywhere; }
+.panel button[aria-pressed="true"] { background: #1f594a; color: white; }
+.panel button:focus-visible, .panel select:focus-visible, .panel summary:focus-visible { outline: 3px solid #31816e; outline-offset: 3px; }
+.metric { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; font-weight: 600; }
+.muted { color: #496459; font-size: .875rem; }
+.chart { width: 100%; max-height: 280px; color: #206e59; overflow: visible; }
+.chart text { font-size: 13px; fill: #496459; }
+.attempts { display: flex; flex-wrap: wrap; gap: .5rem; max-height: 180px; overflow: auto; padding: .25rem; }
+.comparison { display: grid; gap: .75rem; border-top: 1px solid #d2e2dc; padding-top: 1rem; }
+.tableWrap { overflow-x: auto; }
+.panel table { border-collapse: collapse; width: 100%; min-width: 380px; font-size: .875rem; }
+.panel th, .panel td { padding: .6rem; text-align: right; border-bottom: 1px solid #e5eee9; overflow-wrap: normal; }
+.panel td { white-space: nowrap; }
+.panel th:first-child { text-align: left; }
+.comparison button { justify-self: start; }
+.focus { display: grid; gap: .4rem; background: #eef6f0; padding: 1rem; border-radius: 8px; }
+.prompt { white-space: pre-wrap; overflow-wrap: anywhere; }
+.panel summary { cursor: pointer; padding: .5rem 0; }
+.replay { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); }
+@media (max-width: 480px) { .chart text { font-size: 28px; } }

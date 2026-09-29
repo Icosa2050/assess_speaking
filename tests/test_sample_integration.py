@@ -40,11 +40,10 @@ class SampleAudioIntegrationTests(unittest.TestCase):
         for (language, level), sample_path in SAMPLE_PRESETS.items():
             with self.subTest(language=language, level=level, sample=sample_path.name):
                 audio_features = assess_speaking.load_audio_features(sample_path)
-                try:
-                    asr_result = assess_speaking.transcribe(sample_path, model_size=model_size)
-                except (ImportError, RuntimeError) as exc:
-                    self.skipTest(f"ASR prerequisites unavailable: {exc}")
-                metrics = assess_speaking.metrics_from(asr_result["words"], audio_features)
+                # Opting in must fail on a broken/missing ASR runtime, not silently skip.
+                asr_result = assess_speaking.transcribe(sample_path, model_size=model_size)
+                metrics = assess_speaking.metrics_from(asr_result["words"], audio_features, language_code=language)
+                self.assertEqual(asr_result["detected_language"], language)
 
                 self.assertGreater(metrics["duration_sec"], 1.0)
                 self.assertGreater(metrics["word_count"], 10)

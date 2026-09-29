@@ -157,6 +157,7 @@ const fulfillJson = (route: Route, json: unknown) =>
   });
 
 const installDeterministicBackend = async (page: Page) => {
+  const submissions: Record<string, unknown>[] = [];
   let uploadCount = 0;
   let assessmentCount = 0;
 
@@ -183,6 +184,15 @@ const installDeterministicBackend = async (page: Page) => {
     });
   });
   await page.route("**/v1/assessments", (route) => {
+    const submitted = route.request().postDataJSON();
+    expect(submitted.prompt_text).toEqual(expect.any(String));
+    expect(submitted.prompt_text.length).toBeGreaterThan(0);
+    expect(submitted.retry_of_session_id).toBe(submissions.length ? "sess-first" : "");
+    if (submissions.length) {
+      expect(submitted.prompt_text).toBe(submissions[0].prompt_text);
+      expect(submitted.target_cefr).toBe(submissions[0].target_cefr);
+    }
+    submissions.push(submitted);
     const attempt = attempts[Math.min(assessmentCount, attempts.length - 1)];
     assessmentCount += 1;
     return fulfillJson(route, {
@@ -210,7 +220,18 @@ const installDeterministicBackend = async (page: Page) => {
       },
     });
   });
-  await page.route("**/v1/history", (route) => fulfillJson(route, { items: historyRows }));
+  await page.route("**/v1/history", (route) => fulfillJson(route, { items: historyRows.slice(0, submissions.length).map((row, index) => ({
+    ...row,
+    elapsed_wpm: index ? 103 : 96, duration_sec: 90, pause_total_sec: index ? 8 : 12,
+    practice: {
+      version: 1, goal: submissions[index]?.target_cefr || "B1",
+      prompt_id: submissions[index]?.prompt_id || "travel-b1",
+      prompt_text: submissions[index]?.prompt_text || "Describe your trip.",
+      retry_of_session_id: index ? "sess-first" : "", target_duration_sec: submissions[index]?.target_duration_sec || 90,
+      scoring_version: "scorer-v1", scoring_mode: "hybrid", analysis_signature: "settings-v1", provider: "ollama", model: "llama3.2:3b",
+      asr_provider: "faster_whisper", whisper_model: "small", dry_run: false,
+    },
+  })) }));
   await page.route("**/v1/history/*", (route) => {
     const url = new URL(route.request().url());
     const sessionId = decodeURIComponent(url.pathname.split("/").pop() ?? "");
@@ -275,7 +296,7 @@ test.describe("review and history replacement flow", () => {
 
   test("runs two deterministic attempts, shows progress, and opens the latest history detail", async ({
     page,
-  }) => {
+  }, testInfo) => {
     await installDeterministicBackend(page);
 
     await page.goto("/");
@@ -324,5 +345,17 @@ test.describe("review and history replacement flow", () => {
     await expect(page.getByTestId("history-detail-panel")).toBeVisible();
     await expect(page.getByTestId("history-detail-caption")).toContainText("sess-second");
     await expect(page.getByTestId("review-notes")).toHaveValue(attempts[1].notes);
+    await expect(page.getByTestId("practice-comparison")).toContainText("Your retry, compared with its original");
+    await expect(page.getByTestId("practice-comparison")).toContainText("+0.9");
+    await expect(page.getByRole("img", { name: "Overall performance" })).toBeVisible();
+    await expect(page.locator('audio[aria-label="Listen: earlier attempt"]')).toHaveAttribute("src", /sess-first\/audio$/);
+    await page.screenshot({ path: testInfo.outputPath("practice-desktop.png"), fullPage: true });
+    await page.setViewportSize({ width: 320, height: 860 });
+    await expect(page.getByTestId("practice-retry")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("practice-mobile.png"), fullPage: true });
+    await page.getByTestId("practice-progress").screenshot({ path: testInfo.outputPath("practice-panel-mobile.png") });
+    await page.getByTestId("practice-retry").click();
+    await expect(page).toHaveURL(/\/speak$/);
   });
 });

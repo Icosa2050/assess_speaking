@@ -12,7 +12,7 @@ from assess_core.coaching_taxonomy import (
 )
 
 RUBRIC_PROMPT_VERSION = "rubric_multilingual_v1"
-COACHING_PROMPT_VERSION = "coaching_multilingual_v1"
+COACHING_PROMPT_VERSION = "coaching_multilingual_v2"
 PROMPT_VERSION = RUBRIC_PROMPT_VERSION
 
 SUPPORTED_LANGUAGE_CODES = ("de", "en", "it")
@@ -192,7 +192,9 @@ def coaching_prompt(
     expected_language: str = "it",
     feedback_language: str | None = None,
 ) -> str:
-    rubric_json = json.dumps(rubric, ensure_ascii=False, indent=2)
+    # Rubric confidence describes the assessor, not the learner's confidence.
+    coaching_evidence = {key: value for key, value in rubric.items() if key != "confidence"}
+    rubric_json = json.dumps(coaching_evidence, ensure_ascii=False, indent=2)
     expected_language_name = language_name(expected_language)
     feedback_language_name = language_name(feedback_language or expected_language)
     return f"""
@@ -204,9 +206,10 @@ Rules:
 - Reply ONLY with valid JSON.
 - Write all generated text fields (`strengths`, `top_3_priorities`, `next_focus`, `next_exercise`, `coach_summary`) in {feedback_language_name}.
 - If you quote the learner's original speech from the validated rubric, do NOT translate the quote.
-- Do NOT translate `category` or `confidence` values if they appear in the validated rubric.
+- Do NOT translate `category` values if they appear in the validated rubric.
+- Do not infer the learner's confidence, personality, or pronunciation from these text-only observations.
 - `top_3_priorities` must contain EXACTLY 3 items.
-- `next_exercise` must be a concrete practice activity, not an internal ID or an invented link.
+- `next_exercise` must be a concrete spoken retry: say, record, or repeat aloud, with a duration and one observable focus. Do not prescribe a writing-only exercise, an internal ID, or an invented link.
 - Do not change facts from the already validated rubric.
 
 METRICS:
