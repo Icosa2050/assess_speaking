@@ -318,7 +318,7 @@ class JobManager:
             digest = hasher.hexdigest()
             _write_json(metadata_path, {"audio_id": audio_id, "stored_path": str(stored_path.resolve()),
                                       "sha1": digest, "original_name": filename})
-        except BaseException:
+        except BaseException:  # quality: allow[broad-except] remove partial files on cancellation too, then re-raise
             stored_path.unlink(missing_ok=True)
             metadata_path.unlink(missing_ok=True)
             raise

@@ -77,7 +77,7 @@ class BoundedMultipartParser(MultiPartParser):
     async def parse(self):
         try:
             return await super().parse()
-        except BaseException:
+        except BaseException:  # quality: allow[broad-except] close temporary spools on disconnect/cancellation, then re-raise
             # Starlette 0.46 closes spools only for MultiPartException. Also
             # release them on disconnect, cancellation, and disk write errors.
             for file in self._files_to_close_on_error:
