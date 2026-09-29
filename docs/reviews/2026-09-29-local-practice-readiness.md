@@ -52,6 +52,10 @@ NODE_ENV=development node frontend/node_modules/playwright/cli.js test --config 
 ./scripts/python.sh scripts/start_practice.py
 ```
 
+## CI follow-up
+
+Run 36617830482 passed quality and frontend smoke, but three shell-wrapper tests depended on a local npm installation absent from the separate Python job (575 passed, 5 skipped). These tests already replace Node with an argument-capture stub; they now copy the real wrapper scripts into a temporary repository with a matching CLI placeholder. All seven focused wrapper/config tests pass without relying on the checkout's node_modules. Actual browser execution remains covered by the frontend smoke job and the local journeys above.
+
 ## Runtime findings
 
 LM Studio's installed embedding model cannot generate feedback. Its CLI and local server work outside the restrictive execution sandbox; no privacy-setting modification was needed. Importing Ollama's Qwen 3.5 file into LM Studio failed with `qwen35.rope.dimension_sections has wrong array length; expected 4, got 3`. That task-created hard link was removed; Ollama's original remains intact. LM Studio's current runtime reported no update available. A compatible Qwen2.5 3B Instruct GGUF was downloaded from the LM Studio community repository and successfully loaded. Models are machine-local, not committed. The incompatible hard link and temporary download hard links were removed; the working LM Studio model remains installed. The normal app workspace was initially unconfigured; the launcher was opened and configured with tested Ollama plus cached Whisper, without importing test history.

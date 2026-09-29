@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -13,6 +14,19 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class PlaywrightWrapperIntegrationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Test shell argument forwarding without depending on an npm install.
+        workspace = tempfile.TemporaryDirectory()
+        self.addCleanup(workspace.cleanup)
+        self.repo_root = Path(workspace.name)
+        scripts = self.repo_root / "scripts"
+        scripts.mkdir()
+        for name in ("playwright_research.sh", "playwright_celi.sh"):
+            shutil.copy2(REPO_ROOT / "scripts" / name, scripts / name)
+        cli = self.repo_root / "frontend/node_modules/playwright-core/lib/tools/cli-client/cli.js"
+        cli.parent.mkdir(parents=True)
+        cli.touch()
+
     def _make_fake_node(self, tmp_path: Path) -> Path:
         # Capture the actual project CLI invocation without starting a browser daemon.
         bin_dir = tmp_path / "bin"
@@ -45,8 +59,8 @@ class PlaywrightWrapperIntegrationTests(unittest.TestCase):
             if env_overrides:
                 env.update(env_overrides)
             completed = subprocess.run(
-                [str(REPO_ROOT / "scripts" / script_name), *args],
-                cwd=REPO_ROOT,
+                [str(self.repo_root / "scripts" / script_name), *args],
+                cwd=self.repo_root,
                 env=env,
                 capture_output=True,
                 text=True,
@@ -69,15 +83,15 @@ class PlaywrightWrapperIntegrationTests(unittest.TestCase):
         self.assertEqual(
             payload["argv"],
             [
-                str(REPO_ROOT / "frontend/node_modules/playwright-core/lib/tools/cli-client/cli.js"),
+                str(self.repo_root / "frontend/node_modules/playwright-core/lib/tools/cli-client/cli.js"),
                 "--session",
                 "research",
                 "--config",
-                str(REPO_ROOT / ".playwright" / "research-cli.config.json"),
+                str(self.repo_root / ".playwright" / "research-cli.config.json"),
                 "open",
                 "--persistent",
                 "https://example.com/?q=1",
-                f"--profile={REPO_ROOT / '.playwright/profiles/research-chromium'}",
+                f"--profile={self.repo_root / '.playwright/profiles/research-chromium'}",
             ],
         )
 
@@ -98,11 +112,11 @@ class PlaywrightWrapperIntegrationTests(unittest.TestCase):
             self.assertEqual(
                 payload["argv"],
                 [
-                    str(REPO_ROOT / "frontend/node_modules/playwright-core/lib/tools/cli-client/cli.js"),
+                    str(self.repo_root / "frontend/node_modules/playwright-core/lib/tools/cli-client/cli.js"),
                     "--session",
                     "custom-session",
                     "--config",
-                    str(REPO_ROOT / ".playwright" / "research-cli.config.json"),
+                    str(self.repo_root / ".playwright" / "research-cli.config.json"),
                     "open",
                     "--persistent",
                     "https://example.com/",
@@ -120,11 +134,11 @@ class PlaywrightWrapperIntegrationTests(unittest.TestCase):
         self.assertEqual(
             payload["argv"],
             [
-                str(REPO_ROOT / "frontend/node_modules/playwright-core/lib/tools/cli-client/cli.js"),
+                str(self.repo_root / "frontend/node_modules/playwright-core/lib/tools/cli-client/cli.js"),
                 "--session",
                 "celi",
                 "--config",
-                str(REPO_ROOT / ".playwright" / "celi-cli.config.json"),
+                str(self.repo_root / ".playwright" / "celi-cli.config.json"),
                 "snapshot",
             ],
         )
