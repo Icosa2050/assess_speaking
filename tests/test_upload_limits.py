@@ -120,10 +120,16 @@ def test_copy_does_not_reserve_spool_space_twice(config):
 
 
 def test_missing_ffmpeg_has_actionable_error(tmp_path):
+    import signal
     from app_backend.uploads import validate_audio_duration
-    with patch('app_backend.uploads.subprocess.Popen', side_effect=FileNotFoundError):
+    previous = signal.getsignal(signal.SIGTERM)
+    def fail_launch(*args, **kwargs):
+        assert signal.getsignal(signal.SIGTERM) != previous
+        raise FileNotFoundError
+    with patch('app_backend.uploads.subprocess.Popen', side_effect=fail_launch):
         with pytest.raises(RuntimeError, match='ffmpeg is missing'):
             validate_audio_duration(tmp_path / 'clip.wav')
+    assert signal.getsignal(signal.SIGTERM) == previous
 
 
 def test_decoder_is_killed_when_validation_is_cancelled(tmp_path):

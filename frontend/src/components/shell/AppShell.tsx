@@ -116,7 +116,7 @@ export const AppShell = ({
           </aside>
 
           <main className={styles.main}>
-            <RouteRecovery label={reloadLabel}>
+            <RouteRecovery key={location.pathname} label={reloadLabel}>
               <Suspense fallback={<p role="status" aria-busy="true">…</p>}>
                 <Outlet />
               </Suspense>

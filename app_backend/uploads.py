@@ -28,24 +28,28 @@ def validate_audio_duration(path: Path) -> None:
     # compressed input can expand; the extra second distinguishes overlong clips.
     with tempfile.TemporaryFile() as pcm:
         try:
-            decoder = subprocess.Popen(
-                ["ffmpeg", "-v", "error", "-nostdin", "-i", str(path), "-t", str(MAX_AUDIO_SECONDS + 1),
-                 "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "pipe:1"],
-                stdout=pcm, stderr=subprocess.DEVNULL,
-            )
             # This function runs on the assessment worker's main thread. Let
             # cancellation unwind cleanup instead of orphaning its decoder.
             previous_handler = signal.getsignal(signal.SIGTERM)
             def cancel_validation(signum, _frame):
                 raise SystemExit(128 + signum)
-            signal.signal(signal.SIGTERM, cancel_validation)
+            decoder = None
             try:
+                signal.signal(signal.SIGTERM, cancel_validation)
+                decoder = subprocess.Popen(
+                    ["ffmpeg", "-v", "error", "-nostdin", "-i", str(path), "-t", str(MAX_AUDIO_SECONDS + 1),
+                     "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "pipe:1"],
+                    stdout=pcm, stderr=subprocess.DEVNULL,
+                )
                 returncode = decoder.wait(timeout=90)
             finally:
-                if decoder.poll() is None:
-                    decoder.kill()
-                decoder.wait()
-                signal.signal(signal.SIGTERM, previous_handler)
+                try:
+                    if decoder is not None:
+                        if decoder.poll() is None:
+                            decoder.kill()
+                        decoder.wait()
+                finally:
+                    signal.signal(signal.SIGTERM, previous_handler)
         except subprocess.TimeoutExpired as exc:
             raise ValueError("Audio decoding took too long. Export a shorter MP3 or WAV and retry.") from exc
         except FileNotFoundError as exc:

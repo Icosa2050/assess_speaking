@@ -8,7 +8,7 @@ const provider = process.env.LOCAL_E2E_PROVIDER === "lmstudio" ? "lmstudio" : "o
 const providerChoice = provider === "lmstudio" ? "lmstudio_local" : "ollama_local";
 const providerName = provider === "lmstudio" ? "LM Studio" : "Ollama";
 const ollama = process.env.LOCAL_E2E_BASE_URL || (provider === "lmstudio" ? "http://127.0.0.1:1234/v1" : "http://127.0.0.1:11434/v1");
-const model = process.env.LOCAL_E2E_MODEL || process.env.OLLAMA_E2E_MODEL || (provider === "lmstudio" ? "vostavo-qwen2.5-3b" : "qwen3.5:4b");
+const model = process.env.LOCAL_E2E_MODEL || (provider === "lmstudio" ? "vostavo-qwen2.5-3b" : process.env.OLLAMA_E2E_MODEL || "qwen3.5:4b");
 const whisper = process.env.OLLAMA_E2E_WHISPER || "large-v3";
 const root = fileURLToPath(new URL("../../..", import.meta.url));
 const cases = [
