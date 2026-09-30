@@ -11,7 +11,8 @@
     "history": "Historique",
     "guide": "Guide de notation",
     "library": "Bibliothèque",
-    "settings": "Paramètres"
+    "settings": "Paramètres",
+    "reload_page": "Rechargez cette page pour continuer"
   },
   "locale": {
     "en": "Anglais",
@@ -333,7 +334,14 @@
     "job_phase_finalizing_report": "Finalisation du rapport",
     "refresh_progress": "Vérifier l’avancement",
     "cancel_assessment": "Annuler l’évaluation",
-    "assessment_error": "Échec de l’évaluation : {detail}"
+    "assessment_error": "Échec de l’évaluation : {detail}",
+    "upload_size_error": "Choisissez un fichier audio non vide de 100 Mio maximum.",
+    "upload_disk_error": "Espace disque insuffisant pour cet enregistrement. Libérez de l’espace puis réessayez.",
+    "upload_cancelled": "Envoi annulé. L’enregistrement reste sélectionné ; vous pouvez réessayer.",
+    "upload_progress": "Envoi audio : {percent}%",
+    "download_recording": "Enregistrer une copie de cet enregistrement",
+    "upload_connection_lost": "Connexion interrompue. L’enregistrement reste sélectionné ; réessayez.",
+    "upload_timeout": "Délai d’envoi dépassé. L’enregistrement reste sélectionné ; réessayez."
   },
   "review": {
     "title": "Bilan de ton essai",

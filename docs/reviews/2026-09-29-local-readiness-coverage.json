@@ -1,0 +1,130 @@
+{
+  "mode": "workspace",
+  "total_files": 23,
+  "reviewed_files": 18,
+  "skipped_files": 5,
+  "coverage_rate": 78.26,
+  "checklist": [
+    {
+      "path": "app_backend/app.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "app_backend/contracts.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "app_backend/jobs.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "assess_speaking.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "assessment_runtime/llm_client.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/src/App.tsx",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/src/components/shell/AppShell.tsx",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/src/components/speak/RecorderPanel.tsx",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/src/lib/api/client.ts",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/src/lib/api/types.ts",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/src/routes/SpeakRoute.tsx",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/de.json",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/en.json",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/es.json",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/fr.json",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/it.json",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "app_backend/uploads.py",
+      "status": "added",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "scripts/bootstrap_env.sh",
+      "status": "added",
+      "review_status": "skipped",
+      "reason": "Pre-existing user-owned file, outside this change; left uncommitted."
+    },
+    {
+      "path": "scripts/generate_b2_sample.sh",
+      "status": "added",
+      "review_status": "skipped",
+      "reason": "Pre-existing user-owned file, outside this change; left uncommitted."
+    },
+    {
+      "path": "scripts/generate_c1_sample.sh",
+      "status": "added",
+      "review_status": "skipped",
+      "reason": "Pre-existing user-owned file, outside this change; left uncommitted."
+    },
+    {
+      "path": "scripts/run_sample_workflow.py",
+      "status": "added",
+      "review_status": "skipped",
+      "reason": "Pre-existing user-owned file, outside this change; left uncommitted."
+    },
+    {
+      "path": "scripts/start_practice.py",
+      "status": "added",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "tests/data/sample_metrics.json",
+      "status": "added",
+      "review_status": "skipped",
+      "reason": "Pre-existing user-owned file, outside this change; left uncommitted."
+    }
+  ],
+  "additional_review": "README, macOS command launcher, changed/new tests and review documents were inspected directly despite OCR default exclusions. Confirmed review findings are recorded in the readiness report."
+}

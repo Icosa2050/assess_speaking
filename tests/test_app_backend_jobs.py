@@ -152,7 +152,7 @@ class BackendJobsTests(unittest.TestCase):
                     saved_payload=saved_payload,
                 )
 
-            with mock.patch.dict("app_backend.jobs.os.environ", {}, clear=True), mock.patch(
+            with mock.patch("app_backend.jobs.validate_audio_duration"), mock.patch.dict("app_backend.jobs.os.environ", {}, clear=True), mock.patch(
                 "app_backend.jobs.execute_assessment_run",
                 side_effect=fake_execute,
             ):
@@ -196,7 +196,7 @@ class BackendJobsTests(unittest.TestCase):
                 "log_dir": str(config.app_data.reports_dir),
             }
 
-            with mock.patch(
+            with mock.patch("app_backend.jobs.validate_audio_duration"), mock.patch(
                 "app_backend.jobs.execute_assessment_run",
                 side_effect=RuntimeError("connection refused by local provider"),
             ):

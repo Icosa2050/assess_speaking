@@ -200,9 +200,13 @@ export const SpeakRoute = () => {
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const uploadController = useRef<AbortController | null>(null);
+  const savedUpload = useRef<{ file: File; audioId: string } | null>(null);
   const previewUrlRef = useRef("");
 
   const clearAttachment = () => {
+    savedUpload.current = null;
     if (previewUrlRef.current) {
       URL.revokeObjectURL(previewUrlRef.current);
       previewUrlRef.current = "";
@@ -214,6 +218,7 @@ export const SpeakRoute = () => {
 
   useEffect(
     () => () => {
+      uploadController.current?.abort();
       if (previewUrlRef.current) {
         URL.revokeObjectURL(previewUrlRef.current);
       }
@@ -232,6 +237,10 @@ export const SpeakRoute = () => {
   const handleFileSelected = (file: File | null) => {
     clearAttachment();
     if (!file) {
+      return;
+    }
+    if (file.size > 100 * 1024 * 1024 || file.size === 0) {
+      setRecordingError(translate("speak.upload_size_error"));
       return;
     }
 
@@ -371,7 +380,19 @@ export const SpeakRoute = () => {
         error: "",
         assessmentState: "idle",
       });
-      const upload = await apiClient.uploadAudio(attachedFile);
+      const controller = new AbortController();
+      uploadController.current = controller;
+      setUploadProgress(0);
+      if (savedUpload.current?.file !== attachedFile) {
+        const limits = await apiClient.getUploadLimits({ signal: controller.signal });
+        if (attachedFile.size > limits.available_bytes) {
+          throw new Error(translate(limits.available_bytes < limits.max_bytes ? "speak.upload_disk_error" : "speak.upload_size_error"));
+        }
+        const upload = await apiClient.uploadAudio(attachedFile, { signal: controller.signal, onProgress: setUploadProgress });
+        savedUpload.current = { file: attachedFile, audioId: upload.audio_id };
+      }
+      uploadController.current = null;
+      setUploadProgress(null);
       const openrouterHttpReferer = String(
         activeRuntimeConnection?.openrouter_http_referer || "",
       ).trim();
@@ -379,7 +400,7 @@ export const SpeakRoute = () => {
         activeRuntimeConnection?.openrouter_app_title || "",
       ).trim();
       const created = await apiClient.createAssessment({
-        audio_id: upload.audio_id,
+        audio_id: savedUpload.current.audioId,
         whisper: effectiveWhisperModel,
         provider: runtime?.provider || "",
         llm_model: runtime?.model || "",
@@ -412,15 +433,26 @@ export const SpeakRoute = () => {
         reportPath: "",
       });
     } catch (error) {
+      if (error instanceof ApiClientError && error.responseStatus === 404) savedUpload.current = null;
       setRecordingError(
-        error instanceof ApiClientError ? error.detail : String(error || translate("speak.job_status_unknown")),
+        error instanceof DOMException && error.name === "AbortError"
+          ? translate("speak.upload_cancelled")
+          : error instanceof DOMException && error.name === "NetworkError" ? translate("speak.upload_connection_lost")
+          : error instanceof DOMException && error.name === "TimeoutError" ? translate("speak.upload_timeout")
+          : error instanceof ApiClientError ? error.detail : error instanceof Error ? error.message : String(error || translate("speak.job_status_unknown")),
       );
     } finally {
       setIsSubmitting(false);
+      setUploadProgress(null);
+      uploadController.current = null;
     }
   };
 
   const handleCancel = async () => {
+    if (uploadController.current) {
+      uploadController.current.abort();
+      return;
+    }
     if (!recording.job.assessmentId) {
       return;
     }
@@ -501,8 +533,10 @@ export const SpeakRoute = () => {
           alignItems: "start",
         }}
       >
+        <fieldset disabled={isSubmitting || lifecycleState === "queued" || lifecycleState === "running"} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <RecorderPanel
           canRemove={Boolean(attachedFile)}
+          downloadName={attachedFile?.name}
           inputMode={inputMode}
           onFileSelected={handleFileSelected}
           onInputModeChange={handleInputModeChange}
@@ -521,8 +555,9 @@ export const SpeakRoute = () => {
           }
           translate={translate}
         />
+        </fieldset>
         <AssessmentStatusPanel
-          canCancel={lifecycleState === "queued" || lifecycleState === "running"}
+          canCancel={uploadProgress !== null || lifecycleState === "queued" || lifecycleState === "running"}
           contextMode={assessmentContextMode}
           handoffHint={handoffHint}
           labelValue={recording.labelInput}
@@ -534,7 +569,7 @@ export const SpeakRoute = () => {
           onSubmit={handleSubmit}
           phaseMessage={phaseMessage(translate, recording.job.phase)}
           runtimeDetail={runtimeDetail}
-          statusMessage={isSubmitting ? translate("speak.assessing") : statusMessage}
+          statusMessage={uploadProgress !== null ? translate("speak.upload_progress", { percent: uploadProgress }) : isSubmitting ? translate("speak.assessing") : statusMessage}
           submitDisabled={!canSubmitLiveAttachment || isSubmitting}
           submitDisabledHelp={submitDisabledHelp}
           translate={translate}

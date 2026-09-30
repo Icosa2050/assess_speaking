@@ -48,6 +48,7 @@ CANONICAL_PRODUCT_API_ROUTES: tuple[str, ...] = (
     "/v1/diagnostics",
     "/v1/runtime",
     "/v1/uploads",
+    "/v1/uploads/limits",
     "/v1/assessments",
     "/v1/assessments/{assessment_id}",
     "/v1/assessments/{assessment_id}/cancel",

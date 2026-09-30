@@ -11,7 +11,8 @@
     "history": "Cronologia",
     "guide": "Guida ai punteggi",
     "library": "Libreria",
-    "settings": "Impostazioni"
+    "settings": "Impostazioni",
+    "reload_page": "Ricarica questa pagina per continuare"
   },
   "locale": {
     "en": "Inglese",
@@ -290,7 +291,7 @@
     "recording_empty": "Nessun audio acquisito. Riprova o usa Carica.",
     "upload": "Oppure carica un file audio",
     "upload_choose": "Scegli file audio",
-    "upload_help": "Suggerimento: trascina un file in quest'area oppure fai clic in qualsiasi punto del riquadro di caricamento. Se il selettore file non si apre, ricarica la scheda o riavvia il browser.",
+    "upload_help": "File audio fino a 100 MiB. Il limite diminuisce se lo spazio su disco è insufficiente. Tieni aperta questa pagina finché il tentativo non è salvato.",
     "status_idle": "Nessuna registrazione allegata.",
     "status_missing_file": "Era stata selezionata una registrazione, ma il file audio non è più disponibile.",
     "status_ready": "Una registrazione è pronta per la valutazione.",
@@ -333,7 +334,14 @@
     "job_phase_finalizing_report": "Completamento del report",
     "refresh_progress": "Controlla avanzamento",
     "cancel_assessment": "Annulla valutazione",
-    "assessment_error": "Valutazione fallita: {detail}"
+    "assessment_error": "Valutazione fallita: {detail}",
+    "upload_size_error": "Scegli un file audio non vuoto fino a 100 MiB.",
+    "upload_disk_error": "Spazio su disco insufficiente per questa registrazione. Libera spazio e riprova.",
+    "upload_cancelled": "Caricamento annullato. La registrazione è ancora selezionata; puoi riprovare.",
+    "upload_progress": "Caricamento audio: {percent}%",
+    "download_recording": "Salva una copia della registrazione",
+    "upload_connection_lost": "Connessione interrotta. La registrazione è ancora selezionata; riprova.",
+    "upload_timeout": "Tempo di caricamento scaduto. La registrazione è ancora selezionata; riprova."
   },
   "review": {
     "title": "Rivedi un tentativo",

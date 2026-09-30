@@ -11,7 +11,8 @@
     "history": "Verlauf",
     "guide": "Bewertungsleitfaden",
     "library": "Bibliothek",
-    "settings": "Einstellungen"
+    "settings": "Einstellungen",
+    "reload_page": "Seite neu laden und fortfahren"
   },
   "locale": {
     "en": "Englisch",
@@ -333,7 +334,14 @@
     "job_phase_finalizing_report": "Bericht wird fertiggestellt",
     "refresh_progress": "Fortschritt prüfen",
     "cancel_assessment": "Auswertung abbrechen",
-    "assessment_error": "Auswertung fehlgeschlagen: {detail}"
+    "assessment_error": "Auswertung fehlgeschlagen: {detail}",
+    "upload_size_error": "Wähle eine nicht leere Audiodatei bis 100 MiB.",
+    "upload_disk_error": "Für diese Aufnahme ist zu wenig Speicherplatz frei. Gib Speicher frei und versuche es erneut.",
+    "upload_cancelled": "Upload abgebrochen. Die Aufnahme bleibt ausgewählt; du kannst es erneut versuchen.",
+    "upload_progress": "Audio wird hochgeladen: {percent}%",
+    "download_recording": "Eine Kopie der Aufnahme speichern",
+    "upload_connection_lost": "Verbindung unterbrochen. Die Aufnahme bleibt ausgewählt; versuche es erneut.",
+    "upload_timeout": "Zeitlimit beim Hochladen erreicht. Die Aufnahme bleibt ausgewählt; versuche es erneut."
   },
   "review": {
     "title": "Deine Auswertung",

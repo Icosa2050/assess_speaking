@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { lazy, useEffect, useMemo } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
@@ -7,15 +7,16 @@ import { apiClient } from "@/lib/api/client";
 import { createTranslator, resolveUiLocale } from "@/lib/i18n";
 import { queryKeys } from "@/lib/query/queryClient";
 import { AppStoreProvider, useAppStore } from "@/lib/state/appStore";
-import { GuideRoute } from "@/routes/GuideRoute";
 import { HomeRoute } from "@/routes/HomeRoute";
-import { HistoryRoute } from "@/routes/HistoryRoute";
-import { LibraryRoute } from "@/routes/LibraryRoute";
-import { ReviewRoute } from "@/routes/ReviewRoute";
-import { SessionSetupRoute } from "@/routes/SessionSetupRoute";
-import { SettingsRoute } from "@/routes/SettingsRoute";
-import { SpeakRoute } from "@/routes/SpeakRoute";
-import { SetupRoute } from "@/routes/SetupRoute";
+
+const GuideRoute = lazy(() => import("@/routes/GuideRoute").then(module => ({ default: module.GuideRoute })));
+const HistoryRoute = lazy(() => import("@/routes/HistoryRoute").then(module => ({ default: module.HistoryRoute })));
+const LibraryRoute = lazy(() => import("@/routes/LibraryRoute").then(module => ({ default: module.LibraryRoute })));
+const ReviewRoute = lazy(() => import("@/routes/ReviewRoute").then(module => ({ default: module.ReviewRoute })));
+const SessionSetupRoute = lazy(() => import("@/routes/SessionSetupRoute").then(module => ({ default: module.SessionSetupRoute })));
+const SettingsRoute = lazy(() => import("@/routes/SettingsRoute").then(module => ({ default: module.SettingsRoute })));
+const SpeakRoute = lazy(() => import("@/routes/SpeakRoute").then(module => ({ default: module.SpeakRoute })));
+const SetupRoute = lazy(() => import("@/routes/SetupRoute").then(module => ({ default: module.SetupRoute })));
 
 type AppRouteDefinition = {
   hideFromConfiguredNav?: boolean;
@@ -121,6 +122,7 @@ export const AppFrame = () => {
       <Route
         element={
           <AppShell
+            reloadLabel={translate("nav.reload_page")}
             appName={translate("home.title")}
             navAriaLabel={translate("nav.main_navigation")}
             navGroups={navGroups}

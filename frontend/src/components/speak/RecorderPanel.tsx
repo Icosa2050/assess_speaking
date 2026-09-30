@@ -154,6 +154,7 @@ const visualizerBarScales = [0.36, 0.68, 0.46, 0.82, 0.54, 0.74, 0.42, 0.62, 0.3
 
 export const RecorderPanel = ({
   canRemove,
+  downloadName,
   inputMode,
   onFileSelected,
   onInputModeChange,
@@ -165,6 +166,7 @@ export const RecorderPanel = ({
   translate,
 }: {
   canRemove: boolean;
+  downloadName?: string;
   inputMode: RecordingInputMethod;
   onFileSelected: (file: File | null) => void;
   onInputModeChange: (mode: RecordingInputMethod) => void;
@@ -626,6 +628,7 @@ export const RecorderPanel = ({
         {visibleStatusMessage}
       </p>
       {previewUrl ? (
+        <>
         <audio
           controls
           src={previewUrl}
@@ -633,6 +636,10 @@ export const RecorderPanel = ({
             width: "100%",
           }}
         />
+        <a href={previewUrl} download={downloadName || "practice-recording.webm"} data-testid="speak.download_recording">
+          {translate("speak.download_recording")}
+        </a>
+        </>
       ) : null}
       {showReadyCheckpoint ? (
         <div

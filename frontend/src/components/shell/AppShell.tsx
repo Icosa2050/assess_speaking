@@ -1,3 +1,4 @@
+import { Component, Suspense, type ReactNode } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { SEMANTIC_IDS, semanticAttributes } from "@/lib/i18n";
@@ -16,11 +17,22 @@ type NavGroup = {
 };
 
 type AppShellProps = {
+  reloadLabel?: string;
   appName: string;
   navGroups: NavGroup[];
   navAriaLabel: string;
   shellBody: string;
 };
+
+class RouteRecovery extends Component<{ children: ReactNode; label: string }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() {
+    return this.state.failed
+      ? <div role="alert"><button type="button" style={{ font: "inherit" }} onClick={() => window.location.reload()}>{this.props.label}</button></div>
+      : this.props.children;
+  }
+}
 
 const routeSemanticAttributes = (href: string): Record<string, string> => {
   switch (href) {
@@ -38,6 +50,7 @@ const routeSemanticAttributes = (href: string): Record<string, string> => {
 };
 
 export const AppShell = ({
+  reloadLabel = "Reload page",
   appName,
   navGroups,
   navAriaLabel,
@@ -103,7 +116,11 @@ export const AppShell = ({
           </aside>
 
           <main className={styles.main}>
-            <Outlet />
+            <RouteRecovery key={location.pathname} label={reloadLabel}>
+              <Suspense fallback={<p role="status" aria-busy="true">…</p>}>
+                <Outlet />
+              </Suspense>
+            </RouteRecovery>
           </main>
         </div>
       </div>

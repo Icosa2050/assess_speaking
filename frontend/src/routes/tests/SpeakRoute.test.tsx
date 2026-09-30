@@ -25,10 +25,11 @@ vi.mock("@/lib/api/client", () => ({
     getRuntime: vi.fn(),
     getRuntimeSettings: vi.fn(),
     uploadAudio: vi.fn(),
+    getUploadLimits: vi.fn(),
   },
 }));
 
-import { apiClient } from "@/lib/api/client";
+import { apiClient, ApiClientError } from "@/lib/api/client";
 
 const mockedCancelAssessment = vi.mocked(apiClient.cancelAssessment);
 const mockedCreateAssessment = vi.mocked(apiClient.createAssessment);
@@ -104,6 +105,7 @@ describe("Speak route", () => {
   const getUserMedia = vi.fn();
 
   beforeEach(() => {
+    vi.mocked(apiClient.getUploadLimits).mockResolvedValue({ max_bytes: 104857600, available_bytes: 104857600 });
     vi.clearAllMocks();
     stopTrack.mockClear();
     FakeMediaRecorder.instances = [];
@@ -162,6 +164,31 @@ describe("Speak route", () => {
       payload: null,
       summary: null,
     });
+  });
+
+  it("reuses a saved upload after a busy assessment response", async () => {
+    mockedCreateAssessment.mockRejectedValueOnce(new ApiClientError(409, { code: "runtime_error", detail: "Another attempt is still being analysed." }));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+    fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [new File(["audio"], "retry.wav", { type: "audio/wav" })] } });
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    expect(screen.getByTestId("speak.download_recording")).toHaveAttribute("download", "retry.wav");
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(2));
+    expect(mockedUploadAudio).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a file when current disk space is insufficient, retaining a backup link", async () => {
+    vi.mocked(apiClient.getUploadLimits).mockResolvedValueOnce({ max_bytes: 104857600, available_bytes: 1 });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+    fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [new File(["audio"], "saved.wav", { type: "audio/wav" })] } });
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("not enough free disk space"));
+    expect(mockedUploadAudio).not.toHaveBeenCalled();
+    expect(screen.getByTestId("speak.download_recording")).toBeVisible();
   });
 
   it("redirects to Session Setup when the learner draft is missing", async () => {

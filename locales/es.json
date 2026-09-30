@@ -11,7 +11,8 @@
     "history": "Historial",
     "guide": "Guía de evaluación",
     "library": "Biblioteca",
-    "settings": "Ajustes"
+    "settings": "Ajustes",
+    "reload_page": "Recarga esta página para continuar"
   },
   "locale": {
     "en": "Inglés",
@@ -333,7 +334,14 @@
     "job_phase_finalizing_report": "Finalizando el informe",
     "refresh_progress": "Comprobar progreso",
     "cancel_assessment": "Cancelar evaluación",
-    "assessment_error": "La evaluación falló: {detail}"
+    "assessment_error": "La evaluación falló: {detail}",
+    "upload_size_error": "Elige un archivo de audio no vacío de hasta 100 MiB.",
+    "upload_disk_error": "No hay suficiente espacio para esta grabación. Libera espacio y vuelve a intentarlo.",
+    "upload_cancelled": "Carga cancelada. La grabación sigue seleccionada; puedes reintentarlo.",
+    "upload_progress": "Cargando audio: {percent}%",
+    "download_recording": "Guardar una copia de la grabación",
+    "upload_connection_lost": "Conexión interrumpida. La grabación sigue seleccionada; reinténtalo.",
+    "upload_timeout": "La carga tardó demasiado. La grabación sigue seleccionada; reinténtalo."
   },
   "review": {
     "title": "Resultados de tu intento",
