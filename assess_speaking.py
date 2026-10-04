@@ -1009,6 +1009,7 @@ def run_assessment(
                 expected_language=chosen_language,
                 feedback_language=chosen_feedback_language,
                 checks=checks,
+                transcript=transcript,
             )
             stage_start = time.perf_counter()
             try:

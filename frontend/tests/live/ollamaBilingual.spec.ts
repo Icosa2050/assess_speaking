@@ -215,7 +215,7 @@ for (const language of ["en", "it"] as const) {
           }
           const input = report.input as JsonRecord;
           expect(input).toMatchObject({ provider, llm_model: selectedModel, whisper_model: selectedWhisper, expected_language: language, detected_language: language });
-          expect(input.coaching_prompt_version).toBe("coaching_multilingual_v6");
+          expect(input.coaching_prompt_version).toBe("coaching_multilingual_v7");
           const reportWarnings = (report.warnings as string[] || []);
           const uncertain = reportWarnings.includes("transcript_uncertain");
           const rubricFallback = uncertain || (allowGuardedFallback && reportWarnings.includes("llm_invalid_schema"));

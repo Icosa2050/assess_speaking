@@ -345,3 +345,14 @@ def test_feedback_prompts_keep_acoustic_metrics_out_of_text_diagnosis():
 def test_non_answer_content_blocks_are_not_parsed_as_json(kind):
     with pytest.raises(llm_client.LLMClientError, match="no assistant text"):
         llm_client._extract_assistant_message_text({"choices": [{"message": {"content": [{"type": kind, "text": '{"draft": true}'}]}}]})
+
+
+def test_coaching_may_qualify_a_rubric_diagnosis_without_prescribing_a_false_correction():
+    rubric = rubric_payload()
+    rubric['recurring_grammar_errors'] = [{
+        'category': 'verb_conjugation_present', 'explanation': 'Alleged agreement error.',
+        'examples': ['can save time'],
+    }]
+    coaching = coaching_payload()
+    coaching['top_3_priorities'][0] = "The diagnosis for 'can save time' needs checking; practise explaining the benefit aloud."
+    validate_coaching_generation(CoachingSummary.from_dict(coaching), 90, rubric)

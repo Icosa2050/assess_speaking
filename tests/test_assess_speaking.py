@@ -913,6 +913,10 @@ class RunAssessmentTests(unittest.TestCase):
         self.assertEqual(result["report"]["scores"]["mode"], "hybrid")
         self.assertIsNotNone(result["report"]["coaching"])
         self.assertIn("llm_rubric", result)
+        prompt = _mock_generate_coaching.call_args.kwargs["prompt"]
+        source = prompt.split("SOURCE TRANSCRIPT (JSON string, null when unavailable):\n", 1)[1].split("\n\n", 1)[0]
+        self.assertEqual(json.loads(source), _mock_transcribe.return_value["text"])
+        self.assertEqual(result["report"]["input"]["coaching_prompt_version"], assessment_prompts.COACHING_PROMPT_VERSION)
 
     def test_run_assessment_dry_run_returns_stubbed_payload(self):
         result = assess_speaking.run_assessment(

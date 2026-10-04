@@ -1,0 +1,146 @@
+{
+  "date": "2026-10-04",
+  "method": "OCR delegate deterministic preview/rules; host source review; Claude source-only review twice",
+  "total_files": 13,
+  "reviewed_files": 6,
+  "skipped_files": 7,
+  "coverage_rate": 0.46153846153846156,
+  "files": [
+    {
+      "path": "assess_speaking.py",
+      "status": "modified",
+      "review_status": "reviewed",
+      "reason": "Source/diff read and applicable OCR rules checked",
+      "sha256": "f8007556d6f778fa810342d79bd10d3d3d1cdc89f400ba7aea1c7ad122e10c47"
+    },
+    {
+      "path": "assessment_runtime/assessment_prompts.py",
+      "status": "modified",
+      "review_status": "reviewed",
+      "reason": "Source/diff read and applicable OCR rules checked",
+      "sha256": "79bb9db20dbe42d958d1f8351674a1a92268518a13718c9e7a9841a3cdb75c7d"
+    },
+    {
+      "path": ".codegraph/.gitignore",
+      "status": "added",
+      "review_status": "skipped",
+      "reason": "Pre-existing or concurrent file outside this task; left untouched"
+    },
+    {
+      "path": "assessment_runtime/semantic_review.py",
+      "status": "added",
+      "review_status": "reviewed",
+      "reason": "Source/diff read and applicable OCR rules checked",
+      "sha256": "67699fb18815d5e0a8f78e599010e12127bc7f3dfee3ae74b36643ec26202781"
+    },
+    {
+      "path": "docs/reviews/2026-10-04-ocr-semantic-coverage.json",
+      "status": "added",
+      "review_status": "reviewed",
+      "reason": "Coverage manifest audited against final OCR preview; self hash intentionally omitted."
+    },
+    {
+      "path": "package.json",
+      "status": "added",
+      "review_status": "skipped",
+      "reason": "Pre-existing or concurrent file outside this task; left untouched"
+    },
+    {
+      "path": "scripts/bootstrap_env.sh",
+      "status": "added",
+      "review_status": "skipped",
+      "reason": "Pre-existing or concurrent file outside this task; left untouched"
+    },
+    {
+      "path": "scripts/evaluate_feedback_generation.py",
+      "status": "added",
+      "review_status": "reviewed",
+      "reason": "Source/diff read and applicable OCR rules checked",
+      "sha256": "0228f613ce3d80a6970ef7a0bce3a9d30ee4c446169ee820d61eff674d3c7acf"
+    },
+    {
+      "path": "scripts/evaluate_feedback_review.py",
+      "status": "added",
+      "review_status": "reviewed",
+      "reason": "Source/diff read and applicable OCR rules checked",
+      "sha256": "b1a52d222a6a0e12f6d073795765dddbe30d33d5165af5e91b5804697027b0b1"
+    },
+    {
+      "path": "scripts/generate_b2_sample.sh",
+      "status": "added",
+      "review_status": "skipped",
+      "reason": "Pre-existing or concurrent file outside this task; left untouched"
+    },
+    {
+      "path": "scripts/generate_c1_sample.sh",
+      "status": "added",
+      "review_status": "skipped",
+      "reason": "Pre-existing or concurrent file outside this task; left untouched"
+    },
+    {
+      "path": "scripts/run_sample_workflow.py",
+      "status": "added",
+      "review_status": "skipped",
+      "reason": "Pre-existing or concurrent file outside this task; left untouched"
+    },
+    {
+      "path": "tests/data/sample_metrics.json",
+      "status": "added",
+      "review_status": "skipped",
+      "reason": "Pre-existing or concurrent file outside this task; left untouched"
+    }
+  ],
+  "manually_reviewed_excluded": [
+    {
+      "path": "frontend/tests/live/ollamaBilingual.spec.ts",
+      "status": "modified",
+      "review_status": "reviewed",
+      "reason": "Manually reviewed test/fixture/document excluded by OCR default filtering",
+      "sha256": "bff7415217e847435bd3a3d9b830ec72e1e88a8d7d845b826a7a0be91ac0359f"
+    },
+    {
+      "path": "tests/test_assess_speaking.py",
+      "status": "modified",
+      "review_status": "reviewed",
+      "reason": "Manually reviewed test/fixture/document excluded by OCR default filtering",
+      "sha256": "69bf7319c651380e79cf1b1cc94093ab4118c8b913e46bac8d6d6e054432432d"
+    },
+    {
+      "path": "tests/test_generation_validation.py",
+      "status": "modified",
+      "review_status": "reviewed",
+      "reason": "Manually reviewed test/fixture/document excluded by OCR default filtering",
+      "sha256": "3759177c31ac68a29cf42483bdb9e71d986902be36cd365e798ed0bab38dbbf6"
+    },
+    {
+      "path": "docs/reviews/2026-10-04-semantic-feedback.md",
+      "status": "added",
+      "review_status": "reviewed",
+      "reason": "Manually reviewed test/fixture/document excluded by OCR default filtering",
+      "sha256": "6b1a2cca0416a9e0e0410bb38766039b933ac990bd41fa17be287c309e70e522"
+    },
+    {
+      "path": "tests/fixtures/feedback_quality/semantic_review_v1.json",
+      "status": "added",
+      "review_status": "reviewed",
+      "reason": "Manually reviewed test/fixture/document excluded by OCR default filtering",
+      "sha256": "ababc18a048f3e9c1163e8f6b65874a9420562df59abc2f6f4f68b956329d8e6"
+    },
+    {
+      "path": "tests/fixtures/feedback_quality/semantic_review_v2.json",
+      "status": "added",
+      "review_status": "reviewed",
+      "reason": "Manually reviewed test/fixture/document excluded by OCR default filtering",
+      "sha256": "02dd2f6b994827f2b8bef9fa0c89ded1af74e98a2e67ab4d795cb3d9e973e5f4"
+    },
+    {
+      "path": "tests/test_semantic_review.py",
+      "status": "added",
+      "review_status": "reviewed",
+      "reason": "Manually reviewed test/fixture/document excluded by OCR default filtering",
+      "sha256": "8cf0204f727a6a6dca999c85e16fac72dc9ddf547a62e4a74480d075afd901ad"
+    }
+  ],
+  "findings": [],
+  "follow_up_review": "Host reviewed final CLI reasoning overrides (strict schema retained), paired regression tests, completion manifests and withdrawal of failed rubric experiments after the second Claude review."
+}
