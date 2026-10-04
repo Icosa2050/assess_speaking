@@ -66,7 +66,7 @@ class RecordingStatus(str, Enum):
 @dataclass
 class ProviderConnection:
     connection_id: str = ""
-    provider_kind: Literal["openrouter", "ollama", "lmstudio", "openai_compatible", "chatgpt", "xai"] = DEFAULT_PROVIDER
+    provider_kind: Literal["openrouter", "ollama", "lmstudio", "openai_compatible", "chatgpt", "xai", "groq"] = DEFAULT_PROVIDER
     label: str = ""
     base_url: str = ""
     default_model: str = DEFAULT_MODEL

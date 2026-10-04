@@ -51,7 +51,7 @@ def _connection_api_key(connection: ProviderConnection, provider: str) -> str:
     if provider == "chatgpt":
         from app_core.chatgpt_auth import cached_access_token
         return cached_access_token(connection.secret_ref)
-    if provider == "xai":
+    if provider in {"xai", "groq"}:
         return (SessionSecretStore().get_secret(SERVICE_NAME, connection.secret_ref) or get_secret(connection.secret_ref)) if connection.secret_ref else ""
     if connection.secret_ref:
         secret = get_secret(connection.secret_ref)

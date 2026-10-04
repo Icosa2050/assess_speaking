@@ -91,7 +91,7 @@ def _persist_connection_secret(connection: ProviderConnection, api_key: str) -> 
     if not str(api_key or "").strip():
         return delete_secret(connection.secret_ref, env_var_names=_secret_env_var_names(connection.provider_kind))
     status = set_secret(connection.secret_ref, str(api_key).strip(), env_var_names=_secret_env_var_names(connection.provider_kind))
-    if connection.provider_kind == "xai":
+    if connection.provider_kind in {"xai", "groq"}:
         persistent = status.persistent and get_secret(connection.secret_ref) == str(api_key).strip()
         connection.provider_metadata["persistent"] = persistent
         if persistent:
@@ -140,10 +140,10 @@ def build_provider_connection(
 ) -> ProviderConnection:
     if provider_kind_from_choice(provider_choice) == "chatgpt":
         raise ValueError("Use Sign in with ChatGPT to connect this account.")
-    if provider_kind_from_choice(provider_choice) == "xai":
-        runtime_base_url("xai", base_url)
+    if provider_kind_from_choice(provider_choice) in {"xai", "groq"}:
+        runtime_base_url(provider_kind_from_choice(provider_choice), base_url)
         if not str(model or "").strip():
-            raise ValueError("Choose an xAI model before saving.")
+            raise ValueError("Choose a provider model before saving.")
     connection = existing_connection or ProviderConnection(connection_id=uuid4().hex)
     connection.connection_id = str(connection.connection_id or uuid4().hex)
     connection.provider_kind = provider_kind_from_choice(provider_choice)
@@ -779,7 +779,7 @@ def _runtime_setup_test_timeout(provider_choice: str = "", base_url: str = "", t
     candidate = str(base_url or "").strip().lower()
     is_local_setup_provider = selected_choice in {"ollama_local", "lmstudio_local"}
     is_localhost_endpoint = "localhost" in candidate or "127.0.0.1" in candidate
-    if selected_choice in {"chatgpt", "xai"}:
+    if selected_choice in {"chatgpt", "xai", "groq"}:
         return max(float(timeout_sec), 60.0)
     if is_local_setup_provider or is_localhost_endpoint:
         return max(float(timeout_sec), 30.0)

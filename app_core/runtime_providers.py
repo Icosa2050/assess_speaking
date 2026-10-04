@@ -3,8 +3,8 @@ from __future__ import annotations
 import hashlib
 
 DEFAULT_PROVIDER = "openrouter"
-SUPPORTED_PROVIDERS = ("openrouter", "ollama", "lmstudio", "openai_compatible", "chatgpt", "xai")
-SETUP_PROVIDER_CHOICES = ("ollama_local", "ollama_cloud", "lmstudio_local", "openrouter", "openai_compatible", "chatgpt", "xai")
+SUPPORTED_PROVIDERS = ("openrouter", "ollama", "lmstudio", "openai_compatible", "chatgpt", "xai", "groq")
+SETUP_PROVIDER_CHOICES = ("ollama_local", "ollama_cloud", "lmstudio_local", "openrouter", "openai_compatible", "chatgpt", "xai", "groq")
 LEGACY_SETUP_PROVIDER_ALIASES = {
     "ollama": "ollama_local",
     "lmstudio": "lmstudio_local",
@@ -13,6 +13,7 @@ LEGACY_SETUP_PROVIDER_ALIASES = {
 DEFAULT_BASE_URLS = {
     "chatgpt": "https://api.openai.com/v1",
     "xai": "https://api.x.ai/v1",
+    "groq": "https://api.groq.com/openai/v1",
     "openrouter": "https://openrouter.ai/api/v1",
     "ollama": "http://localhost:11434/v1",
     "lmstudio": "http://localhost:1234/v1",
@@ -22,6 +23,7 @@ DEFAULT_BASE_URLS = {
 DEFAULT_SETUP_BASE_URLS = {
     "chatgpt": "https://api.openai.com/v1",
     "xai": "https://api.x.ai/v1",
+    "groq": "https://api.groq.com/openai/v1",
     "ollama_local": "http://localhost:11434",
     "ollama_cloud": "https://ollama.com/api",
     "lmstudio_local": "http://localhost:1234/v1",
@@ -59,6 +61,7 @@ def default_connection_label(choice: str | None) -> str:
     labels = {
         "chatgpt": "ChatGPT",
         "xai": "xAI Grok",
+        "groq": "Groq",
         "ollama_local": "Ollama Local",
         "ollama_cloud": "Ollama Cloud",
         "lmstudio_local": "LM Studio Local",
@@ -83,7 +86,7 @@ def default_setup_base_url(choice: str | None) -> str:
 
 def resolved_base_url(provider: str | None, base_url: str | None) -> str:
     candidate = str(base_url or "").strip()
-    if normalize_provider(provider) in {"chatgpt", "xai"}:
+    if normalize_provider(provider) in {"chatgpt", "xai", "groq"}:
         expected = default_base_url(provider)
         if candidate and candidate.rstrip("/") != expected:
             raise ValueError("This provider requires its official API endpoint.")
@@ -120,7 +123,7 @@ def supports_optional_bearer_token(provider: str | None) -> bool:
 
 
 def requires_api_key(provider: str | None) -> bool:
-    return normalize_provider(provider) in {"openrouter", "chatgpt", "xai"}
+    return normalize_provider(provider) in {"openrouter", "chatgpt", "xai", "groq"}
 
 
 def secret_account_name(provider: str | None, base_url: str | None) -> str:

@@ -210,14 +210,15 @@ def test_assessment_uses_saved_account_and_fixed_endpoint(monkeypatch):
         _assessment_request_with_saved_runtime_secret(state, request.model_copy(update={'llm_model':'unavailable'}))
 
 
-def test_xai_rejects_custom_endpoints_and_environment_fallback(monkeypatch):
+@pytest.mark.parametrize('provider', ['xai', 'groq'])
+def test_api_provider_rejects_custom_endpoints_and_environment_fallback(monkeypatch, provider):
     from app_core.runtime_providers import runtime_base_url
     from app_core.runtime_resolver import resolve_connection_runtime
     monkeypatch.setenv('LLM_API_KEY', 'unrelated-key')
-    connection = ProviderConnection(provider_kind='xai', default_model='chosen', base_url='https://api.x.ai/v1', secret_ref='missing')
+    connection = ProviderConnection(provider_kind=provider, default_model='chosen', secret_ref='missing')
     assert resolve_connection_runtime(connection).api_key == ''
     with pytest.raises(ValueError):
-        runtime_base_url('xai', 'https://evil.test/v1')
+        runtime_base_url(provider, 'https://evil.test/v1')
 
 
 def test_success_publishes_without_frontend_polling(tmp_path, manager, monkeypatch):
@@ -314,14 +315,15 @@ def test_real_loopback_callback_rejects_wrong_state_and_finishes(tmp_path, monke
         owner.close()
 
 
-def test_xai_key_remains_usable_when_secure_storage_is_unavailable(monkeypatch):
+@pytest.mark.parametrize('provider', ['xai', 'groq'])
+def test_api_key_remains_usable_when_secure_storage_is_unavailable(monkeypatch, provider):
     from app_core.services import _persist_connection_secret
     from app_core.runtime_resolver import resolve_connection_runtime
     monkeypatch.setattr(secret_store, '_load_keyring_module', lambda: (None, secret_store.SecretStoreStatus(False, 'unavailable')))
-    connection = ProviderConnection(connection_id='xai', provider_kind='xai', default_model='grok', base_url='https://api.x.ai/v1')
-    status = _persist_connection_secret(connection, 'session-xai-key')
+    connection = ProviderConnection(connection_id=provider, provider_kind=provider, default_model='chosen')
+    status = _persist_connection_secret(connection, 'session-provider-key')
     assert not status.persistent and connection.provider_metadata['persistent'] is False
-    assert resolve_connection_runtime(connection).api_key == 'session-xai-key'
+    assert resolve_connection_runtime(connection).api_key == 'session-provider-key'
     secret_store.delete_secret(connection.secret_ref)
     assert resolve_connection_runtime(connection).api_key == ''
 
@@ -366,3 +368,81 @@ def test_mid_stream_transport_error_is_safe_and_can_degrade_to_local_report(monk
     with pytest.raises(LLMClientError, match='interrupted') as error:
         _chat_completion('chatgpt', 'model', 'prompt', 10, None, api_key='secret')
     assert 'private' not in str(error.value)
+
+
+def groq_sdk(monkeypatch, response=None, failure=None):
+    client = Mock()
+    client.__enter__ = Mock(return_value=client)
+    client.__exit__ = Mock(return_value=False)
+    client.chat.completions.create.side_effect = failure
+    client.chat.completions.create.return_value = SimpleNamespace(model_dump=lambda: response)
+    monkeypatch.setattr(responses_client, 'OpenAI', factory := Mock(return_value=client))
+    return factory, client
+
+
+def test_groq_probe_uses_strict_nonstreaming_chat_protocol(monkeypatch):
+    from assessment_runtime.llm_client import test_connection
+    factory, client = groq_sdk(monkeypatch)
+    def echo(**payload):
+        result = payload['messages'][0]['content'].split('exactly: ', 1)[1]
+        return SimpleNamespace(model_dump=lambda: {'choices':[{'finish_reason':'stop','message':{'content':result}}]})
+    client.chat.completions.create.side_effect = echo
+    result = test_connection(provider='groq', model='openai/gpt-oss-120b', api_key='groq-secret')
+    assert result['ok'] and result['provider'] == 'groq'
+    assert factory.call_args.kwargs['base_url'] == 'https://api.groq.com/openai/v1'
+    assert factory.call_args.kwargs['max_retries'] == 0
+    payload = client.chat.completions.create.call_args.kwargs
+    assert payload['stream'] is False and payload['reasoning_effort'] == 'low'
+    assert payload['max_completion_tokens'] == 4096
+    assert payload['response_format']['json_schema']['strict'] is True
+    assert payload['response_format']['json_schema']['name'] == 'assess_speaking_rubric'
+    assert 'provider' not in payload and 'store' not in payload
+    client.responses.create.assert_not_called()
+
+
+@pytest.mark.parametrize('status, message', [(429, 'usage limit'), (413, 'too large'), (401, 'authorization'), (400, 'request failed')])
+def test_groq_errors_are_safe_and_not_retried(monkeypatch, status, message):
+    import httpx2
+    from openai import APIStatusError
+    from assessment_runtime.llm_client import _chat_completion, LLMClientError
+    response = httpx2.Response(status, request=httpx2.Request('POST', 'https://api.groq.com/openai/v1/chat/completions'))
+    _, client = groq_sdk(monkeypatch, failure=APIStatusError('private content', response=response, body={'private':'secret'}))
+    with pytest.raises(LLMClientError, match=message) as caught:
+        _chat_completion('groq', 'openai/gpt-oss-120b', 'prompt', 10, None, api_key='groq-secret')
+    assert 'private' not in str(caught.value) and 'secret' not in str(caught.value)
+    assert client.chat.completions.create.call_count == 1
+
+
+@pytest.mark.parametrize('choice', [
+    {'finish_reason':'length','message':{'content':'{}'}},
+    {'finish_reason':'stop','message':{'refusal':'refused','content':'{}'}},
+    {'finish_reason':'stop','message':{'content':''}},
+])
+def test_groq_incomplete_feedback_is_not_accepted(monkeypatch, choice):
+    from assessment_runtime.llm_client import _chat_completion, LLMClientError
+    groq_sdk(monkeypatch, {'choices':[choice]})
+    with pytest.raises(LLMClientError):
+        _chat_completion('groq', 'openai/gpt-oss-120b', 'prompt', 10, None, api_key='groq-secret')
+
+
+def test_groq_saved_key_injection_and_delete(tmp_path):
+    from app_backend.app import _load_persisted_state
+    config = build_backend_runtime_config(port=8817, app_data_dir=tmp_path/'app', cache_dir=tmp_path/'cache')
+    app = create_app(config)
+    client = TestClient(app)
+    draft = {'provider_choice':'groq','model':'openai/gpt-oss-120b','base_url':'https://api.groq.com/openai/v1','api_key':'groq-private'}
+    response = client.put('/v1/runtime/settings', json={'ui_locale':'it','whisper_model':'tiny','connection':draft})
+    assert response.status_code == 200, response.text
+    saved = response.json()['connections'][0]
+    assert saved['provider_key'] == 'groq' and saved['has_api_key']
+    assert 'groq-private' not in response.text
+    state = _load_persisted_state(config)
+    request = AssessmentCreateRequest(audio_id='sample', whisper='tiny', expected_language='it', feedback_language='en', speaker_id='test', task_family='monologue', theme='test', target_duration_sec=60, provider='groq', llm_model=draft['model'])
+    assert _assessment_request_with_saved_runtime_secret(state, request).llm_api_key == 'groq-private'
+    with pytest.raises(ValueError):
+        _assessment_request_with_saved_runtime_secret(state, request.model_copy(update={'llm_base_url':'https://evil.test/v1'}))
+    deleted = client.delete('/v1/runtime/settings/connections/' + saved['connection_id'])
+    assert deleted.status_code == 200, deleted.text
+    assert not secret_store.get_secret('connection:' + saved['connection_id'])
+    for path in (tmp_path/'app').rglob('*.json'):
+        assert 'groq-private' not in path.read_text()

@@ -159,7 +159,7 @@ def _saved_connection_api_key(connection) -> str:
         return ""
     if connection.provider_kind == "chatgpt":
         return cached_access_token(secret_ref)
-    if connection.provider_kind == "xai":
+    if connection.provider_kind in {"xai", "groq"}:
         return SessionSecretStore().get_secret(SERVICE_NAME, secret_ref) or str(get_secret(secret_ref) or "")
     return str(get_secret(secret_ref) or "").strip()
 
@@ -335,7 +335,7 @@ def _assessment_request_with_saved_runtime_secret(
     state,
     request: AssessmentCreateRequest,
 ) -> AssessmentCreateRequest:
-    if normalize_provider(request.provider) in {"chatgpt", "xai"}:
+    if normalize_provider(request.provider) in {"chatgpt", "xai", "groq"}:
         request = request.model_copy(update={"provider": normalize_provider(request.provider)})
     if request.provider == "chatgpt":
         connection = active_connection(state.prefs)
@@ -344,9 +344,9 @@ def _assessment_request_with_saved_runtime_secret(
         if request.llm_model not in {m['slug'] for m in connection.provider_metadata.get('models', [])}:
             raise ChatGPTAuthError("Choose an available ChatGPT model in settings.")
         return request.model_copy(update={"llm_api_key": access_token(connection.secret_ref), "llm_base_url": "https://api.openai.com/v1"})
-    if request.provider == "xai":
+    if request.provider in {"xai", "groq"}:
         from app_core.runtime_providers import runtime_base_url
-        runtime_base_url("xai", request.llm_base_url)
+        runtime_base_url(request.provider, request.llm_base_url)
     if str(request.llm_api_key or "").strip():
         return request
     connection = active_connection(state.prefs)
@@ -678,7 +678,7 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
 
     @app.post("/v1/assessments", response_model=AssessmentCreateResponse, tags=[PRODUCT_API_TAG])
     def create_assessment(request: AssessmentCreateRequest) -> AssessmentCreateResponse:
-        if normalize_provider(request.provider) in {"chatgpt", "xai"}:
+        if normalize_provider(request.provider) in {"chatgpt", "xai", "groq"}:
             request = request.model_copy(update={"provider": normalize_provider(request.provider)})
         try:
             state = _load_persisted_state(runtime_config)

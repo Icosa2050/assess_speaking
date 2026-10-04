@@ -1,4 +1,4 @@
-# Connect ChatGPT and xAI Grok
+# Connect ChatGPT, xAI Grok and Groq
 
 **Date:** 2026-10-04. **Status:** Implemented and tested locally; live user authorization and provider inference remain to be verified.
 
@@ -10,9 +10,10 @@ Connect a provider to the existing speaking-practice workflow. English and Itali
 | --- | --- | --- |
 | OpenAI ChatGPT | Browser authorization, account model catalog, secure/session-only token storage, refresh, Responses inference, reconnect and disconnect. | Settings → ChatGPT → Continue with ChatGPT → Continue in your browser. Authorize plan use, return, select a model, and test the connection. |
 | **xAI Grok** | Dedicated API-key connection and Responses inference at `https://api.x.ai/v1`. | Create a key and API credits at the xAI console, choose xAI Grok (API), enter a supported text model and key, test, save. |
+| Groq | API-key connection at `https://api.groq.com/openai/v1`, using nonstreaming strict JSON chat completions. | Settings → Groq → create/copy a key → test → save. The suggested model is `openai/gpt-oss-120b`. |
 | OpenRouter | Existing saved API-key integration is retained. | Continue using the existing connection. No additional OAuth flow was added. |
 
-Grok means **xAI**, not Groq. No public delegated Grok consumer-subscription sign-in was established in this research; the app labels its supported API path explicitly. ChatGPT’s local-app plan flow supports text inference; it does not supply the transcription API.
+The user subsequently requested **Groq** too, if easy and free. Groq is a separate provider from **xAI Grok**. No public delegated Grok consumer-subscription sign-in was established in this research; the app labels its supported API path explicitly. ChatGPT’s local-app plan flow supports text inference; it does not supply the transcription API.
 
 ## Implemented
 
@@ -51,4 +52,15 @@ Grok means **xAI**, not Groq. No public delegated Grok consumer-subscription sig
 - [Preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)
 - [xAI quickstart](https://docs.x.ai/developers/quickstart) and [structured outputs](https://docs.x.ai/developers/model-capabilities/text/structured-outputs)
 
-Cloud ASR, other providers, upload redesign, exam simulation, new assessment benchmarks, and automatic paid fallback are outside this change.
+Cloud ASR, further providers, upload redesign, exam simulation, new assessment benchmarks, and automatic paid fallback are outside this change.
+
+
+## Groq addition — October 4
+
+Decision: include Groq as an optional way to start cloud feedback on a free account. Reuses the existing API-key form, secret storage, fixed endpoint validation, model discovery and schema probe. No new dependency or login framework. There is no automatic upgrade or provider fallback. An already-paid Groq account remains subject to Groq billing.
+
+The [Free plan limits](https://console.groq.com/docs/rate-limits) currently list GPT-OSS 120B at 30 requests/minute, 1,000 requests/day, 8,000 tokens/minute and 200,000 tokens/day; exact organization limits can vary. These are API requests, not completed exercises: one attempt uses multiple feedback requests. Long prompts and successive calls can exhaust the token allowance. Do not promise a fixed number of free exercises. Groq returns 429 on quota exhaustion; the app reports the limit and retains the existing local-report fallback, without automatic paid fallback or repeated quota retries.
+
+[Groq billing](https://console.groq.com/docs/billing-faqs) distinguishes Free from paid Developer accounts; upgrading requires a payment method. [Strict structured outputs](https://console.groq.com/docs/structured-outputs) support GPT-OSS 20B/120B but not streaming. The adapter therefore uses nonstreaming Chat Completions with the existing strict schemas, bounded output, no SDK retries, and low reasoning effort for those models. Refusals, truncation and empty responses are rejected.
+
+Groq verification: 123 focused backend tests passed (the unchanged OAuth socket test was deselected); 149 frontend tests, typecheck and five isolated Chromium journeys passed, including Groq setup and quota recovery in English and Italian. Browser test provider replies are mocked. No Groq account key was supplied, so actual free-account inference, English/Italian feedback quality and long-attempt quota feasibility remain unverified. Setup is available; successful live feedback is not yet claimed. See the [Groq review](../../reviews/2026-10-04-groq-connection.md).

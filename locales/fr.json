@@ -105,7 +105,12 @@
     "local_first_intro": "Commence avec un fournisseur local. Ollama et LM Studio ne nécessitent généralement pas de clé API.",
     "show_advanced": "Afficher les fournisseurs cloud et les options avancées",
     "hide_advanced": "Masquer les fournisseurs cloud et les options avancées",
+    "groq_console": "Obtenir une clé API dans la console Groq",
     "provider_options": {
+      "groq": {
+        "label": "Groq (offre gratuite disponible)",
+        "hint": "Créez un compte Groq, copiez une clé API, testez et enregistrez. L’offre gratuite a des limites ; les essais longs ou répétés peuvent les dépasser. Groq facture les comptes payants."
+      },
       "ollama_local": {
         "label": "Ollama local",
         "hint": "Utilise un modèle Ollama installé, comme `llama3` ou `llama3.2:3b`."

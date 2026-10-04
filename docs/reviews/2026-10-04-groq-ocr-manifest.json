@@ -1,0 +1,101 @@
+{
+  "date": "2026-10-04",
+  "tool": "ocr delegate",
+  "total_files": 17,
+  "reviewed_files": 17,
+  "skipped_files": 0,
+  "coverage_rate": 1.0,
+  "files": [
+    {
+      "path": "app_backend/app.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "app_backend/jobs.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "app_core/runtime_providers.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "app_core/runtime_resolver.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "app_core/services.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "app_core/state.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "assess_speaking.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "assessment_runtime/llm_client.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "assessment_runtime/responses_client.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/src/components/setup/RuntimeConnectionForm.tsx",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/src/lib/api/client.ts",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/src/routes/SpeakRoute.tsx",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/de.json",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/en.json",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/es.json",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/fr.json",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/it.json",
+      "status": "modified",
+      "review_status": "reviewed"
+    }
+  ],
+  "additional_reviewed_files": [
+    "tests/test_cloud_accounts.py",
+    "frontend/tests/e2e/cloudConnections.spec.ts",
+    "docs/superpowers/plans/2026-10-04-cloud-provider-access.md"
+  ],
+  "findings": []
+}

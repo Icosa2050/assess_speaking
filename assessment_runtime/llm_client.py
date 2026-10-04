@@ -210,7 +210,7 @@ def _chat_completion(
     require_json_object: bool = False,
 ) -> str:
     normalized_provider = normalize_provider(provider)
-    if normalized_provider in {"chatgpt", "xai"}:
+    if normalized_provider in {"chatgpt", "xai", "groq"}:
         from assessment_runtime.responses_client import complete, ResponsesError
         schema = (extra_payload or {}).get("response_format", {}).get("json_schema")
         try:
@@ -282,7 +282,7 @@ def _chat_completion(
 
 def _generation_payload(provider: str, kind: str, *, target_duration_sec: float | None = None) -> dict[str, Any] | None:
     normalized_provider = normalize_provider(provider)
-    if normalized_provider not in {"openrouter", "ollama", "chatgpt", "xai"}:
+    if normalized_provider not in {"openrouter", "ollama", "chatgpt", "xai", "groq"}:
         return None
     payload = {
         "response_format": {"type": "json_schema", "json_schema": {
@@ -412,7 +412,7 @@ def list_models(
     openrouter_app_title: str | None = None,
 ) -> dict[str, Any]:
     normalized_provider = normalize_provider(provider)
-    if normalized_provider in {"chatgpt", "xai"}:
+    if normalized_provider in {"chatgpt", "xai", "groq"}:
         from assessment_runtime.responses_client import models, ResponsesError
         resolved = runtime_base_url(normalized_provider, base_url)
         try:
@@ -448,7 +448,7 @@ def health_check(
     openrouter_app_title: str | None = None,
 ) -> dict[str, Any]:
     normalized_provider = normalize_provider(provider)
-    if normalized_provider in {"chatgpt", "xai"}:
+    if normalized_provider in {"chatgpt", "xai", "groq"}:
         from assessment_runtime.responses_client import models, ResponsesError
         resolved = runtime_base_url(normalized_provider, base_url)
         try:
@@ -495,7 +495,7 @@ def test_connection(
     normalized_provider = normalize_provider(provider)
     probe_prompt = "Reply with OK."
     probe_payload: dict[str, Any] = {"temperature": 0, "max_tokens": 8}
-    if normalized_provider in {"openrouter", "chatgpt", "xai"}:
+    if normalized_provider in {"openrouter", "chatgpt", "xai", "groq"}:
         # Check the actual rubric protocol, rather than accepting plain-chat
         # models which cannot satisfy assessment's strict schema requirements.
         probe_rubric = RubricResult(
@@ -522,7 +522,7 @@ def test_connection(
     if not isinstance(content, str):
         typename = type(content).__name__
         raise LLMClientError(f"Unexpected chat completion content type: expected text, got {typename}")
-    if normalized_provider in {"openrouter", "chatgpt", "xai"}:
+    if normalized_provider in {"openrouter", "chatgpt", "xai", "groq"}:
         try:
             rubric = RubricResult.from_dict(extract_json_object(content))
             validate_rubric_generation(rubric, None)

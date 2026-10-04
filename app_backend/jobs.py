@@ -228,7 +228,7 @@ def _job_worker(job_file: str, request_payload: dict[str, Any], audio_path: str,
 
     try:
         request_api_key = str(request_payload.get("llm_api_key") or "").strip()
-        if request_api_key and request_payload.get("provider") not in {"chatgpt", "xai"}:
+        if request_api_key and request_payload.get("provider") not in {"chatgpt", "xai", "groq"}:
             os.environ["LLM_API_KEY"] = request_api_key
             if request_payload.get("provider") == "openrouter":
                 os.environ["OPENROUTER_API_KEY"] = request_api_key

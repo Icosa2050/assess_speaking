@@ -105,7 +105,12 @@
     "local_first_intro": "Für den Einstieg eignet sich ein lokaler Anbieter. Ollama und LM Studio benötigen in der Regel keinen API-Schlüssel.",
     "show_advanced": "Cloud-Anbieter und weitere Optionen anzeigen",
     "hide_advanced": "Cloud-Anbieter und weitere Optionen ausblenden",
+    "groq_console": "API-Schlüssel in der Groq-Konsole erstellen",
     "provider_options": {
+      "groq": {
+        "label": "Groq (kostenloser Tarif verfügbar)",
+        "hint": "Erstelle ein Groq-Konto, kopiere einen API-Schlüssel, teste und speichere. Der kostenlose Tarif hat Nutzungslimits; lange oder wiederholte Versuche können sie überschreiten. Kostenpflichtige Konten werden von Groq abgerechnet."
+      },
       "ollama_local": {
         "label": "Ollama lokal",
         "hint": "Nutze ein installiertes Ollama-Modell wie `llama3` oder `llama3.2:3b`."

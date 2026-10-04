@@ -575,7 +575,7 @@ export const SpeakRoute = () => {
           translate={translate}
           warningMessage={
             runtime?.requires_api_key && !runtime.has_api_key
-              ? translate(runtime.provider === "chatgpt" || runtime.provider === "xai" ? "chatgpt.missing_access" : "speak.openrouter_missing_key")
+              ? translate(runtime.provider === "chatgpt" || runtime.provider === "xai" || runtime.provider === "groq" ? "chatgpt.missing_access" : "speak.openrouter_missing_key")
               : null
           }
         />

@@ -26,6 +26,7 @@ const PROVIDER_CHOICES = [
   "openrouter",
   "chatgpt",
   "xai",
+  "groq",
   "openai_compatible",
 ] as const;
 
@@ -36,6 +37,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Record<(typeof PROVIDER_CHOICES)[number], stri
   openrouter: "https://openrouter.ai/api/v1",
   chatgpt: "https://api.openai.com/v1",
   xai: "https://api.x.ai/v1",
+  groq: "https://api.groq.com/openai/v1",
   openai_compatible: "",
 };
 
@@ -67,6 +69,7 @@ const ADVANCED_PROVIDER_CHOICES = new Set<string>([
   "openrouter",
   "chatgpt",
   "xai",
+  "groq",
   "openai_compatible",
 ]);
 
@@ -302,12 +305,13 @@ export const RuntimeConnectionForm = ({
         normalizeBaseUrlForComparison(currentBaseUrl) ===
           normalizeBaseUrlForComparison(providerDefaultBaseUrl(previousProviderChoice));
 
+      const nextDefaultModel = nextProviderChoice === "groq" ? "openai/gpt-oss-120b" : "";
       return {
         ...current,
         provider_choice: nextProviderChoice,
         label: keepAutoLabel ? nextLabel : current.label,
-        model: currentProviderChanged ? "" : current.model,
-        base_url: (nextProviderChoice === "xai" || nextProviderChoice === "chatgpt" || keepAutoBaseUrl) ? providerDefaultBaseUrl(nextProviderChoice) : current.base_url,
+        model: currentProviderChanged ? nextDefaultModel : current.model,
+        base_url: (nextProviderChoice === "groq" || nextProviderChoice === "xai" || nextProviderChoice === "chatgpt" || keepAutoBaseUrl) ? providerDefaultBaseUrl(nextProviderChoice) : current.base_url,
         api_key:
           currentProviderChanged || (variant === "runtime-setup" && !nextProviderCanUseApiKey) ? "" : current.api_key,
       };
@@ -378,6 +382,8 @@ export const RuntimeConnectionForm = ({
             )}
           </button>
         ) : null}
+
+        {providerChoice === "groq" ? <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">{translate("runtime_setup.groq_console")}</a> : null}
 
         {providerChoice === "xai" ? <a href="https://console.x.ai" target="_blank" rel="noopener noreferrer">{translate("chatgpt.xai_console")}</a> : null}
 
@@ -468,7 +474,7 @@ export const RuntimeConnectionForm = ({
           </span>
           <input
             value={normalizedDraft.base_url}
-            readOnly={providerChoice === "xai"}
+            readOnly={providerChoice === "xai" || providerChoice === "groq"}
             onChange={(event) => updateDraft({ base_url: event.target.value })}
             placeholder={translate("runtime_setup.base_url_placeholder")}
             style={inputStyle}

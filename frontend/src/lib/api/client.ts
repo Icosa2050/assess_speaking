@@ -212,7 +212,7 @@ export const createApiClient = (baseUrl?: string) => ({
       {
         ...options,
         baseUrl,
-        timeoutMs: options?.timeoutMs ?? (["chatgpt", "xai"].includes(request.connection.provider_choice) ? 150_000 : LONG_RUNNING_TIMEOUT_MS),
+        timeoutMs: options?.timeoutMs ?? (["chatgpt", "xai", "groq"].includes(request.connection.provider_choice) ? 150_000 : LONG_RUNNING_TIMEOUT_MS),
         headers: {
           "Content-Type": "application/json",
         },

@@ -67,3 +67,38 @@ test("xAI uses API keys at its fixed endpoint; switching providers clears an ent
   await expect(page.getByTestId("runtime_connection.base_url")).toHaveAttribute("readonly", "");
   await expect(page.getByRole("link",{name:"Get an API key at the xAI console"})).toBeVisible();
 });
+
+for (const locale of ["en", "it"]) {
+  test(`Groq key setup, quota error and retry (${locale})`, async ({ page }) => {
+    let probes = 0;
+    await page.route("**/v1/runtime/settings", r => r.fulfill({json:{ui_locale:locale,whisper_model:"tiny",connections:[],active_connection_id:""}}));
+    await page.route("**/v1/runtime/settings/test-connection", async r => {
+      probes++;
+      expect(r.request().postDataJSON().connection).toMatchObject({provider_choice:"groq",model:"openai/gpt-oss-120b",base_url:"https://api.groq.com/openai/v1",api_key:"groq-fixture"});
+      if (probes === 1) {
+        await r.fulfill({status:502,json:{detail:{code:"runtime_error",detail:"Groq usage limit reached. Wait and retry."}}});
+      } else {
+        await r.fulfill({json:{provider:"groq",base_url:"https://api.groq.com/openai/v1",service_base_url:"https://api.groq.com/openai/v1",health_endpoint:"https://api.groq.com/openai/v1/models",discovered_models:["openai/gpt-oss-120b"],tested_at:"2026-10-04",content_preview:"Structured feedback verified"}});
+      }
+    });
+    await page.goto("/settings");
+    const select = page.getByTestId("runtime_connection.provider");
+    await select.selectOption("openrouter");
+    await page.getByTestId("runtime_connection.api_key").fill("unrelated-key");
+    await select.selectOption("groq");
+    await expect(page.getByTestId("runtime_connection.api_key")).toHaveValue("");
+    await expect(page.getByTestId("runtime_connection.base_url")).toHaveValue("https://api.groq.com/openai/v1");
+    await expect(page.getByTestId("runtime_connection.base_url")).toHaveAttribute("readonly", "");
+    await expect(page.getByTestId("runtime_connection.model")).toHaveValue("openai/gpt-oss-120b");
+    await expect(page.locator('a[href="https://console.groq.com/keys"]')).toBeVisible();
+    await page.getByTestId("runtime_connection.api_key").fill("groq-fixture");
+    await page.getByTestId("runtime_connection.test_connection").click();
+    await expect(page.getByTestId("runtime_connection.form_status")).toContainText("Groq usage limit reached");
+    await expect(page.getByTestId("runtime_connection.api_key")).toHaveValue("groq-fixture");
+    await page.getByTestId("runtime_connection.test_connection").click();
+    await expect(page.getByTestId("runtime_connection.form_status")).toContainText("Structured feedback verified");
+    expect(probes).toBe(2);
+    await select.selectOption("xai");
+    await expect(page.getByTestId("runtime_connection.api_key")).toHaveValue("");
+  });
+}
