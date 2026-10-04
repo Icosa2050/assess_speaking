@@ -722,6 +722,7 @@
     "saved_success": "Thema '{theme}' wurde gespeichert."
   },
   "settings": {
+    "load_failed": "Gespeicherte Einstellungen konnten nicht geladen werden. Du kannst weiterhin eine neue Verbindung einrichten.",
     "title": "Einstellungen",
     "body": "Wähle die Sprache der App und verwalte deine KI-Verbindungen.",
     "ui_locale": "Oberflächensprache",

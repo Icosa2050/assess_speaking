@@ -722,6 +722,7 @@
     "saved_success": "Le thème « {theme} » a été enregistré."
   },
   "settings": {
+    "load_failed": "Impossible de charger les paramètres enregistrés. Vous pouvez toujours configurer une nouvelle connexion.",
     "title": "Paramètres",
     "body": "La langue de l’interface et le choix du fournisseur se règlent indépendamment de tes exercices.",
     "ui_locale": "Langue de l’interface",

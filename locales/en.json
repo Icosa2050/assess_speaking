@@ -722,6 +722,7 @@
     "saved_success": "Theme '{theme}' was saved."
   },
   "settings": {
+    "load_failed": "Saved settings could not be loaded. You can still configure a new connection.",
     "title": "Settings",
     "body": "Choose the app language and manage your AI connections.",
     "ui_locale": "Interface language",

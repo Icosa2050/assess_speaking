@@ -722,6 +722,7 @@
     "saved_success": "Se ha guardado el tema «{theme}»."
   },
   "settings": {
+    "load_failed": "No se pudieron cargar los ajustes guardados. Aún puedes configurar una nueva conexión.",
     "title": "Ajustes",
     "body": "Configura el idioma de la interfaz y el proveedor de evaluación por separado de tus ejercicios.",
     "ui_locale": "Idioma de la interfaz",

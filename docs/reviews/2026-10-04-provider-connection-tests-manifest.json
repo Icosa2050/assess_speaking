@@ -1,0 +1,147 @@
+{
+  "date": "2026-10-04",
+  "scope": "Provider connection automation and Settings hydration recovery",
+  "total_files": 9,
+  "reviewed_files": 9,
+  "skipped_files": 0,
+  "coverage_rate": 1.0,
+  "files": [
+    {
+      "path": "frontend/src/routes/SettingsRoute.tsx",
+      "status": "modified",
+      "insertions": 10,
+      "deletions": 1,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/de.json",
+      "status": "modified",
+      "insertions": 1,
+      "deletions": 0,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/en.json",
+      "status": "modified",
+      "insertions": 1,
+      "deletions": 0,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/es.json",
+      "status": "modified",
+      "insertions": 1,
+      "deletions": 0,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/fr.json",
+      "status": "modified",
+      "insertions": 1,
+      "deletions": 0,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/it.json",
+      "status": "modified",
+      "insertions": 1,
+      "deletions": 0,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/playwright.connections.config.ts",
+      "status": "added",
+      "insertions": 32,
+      "deletions": 0,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/tests/connectionTeardown.ts",
+      "status": "added",
+      "insertions": 13,
+      "deletions": 0,
+      "review_status": "reviewed"
+    },
+    {
+      "path": "scripts/check_provider_connections.py",
+      "status": "added",
+      "insertions": 244,
+      "deletions": 0,
+      "review_status": "reviewed"
+    }
+  ],
+  "supplemental_review": [
+    "tests/test_provider_connection_checks.py",
+    "frontend/tests/e2e/providerLoginMethods.spec.ts",
+    "frontend/src/routes/tests/SettingsRoute.test.tsx",
+    "docs/testing/provider-connections.md"
+  ],
+  "live_results": [
+    {
+      "provider": "groq",
+      "model": "openai/gpt-oss-120b",
+      "status": "passed",
+      "checks": [
+        "save",
+        "reload",
+        "saved-connection inference",
+        "delete"
+      ]
+    },
+    {
+      "provider": "groq",
+      "model": "openai/gpt-oss-20b",
+      "status": "passed",
+      "checks": [
+        "save",
+        "reload",
+        "saved-connection inference",
+        "delete"
+      ]
+    },
+    {
+      "provider": "groq",
+      "model": "qwen/qwen3.8-27b",
+      "status": "passed",
+      "checks": [
+        "save",
+        "reload",
+        "saved-connection inference",
+        "delete"
+      ]
+    },
+    {
+      "provider": "openrouter",
+      "model": "openai/gpt-oss-120b",
+      "status": "passed",
+      "checks": [
+        "save",
+        "reload",
+        "saved-connection inference",
+        "delete"
+      ]
+    },
+    {
+      "provider": "ollama_local",
+      "model": "qwen3.5:4b",
+      "status": "passed",
+      "checks": [
+        "save",
+        "reload",
+        "saved-connection inference",
+        "delete"
+      ]
+    },
+    {
+      "provider": "lmstudio_local",
+      "model": "qwen2.5-3b-instruct",
+      "status": "passed",
+      "checks": [
+        "save",
+        "reload",
+        "saved-connection inference",
+        "delete"
+      ]
+    }
+  ]
+}

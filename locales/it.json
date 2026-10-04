@@ -722,6 +722,7 @@
     "saved_success": "Il tema '{theme}' è stato salvato."
   },
   "settings": {
+    "load_failed": "Impossibile caricare le impostazioni salvate. Puoi comunque configurare una nuova connessione.",
     "title": "Impostazioni",
     "body": "Scegli la lingua dell'interfaccia e il provider di valutazione, indipendentemente dagli esercizi.",
     "ui_locale": "Lingua dell'interfaccia",
