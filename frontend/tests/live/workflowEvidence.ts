@@ -24,7 +24,7 @@ export async function downloadRecording(page: Page, testInfo: TestInfo, name: st
   return { filename, sha256: sha256(bytes), bytes: bytes.length };
 }
 
-export async function playAndSeek(page: Page, selector: string) {
+export async function playAndSeek(page: Page, selector: string, minimumDurationSec = 10) {
   const audio = page.locator(selector);
   await audio.evaluate(async (el: HTMLAudioElement) => { await el.play(); });
   await expect.poll(() => audio.evaluate((el: HTMLAudioElement) => el.currentTime)).toBeGreaterThan(.1);
@@ -39,7 +39,7 @@ export async function playAndSeek(page: Page, selector: string) {
   await expect.poll(() => audio.evaluate((el: HTMLAudioElement) => el.seeking)).toBe(false);
   expect(await audio.evaluate((el: HTMLAudioElement) => el.currentTime)).toBeCloseTo(1, 1);
   const duration = await audio.evaluate((el: HTMLAudioElement) => el.duration);
-  expect(duration).toBeGreaterThan(10);
+  expect(duration).toBeGreaterThan(minimumDurationSec);
   return duration;
 }
 

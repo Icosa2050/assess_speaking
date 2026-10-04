@@ -1,0 +1,19 @@
+.page { display: grid; gap: 1.1rem; max-width: 64rem; margin: 0 auto; color: #10201c; }
+.page h1, .page h2, .page h3 { margin: 0 0 .6rem; }
+.page p, .page li { line-height: 1.65; }
+.page button, .page input, .page select { font: inherit; border: 1px solid #73988f; border-radius: 8px; padding: .7rem 1rem; min-height: 44px; }
+.page button { background: #0f766e; color: white; cursor: pointer; }
+.page button:disabled { opacity: .55; cursor: default; }
+.page button:focus-visible, .page a:focus-visible { outline: 3px solid #d99020; outline-offset: 3px; }
+.page label { display: grid; gap: .4rem; }
+.card { display: grid; gap: .8rem; padding: 1.4rem; border: 1px solid #cbded7; border-radius: 12px; background: #fff; }
+.eyebrow { text-transform: uppercase; letter-spacing: .09em; color: #33514b; font-weight: 700; font-size: .8rem; }
+.clock { font-variant-numeric: tabular-nums; font-size: 3rem; margin: 0; }
+.prompt { font-size: 1.2rem; }
+.metrics { display: flex; flex-wrap: wrap; gap: 2rem; margin: .5rem 0; }
+.metrics dd { margin: .3rem 0 0; font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+.saved { display: flex; gap: .6rem; flex-wrap: wrap; }
+.page progress { accent-color: #0f766e; }
+@media (max-width: 600px) { .card { padding: 1rem; } .metrics { gap: 1rem; } }
+
+.page fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }

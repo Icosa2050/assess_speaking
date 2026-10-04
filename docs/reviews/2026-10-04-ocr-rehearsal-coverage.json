@@ -1,0 +1,174 @@
+{
+  "date": "2026-10-04",
+  "method": "OCR delegate deterministic preview/rules, host source review and a separate approved Claude source-only review",
+  "total_files": 20,
+  "reviewed_files": 13,
+  "skipped_files": 7,
+  "coverage_rate": 0.65,
+  "accounted_for_rate": 1.0,
+  "checklist": [
+    {
+      "path": "frontend/src/App.tsx",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "43a1c01f79c055fbd5194070432767381842681ace691456a0c5ea1710619aeb"
+    },
+    {
+      "path": "frontend/src/components/speak/RecorderPanel.tsx",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "4df2bbc0b1cc0fb18045d502454359d8daa0b1b861714507c770330bf2dd3240"
+    },
+    {
+      "path": "frontend/tests/live/workflowEvidence.ts",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "6aa0ea79ec8f353b6b74d496e39c562d83b23df9d8138c64ed6fb647513d7a18"
+    },
+    {
+      "path": "locales/de.json",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "ec89a0ce2074eb91567f8ca77cdc347b74e325208eb33338fc8b20d24ba1e747"
+    },
+    {
+      "path": "locales/en.json",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "c66e43f4e5115e95485a48fe830acbc9d0a0f1d53e7336fdc55612fc36b30f5c"
+    },
+    {
+      "path": "locales/es.json",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "cafd49cbeda15418ac1da1868c64aa0ff51adfa4d4f41315fa3375365290c51b"
+    },
+    {
+      "path": "locales/fr.json",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "e91ce63d8ca71eb1dc0db294a535e9230854feb04aee9dc6cba3ba9feac781a1"
+    },
+    {
+      "path": "locales/it.json",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "d5acbcd8ff6a333afea1d86c1fe9f46a211d5f85ff6572984b20e24fe4d2b106"
+    },
+    {
+      "path": ".codegraph/.gitignore",
+      "status": "added",
+      "disposition": "skipped",
+      "reason": "Unrelated pre-existing user-owned tooling; excluded from the commit."
+    },
+    {
+      "path": "frontend/src/components/speak/RehearsalAudio.tsx",
+      "status": "added",
+      "disposition": "reviewed",
+      "sha256": "712581f2c3e7852b03e68333e114115af437bd7d831529466b31b1958a238a2d"
+    },
+    {
+      "path": "frontend/src/lib/rehearsal/session.ts",
+      "status": "added",
+      "disposition": "reviewed",
+      "sha256": "ac09cd19ba67a5901a62ad4a8de5e03594c730a646cfab7350378d7336c12615"
+    },
+    {
+      "path": "frontend/src/lib/rehearsal/storage.ts",
+      "status": "added",
+      "disposition": "reviewed",
+      "sha256": "074d4e4e42b07e2937d05d75bd90d32554e9db631480dbb968d5ab0103219a06"
+    },
+    {
+      "path": "frontend/src/routes/RehearsalRoute.module.css",
+      "status": "added",
+      "disposition": "reviewed",
+      "sha256": "06cabf9093e23a4c809f32aaaf86918cdb4b5576fb00c33f8c95bff4ad9c2ed3"
+    },
+    {
+      "path": "frontend/src/routes/RehearsalRoute.tsx",
+      "status": "added",
+      "disposition": "reviewed",
+      "sha256": "c47b2ef7311045b73d0e317ede1b0c96a4f1e754ec7be9d607eb743ecc2a8721"
+    },
+    {
+      "path": "package.json",
+      "status": "added",
+      "disposition": "skipped",
+      "reason": "Unrelated pre-existing user-owned tooling; excluded from the commit."
+    },
+    {
+      "path": "scripts/bootstrap_env.sh",
+      "status": "added",
+      "disposition": "skipped",
+      "reason": "Unrelated pre-existing user-owned tooling; excluded from the commit."
+    },
+    {
+      "path": "scripts/generate_b2_sample.sh",
+      "status": "added",
+      "disposition": "skipped",
+      "reason": "Unrelated pre-existing user-owned tooling; excluded from the commit."
+    },
+    {
+      "path": "scripts/generate_c1_sample.sh",
+      "status": "added",
+      "disposition": "skipped",
+      "reason": "Unrelated pre-existing user-owned tooling; excluded from the commit."
+    },
+    {
+      "path": "scripts/run_sample_workflow.py",
+      "status": "added",
+      "disposition": "skipped",
+      "reason": "Unrelated pre-existing user-owned tooling; excluded from the commit."
+    },
+    {
+      "path": "tests/data/sample_metrics.json",
+      "status": "added",
+      "disposition": "skipped",
+      "reason": "Unrelated pre-existing user-owned tooling; excluded from the commit."
+    }
+  ],
+  "additional_tests_reviewed": [
+    "frontend/src/lib/rehearsal/session.test.ts",
+    "frontend/src/components/speak/RecorderPanel.test.tsx",
+    "frontend/tests/journeys/timedRehearsal.spec.ts"
+  ],
+  "findings": [
+    {
+      "path": "frontend/src/lib/rehearsal/storage.ts",
+      "severity": "high",
+      "category": "bug",
+      "content": "Fixed: native revision checks prevent stale session writes and recording/manifest updates commit atomically."
+    },
+    {
+      "path": "frontend/src/routes/RehearsalRoute.tsx",
+      "severity": "high",
+      "category": "bug",
+      "content": "Fixed: browser analysis locks, fresh session reads, expired upload reset and invalid/expired job reset allow safe retry and prevent overlapping known-job analysis."
+    },
+    {
+      "path": "frontend/src/routes/RehearsalRoute.tsx",
+      "severity": "medium",
+      "category": "bug",
+      "content": "Fixed: pause waiting retains background job identity for later resumption; local playback/download does not depend on model success."
+    },
+    {
+      "path": "frontend/src/components/speak/RecorderPanel.tsx",
+      "severity": "medium",
+      "category": "bug",
+      "content": "Fixed: microphone cleanup covers recorder construction failure; error-generated partial chunks cannot become a successful attachment."
+    },
+    {
+      "path": "frontend/src/lib/rehearsal/session.ts",
+      "category": "bug",
+      "severity": "medium",
+      "content": "Fixed: narrative/opinion parts keep distinct task families; targeted retries preserve the original family and therefore comparable progress conditions."
+    }
+  ],
+  "remaining_limitations": [
+    "No new backend-wide idempotency for an ambiguous create-assessment network outcome.",
+    "Current unsaved recording is lost on navigation; completed browser parts persist subject to browser storage lifecycle.",
+    "App-authored solo rehearsal, not official paired exam administration.",
+    "Live small-model feedback quality remains unproven."
+  ]
+}

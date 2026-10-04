@@ -52,3 +52,7 @@ OCR delegate uses local deterministic file selection/rules and host review, with
 The live M4A comparison above is a **quality limitation**, not a passing strict assessment test. Prior sample-ASR and provider evidence remains dated in the migration/testing reports. This work does not implement a full oral-exam session or certify proficiency.
 
 Second Claude pass also identified non-answer typed content blocks, clause/exception scope and negated-correctness style claims; these were tightened with regressions. Runner assessment passes the transcript explicitly. Generic compatible/proxy endpoint configuration remains intentional; source-only helper review did not establish an unsolicited credential transfer through a production caller. The checks remain bounded, with topic/quotation ambiguity and semantic correctness outside their guarantees. The final guard refinements were tested with authored cases; the Ollama replay predates those additional tightenings.
+
+## Installed LM Studio follow-up
+
+Using the same retained `large-v3` transcriptions with the installed local `qwen2.5-7b-instruct` model also resulted in two guarded fallbacks: conflicting error/optional-style evidence on test1, and a non-transcript lexical-gap quotation on test2. This is not a confirmed quality alternative to the Ollama model. Evidence stays in ignored `frontend/output/live-journeys/20261004-long-audio-lmstudio`. No new model was downloaded and no learner content was sent to a cloud reviewer.

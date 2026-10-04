@@ -22,6 +22,10 @@ Remaining: the new four-dimension practice rating, full prompt-aware coaching, s
 
 Local usability follow-up: complete macOS/browser launcher, bounded multipart uploads with dynamic disk limits and recovery, one assessment at a time, LM Studio live verification, and WebKit upload/replay journeys are implemented. See [local practice readiness](../../reviews/2026-09-29-local-practice-readiness.md). Long-upload resume after app restart and full exam/conversation modes remain planned.
 
+### Timed solo rehearsal — 2026-10-04
+
+English/Italian B1/B2/C1 now have a timed, app-authored 15-minute rehearsal plan: shared preparation, three separately saved speaking parts, a combined per-part review and a linked targeted retry. IndexedDB retention, analysis recovery and tab-conflict protections are included. This does not implement a responsive examiner/partner or official CILS/telc administration profiles. See [implementation and verification](../../reviews/2026-10-04-timed-rehearsal.md). Local small-model feedback quality remains a separate documented limitation.
+
 **Canonical plan:** This replaces the earlier CEFR/upload and CILS-only plans. It also supersedes the product direction in `docs/MULTILINGUAL_CEFR_ASSESSMENT_PLAN.md`.
 
 ## 1. Product purpose and boundaries
