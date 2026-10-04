@@ -189,7 +189,7 @@ def _update_job_file(
     return current
 
 
-def _job_worker(job_file: str, request_payload: dict[str, Any], audio_path: str) -> None:
+def _job_worker(job_file: str, request_payload: dict[str, Any], audio_path: str, credentials=None) -> None:
     path = Path(job_file)
     _update_job_file(
         path,
@@ -210,9 +210,25 @@ def _job_worker(job_file: str, request_payload: dict[str, Any], audio_path: str)
             error=None,
         )
 
+    def current_access_token():
+        from assessment_runtime.llm_client import LLMClientError
+        try:
+            credentials.send("access-token")
+        except (EOFError, OSError):
+            raise LLMClientError("ChatGPT session connection ended. Reconnect your account.") from None
+        if not credentials.poll(60):
+            raise LLMClientError("ChatGPT session renewal timed out. Retry the assessment.")
+        try:
+            result = credentials.recv()
+        except (EOFError, OSError):
+            raise LLMClientError("ChatGPT session connection ended. Reconnect your account.") from None
+        if not result.get("token"):
+            raise LLMClientError(result.get("error") or "Reconnect your ChatGPT account.")
+        return result["token"]
+
     try:
         request_api_key = str(request_payload.get("llm_api_key") or "").strip()
-        if request_api_key:
+        if request_api_key and request_payload.get("provider") not in {"chatgpt", "xai"}:
             os.environ["LLM_API_KEY"] = request_api_key
             if request_payload.get("provider") == "openrouter":
                 os.environ["OPENROUTER_API_KEY"] = request_api_key
@@ -241,6 +257,7 @@ def _job_worker(job_file: str, request_payload: dict[str, Any], audio_path: str)
                 language_profile_key=request_payload.get("language_profile_key"),
                 feedback_language=request_payload.get("feedback_language"),
                 llm_base_url=request_payload.get("llm_base_url"),
+                llm_api_key=current_access_token if credentials is not None else (request_payload.get("llm_api_key") or None),
                 dry_run=bool(request_payload.get("dry_run", False)),
                 log_dir=Path(request_payload["log_dir"]),
                 label=request_payload.get("label", ""),
@@ -336,15 +353,15 @@ class JobManager:
             raise FileNotFoundError(f"Uploaded audio {audio_id} is not available anymore.")
         return candidate
 
-    def submit(self, request: AssessmentCreateRequest) -> AssessmentCreateResponse:
+    def submit(self, request: AssessmentCreateRequest, *, credential_ref: str = "") -> AssessmentCreateResponse:
         with self._submit_lock:
             if any(process.is_alive() for process in list(self._processes.values())):
                 raise AssessmentBusyError("Another attempt is still being analysed. Wait for it to finish or cancel it, then retry.")
             if upload_limits(self.uploads_dir)["available_bytes"] <= 0:
                 raise OSError("Not enough free disk space to analyse audio. Free some space and retry.")
-            return self._submit(request)
+            return self._submit(request, credential_ref=credential_ref)
 
-    def _submit(self, request: AssessmentCreateRequest) -> AssessmentCreateResponse:
+    def _submit(self, request: AssessmentCreateRequest, *, credential_ref: str = "") -> AssessmentCreateResponse:
         assessment_id = f"asmt_{uuid4().hex}"
         audio_path = self._resolve_audio_path(request.audio_id)
         worker_request = {
@@ -366,13 +383,58 @@ class JobManager:
         }
         job_file = _job_file(self._config.jobs_dir, assessment_id)
         _write_json(job_file, payload)
-        process = self._ctx.Process(
-            target=_job_worker,
-            args=(str(job_file), worker_request, str(audio_path.resolve())),
-        )
-        process.start()
+        parent = child = None
+        if request.provider == "chatgpt":
+            if not credential_ref:
+                raise ValueError("A saved ChatGPT account is required.")
+            parent, child = self._ctx.Pipe()
+            worker_request["llm_api_key"] = ""
+        args = (str(job_file), worker_request, str(audio_path.resolve()))
+        process = self._ctx.Process(target=_job_worker, args=(*args, child) if child is not None else args)
+        try:
+            process.start()
+        except BaseException:  # quality: allow[broad-except] close IPC handles on failed process creation, then re-raise
+            if parent is not None:
+                parent.close()
+                child.close()
+            raise
         self._processes[assessment_id] = process
+        if child is not None:
+            child.close()
+            threading.Thread(target=self._serve_credentials, args=(process, parent, credential_ref), daemon=True).start()
         return AssessmentCreateResponse(assessment_id=assessment_id, status=JobStatus.QUEUED)
+
+    @staticmethod
+    def _serve_credentials(process, channel, credential_ref):
+        from app_core.chatgpt_auth import access_token, ChatGPTAuthError
+        try:
+            while process.is_alive():
+                if not channel.poll(0.5):
+                    continue
+                if channel.recv() != "access-token":
+                    break
+                try:
+                    result = {"token": access_token(credential_ref)}
+                except ChatGPTAuthError as exc:
+                    result = {"error": str(exc)}
+                except (ValueError, TypeError, KeyError):
+                    result = {"error": "Reconnect your ChatGPT account."}
+                channel.send(result)
+        except (EOFError, BrokenPipeError, OSError):
+            pass  # Worker cancellation closes the pipe; no credentials are logged.
+        finally:
+            channel.close()
+
+    def has_active_provider(self, provider: str) -> bool:
+        return any(process.is_alive() and _read_json(_job_file(self._config.jobs_dir, assessment_id)).get('request', {}).get('provider') == provider
+                   for assessment_id, process in list(self._processes.items()))
+
+    def cancel_provider(self, provider: str) -> None:
+        with self._submit_lock:
+            for assessment_id in list(self._processes):
+                payload = _read_json(_job_file(self._config.jobs_dir, assessment_id))
+                if payload.get("request", {}).get("provider") == provider:
+                    self.cancel(assessment_id)
 
     def _reconcile_process(self, assessment_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         process = self._processes.get(assessment_id)

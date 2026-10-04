@@ -817,6 +817,7 @@ def run_assessment(
     min_word_count: Optional[int] = None,
     llm_timeout_sec: Optional[float] = None,
     llm_base_url: Optional[str] = None,
+    llm_api_key: str | Callable[[], str] | None = None,
     asr_compute_type: Optional[str] = None,
     asr_fallback_compute_type: Optional[str] = None,
     pause_threshold_offset_db: Optional[float] = None,
@@ -839,7 +840,7 @@ def run_assessment(
     chosen_min_words = min_word_count if min_word_count is not None else settings.min_word_count
     chosen_llm_timeout = llm_timeout_sec if llm_timeout_sec is not None else settings.llm_timeout_sec
     chosen_llm_base_url = _resolve_llm_base_url(chosen_provider, llm_base_url, settings)
-    chosen_llm_api_key = _resolve_llm_api_key(chosen_provider)
+    chosen_llm_api_key = llm_api_key if llm_api_key is not None else (None if chosen_provider in {"chatgpt", "xai"} else _resolve_llm_api_key(chosen_provider))
     chosen_asr_compute_type = asr_compute_type or settings.asr_compute_type
     chosen_asr_fallback = (
         settings.asr_fallback_compute_type

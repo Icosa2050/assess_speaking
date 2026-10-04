@@ -15,7 +15,7 @@ from app_core.state import (
     normalize_openrouter_http_referer,
 )
 from app_core.runtime_providers import normalize_provider, runtime_base_url
-from app_core.secret_store import get_secret
+from app_core.secret_store import get_secret, SessionSecretStore, SERVICE_NAME
 
 logger = logging.getLogger(__name__)
 _PROVIDER_API_KEY_ENV_NAMES = {
@@ -48,6 +48,11 @@ def _provider_env_api_key(provider: str) -> str:
 
 
 def _connection_api_key(connection: ProviderConnection, provider: str) -> str:
+    if provider == "chatgpt":
+        from app_core.chatgpt_auth import cached_access_token
+        return cached_access_token(connection.secret_ref)
+    if provider == "xai":
+        return (SessionSecretStore().get_secret(SERVICE_NAME, connection.secret_ref) or get_secret(connection.secret_ref)) if connection.secret_ref else ""
     if connection.secret_ref:
         secret = get_secret(connection.secret_ref)
         if secret:

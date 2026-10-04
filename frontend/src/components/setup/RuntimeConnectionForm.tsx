@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ChatGPTConnection } from "./ChatGPTConnection";
 
 import type { ConnectionSecretState, RuntimeConnectionDraft } from "@/lib/api/types";
 import { createTranslator, semanticAttributes, SEMANTIC_IDS } from "@/lib/i18n";
@@ -23,6 +24,8 @@ const PROVIDER_CHOICES = [
   "ollama_cloud",
   "lmstudio_local",
   "openrouter",
+  "chatgpt",
+  "xai",
   "openai_compatible",
 ] as const;
 
@@ -31,6 +34,8 @@ const PROVIDER_DEFAULT_BASE_URLS: Record<(typeof PROVIDER_CHOICES)[number], stri
   ollama_cloud: "https://ollama.com/api",
   lmstudio_local: "http://localhost:1234/v1",
   openrouter: "https://openrouter.ai/api/v1",
+  chatgpt: "https://api.openai.com/v1",
+  xai: "https://api.x.ai/v1",
   openai_compatible: "",
 };
 
@@ -60,6 +65,8 @@ const LOCAL_PROVIDER_CHOICES = new Set<string>(["ollama_local", "lmstudio_local"
 const ADVANCED_PROVIDER_CHOICES = new Set<string>([
   "ollama_cloud",
   "openrouter",
+  "chatgpt",
+  "xai",
   "openai_compatible",
 ]);
 
@@ -156,6 +163,7 @@ type RuntimeConnectionFormProps = {
   isBusy?: boolean;
   locale: UiLocale;
   onBack?: () => void;
+  onAccountConnected?: (id: string, notice?: string) => void;
   onDetectLocalModels?: (draft: RuntimeConnectionDraft) => void;
   onProviderChange?: (providerChoice: string) => void;
   onSave: (payload: { clearSavedSecret: boolean; draft: RuntimeConnectionDraft }) => void;
@@ -174,6 +182,7 @@ export const RuntimeConnectionForm = ({
   isBusy = false,
   locale,
   onBack,
+  onAccountConnected,
   onDetectLocalModels,
   onProviderChange,
   onSave,
@@ -242,7 +251,7 @@ export const RuntimeConnectionForm = ({
     variant === "settings" || showAdvancedProviders || selectedProviderIsAdvanced;
   const providerChoices =
     variant === "runtime-setup" && !advancedProvidersVisible
-      ? PROVIDER_CHOICES.filter((option) => LOCAL_PROVIDER_CHOICES.has(option))
+      ? PROVIDER_CHOICES.filter((option) => LOCAL_PROVIDER_CHOICES.has(option) || option === "chatgpt")
       : PROVIDER_CHOICES;
   const providerCanUseApiKey = !LOCAL_PROVIDER_CHOICES.has(providerChoice);
   const savedSecretPresent = initialSecretState === "present";
@@ -298,9 +307,9 @@ export const RuntimeConnectionForm = ({
         provider_choice: nextProviderChoice,
         label: keepAutoLabel ? nextLabel : current.label,
         model: currentProviderChanged ? "" : current.model,
-        base_url: keepAutoBaseUrl ? providerDefaultBaseUrl(nextProviderChoice) : current.base_url,
+        base_url: (nextProviderChoice === "xai" || nextProviderChoice === "chatgpt" || keepAutoBaseUrl) ? providerDefaultBaseUrl(nextProviderChoice) : current.base_url,
         api_key:
-          variant === "runtime-setup" && !nextProviderCanUseApiKey ? "" : current.api_key,
+          currentProviderChanged || (variant === "runtime-setup" && !nextProviderCanUseApiKey) ? "" : current.api_key,
       };
     });
     if (providerChanged) {
@@ -370,6 +379,8 @@ export const RuntimeConnectionForm = ({
           </button>
         ) : null}
 
+        {providerChoice === "xai" ? <a href="https://console.x.ai" target="_blank" rel="noopener noreferrer">{translate("chatgpt.xai_console")}</a> : null}
+
         {providerChoice === "ollama_cloud" ? (
           <p style={{ margin: 0, lineHeight: 1.55, color: "#33514b" }}>
             {translate("runtime_setup.ollama_cloud_note")}
@@ -383,6 +394,12 @@ export const RuntimeConnectionForm = ({
         ) : null}
       </section>
 
+      {providerChoice === "chatgpt" ? (
+        <ChatGPTConnection connectionId={normalizedInitialDraft.provider_choice === "chatgpt" ? normalizedInitialDraft.connection_id : ""}
+          locale={locale} onConnected={onAccountConnected} onTest={onTest}
+          onSave={(draft) => onSave({ draft, clearSavedSecret: false })}
+          testMessage={displayedStatusMessage} busy={isBusy} />
+      ) : <>
       <section style={sectionStyle}>
         {variant === "runtime-setup" ? (
           <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
@@ -451,6 +468,7 @@ export const RuntimeConnectionForm = ({
           </span>
           <input
             value={normalizedDraft.base_url}
+            readOnly={providerChoice === "xai"}
             onChange={(event) => updateDraft({ base_url: event.target.value })}
             placeholder={translate("runtime_setup.base_url_placeholder")}
             style={inputStyle}
@@ -672,6 +690,7 @@ export const RuntimeConnectionForm = ({
           ) : null}
         </div>
       </section>
+      </>}
     </div>
   );
 };

@@ -30,6 +30,7 @@ class AssessmentRunRequest:
     min_word_count: Optional[int] = None
     llm_timeout_sec: Optional[float] = None
     llm_base_url: Optional[str] = None
+    llm_api_key: str | Callable[[], str] | None = None
     asr_compute_type: Optional[str] = None
     asr_fallback_compute_type: Optional[str] = None
     pause_threshold_offset_db: Optional[float] = None
@@ -136,6 +137,7 @@ def execute_assessment_run(
         min_word_count=request.min_word_count,
         llm_timeout_sec=request.llm_timeout_sec,
         llm_base_url=request.llm_base_url,
+        llm_api_key=request.llm_api_key,
         asr_compute_type=request.asr_compute_type,
         asr_fallback_compute_type=request.asr_fallback_compute_type,
         pause_threshold_offset_db=request.pause_threshold_offset_db,

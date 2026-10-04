@@ -3,14 +3,16 @@ from __future__ import annotations
 import hashlib
 
 DEFAULT_PROVIDER = "openrouter"
-SUPPORTED_PROVIDERS = ("openrouter", "ollama", "lmstudio", "openai_compatible")
-SETUP_PROVIDER_CHOICES = ("ollama_local", "ollama_cloud", "lmstudio_local", "openrouter", "openai_compatible")
+SUPPORTED_PROVIDERS = ("openrouter", "ollama", "lmstudio", "openai_compatible", "chatgpt", "xai")
+SETUP_PROVIDER_CHOICES = ("ollama_local", "ollama_cloud", "lmstudio_local", "openrouter", "openai_compatible", "chatgpt", "xai")
 LEGACY_SETUP_PROVIDER_ALIASES = {
     "ollama": "ollama_local",
     "lmstudio": "lmstudio_local",
 }
 
 DEFAULT_BASE_URLS = {
+    "chatgpt": "https://api.openai.com/v1",
+    "xai": "https://api.x.ai/v1",
     "openrouter": "https://openrouter.ai/api/v1",
     "ollama": "http://localhost:11434/v1",
     "lmstudio": "http://localhost:1234/v1",
@@ -18,6 +20,8 @@ DEFAULT_BASE_URLS = {
 }
 
 DEFAULT_SETUP_BASE_URLS = {
+    "chatgpt": "https://api.openai.com/v1",
+    "xai": "https://api.x.ai/v1",
     "ollama_local": "http://localhost:11434",
     "ollama_cloud": "https://ollama.com/api",
     "lmstudio_local": "http://localhost:1234/v1",
@@ -53,6 +57,8 @@ def is_local_setup_choice(choice: str | None) -> bool:
 def default_connection_label(choice: str | None) -> str:
     candidate = str(choice or "").strip().lower()
     labels = {
+        "chatgpt": "ChatGPT",
+        "xai": "xAI Grok",
         "ollama_local": "Ollama Local",
         "ollama_cloud": "Ollama Cloud",
         "lmstudio_local": "LM Studio Local",
@@ -77,6 +83,11 @@ def default_setup_base_url(choice: str | None) -> str:
 
 def resolved_base_url(provider: str | None, base_url: str | None) -> str:
     candidate = str(base_url or "").strip()
+    if normalize_provider(provider) in {"chatgpt", "xai"}:
+        expected = default_base_url(provider)
+        if candidate and candidate.rstrip("/") != expected:
+            raise ValueError("This provider requires its official API endpoint.")
+        return expected
     if candidate:
         return candidate.rstrip("/")
     default = default_base_url(provider)
@@ -109,7 +120,7 @@ def supports_optional_bearer_token(provider: str | None) -> bool:
 
 
 def requires_api_key(provider: str | None) -> bool:
-    return normalize_provider(provider) == "openrouter"
+    return normalize_provider(provider) in {"openrouter", "chatgpt", "xai"}
 
 
 def secret_account_name(provider: str | None, base_url: str | None) -> str:

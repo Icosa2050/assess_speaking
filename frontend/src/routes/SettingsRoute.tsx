@@ -324,7 +324,8 @@ export const SettingsRoute = () => {
       setSelectedConnectionId(response.active_connection_id || draft.connection_id || "__new__");
       setNewConnectionInitialDraft(null);
       setFormStatus("saved");
-      setFormStatusMessage(translate("settings.saved"));
+      const saved = response.connections.find(c => c.connection_id === response.active_connection_id);
+      setFormStatusMessage(translate(saved?.provider_metadata.persistent === false ? "runtime_setup.save_success_session_only" : "settings.saved"));
       await handleInvalidateRuntime();
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
@@ -558,6 +559,11 @@ export const SettingsRoute = () => {
       </section>
 
       <RuntimeConnectionForm
+        onAccountConnected={(id, notice) => {
+          if (!id) setNewConnectionInitialDraft(buildDefaultDraft(translate, "chatgpt"));
+          setSelectedConnectionId(id || "__new__");
+          if (notice) setFormStatusMessage(notice);
+        }}
         initialDraft={initialDraft}
         initialSecretState={initialSecretState}
         isBusy={isBusy}

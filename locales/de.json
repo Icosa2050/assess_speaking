@@ -125,6 +125,14 @@
       "openai_compatible": {
         "label": "OpenAI-kompatibel",
         "hint": "Gib die Modell-ID ein, die dein OpenAI-kompatibler Endpunkt bereitstellt."
+      },
+      "chatgpt": {
+        "label": "ChatGPT",
+        "hint": "Melde dich mit einem berechtigten ChatGPT-Plus- oder Pro-Konto an. Modelle und Nutzungslimits hängen von deinem Tarif ab."
+      },
+      "xai": {
+        "label": "xAI Grok (API)",
+        "hint": "Verbinde einen xAI-API-Schlüssel mit API-Guthaben. Grok-Abonnements stellen diesen API-Zugang nicht bereit. Transkripte und Übungskontext werden für Feedback an xAI gesendet."
       }
     },
     "ollama_cloud_note": "Die verfügbaren Modelle und die benötigten Zugangsdaten können sich zwischen Ollama Cloud und einer lokalen Installation unterscheiden.",
@@ -896,5 +904,24 @@
     "locking_unavailable": "This browser cannot safely resume analysis. Use a modern browser on localhost.",
     "locked": "Analysis is active in another tab. Wait, then reopen this rehearsal.",
     "pause_analysis": "Pause waiting (background analysis continues)"
+  },
+  "chatgpt": {
+    "title": "ChatGPT-Konto verwenden",
+    "description": "Melde dich mit einem berechtigten ChatGPT-Plus- oder Pro-Konto an. Modelle und Nutzungslimits hängen von deinem Tarif ab.",
+    "sharing": "Für Feedback sendet Vostavo das Transkript und den Übungskontext an OpenAI. Die Audiotranskription bleibt auf deinem Computer.",
+    "sign_in": "Mit ChatGPT fortfahren",
+    "reconnect": "ChatGPT erneut verbinden",
+    "open_browser": "Im Browser fortfahren",
+    "waiting": "Fahre im Browser fort und kehre dann hierher zurück. Die Anmeldung läuft nach 10 Minuten ab.",
+    "cancel": "Anmeldung abbrechen",
+    "cancelled": "Anmeldung abgebrochen.",
+    "connected": "Verbunden. Wähle ein Modell und teste das Feedback.",
+    "session_only": "Nur für diese Sitzung verbunden. Sicherer Speicher ist nicht verfügbar; melde dich nach dem Neustart erneut an.",
+    "saved": "Der Kontozugang ist im sicheren Systemspeicher gespeichert.",
+    "disconnect": "ChatGPT trennen",
+    "disconnected": "ChatGPT getrennt.",
+    "revocation_unconfirmed": "Lokal getrennt. Der entfernte Widerruf oder das Löschen im sicheren Speicher konnte nicht bestätigt werden. Entferne Vostavos Zugriff in deinen ChatGPT-Kontoeinstellungen.",
+    "xai_console": "API-Schlüssel in der xAI-Konsole erstellen",
+    "missing_access": "Verbinde den ausgewählten KI-Dienst in den Einstellungen erneut, bevor du Feedback anforderst."
   }
 }

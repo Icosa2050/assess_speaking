@@ -125,6 +125,14 @@
       "openai_compatible": {
         "label": "Generic OpenAI-compatible",
         "hint": "Enter the model id your OpenAI-compatible endpoint exposes."
+      },
+      "chatgpt": {
+        "label": "ChatGPT",
+        "hint": "Sign in with an eligible ChatGPT Plus or Pro account. Available models and usage allowance come from your plan."
+      },
+      "xai": {
+        "label": "xAI Grok (API)",
+        "hint": "Connect with an xAI API key and API credits. Grok subscriptions do not provide this API connection. Transcripts and exercise context are sent to xAI for feedback."
       }
     },
     "ollama_cloud_note": "Cloud endpoints can expose different models and auth behavior than local Ollama.",
@@ -896,5 +904,24 @@
     "locking_unavailable": "This browser cannot safely resume analysis. Use a modern browser on localhost.",
     "locked": "Analysis is active in another tab. Wait, then reopen this rehearsal.",
     "pause_analysis": "Pause waiting (background analysis continues)"
+  },
+  "chatgpt": {
+    "title": "Use your ChatGPT account",
+    "description": "Sign in with an eligible ChatGPT Plus or Pro account. Available models and usage allowance come from your plan.",
+    "sharing": "For feedback, Vostavo sends the transcript and exercise context to OpenAI. Audio transcription stays on your computer.",
+    "sign_in": "Continue with ChatGPT",
+    "reconnect": "Reconnect ChatGPT",
+    "open_browser": "Continue in your browser",
+    "waiting": "Continue in your browser, then return here. Sign-in expires after 10 minutes.",
+    "cancel": "Cancel sign-in",
+    "cancelled": "Sign-in cancelled.",
+    "connected": "Connected. Choose a model and test feedback.",
+    "session_only": "Connected for this app session only. Secure storage is unavailable; sign in again after restarting.",
+    "saved": "Account access is saved in secure system storage.",
+    "disconnect": "Disconnect ChatGPT",
+    "disconnected": "ChatGPT disconnected.",
+    "revocation_unconfirmed": "Disconnected locally. Remote revocation or secure-storage cleanup could not be confirmed. Remove Vostavo access in your ChatGPT account settings.",
+    "xai_console": "Get an API key at the xAI console",
+    "missing_access": "Reconnect the selected AI service in Settings before requesting feedback."
   }
 }

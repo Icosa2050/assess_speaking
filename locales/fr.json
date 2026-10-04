@@ -125,6 +125,14 @@
       "openai_compatible": {
         "label": "Service générique compatible OpenAI",
         "hint": "Saisis l’identifiant du modèle proposé par ton point de terminaison compatible OpenAI."
+      },
+      "chatgpt": {
+        "label": "ChatGPT",
+        "hint": "Connectez-vous avec un compte ChatGPT Plus ou Pro éligible. Les modèles et limites dépendent de votre abonnement."
+      },
+      "xai": {
+        "label": "xAI Grok (API)",
+        "hint": "Connectez une clé API xAI avec des crédits API. Les abonnements Grok ne fournissent pas cette connexion API. La transcription et le contexte sont envoyés à xAI pour les conseils."
       }
     },
     "ollama_cloud_note": "Les points de terminaison cloud peuvent proposer d’autres modèles et d’autres méthodes d’authentification qu’Ollama en local.",
@@ -896,5 +904,24 @@
     "locking_unavailable": "This browser cannot safely resume analysis. Use a modern browser on localhost.",
     "locked": "Analysis is active in another tab. Wait, then reopen this rehearsal.",
     "pause_analysis": "Pause waiting (background analysis continues)"
+  },
+  "chatgpt": {
+    "title": "Utilisez votre compte ChatGPT",
+    "description": "Connectez-vous avec un compte ChatGPT Plus ou Pro éligible. Les modèles et limites dépendent de votre abonnement.",
+    "sharing": "Pour fournir des conseils, Vostavo envoie la transcription et le contexte de l’exercice à OpenAI. La transcription audio reste sur votre ordinateur.",
+    "sign_in": "Continuer avec ChatGPT",
+    "reconnect": "Reconnecter ChatGPT",
+    "open_browser": "Continuer dans le navigateur",
+    "waiting": "Continuez dans le navigateur, puis revenez ici. La connexion expire après 10 minutes.",
+    "cancel": "Annuler la connexion",
+    "cancelled": "Connexion annulée.",
+    "connected": "Connecté. Choisissez un modèle et testez les conseils.",
+    "session_only": "Connecté pour cette session uniquement. Le stockage sécurisé est indisponible ; reconnectez-vous après le redémarrage.",
+    "saved": "L’accès est enregistré dans le stockage sécurisé du système.",
+    "disconnect": "Déconnecter ChatGPT",
+    "disconnected": "ChatGPT déconnecté.",
+    "revocation_unconfirmed": "Déconnecté localement. La révocation distante ou l’effacement du stockage sécurisé n’a pas pu être confirmé. Supprimez l’accès de Vostavo dans les paramètres ChatGPT.",
+    "xai_console": "Obtenir une clé API dans la console xAI",
+    "missing_access": "Reconnectez le service d’IA sélectionné dans les paramètres avant de demander des conseils."
   }
 }
