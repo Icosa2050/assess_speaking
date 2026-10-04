@@ -216,7 +216,7 @@ describe("History route", () => {
     expect(await screen.findByRole("heading", { name: "Set up today's speaking practice" })).toBeVisible();
   });
 
-  it("waits for refreshed history before choosing the new practice language", async () => {
+  it("shows all languages on refresh and preserves an explicit filter", async () => {
     const queryClient = createQueryClient();
     queryClient.setQueryData(queryKeys.history, { items: historyRows.filter(row => row.learning_language === "en") });
     await queryClient.invalidateQueries({ queryKey: queryKeys.history });
@@ -226,22 +226,31 @@ describe("History route", () => {
       initialEntries: ["/history"], locale: "en", appState: validDraftState, queryClient,
     });
     await waitFor(() => expect(mockedGetHistory).toHaveBeenCalled());
+    expect(mockedGetHistoryDetail).not.toHaveBeenCalled();
     await act(async () => finish({ items: historyRows }));
-    await waitFor(() => expect(screen.getByTestId("history-language-filter")).toHaveValue("it"));
-    // Explicitly selecting all languages must survive subsequent refreshes.
-    fireEvent.change(screen.getByTestId("history-language-filter"), { target: { value: "__all__" } });
+    await waitFor(() => expect(mockedGetHistoryDetail).toHaveBeenCalledWith("s4"));
+    await waitFor(() => expect(screen.getByTestId("history-language-filter")).toHaveValue("__all__"));
+    // Explicit filtering must survive subsequent refreshes.
+    fireEvent.change(screen.getByTestId("history-language-filter"), { target: { value: "it" } });
     await act(async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.history }); });
-    expect(screen.getByTestId("history-language-filter")).toHaveValue("__all__");
+    expect(screen.getByTestId("history-language-filter")).toHaveValue("it");
   });
 
-  it("defaults the language filter to the current draft language and scopes to the current speaker", async () => {
+  it("shows every saved review first and allows explicit learner and language filters", async () => {
     renderWithProviders(<AppFrame />, {
       initialEntries: ["/history"],
       locale: "en",
       appState: validDraftState,
     });
 
-    expect(await screen.findByTestId("history-language-filter")).toHaveValue("it");
+    await screen.findByTestId("history-attempts-list");
+    expect(screen.getByTestId("history-language-filter")).toHaveValue("__all__");
+    expect(screen.getByTestId("history-speaker-filter")).toHaveValue("");
+    expect(within(screen.getByTestId("history-attempts-list")).getAllByRole("listitem")).toHaveLength(4);
+    expect(screen.getByTestId("history-attempt-card-s1")).toHaveTextContent("anna");
+    expect(screen.getByTestId("history-attempt-card-s3")).toHaveTextContent("English");
+    fireEvent.change(screen.getByTestId("history-speaker-filter"), { target: { value: "bern" } });
+    fireEvent.change(screen.getByTestId("history-language-filter"), { target: { value: "it" } });
     expect(screen.getByTestId("history-scope-caption")).toHaveTextContent(
       "Saved attempts for bern in Italian: 2.",
     );
@@ -249,17 +258,26 @@ describe("History route", () => {
     expect(screen.getByTestId("practice-legacy")).toBeVisible();
     expect(screen.getByTestId("practice-comparison")).toHaveTextContent("No earlier comparable attempt");
     expect(screen.queryByRole("img", { name: "Overall performance" })).not.toBeInTheDocument();
-    expect(screen.getByTestId("history-attempts-row-s4")).toBeVisible();
-    expect(screen.queryByTestId("history-attempts-row-s3")).not.toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Timestamp" })).toHaveAttribute("scope", "col");
-    expect(screen.getByRole("columnheader", { name: "Language" })).toHaveAttribute("scope", "col");
-    expect(screen.getByTestId("history-attempts-mobile-list")).toBeVisible();
+    expect(screen.getByTestId("history-attempt-card-s4")).toBeVisible();
+    expect(screen.queryByTestId("history-attempt-card-s3")).not.toBeInTheDocument();
+    expect(screen.getByTestId("history-attempts-list")).toBeVisible();
     expect(screen.getByTestId("history-attempt-card-s4")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("history-attempt-card-s4")).toHaveTextContent("Holiday return");
     expect(screen.getByTestId("history-attempt-card-s4")).toHaveTextContent("Score 4.2");
-    expect(screen.getByTestId("history-attempt-card-s4")).toHaveTextContent("Band 5");
     expect(screen.getByTestId("history-attempt-card-s4")).toHaveTextContent("Done");
     expect(screen.getByTestId("history-attempt-card-s2")).toHaveTextContent("Spring trip");
+  });
+
+  it("keeps filters available when nothing matches and can restore the complete list", async () => {
+    renderWithProviders(<AppFrame />, { initialEntries: ["/history"], locale: "en", appState: validDraftState });
+    await screen.findByTestId("history-attempts-list");
+    fireEvent.change(screen.getByTestId("history-speaker-filter"), { target: { value: "anna" } });
+    fireEvent.change(screen.getByTestId("history-language-filter"), { target: { value: "en" } });
+    expect(screen.getByTestId("history-empty-filtered")).toBeVisible();
+    expect(screen.getByTestId("history-speaker-filter")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(within(screen.getByTestId("history-attempts-list")).getAllByRole("listitem")).toHaveLength(4);
+    expect(await screen.findByTestId("history-detail-panel")).toBeVisible();
   });
 
   it("does not pull other learners or languages into the journal through blank legacy IDs", async () => {
@@ -269,8 +287,11 @@ describe("History route", () => {
       { ...historyRows[0], session_id: "", speaker_id: "bern", learning_language: "en", report_path: "" },
     ] });
     renderWithProviders(<AppFrame />, { initialEntries: ["/history"], locale: "en", appState: validDraftState });
-    await waitFor(() => expect(screen.getByTestId("history-language-filter")).toHaveValue("it"));
+    await screen.findByTestId("history-attempts-list");
+    fireEvent.change(screen.getByTestId("history-speaker-filter"), { target: { value: "bern" } });
+    fireEvent.change(screen.getByTestId("history-language-filter"), { target: { value: "it" } });
     expect(screen.getByTestId("practice-progress")).toHaveTextContent("Attempts: 1");
+    expect(mockedGetHistoryDetail).not.toHaveBeenCalled();
   });
 
   it("explains an unavailable retry parent without calling it a first attempt", async () => {
@@ -325,7 +346,7 @@ describe("History route", () => {
       expect(screen.getByTestId("history-attempt-card-s4")).toHaveAttribute("aria-pressed", "true");
     });
 
-    fireEvent.click(screen.getByTestId("history-jump-1"));
+    fireEvent.click(screen.getByTestId("history-attempt-card-s2"));
 
     await waitFor(() => {
       expect(screen.getByTestId("history-detail-caption")).toHaveTextContent("Showing saved report s2");

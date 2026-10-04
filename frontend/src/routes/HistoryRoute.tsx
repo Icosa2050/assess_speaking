@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { HistoryDetailPanel } from "@/components/history/HistoryDetailPanel";
+import historyStyles from "./HistoryRoute.module.css";
 import { HistoryList } from "@/components/history/HistoryList";
 import { PracticeProgress } from "@/components/history/PracticeProgress";
 import { measurement, retryDraft } from "@/lib/history/practiceProgress";
@@ -62,6 +63,7 @@ type HistoryViewRecord = {
   durationPass: boolean | null;
   finalScore: number | null;
   grammarErrorCategories: string[];
+  goal: string;
   languageCode: string;
   languageLabel: string;
   languagePass: boolean | null;
@@ -125,20 +127,6 @@ const formatTimestamp = (value: string, locale: string): string => {
   }).format(parsed);
 };
 
-const formatJumpTimestamp = (value: string, locale: string): string => {
-  const parsed = parseTimestamp(value);
-  if (!parsed) {
-    return value || "-";
-  }
-
-  return new Intl.DateTimeFormat(locale, {
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    month: "2-digit",
-  }).format(parsed);
-};
-
 const statusShortLabel = (
   record: Pick<HistoryViewRecord, "durationPass" | "languagePass" | "minWordsPass" | "requiresHumanReview" | "topicPass">,
   translate: ReturnType<typeof createTranslator>,
@@ -196,6 +184,7 @@ const normalizeHistoryRecord = (
     grammarErrorCategories: Array.isArray(row.grammar_error_categories)
       ? row.grammar_error_categories.map(String).filter(Boolean)
       : [],
+    goal: String(row.practice?.goal || ""),
     languageCode,
     languageLabel: languageLabel(languageCode, translate),
     languagePass: safeBool(row.language_pass),
@@ -284,11 +273,12 @@ export const formatTrendSummary = (
 export const HistoryRoute = () => {
   const navigate = useNavigate();
   const locale = useAppStore((state) => state.preferences.uiLocale);
-  const draft = useAppStore((state) => state.draft);
   const applySetup = useAppStore((state) => state.applySetup);
   const setCurrentPage = useAppStore((state) => state.setCurrentPage);
   const translate = useMemo(() => createTranslator(locale), [locale]);
-  const speakerScope = String(draft.speakerId || "").trim();
+  const [speakerScope, setSpeakerScope] = useState("");
+  const speakerFilterRef = useRef<HTMLSelectElement>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
 
   const historyQuery = useQuery({
     queryKey: queryKeys.history,
@@ -299,69 +289,44 @@ export const HistoryRoute = () => {
     setCurrentPage("history");
   }, [setCurrentPage]);
 
-  const scopedRecords = useMemo(() => {
+  const allRecords = useMemo(() => {
     const rows = historyQuery.data?.items ?? [];
     const normalized = rows.map((row) => normalizeHistoryRecord(row, locale, translate))
       .sort((a, b) => (a.timestampDate?.getTime() ?? 0) - (b.timestampDate?.getTime() ?? 0));
 
-    return speakerScope
-      ? normalized.filter((row) => row.speakerId === speakerScope)
-      : normalized;
-  }, [historyQuery.data?.items, locale, speakerScope, translate]);
+    return normalized;
+  }, [historyQuery.data?.items, locale, translate]);
+
+  const availableSpeakers = useMemo(() => [...new Set(allRecords.map((row) => row.speakerId).filter(Boolean))].sort(), [allRecords]);
 
   const availableLanguages = useMemo(
-    () => [...new Set(scopedRecords.map((row) => row.languageCode).filter(Boolean))].sort(),
-    [scopedRecords],
+    () => [...new Set(allRecords.map((row) => row.languageCode).filter(Boolean))].sort(),
+    [allRecords],
   );
-  const preferredLanguage = String(draft.learningLanguage || "").trim().toLowerCase();
   const [selectedLanguage, setSelectedLanguage] = useState<string>(ALL_HISTORY_LANGUAGES);
-  const [hasInitializedLanguage, setHasInitializedLanguage] = useState(false);
   const [selectedSessionId, setSelectedSessionId] = useState("");
 
   useEffect(() => {
-    if (availableLanguages.length === 0) {
-      setSelectedLanguage(ALL_HISTORY_LANGUAGES);
-      setHasInitializedLanguage(false);
-      return;
-    }
-
-    if (!hasInitializedLanguage) {
-      // A cached list may predate the just-completed attempt in a new language.
-      if (historyQuery.isFetching) return;
-      setSelectedLanguage(
-        preferredLanguage && availableLanguages.includes(preferredLanguage)
-          ? preferredLanguage
-          : ALL_HISTORY_LANGUAGES,
-      );
-      setHasInitializedLanguage(true);
-      return;
-    }
-
-    if (selectedLanguage === ALL_HISTORY_LANGUAGES || availableLanguages.includes(selectedLanguage)) {
-      return;
-    }
-
-    setSelectedLanguage(
-      preferredLanguage && availableLanguages.includes(preferredLanguage)
-        ? preferredLanguage
-        : ALL_HISTORY_LANGUAGES,
-    );
-  }, [availableLanguages, hasInitializedLanguage, historyQuery.isFetching, preferredLanguage, selectedLanguage]);
+    if (historyQuery.isFetching || !historyQuery.data) return;
+    if (speakerScope && !availableSpeakers.includes(speakerScope)) setSpeakerScope("");
+    if (selectedLanguage !== ALL_HISTORY_LANGUAGES && !availableLanguages.includes(selectedLanguage)) setSelectedLanguage(ALL_HISTORY_LANGUAGES);
+  }, [availableLanguages, availableSpeakers, speakerScope, selectedLanguage, historyQuery.isFetching, historyQuery.data]);
 
   const filteredRecords = useMemo(
-    () =>
-      selectedLanguage === ALL_HISTORY_LANGUAGES
-        ? scopedRecords
-        : scopedRecords.filter((row) => row.languageCode === selectedLanguage),
-    [scopedRecords, selectedLanguage],
+    () => allRecords.filter((row) =>
+      (!speakerScope || row.speakerId === speakerScope) &&
+      (selectedLanguage === ALL_HISTORY_LANGUAGES || row.languageCode === selectedLanguage)),
+    [allRecords, selectedLanguage, speakerScope],
   );
 
   const detailRecords = useMemo(
-    () => filteredRecords.filter((row) => row.reportPath.trim().length > 0).slice().reverse(),
+    () => filteredRecords.filter((row) => row.reportPath.trim().length > 0 && row.sessionId.trim().length > 0).slice().reverse(),
     [filteredRecords],
   );
 
   useEffect(() => {
+    // Cached history can predate the attempt that just finished. Choose only after refresh.
+    if (historyQuery.isFetching) return;
     if (detailRecords.length === 0) {
       setSelectedSessionId("");
       return;
@@ -370,7 +335,7 @@ export const HistoryRoute = () => {
     if (!detailRecords.some((row) => row.sessionId === selectedSessionId)) {
       setSelectedSessionId(detailRecords[0].sessionId);
     }
-  }, [detailRecords, selectedSessionId]);
+  }, [detailRecords, selectedSessionId, historyQuery.isFetching]);
 
   const selectedRecord =
     detailRecords.find((row) => row.sessionId === selectedSessionId) ?? null;
@@ -391,7 +356,7 @@ export const HistoryRoute = () => {
     );
   }
 
-  if (!historyQuery.isPending && scopedRecords.length === 0) {
+  if (!historyQuery.isPending && allRecords.length === 0) {
     return (
       <section style={cardStyle} data-testid="history-empty" data-semantic-id="history-empty">
         <h2 style={{ margin: 0, fontSize: "1.5rem", color: "#10201c" }}>{translate("history.empty_title")}</h2>
@@ -409,17 +374,11 @@ export const HistoryRoute = () => {
     );
   }
 
-  if (!historyQuery.isPending && filteredRecords.length === 0) {
-    return (
-      <section style={cardStyle} data-testid="history-empty-filtered" data-semantic-id="history-empty-filtered">
-        <h2 style={{ margin: 0, fontSize: "1.5rem", color: "#10201c" }}>{translate("history.title")}</h2>
-        <p style={{ margin: 0, color: "#33514b", lineHeight: 1.6 }}>{translate("history.empty_filtered")}</p>
-      </section>
-    );
-  }
-
   // Legacy session IDs can be blank: apply the scope to rows, not an ID-based join.
-  const practiceRows = (historyQuery.data?.items ?? []).filter((row) =>
+  const practiceRows = (historyQuery.data?.items ?? []).map(row => ({ ...row,
+    learning_language: String(row.learning_language || "").trim().toLowerCase(),
+    top_priorities: Array.isArray(row.top_priorities) ? row.top_priorities : [],
+  })).filter((row) =>
     (!speakerScope || String(row.speaker_id || "") === speakerScope) &&
     (selectedLanguage === ALL_HISTORY_LANGUAGES || String(row.learning_language || "").trim().toLowerCase() === selectedLanguage),
   );
@@ -434,33 +393,43 @@ export const HistoryRoute = () => {
       data-testid="history-route"
       data-semantic-id="history-route"
     >
-      <section style={cardStyle}>
-        <h2 style={{ margin: 0, fontSize: "1.5rem", color: "#10201c" }}>{translate("history.title")}</h2>
-        <p style={{ margin: 0, color: "#33514b", lineHeight: 1.6 }}>{translate("history.body")}</p>
-      </section>
-
-      {availableLanguages.length > 0 ? (
-        <section style={cardStyle}>
-          <label style={{ display: "grid", gap: "0.375rem", color: "#10201c", fontWeight: 600 }}>
-            <span>{translate("history.language_filter")}</span>
-            <select
-              value={selectedLanguage}
-              onChange={(event) => setSelectedLanguage(event.currentTarget.value)}
-              style={selectStyle}
-              data-testid="history-language-filter"
-              data-semantic-id="history-language-filter"
-            >
-              <option value={ALL_HISTORY_LANGUAGES}>{translate("history.language_filter_all")}</option>
-              {availableLanguages.map((language) => (
-                <option key={language} value={language}>
-                  {languageLabel(language, translate)}
-                </option>
-              ))}
+      <section className={historyStyles.header}>
+        <div className={historyStyles.heading}>
+          <div>
+            <h2>{translate("journey.headline")}</h2>
+            <p>{translate("history.body")}</p>
+          </div>
+          <button type="button" style={primaryButtonStyle} onClick={() => navigate("/session-setup")}>
+            {translate("history.new_practice")}
+          </button>
+        </div>
+        <div className={historyStyles.filters}>
+          <label>
+            <span>{translate("history.speaker_filter")}</span>
+            <select ref={speakerFilterRef} disabled={historyQuery.isPending} value={speakerScope} onChange={(event) => setSpeakerScope(event.currentTarget.value)} style={selectStyle} data-testid="history-speaker-filter">
+              <option value="">{translate("history.speaker_filter_all")}</option>
+              {availableSpeakers.map((speaker) => <option key={speaker} value={speaker}>{speaker}</option>)}
             </select>
           </label>
-        </section>
-      ) : null}
-
+          <label>
+            <span>{translate("history.language_filter")}</span>
+            <select disabled={historyQuery.isPending} value={selectedLanguage} onChange={(event) => setSelectedLanguage(event.currentTarget.value)} style={selectStyle} data-testid="history-language-filter">
+              <option value={ALL_HISTORY_LANGUAGES}>{translate("history.language_filter_all")}</option>
+              {availableLanguages.map((language) => <option key={language} value={language}>{languageLabel(language, translate)}</option>)}
+            </select>
+          </label>
+        </div>
+        <p data-testid="history-scope-caption" aria-live="polite">
+          {scopeCaption({ count: filteredRecords.length, selectedLanguage, speakerScope, translate })}
+        </p>
+      </section>
+      {historyQuery.isPending ? <p role="status">{translate("journey.loading")}</p> :
+        filteredRecords.length === 0 ? <section style={cardStyle} data-testid="history-empty-filtered">
+          <p>{translate("history.empty_filtered")}</p>
+          <button type="button" style={primaryButtonStyle} onClick={() => { setSpeakerScope(""); setSelectedLanguage(ALL_HISTORY_LANGUAGES); speakerFilterRef.current?.focus(); }}>
+            {translate("history.clear_filters")}
+          </button>
+        </section> : <>
       <PracticeProgress
         rows={practiceRows}
         selected={selectedPractice}
@@ -474,55 +443,31 @@ export const HistoryRoute = () => {
           }
         }}
       />
-      <p data-testid="history-scope-caption">
-        {scopeCaption({ count: filteredRecords.length, selectedLanguage, speakerScope, translate })}
-      </p>
-
-      <HistoryList
-        attempts={attempts.map((row) => ({
-          bandLabel: row.bandLabel,
-          languageLabel: row.languageLabel,
-          reportPath: row.reportPath,
-          scoreLabel: row.scoreLabel,
-          sessionId: row.sessionId,
-          statusLabel: row.statusLabel,
-          taskFamilyLabel: row.taskFamilyLabel,
-          theme: row.theme,
-          timestampLabel: row.timestampLabel,
-        }))}
-        detailAttempts={detailRecords.map((row) => ({
-          bandLabel: row.bandLabel,
-          languageLabel: row.languageLabel,
-          reportPath: row.reportPath,
-          scoreLabel: row.scoreLabel,
-          sessionId: row.sessionId,
-          statusLabel: row.statusLabel,
-          taskFamilyLabel: row.taskFamilyLabel,
-          theme: row.theme,
-          timestampLabel: formatJumpTimestamp(row.timestamp, locale),
-        }))}
-        onSelectSession={setSelectedSessionId}
-        selectedSessionId={selectedSessionId}
-        translate={translate}
-      />
-
-      <HistoryDetailPanel
-        error={detailQuery.isError ? translate("history.details_error") : null}
-        isLoading={detailQuery.isPending}
-        payload={detailQuery.data?.payload ?? null}
-        record={
-          selectedRecord
-            ? {
-                bandLabel: selectedRecord.bandLabel,
-                languageLabel: selectedRecord.languageLabel,
-                scoreValue: selectedRecord.finalScore,
-                sessionId: selectedRecord.sessionId,
-                theme: selectedRecord.theme,
-              }
-            : null
-        }
-        translate={translate}
-      />
+      <div className={historyStyles.browser}>
+        <HistoryList
+          attempts={attempts}
+          onSelectSession={(sessionId) => {
+            setSelectedSessionId(sessionId);
+            if (window.matchMedia?.("(max-width: 1000px)").matches) {
+              detailRef.current?.focus({ preventScroll: true });
+              detailRef.current?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" });
+            }
+          }}
+          selectedSessionId={selectedSessionId}
+          translate={translate}
+        />
+        <div ref={detailRef} tabIndex={-1} className={historyStyles.detail} role="region" aria-label={translate("history.details_title")}>
+          <HistoryDetailPanel
+            key={selectedSessionId}
+            error={detailQuery.isError ? translate("history.details_error") : null}
+            isLoading={detailQuery.isPending}
+            payload={detailQuery.data?.payload ?? null}
+            record={selectedRecord ? { ...selectedRecord, scoreValue: selectedRecord.finalScore } : null}
+            translate={translate}
+          />
+        </div>
+      </div>
+      </>}
     </div>
   );
 };

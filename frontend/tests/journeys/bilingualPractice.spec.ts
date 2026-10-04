@@ -197,7 +197,8 @@ for (const language of ["en", "it"] as const) {
     await submit(page);
     await review(page, otherLanguage);
     await page.getByTestId("review-action-view-history").click();
-    await expect(page.getByTestId("history-language-filter")).toHaveValue(otherLanguage);
+    await expect(page.getByTestId("history-language-filter")).toHaveValue("__all__");
+    await page.getByTestId("history-language-filter").selectOption(otherLanguage);
     await expect(page.getByTestId("practice-progress").locator("svg circle")).toHaveCount(1);
     await page.getByTestId("history-language-filter").selectOption(language);
     await expect(page.getByTestId("practice-progress")).toContainText("B2");
