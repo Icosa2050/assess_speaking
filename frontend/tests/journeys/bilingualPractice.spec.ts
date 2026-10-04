@@ -69,6 +69,12 @@ for (const language of ["en", "it"] as const) {
       await review(page, language);
       const firstStatus = await (await request.get(`${backend}/v1/assessments/${first.id}`)).json();
       const firstSession = firstStatus.payload.report.session_id;
+      const optionalStyle = firstStatus.payload.report.rubric.style_suggestions;
+      expect(optionalStyle).toHaveLength(1);
+      expect(firstStatus.payload.report.rubric.recurring_grammar_errors).toEqual([]);
+      await expect(page.getByTestId("review-style-suggestions")).toContainText(optionalStyle[0].original);
+      await expect(page.getByTestId("review-priorities")).not.toContainText(optionalStyle[0].original);
+      await page.screenshot({ path: testInfo.outputPath(`${language}-${goal}-optional-style-review.png`), fullPage: true });
       expect(firstSession).not.toBe(first.id);
       await page.getByTestId("review-action-try-again").click();
       await expect(page.getByTestId("speak.submit")).toBeDisabled();
@@ -92,6 +98,9 @@ for (const language of ["en", "it"] as const) {
       const secondRow = rows.find((row: { session_id: string }) => row.session_id === secondSession);
       expect(secondRow.elapsed_wpm).toBeCloseTo(secondRow.word_count * 60 / duration, 1);
       const stored = await (await request.get(`${backend}/v1/history/${secondSession}`)).json();
+      expect(stored.payload.report.rubric.style_suggestions).toEqual(optionalStyle);
+      expect(stored.payload.report.rubric.recurring_grammar_errors).toEqual([]);
+      expect(stored.payload.report.input.prompt_version).toBe("rubric_multilingual_v5");
       expect(stored.payload.meta.practice).toMatchObject({ goal, prompt_text: first.body.prompt_text, retry_of_session_id: firstSession });
       await page.getByTestId("review-action-view-history").click();
       await expect(page.getByTestId("history-detail-caption")).toContainText(secondSession);
@@ -115,6 +124,7 @@ for (const language of ["en", "it"] as const) {
       // Reload deliberately drops the in-memory draft; disk-backed reports must survive.
       await expect(page.getByTestId("history-detail-caption")).toContainText(secondSession);
       await expect(page.getByTestId("practice-progress")).toContainText(goal);
+      await expect(page.getByTestId("review-style-suggestions")).toContainText(optionalStyle[0].suggestion);
       await expect(page.getByTestId("practice-comparison").locator("tbody tr")).toHaveCount(4);
       await page.screenshot({ path: testInfo.outputPath(`${language}-${goal}-desktop.png`), fullPage: true });
       await page.setViewportSize({ width: 360, height: 800 });

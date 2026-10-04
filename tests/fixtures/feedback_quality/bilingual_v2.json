@@ -1,0 +1,410 @@
+{
+  "schema_version": 2,
+  "corpus_id": "feedback_quality_bilingual_v2",
+  "corpus_type": "authored_transcript_feedback",
+  "languages": [
+    "en",
+    "it"
+  ],
+  "notes": "Twenty authored cases: eight clean/error pairs, two register variants, two style-only examples. Primary references checked by host; independent bilingual human review remains pending. No recordings, CEFR labels or calibrated scores. Do not pool v1 mood labels with v2.",
+  "sources": {
+    "cambridge_modals": {
+      "url": "https://dictionary.cambridge.org/grammar/british-grammar/infinitives",
+      "rule": "Core modal verbs take an infinitive without to; the following main verb is not inflected for the subject."
+    },
+    "cambridge_present": {
+      "url": "https://dictionary.cambridge.org/us/grammar/british-grammar/present-simple-i-work",
+      "rule": "In ordinary affirmative present simple clauses, third-person singular subjects generally take the -s form."
+    },
+    "treccani_agreement": {
+      "url": "https://www.treccani.it/enciclopedia/concordanza_(La-grammatica-italiana)/",
+      "rule": "Italian articles and adjectives agree with their nouns in gender and number; verbs agree with their subjects in person and number."
+    },
+    "crusca_register": {
+      "url": "https://accademiadellacrusca.it/it/consulenza/se-i-dati-di-fatto-chiedono-il-congiuntivo/43862",
+      "rule": "Subjunctive selection depends on construction and register; volere admits indicative as well as subjunctive in some contexts. A formal preference is not a universal grammar error."
+    }
+  },
+  "cases": [
+    {
+      "pair_id": "en_modal_can",
+      "language_code": "en",
+      "theme": "Remote work",
+      "assessment_context": "Spontaneous everyday spoken response; no formal-register requirement.",
+      "source_ids": [
+        "cambridge_modals"
+      ],
+      "review_status": "source_checked_host_review_not_independent_human",
+      "case_id": "en_modal_can_clean",
+      "variant": "clean",
+      "transcript": "Working from home can save commuting time. Companies should offer a balanced system.",
+      "expected_grammar_errors": [],
+      "expected_style_suggestions": [],
+      "category_note": "The fixed taxonomy has no modal/base-form category; verb_conjugation_present is the closest available form category, not a claim about tense."
+    },
+    {
+      "pair_id": "en_modal_can",
+      "language_code": "en",
+      "theme": "Remote work",
+      "assessment_context": "Spontaneous everyday spoken response; no formal-register requirement.",
+      "source_ids": [
+        "cambridge_modals"
+      ],
+      "review_status": "source_checked_host_review_not_independent_human",
+      "case_id": "en_modal_can_seeded",
+      "variant": "seeded_error",
+      "transcript": "Working from home can saves commuting time. Companies should offer a balanced system.",
+      "corrected_reference": "Working from home can save commuting time. Companies should offer a balanced system.",
+      "expected_grammar_errors": [
+        {
+          "category": "verb_conjugation_present",
+          "quote": "can saves commuting time",
+          "correction": "can save commuting time",
+          "reason": "Can takes the base verb save, regardless of the subject."
+        }
+      ],
+      "expected_style_suggestions": [],
+      "category_note": "The fixed taxonomy has no modal/base-form category; verb_conjugation_present is the closest available form category, not a claim about tense."
+    },
+    {
+      "pair_id": "en_modal_could",
+      "language_code": "en",
+      "theme": "A local journey",
+      "assessment_context": "Spontaneous everyday spoken response; no formal-register requirement.",
+      "source_ids": [
+        "cambridge_modals"
+      ],
+      "review_status": "source_checked_host_review_not_independent_human",
+      "case_id": "en_modal_could_clean",
+      "variant": "clean",
+      "transcript": "My sister could take the train tomorrow because the roads will be busy.",
+      "expected_grammar_errors": [],
+      "expected_style_suggestions": [],
+      "category_note": "The fixed taxonomy has no modal/base-form category; verb_conjugation_present is the closest available form category, not a claim about tense."
+    },
+    {
+      "pair_id": "en_modal_could",
+      "language_code": "en",
+      "theme": "A local journey",
+      "assessment_context": "Spontaneous everyday spoken response; no formal-register requirement.",
+      "source_ids": [
+        "cambridge_modals"
+      ],
+      "review_status": "source_checked_host_review_not_independent_human",
+      "case_id": "en_modal_could_seeded",
+      "variant": "seeded_error",
+      "transcript": "My sister could takes the train tomorrow because the roads will be busy.",
+      "corrected_reference": "My sister could take the train tomorrow because the roads will be busy.",
+      "expected_grammar_errors": [
+        {
+          "category": "verb_conjugation_present",
+          "quote": "could takes the train",
+          "correction": "could take the train",
+          "reason": "Could takes the base verb take, even with the singular subject my sister."
+        }
+      ],
+      "expected_style_suggestions": [],
+      "category_note": "The fixed taxonomy has no modal/base-form category; verb_conjugation_present is the closest available form category, not a claim about tense."
+    },
+    {
+      "pair_id": "en_modal_must",
+      "language_code": "en",
+      "theme": "A local journey",
+      "assessment_context": "Spontaneous everyday spoken response; no formal-register requirement.",
+      "source_ids": [
+        "cambridge_modals"
+      ],
+      "review_status": "source_checked_host_review_not_independent_human",
+      "case_id": "en_modal_must_clean",
+      "variant": "clean",
+      "transcript": "The driver must stop at this crossing because children walk here.",
+      "expected_grammar_errors": [],
+      "expected_style_suggestions": [],
+      "category_note": "The fixed taxonomy has no modal/base-form category; verb_conjugation_present is the closest available form category, not a claim about tense."
+    },
+    {
+      "pair_id": "en_modal_must",
+      "language_code": "en",
+      "theme": "A local journey",
+      "assessment_context": "Spontaneous everyday spoken response; no formal-register requirement.",
+      "source_ids": [
+        "cambridge_modals"
+      ],
+      "review_status": "source_checked_host_review_not_independent_human",
+      "case_id": "en_modal_must_seeded",
+      "variant": "seeded_error",
+      "transcript": "The driver must stops at this crossing because children walk here.",
+      "corrected_reference": "The driver must stop at this crossing because children walk here.",
+      "expected_grammar_errors": [
+        {
+          "category": "verb_conjugation_present",
+          "quote": "must stops at this crossing",
+          "correction": "must stop at this crossing",
+          "reason": "Must takes the base verb stop; third-person singular -s does not apply after this modal."
+        }
+      ],
+      "expected_style_suggestions": [],
+      "category_note": "The fixed taxonomy has no modal/base-form category; verb_conjugation_present is the closest available form category, not a claim about tense."
+    },
+    {
+      "pair_id": "en_present_agreement",
+      "language_code": "en",
+      "theme": "A local journey",
+      "assessment_context": "Spontaneous everyday spoken response; no formal-register requirement.",
+      "source_ids": [
+        "cambridge_present"
+      ],
+      "review_status": "source_checked_host_review_not_independent_human",
+      "case_id": "en_present_agreement_clean",
+      "variant": "clean",
+      "transcript": "My sister takes the train every morning. She enjoys reading on the journey.",
+      "expected_grammar_errors": [],
+      "expected_style_suggestions": []
+    },
+    {
+      "pair_id": "en_present_agreement",
+      "language_code": "en",
+      "theme": "A local journey",
+      "assessment_context": "Spontaneous everyday spoken response; no formal-register requirement.",
+      "source_ids": [
+        "cambridge_present"
+      ],
+      "review_status": "source_checked_host_review_not_independent_human",
+      "case_id": "en_present_agreement_seeded",
+      "variant": "seeded_error",
+      "transcript": "My sister take the train every morning. She enjoys reading on the journey.",
+      "corrected_reference": "My sister takes the train every morning. She enjoys reading on the journey.",
+      "expected_grammar_errors": [
+        {
+          "category": "verb_conjugation_present",
+          "quote": "My sister take the train",
+          "correction": "My sister takes the train",
+          "reason": "This ordinary affirmative present simple clause has the singular subject my sister and requires takes."
+        }
+      ],
+      "expected_style_suggestions": []
+    },
+    {
+      "pair_id": "it_gender",
+      "language_code": "it",
+      "theme": "Una spiaggia",
+      "assessment_context": "Spontaneous everyday spoken response; no formal-register requirement.",
+      "source_ids": [
+        "treccani_agreement"
+      ],
+      "review_status": "source_checked_host_review_not_independent_human",
+      "case_id": "it_gender_clean",
+      "variant": "clean",
+      "transcript": "La spiaggia è bella e tranquilla. Dopo una passeggiata siamo andati al mare.",
+      "expected_grammar_errors": [],
+      "expected_style_suggestions": []
+    },
+    {
+      "pair_id": "it_gender",
+      "language_code": "it",
+      "theme": "Una spiaggia",
+      "assessment_context": "Spontaneous everyday spoken response; no formal-register requirement.",
+      "source_ids": [
+        "treccani_agreement"
+      ],
+      "review_status": "source_checked_host_review_not_independent_human",
+      "case_id": "it_gender_seeded",
+      "variant": "seeded_error",
+      "transcript": "La spiaggia è bello e tranquilla. Dopo una passeggiata siamo andati al mare.",
+      "corrected_reference": "La spiaggia è bella e tranquilla. Dopo una passeggiata siamo andati al mare.",
+      "expected_grammar_errors": [
+        {
+          "category": "gender_agreement",
+          "quote": "La spiaggia è bello",
+          "correction": "La spiaggia è bella",
+          "reason": "Bella concorda con il nome femminile singolare spiaggia."
+        }
+      ],
+      "expected_style_suggestions": []
+    },
+    {
+      "pair_id": "it_number",
+      "language_code": "it",
+      "theme": "Una città",
+      "assessment_context": "Spontaneous everyday spoken response; no formal-register requirement.",
+      "source_ids": [
+        "treccani_agreement"
+      ],
+      "review_status": "source_checked_host_review_not_independent_human",
+      "case_id": "it_number_clean",
+      "variant": "clean",
+      "transcript": "Le strade sono tranquille la sera. Mi piace camminare in questa città.",
+      "expected_grammar_errors": [],
+      "expected_style_suggestions": []
+    },
+    {
+      "pair_id": "it_number",
+      "language_code": "it",
+      "theme": "Una città",
+      "assessment_context": "Spontaneous everyday spoken response; no formal-register requirement.",
+      "source_ids": [
+        "treccani_agreement"
+      ],
+      "review_status": "source_checked_host_review_not_independent_human",
+      "case_id": "it_number_seeded",
+      "variant": "seeded_error",
+      "transcript": "Le strade sono tranquilla la sera. Mi piace camminare in questa città.",
+      "corrected_reference": "Le strade sono tranquille la sera. Mi piace camminare in questa città.",
+      "expected_grammar_errors": [
+        {
+          "category": "number_agreement",
+          "quote": "Le strade sono tranquilla",
+          "correction": "Le strade sono tranquille",
+          "reason": "Tranquille concorda con il nome femminile plurale strade."
+        }
+      ],
+      "expected_style_suggestions": []
+    },
+    {
+      "pair_id": "it_present_agreement",
+      "language_code": "it",
+      "theme": "La routine quotidiana",
+      "assessment_context": "Spontaneous everyday spoken response; no formal-register requirement.",
+      "source_ids": [
+        "treccani_agreement"
+      ],
+      "review_status": "source_checked_host_review_not_independent_human",
+      "case_id": "it_present_agreement_clean",
+      "variant": "clean",
+      "transcript": "Mia sorella prende il treno ogni mattina. Durante il viaggio legge un libro.",
+      "expected_grammar_errors": [],
+      "expected_style_suggestions": []
+    },
+    {
+      "pair_id": "it_present_agreement",
+      "language_code": "it",
+      "theme": "La routine quotidiana",
+      "assessment_context": "Spontaneous everyday spoken response; no formal-register requirement.",
+      "source_ids": [
+        "treccani_agreement"
+      ],
+      "review_status": "source_checked_host_review_not_independent_human",
+      "case_id": "it_present_agreement_seeded",
+      "variant": "seeded_error",
+      "transcript": "Mia sorella prendono il treno ogni mattina. Durante il viaggio legge un libro.",
+      "corrected_reference": "Mia sorella prende il treno ogni mattina. Durante il viaggio legge un libro.",
+      "expected_grammar_errors": [
+        {
+          "category": "verb_conjugation_present",
+          "quote": "Mia sorella prendono il treno",
+          "correction": "Mia sorella prende il treno",
+          "reason": "Il soggetto singolare mia sorella richiede prende, non la forma plurale prendono."
+        }
+      ],
+      "expected_style_suggestions": []
+    },
+    {
+      "pair_id": "it_person_agreement_subj_clause",
+      "language_code": "it",
+      "theme": "Un viaggio",
+      "assessment_context": "Spontaneous everyday spoken response; no formal-register requirement.",
+      "source_ids": [
+        "treccani_agreement"
+      ],
+      "review_status": "source_checked_host_review_not_independent_human",
+      "case_id": "it_person_agreement_subj_clause_clean",
+      "variant": "clean",
+      "transcript": "È importante che noi partiamo domani. Abbiamo già comprato i biglietti.",
+      "expected_grammar_errors": [],
+      "expected_style_suggestions": []
+    },
+    {
+      "pair_id": "it_person_agreement_subj_clause",
+      "language_code": "it",
+      "theme": "Un viaggio",
+      "assessment_context": "Spontaneous everyday spoken response; no formal-register requirement.",
+      "source_ids": [
+        "treccani_agreement"
+      ],
+      "review_status": "source_checked_host_review_not_independent_human",
+      "case_id": "it_person_agreement_subj_clause_seeded",
+      "variant": "seeded_error",
+      "transcript": "È importante che noi partano domani. Abbiamo già comprato i biglietti.",
+      "corrected_reference": "È importante che noi partiamo domani. Abbiamo già comprato i biglietti.",
+      "expected_grammar_errors": [
+        {
+          "category": "verb_conjugation_present",
+          "quote": "che noi partano domani",
+          "correction": "che noi partiamo domani",
+          "reason": "Con il soggetto esplicito noi serve la prima persona plurale partiamo; partano è terza persona plurale. Non è una preferenza di registro."
+        }
+      ],
+      "expected_style_suggestions": []
+    },
+    {
+      "case_id": "it_volere_register_indicative",
+      "pair_id": "it_volere_register",
+      "language_code": "it",
+      "theme": "Il dibattito pubblico",
+      "variant": "register_variant",
+      "assessment_context": "Spontaneous informal spoken discussion; no formal-register requirement.",
+      "transcript": "Se vogliamo che le piattaforme sostengono un dibattito migliore, dobbiamo leggere con attenzione.",
+      "expected_grammar_errors": [],
+      "expected_style_suggestions": [],
+      "source_ids": [
+        "crusca_register"
+      ],
+      "review_status": "source_checked_host_review_not_independent_human",
+      "evaluation_note": "Do not automatically penalize indicative as a universal mood error. A clearly labelled formal-register alternative may be optional; both forms have plural agreement."
+    },
+    {
+      "case_id": "it_volere_register_subjunctive",
+      "pair_id": "it_volere_register",
+      "language_code": "it",
+      "theme": "Il dibattito pubblico",
+      "variant": "register_variant",
+      "assessment_context": "Spontaneous informal spoken discussion; no formal-register requirement.",
+      "transcript": "Se vogliamo che le piattaforme sostengano un dibattito migliore, dobbiamo leggere con attenzione.",
+      "expected_grammar_errors": [],
+      "expected_style_suggestions": [],
+      "source_ids": [
+        "crusca_register"
+      ],
+      "review_status": "source_checked_host_review_not_independent_human",
+      "evaluation_note": "Subjunctive is standard here; no grammar correction or formal-register suggestion is needed."
+    },
+    {
+      "case_id": "en_optional_style",
+      "language_code": "en",
+      "theme": "A trip",
+      "variant": "style_only",
+      "assessment_context": "Spontaneous everyday spoken response.",
+      "transcript": "The trip was good and the food was good. I enjoyed the day.",
+      "expected_grammar_errors": [],
+      "expected_style_suggestions": [
+        {
+          "original": "The trip was good",
+          "suggestion": "The trip was enjoyable",
+          "explanation": "An optional more specific adjective; good is grammatical."
+        }
+      ],
+      "source_ids": [],
+      "review_status": "host_authored_not_independent_human",
+      "evaluation_note": "The alternative is illustrative, not a mandatory wording match. An empty style list is also acceptable; any grammar correction is a false positive."
+    },
+    {
+      "case_id": "it_optional_style",
+      "language_code": "it",
+      "theme": "Un viaggio",
+      "variant": "style_only",
+      "assessment_context": "Spontaneous everyday spoken response.",
+      "transcript": "Il viaggio è stato bello e il pranzo è stato bello. Mi sono divertito.",
+      "expected_grammar_errors": [],
+      "expected_style_suggestions": [
+        {
+          "original": "Il viaggio è stato bello",
+          "suggestion": "Il viaggio è stato piacevole",
+          "explanation": "Alternativa facoltativa più specifica; bello è grammaticalmente corretto."
+        }
+      ],
+      "source_ids": [],
+      "review_status": "host_authored_not_independent_human",
+      "evaluation_note": "The alternative is illustrative, not a mandatory wording match. An empty style list is also acceptable; any grammar correction is a false positive."
+    }
+  ]
+}

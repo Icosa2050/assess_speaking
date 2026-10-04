@@ -46,7 +46,8 @@ class LlmClientTests(unittest.TestCase):
         self.assertEqual(url, "http://localhost:11434/v1/chat/completions")
         self.assertEqual(timeout, 12)
         self.assertEqual(payload["reasoning_effort"], "none")
-        self.assertEqual(payload["response_format"], {"type": "json_object"})
+        self.assertEqual(payload["response_format"]["type"], "json_schema")
+        self.assertNotIn("provider", payload)
         self.assertEqual(payload["max_tokens"], 4096)
 
     def test_extract_json_object_accepts_dict_input(self):
@@ -241,7 +242,7 @@ class LlmClientTests(unittest.TestCase):
 
         self.assertIn("returned no assistant text", str(ctx.exception))
 
-    def test_extract_assistant_message_text_uses_reasoning_content_fallback(self):
+    def test_extract_assistant_message_text_rejects_reasoning_only(self):
         result = {
             "choices": [
                 {
@@ -258,9 +259,8 @@ class LlmClientTests(unittest.TestCase):
             ]
         }
 
-        extracted = llm_client._extract_assistant_message_text(result)
-
-        self.assertEqual(extracted, "Think later")
+        with self.assertRaisesRegex(llm_client.LLMClientError, "no assistant text"):
+            llm_client._extract_assistant_message_text(result)
 
     def test_extract_assistant_message_text_rejects_non_mapping_message(self):
         with self.assertRaises(LLMClientError) as ctx:
@@ -399,8 +399,8 @@ class LlmClientTests(unittest.TestCase):
         self.assertEqual(mock_chat.call_args.kwargs["api_key"], "abc")
 
     @mock.patch("assessment_runtime.llm_client._post_json")
-    def test_test_connection_openrouter_does_not_force_json_object(self, mock_post):
-        mock_post.return_value = {"choices": [{"message": {"content": "OK"}}]}
+    def test_test_connection_openrouter_checks_assessment_schema(self, mock_post):
+        mock_post.return_value = {"choices": [{"message": {"content": VALID_JSON}}]}
 
         payload = llm_client.test_connection(
             provider="openrouter",
@@ -411,7 +411,9 @@ class LlmClientTests(unittest.TestCase):
 
         self.assertTrue(payload["ok"])
         request_payload = mock_post.call_args.args[1]
-        self.assertNotIn("response_format", request_payload)
+        self.assertEqual(request_payload["response_format"]["type"], "json_schema")
+        self.assertEqual(request_payload["provider"], {"require_parameters": True})
+        self.assertEqual(request_payload["max_tokens"], 512)
 
     @mock.patch("assessment_runtime.llm_client._chat_completion", return_value=None)
     def test_test_connection_rejects_null_content(self, mock_chat):

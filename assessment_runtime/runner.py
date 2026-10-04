@@ -58,6 +58,8 @@ def _build_meta(*, request: AssessmentRunRequest, report: dict[str, Any], timest
         {key: report_input.get(key) for key in (
             "rubric_prompt_version", "transcription_basis", "language_profile_key",
             "asr_compute_type_used", "pause_threshold_offset_db", "llm_inference_profile",
+            "language_profile_version", "coaching_prompt_version", "feedback_language",
+            "transcript_quality_policy", "feedback_claim_policy",
         )},
         sort_keys=True,
     )
@@ -144,17 +146,15 @@ def execute_assessment_run(
     report = dict(assessment["report"])
     run_dt = datetime.now()
     resolved_log_dir = Path(request.log_dir)
-    progress_delta = assess_cli.build_progress_delta(resolved_log_dir / "history.csv", report)
+    meta = _build_meta(request=request, report=report, timestamp=run_dt.isoformat(timespec="seconds"))
+    progress_delta = assess_cli.build_progress_delta(
+        resolved_log_dir / "history.csv", report, practice=meta["practice"],
+    )
     if progress_delta:
         report["progress_delta"] = progress_delta
         report = assess_cli.AssessmentReport.from_dict(report).to_dict()
         assessment["report"] = report
 
-    meta = _build_meta(
-        request=request,
-        report=report,
-        timestamp=run_dt.isoformat(timespec="seconds"),
-    )
     output = _build_stdout_payload(assessment, meta=meta, report=report)
     stdout_json = json.dumps(output, ensure_ascii=False, indent=2)
 
@@ -170,13 +170,16 @@ def execute_assessment_run(
 
     resolved_log_dir.mkdir(parents=True, exist_ok=True)
     report_path = assess_cli.build_report_path(resolved_log_dir, request.audio, request.label or None, run_dt)
+    # Repeated CLI runs can share the same audio/label and timestamp second.
+    # A session suffix prevents overwriting the parent's retained report.
+    report_path = report_path.with_name(f"{report_path.stem}_{report['session_id']}.json")
     saved_payload = {
         **output,
         "transcript_full": assessment["transcript_full"],
         "notes": request.notes,
         "report_path": str(report_path.resolve()),
     }
-    with report_path.open("w", encoding="utf-8") as handle:
+    with report_path.open("x", encoding="utf-8") as handle:
         json.dump(saved_payload, handle, ensure_ascii=False, indent=2)
 
     rubric_obj = report.get("rubric")

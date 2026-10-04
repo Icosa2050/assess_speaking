@@ -26,6 +26,8 @@ const warningMessage = (value: string, translate: Translate): string => {
   }
 
   const mapping: Record<string, string> = {
+    transcript_uncertain: "review.transcript_uncertain",
+    llm_skipped_transcript_uncertain: "review.transcript_uncertain",
     coaching_unavailable: "review.warning_codes.coaching_unavailable",
     llm_unavailable: "review.warning_codes.llm_unavailable",
     llm_skipped_low_word_count: "review.warning_codes.llm_skipped_low_word_count",
@@ -62,9 +64,9 @@ export const WarningsPanel = ({
   translate: Translate;
   warnings: string[];
 }) => {
-  const warningItems = warnings
+  const warningItems = [...new Set(warnings
     .map((item) => warningMessage(item, translate))
-    .filter((item) => item.trim().length > 0);
+    .filter((item) => item.trim().length > 0))];
   const hasContent = requiresHumanReview || warningItems.length > 0 || failedGates.length > 0;
 
   if (!hasContent) {

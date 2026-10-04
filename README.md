@@ -295,10 +295,11 @@ saved secret exists, never by copying keys or secret references into the bundle.
   these tests. On macOS, a restricted agent shell can also prevent browser
   startup; use the approved browser execution path. Successful checks do not
   require resetting privacy permissions or granting App Management access.
-- Optional live runtime setup E2E:
-  `cd frontend && RUN_VOSTAVO_LOCAL_RUNTIME_E2E=1 NODE_ENV=development npx playwright test -c playwright.config.ts tests/e2e/runtimeSetupLive.spec.ts`
-- Optional real-audio E2E:
-  `cd frontend && RUN_VOSTAVO_REAL_E2E=1 OPENROUTER_API_KEY="$OPENROUTER_API_KEY" NODE_ENV=development npx playwright test -c playwright.config.ts tests/e2e/realAudioHistory.spec.ts`
+- Runtime setup error/retry and URL-preservation checks now run in ordinary CI:
+  `cd frontend && NODE_ENV=development node node_modules/playwright/cli.js test -c playwright.config.ts tests/e2e/runtimeSetupRecovery.spec.ts`
+- Live upload, recording, retry and history use the isolated bilingual suite:
+  `.venv/bin/python scripts/run_live_journeys.py --providers ollama`
+  See [live-test migration and acceptance rules](docs/testing/legacy-live-test-migration.md).
 - The test and coverage wrappers always use the repo-local `.venv` via
   `./scripts/python.sh`, so they stay consistent even when a global `pytest` or
   `coverage` installation points at a different Python.
@@ -306,9 +307,12 @@ saved secret exists, never by copying keys or secret references into the bundle.
   - source mode: `coverage.json` + `htmlcov/`
   - full mode: `coverage.full.json` + `htmlcov-full/`
 - **OpenRouter integration (opt-in)**:
-  `RUN_OPENROUTER_INTEGRATION=1 ./scripts/python.sh -m unittest tests.test_integration_openrouter -v`
+  `RUN_OPENROUTER_INTEGRATION=1 OPENROUTER_MODEL=your-model-id ./scripts/python.sh -m pytest tests/test_integration_openrouter.py -v`
+  Requires `OPENROUTER_API_KEY` in the environment. Checks both English and Italian.
 - **Optional sample-audio integration test (no microphone required)**:
-  `RUN_AUDIO_INTEGRATION=1 WHISPER_MODEL=tiny ./scripts/python.sh -m unittest tests.test_sample_integration`
+  `RUN_AUDIO_INTEGRATION=1 WHISPER_MODEL=tiny ./scripts/python.sh -m pytest tests/test_sample_integration.py -v`
+  Download the selected Whisper model first; checks include source-text references, word timing,
+  longer M4A files, controlled noise and silence. Explicitly enabled missing prerequisites fail.
 
 The shared-frontend lanes boot a clean localhost backend on port `8800` and the
 Vite frontend on port `4173`. The smoke lane covers Home -> Runtime Setup; the

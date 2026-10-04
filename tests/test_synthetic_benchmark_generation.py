@@ -4,7 +4,9 @@ import tempfile
 import unittest
 from unittest import mock
 
+from assessment_runtime.metrics import metrics_from
 from benchmarking.synthetic_benchmark_generation import (
+    _render_text_metrics,
     estimate_render_duration,
     render_seed_manifest,
     resolve_render_config,
@@ -53,6 +55,15 @@ class SyntheticBenchmarkGenerationTests(unittest.TestCase):
         self.assertEqual(estimate.speech_word_count, 6)
         self.assertAlmostEqual(estimate.estimated_speech_duration_sec, 3.0, places=2)
         self.assertAlmostEqual(estimate.estimated_total_duration_sec, 3.5, places=2)
+
+    def test_pinned_benchmark_metrics_remain_distinct_from_live_defaults(self):
+        seed = next(seed for seed in self.italian_manifest.seeds if seed.seed_id == "it_c2_memoria_significato")
+        config = resolve_render_config(self.italian_manifest, seed)
+        estimate = estimate_render_duration(seed.render_text, config.rate_wpm)
+        benchmark = _render_text_metrics(seed, estimate, language_profile_key="it_benchmark")
+        live = _render_text_metrics(seed, estimate)
+        self.assertEqual(benchmark["cohesion_markers"], 4)
+        self.assertGreater(live["cohesion_markers"], benchmark["cohesion_markers"])
 
     def test_render_seed_manifest_writes_audio_transcripts_and_manifest(self):
         calls: list[tuple[list[str], str | None]] = []
@@ -136,7 +147,10 @@ class SyntheticBenchmarkGenerationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir, mock.patch(
             "benchmarking.synthetic_benchmark_generation._run_subprocess",
             side_effect=fake_run,
-        ):
+        ), mock.patch(
+            "benchmarking.synthetic_benchmark_generation.transcript_metrics_from",
+            wraps=metrics_from,
+        ) as extract_metrics:
             result = render_seed_manifest(
                 self.italian_manifest,
                 tmp_dir,
@@ -144,6 +158,10 @@ class SyntheticBenchmarkGenerationTests(unittest.TestCase):
             )
             self.assertEqual(len(result["items"]), 4)
             self.assertEqual(result["manifest_id"], "italian_monologue_seeds_v1")
+            self.assertTrue(all(
+                call.kwargs["language_profile_key"] == "it_benchmark"
+                for call in extract_metrics.call_args_list
+            ))
 
     def test_render_seed_manifest_refuses_to_overwrite_existing_audio(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

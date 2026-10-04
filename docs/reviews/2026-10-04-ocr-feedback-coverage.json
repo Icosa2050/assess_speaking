@@ -1,0 +1,235 @@
+{
+  "date": "2026-10-04",
+  "mode": "OCR delegate host review",
+  "preview_total_files": 85,
+  "total_files": 37,
+  "reviewed_files": 30,
+  "skipped_files": 7,
+  "coverage_rate": 0.8108,
+  "accounted_for_rate": 1.0,
+  "checklist": [
+    {
+      "path": "app_backend/app.py",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "d0aaac910d5faee38d928c85a83bc66c4b72fccf60b8657ae141c17a19f6607b"
+    },
+    {
+      "path": "assess_core/language_profiles.py",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "f453134b8f09a4fa18f70cff98b62c0f73e2e2b4b5991ef2f579d449cbf7d530"
+    },
+    {
+      "path": "assess_core/schemas.py",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "a3d6b1c938a260e738d9aafee13c7059302ab7a1c416cf1d80ea4d586e46a785"
+    },
+    {
+      "path": "assess_speaking.py",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "13e36973b8e3890fa40e6dfc912db6cb9a09991940527e4c36856aae591da604"
+    },
+    {
+      "path": "assessment_runtime/asr.py",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "40a8883a5171aa1eb6d8d915328d9c9fb0d8be2362409553eaf3438808eda0e3"
+    },
+    {
+      "path": "assessment_runtime/assessment_prompts.py",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "e405cc3d93151c6dbbbdcb5315a0f1a4feeb38e7890bfa3bbe0439f2b47a1b6b"
+    },
+    {
+      "path": "assessment_runtime/llm_client.py",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "f9267a7ced4b1d3dfd6e5969723e9bf54b2ef54b3df05691e7f2dc4dfefa3307"
+    },
+    {
+      "path": "assessment_runtime/metrics.py",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "a97ee4107890136aa98465d49c94127b94cc471bfcc0bbb9f081e0a964073c1e"
+    },
+    {
+      "path": "assessment_runtime/runner.py",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "3b7431a62afe2eac89301ead687d920c1777f0430c06587f4a0f5d4ca1d35737"
+    },
+    {
+      "path": "benchmarking/benchmark_suites.py",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "719b2549c749aaa6dfa6f22ba93f9822d02515cc73de81872c167802062ac11f"
+    },
+    {
+      "path": "benchmarking/synthetic_benchmark_generation.py",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "cdb375aa83f5f579bf10a99743341427680e4cf73ec772738d8c87adb591d2bb"
+    },
+    {
+      "path": "frontend/playwright.ollama.config.ts",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "c0fbef8aaf0559c9889be0c7bef5239cb60134453a63f9ca3c27e1abde4aa73c"
+    },
+    {
+      "path": "frontend/src/components/review/ReviewSummary.tsx",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "ebb9d92bbcd387db0b5e55af84bdd542cb14abd0074f77df632db928fa76d257"
+    },
+    {
+      "path": "frontend/src/components/review/WarningsPanel.tsx",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "067af218b58215fb8602f7c446ef26b3b6a398f4a4c78c38c9836d29ff444306"
+    },
+    {
+      "path": "locales/de.json",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "bfa9f5b9c8a6de0322cdc42a2536beeee0815863f1922f0df62b475407e9ab75"
+    },
+    {
+      "path": "locales/en.json",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "a4c6ccb45d6dc82d76ff3095f4d837a33c3e5c23195defb2df72674f88a370fe"
+    },
+    {
+      "path": "locales/es.json",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "321af9269e427aee0dd5f90e9ed09eb15fa87c896f4a08961ae2a4ebb99b4414"
+    },
+    {
+      "path": "locales/fr.json",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "7e6ccb458b3f6a7c24c4709345b17096b01fe00e244545ed135f77d369511044"
+    },
+    {
+      "path": "locales/it.json",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "48b69c0825ac56728a2f21f2582091b34932252941965a15110d0c3e9f563d74"
+    },
+    {
+      "path": "tests/e2e/journey_backend.py",
+      "status": "modified",
+      "disposition": "reviewed",
+      "sha256": "c4bf04cfab74c22a2e8b543b9d4a30448a550aec6fc80c1c59155018e1bc7b64"
+    },
+    {
+      "path": ".codegraph/.gitignore",
+      "status": "added",
+      "disposition": "skipped",
+      "reason": "Pre-existing user-owned tooling outside the approved feedback/test commit scope."
+    },
+    {
+      "path": "assessment_runtime/comparison.py",
+      "status": "added",
+      "disposition": "reviewed",
+      "sha256": "d2c3b8ae29581d3866222b667b0775d8d8d4f1843be7e8cd041db40941e19d89"
+    },
+    {
+      "path": "assessment_runtime/feedback_claims.py",
+      "status": "added",
+      "disposition": "reviewed",
+      "sha256": "98a549b14bbcc28adf6ac928077c574c0ad95d8039eec6f41ee9d46b5e3c3fdd"
+    },
+    {
+      "path": "assessment_runtime/output_validation.py",
+      "status": "added",
+      "disposition": "reviewed",
+      "sha256": "b8dbfa621d4b862e107f988eb6ed583e042ecf7360632adcd02a24140823a6ca"
+    },
+    {
+      "path": "assessment_runtime/style_validation.py",
+      "status": "added",
+      "disposition": "reviewed",
+      "sha256": "d698935893fb74df5ec89dd7baa8f375b07936c949f14512a5e7a865af2c2be0"
+    },
+    {
+      "path": "assessment_runtime/transcript_quality.py",
+      "status": "added",
+      "disposition": "reviewed",
+      "sha256": "a24c469d1425aa68e5c4edb19acb12b4f91cc264fb545a2528b245f6ec005b58"
+    },
+    {
+      "path": "docs/reviews/2026-10-03-ocr-claude-style-review.json",
+      "status": "added",
+      "disposition": "reviewed",
+      "sha256": "959f248c97aeb7b831f5c5d0e5d387321b739ced2ce78e2de659ae907c47b084"
+    },
+    {
+      "path": "frontend/tests/live/workflowEvidence.ts",
+      "status": "added",
+      "disposition": "reviewed",
+      "sha256": "38713a2f08393488457914157f8fbe39c0d3ca7e269d38a0675b19570bffe77a"
+    },
+    {
+      "path": "package.json",
+      "status": "added",
+      "disposition": "skipped",
+      "reason": "Pre-existing user-owned tooling outside the approved feedback/test commit scope."
+    },
+    {
+      "path": "scripts/bootstrap_env.sh",
+      "status": "added",
+      "disposition": "skipped",
+      "reason": "Pre-existing user-owned tooling outside the approved feedback/test commit scope."
+    },
+    {
+      "path": "scripts/generate_b2_sample.sh",
+      "status": "added",
+      "disposition": "skipped",
+      "reason": "Pre-existing user-owned tooling outside the approved feedback/test commit scope."
+    },
+    {
+      "path": "scripts/generate_c1_sample.sh",
+      "status": "added",
+      "disposition": "skipped",
+      "reason": "Pre-existing user-owned tooling outside the approved feedback/test commit scope."
+    },
+    {
+      "path": "scripts/inspect_journey_evidence.py",
+      "status": "added",
+      "disposition": "reviewed",
+      "sha256": "264199151120796d9a162bf27d1964af5dc6cf26e7dc16045b3daafc390fc873"
+    },
+    {
+      "path": "scripts/journey_keyring.py",
+      "status": "added",
+      "disposition": "reviewed",
+      "sha256": "11e4a2becac30cdc495835ace78c13c9822778d258ec9ff574989d7b4d754d17"
+    },
+    {
+      "path": "scripts/run_live_journeys.py",
+      "status": "added",
+      "disposition": "reviewed",
+      "sha256": "48c941d80b1740d62803c9611b4ab456df50d494909c429cdaa36bb0cc085bbd"
+    },
+    {
+      "path": "scripts/run_sample_workflow.py",
+      "status": "added",
+      "disposition": "skipped",
+      "reason": "Pre-existing user-owned tooling outside the approved feedback/test commit scope."
+    },
+    {
+      "path": "tests/data/sample_metrics.json",
+      "status": "added",
+      "disposition": "skipped",
+      "reason": "Pre-existing user-owned tooling outside the approved feedback/test commit scope."
+    }
+  ],
+  "findings": "Confirmed findings and fixes are documented in 2026-10-04-long-audio-feedback.md. No unresolved high-severity code finding; live model-quality limitation remains."
+}

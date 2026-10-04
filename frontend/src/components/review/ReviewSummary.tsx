@@ -17,12 +17,15 @@ export type ReviewDisplaySummary = {
   coachSummary: string;
   deterministicScore: number | null;
   failedGates: string[];
+  generalPracticeTips: boolean;
+  transcriptUncertain: boolean;
   gates: Record<GateKey, boolean | null>;
   label: string;
   learningLanguage: string;
   llmScore: number | null;
   mode: string;
   nextExercise: string;
+  nextAttemptInstruction: string;
   nextFocus: string;
   notes: string;
   payload: Record<string, unknown>;
@@ -34,6 +37,7 @@ export type ReviewDisplaySummary = {
   requiresHumanReview: boolean;
   scoreOverall: number | null;
   strengths: string[];
+  styleSuggestions: { original: string; suggestion: string; explanation: string }[];
   transcript: string;
   warnings: string[];
 };
@@ -216,6 +220,9 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
     coachSummary: String(coaching.coach_summary || review.summary || ""),
     deterministicScore: asNumberOrNull(scores.deterministic),
     failedGates,
+    generalPracticeTips: asTextList(report.warnings).some((warning) =>
+      ["coaching_unavailable", "llm_unavailable", "llm_invalid_schema", "llm_skipped_low_word_count", "llm_skipped_transcript_uncertain", "llm_skipped_language_mismatch"].includes(warning)),
+    transcriptUncertain: asTextList(report.warnings).includes("transcript_uncertain"),
     gates: {
       language_pass: gateValue(checks.language_pass),
       topic_pass: gateValue(checks.topic_pass),
@@ -236,17 +243,22 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
     llmScore: asNumberOrNull(scores.llm),
     mode: String(scores.mode || ""),
     nextExercise: String(coaching.next_exercise || ""),
+    nextAttemptInstruction: String(coaching.next_attempt_instruction || ""),
     nextFocus: String(coaching.next_focus || ""),
     notes: String(payload.notes || ""),
     payload,
     priorities: asTextList(coaching.top_3_priorities),
-    progressItems: buildProgressItems(progressDelta),
+    progressItems: progressDelta.comparison_verified === true ? buildProgressItems(progressDelta) : [],
     recurringCoherence,
     recurringGrammar,
     reportId: String(report.session_id || review.reportId || payload.report_path || ""),
     requiresHumanReview: Boolean(report.requires_human_review),
     scoreOverall,
     strengths: asTextList(coaching.strengths),
+    styleSuggestions: Array.isArray(rubric.style_suggestions) ? rubric.style_suggestions
+      .map(toRecord)
+      .map((item) => ({ original: String(item.original || ""), suggestion: String(item.suggestion || ""), explanation: String(item.explanation || "") }))
+      .filter((item) => item.original && item.suggestion && item.explanation) : [],
     transcript: String(
       review.transcript ||
         payload.transcript_full ||
@@ -521,6 +533,16 @@ export const ReviewSummary = ({
         {translate("review.coaching_tab")}
       </p>
       <h2 style={{ margin: 0, fontSize: "1.35rem", color: "#10201c" }}>{translate("review.summary_title")}</h2>
+      {summary.generalPracticeTips && (
+        <p role="status" data-testid="review-general-practice-tips" style={{ margin: 0, color: "#6b4f00", fontWeight: 700 }}>
+          {translate("review.general_practice_tips")}
+        </p>
+      )}
+      {summary.transcriptUncertain && (
+        <p role="status" data-testid="review-transcript-uncertain" style={{ margin: 0, color: "#8f1f14", fontWeight: 700 }}>
+          {translate("review.transcript_uncertain")}
+        </p>
+      )}
       {hideCoachSummary ? null : (
         <p
           style={{ margin: 0, color: "#10201c", lineHeight: 1.6 }}
@@ -584,6 +606,25 @@ export const ReviewSummary = ({
           </p>
         </div>
       </div>
+      {summary.styleSuggestions.length > 0 && (
+        <div data-testid="review-style-suggestions" style={{ display: "grid", gap: "0.625rem" }}>
+          <strong style={{ color: "#33514b" }}>{translate("review.style_suggestions_title")}</strong>
+          <p style={{ margin: 0, color: "#33514b", lineHeight: 1.55 }}>{translate("review.style_suggestions_caption")}</p>
+          <ul style={{ margin: 0, paddingInlineStart: "1.25rem", lineHeight: 1.55 }}>
+            {summary.styleSuggestions.map((item, index) => (
+              <li key={`${item.original}-${index}`}>
+                <span>{item.original} → {item.suggestion}</span>
+                <p style={{ margin: "0.25rem 0 0", color: "#33514b" }}>{item.explanation}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {summary.nextAttemptInstruction && (
+        <p data-testid="review-next-attempt-instruction" style={{ margin: 0, color: "#33514b", lineHeight: 1.6 }}>
+          {translate("review.next_attempt_instruction", { value: summary.nextAttemptInstruction })}
+        </p>
+      )}
       <div data-testid="review-progress" data-semantic-id="review-progress">
         <strong style={{ color: "#33514b" }}>{translate("review.progress_title")}</strong>
         {summary.progressItems.length > 0 ? (

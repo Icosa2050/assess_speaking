@@ -48,6 +48,7 @@ from app_backend.contracts import (
     UploadResponse,
     WhisperModelStatusResponse,
 )
+from assessment_runtime.llm_client import LLMClientError
 from app_backend.jobs import AssessmentBusyError, JobManager
 from app_backend.maintenance import execute_cleanup
 from app_backend.support_bundle import (
@@ -461,13 +462,15 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
     def runtime_settings_test_connection(request: RuntimeConnectionTestRequest) -> RuntimeConnectionTestResponse:
         state = _load_persisted_state(runtime_config)
         draft = request.connection
+        api_key = ""
         try:
+            api_key = _runtime_settings_test_connection_secret(state, draft)
             result = test_runtime_connection(
                 provider=str(draft.provider_choice or "").strip(),
                 provider_choice=str(draft.provider_choice or "").strip(),
                 model=str(draft.model or "").strip(),
                 base_url=str(draft.base_url or "").strip(),
-                api_key=_runtime_settings_test_connection_secret(state, draft),
+                api_key=api_key,
                 openrouter_http_referer=str(draft.openrouter_http_referer or "").strip(),
                 openrouter_app_title=str(draft.openrouter_app_title or "").strip(),
             )
@@ -475,6 +478,11 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
             raise _http_error(400, ErrorCode.VALIDATION, str(exc)) from exc
         except OSError as exc:
             raise _http_error(500, ErrorCode.RUNTIME, str(exc)) from exc
+        except LLMClientError as exc:
+            detail = str(exc)
+            if api_key:
+                detail = detail.replace(api_key, "[redacted]")
+            raise _http_error(502, ErrorCode.RUNTIME, detail[:2048]) from exc
         tested_at = str((result.get("test_payload") or {}).get("tested_at") or "")
         content_preview = str((result.get("test_payload") or {}).get("content_preview") or "")
         return RuntimeConnectionTestResponse(

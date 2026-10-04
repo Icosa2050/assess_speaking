@@ -11,8 +11,8 @@ from assess_core.coaching_taxonomy import (
     LEXICAL_GAP_CATEGORIES,
 )
 
-RUBRIC_PROMPT_VERSION = "rubric_multilingual_v1"
-COACHING_PROMPT_VERSION = "coaching_multilingual_v2"
+RUBRIC_PROMPT_VERSION = "rubric_multilingual_v5"
+COACHING_PROMPT_VERSION = "coaching_multilingual_v6"
 PROMPT_VERSION = RUBRIC_PROMPT_VERSION
 
 SUPPORTED_LANGUAGE_CODES = ("de", "en", "it")
@@ -76,35 +76,45 @@ def rubric_prompt(
     coherence_categories = ", ".join(COHERENCE_ISSUE_CATEGORIES)
     lexical_categories = ", ".join(LEXICAL_GAP_CATEGORIES)
     confidence_levels = ", ".join(COACHING_CONFIDENCE_LEVELS)
+    spoken_register_rule = (
+        "In Italian, indicative after volere che can occur in informal speech: do not automatically label it a mood error. A contextual formal-register suggestion is optional; mismatched person/number is a separate grammar question."
+        if expected_language == "it" else
+        "In English, do not automatically treat conversational contractions or informal vocabulary as grammar errors. Distinguish a register preference from an incorrect verb form."
+        if expected_language == "en" else
+        "Distinguish acceptable spoken variants from errors; formal-register preferences are optional."
+    )
     expected_language_name = language_name(expected_language)
     feedback_language_name = language_name(feedback_language or expected_language)
     return f"""
-You are a CEFR examiner for spoken {expected_language_name} as a target language. Evaluate only the spoken production based on the transcript and metrics.
+You are a practice coach reviewing an ASR transcript in {expected_language_name}. Evaluate the wording and organization visible in the text. You have no audio.
 The required theme is: "{theme}".
 Write every natural-language string value in {feedback_language_name}.
 
 Rules:
 - Reply ONLY with valid JSON (no prose before or after).
 - Translate comment, explanation, and summary strings into {feedback_language_name}.
-- Do NOT translate `examples` or `evidence_quotes`; those must stay as exact substrings from the original spoken response.
+- Do NOT translate `examples` or `evidence_quotes`; those must stay as exact complete words or phrases from the original spoken response.
 - Do NOT translate `category` or `confidence` values; those enum values must remain exactly as listed.
 - Scores must be integers from 1 to 5.
+- The legacy keys `fluency` and `comments_fluency` refer ONLY to continuity of ideas in the text: completion of thoughts, repetition of ideas, and logical sequencing. Describe those features explicitly. Never infer how smoothly, quickly or confidently someone spoke.
+- Select at most 3 clear recurring grammar findings to keep the next practice attempt focused.
 - `on_topic` must be true only if the response is clearly on theme.
 - `topic_relevance_score` must be an integer from 1 to 5.
 - `language_ok` must be true only if the spoken response is clearly in {expected_language_name}.
-- `evidence_quotes` must contain exact, untranslated substrings copied from the TRANSCRIPT.
+- `evidence_quotes` must contain exact, untranslated complete words or phrases copied from the TRANSCRIPT.
 - For recurring errors, use ONLY the allowed categories.
-
-OBJECTIVE METRICS:
-- Duration: {metrics['duration_sec']} s
-- Speaking time: {metrics['speaking_time_sec']} s
-- Total pause time: {metrics['pause_total_sec']} s
-- Pause count: {metrics['pause_count']}
-- Words: {metrics['word_count']}
-- WPM: {metrics['wpm']}
-- Fillers: {metrics['fillers']}
-- Cohesion markers: {metrics['cohesion_markers']}
-- Complexity index: {metrics['complexity_index']}
+- Use [] when no grammar errors, coherence issues or lexical gaps are observed. Never invent an issue to fill a list.
+- A grammatical expression is not an error merely because a richer alternative exists. Put optional alternatives to wording that is already grammatical ONLY in `style_suggestions`, never in recurring_grammar_errors or lexical_gaps. Use [] if no useful optional suggestion exists.
+- For each style suggestion, copy `original` exactly from the transcript, give an alternative `suggestion` in the target language, and explain its optional purpose in the feedback language. Do not translate either original or suggestion. Never call a style preference a correction or reduce accuracy because of it.
+- Before asserting a grammar error, identify the grammatical construction, the actual subject or agreement target, and the applicable rule. Do not reverse a correct modal + base verb into a third-person -s form. Quote membership alone is not proof of an error.
+- Judge spontaneous spoken language conservatively. Accept grammatical spoken variants; label formal-register preferences as optional style. {spoken_register_rule}
+- Issue examples must quote the observed problem, not an invented correction. Grammar and lexical issues need at least one quote. An absence-type coherence issue may have no examples.
+- All generated comments and explanations must be complete, nonblank text.
+- These inputs provide no pronunciation, accent or intonation assessment. Do not judge pronunciation, accent, intonation, personality or learner confidence from text/metrics.
+- ASR can introduce wrong words or punctuation. Do not confidently attribute unusual transcript fragments to learner grammar; omit uncertain criticism and keep advice conservative.
+- Acoustic metrics are displayed separately by the app. Do not describe pauses, hesitation, rhythm, pace, pronunciation, accent or intonation in any generated field. Discuss text structure only.
+- If recurring_grammar_errors is nonempty, never claim that no grammar errors were observed or that grammar is entirely correct.
+- Cohesion markers are a limited detector count, not proof that connecting language is absent. Check the transcript before describing a lack of connectors.
 
 TRANSCRIPT:
 \"\"\"{safe_transcript}\"\"\"
@@ -146,6 +156,13 @@ Required JSON schema:
       "category": "one of: {lexical_categories}",
       "explanation": "string",
       "examples": ["string"]
+    }}
+  ],
+  "style_suggestions": [
+    {{
+      "original": "exact transcript quote in target language",
+      "suggestion": "optional alternative in target language",
+      "explanation": "why this optional alternative might help, in feedback language"
     }}
   ],
   "evidence_quotes": ["string"],
@@ -191,6 +208,7 @@ def coaching_prompt(
     *,
     expected_language: str = "it",
     feedback_language: str | None = None,
+    checks: dict | None = None,
 ) -> str:
     # Rubric confidence describes the assessor, not the learner's confidence.
     coaching_evidence = {key: value for key, value in rubric.items() if key != "confidence"}
@@ -198,8 +216,8 @@ def coaching_prompt(
     expected_language_name = language_name(expected_language)
     feedback_language_name = language_name(feedback_language or expected_language)
     return f"""
-You are a speaking coach for learners of {expected_language_name}. Use ONLY the metrics and the already validated rubric to give practical next-step advice.
-The task was to speak in {expected_language_name} for {target_duration_sec:.0f} seconds on the theme "{theme}".
+You are a speaking coach for learners of {expected_language_name}. Use ONLY the task context and the schema-checked rubric to give practical next-step advice. Its quotes come from ASR text; this does not independently verify that a quoted expression is a learner error.
+The task was to speak in {expected_language_name} for {target_duration_sec:g} seconds on the theme "{theme}".
 Write every natural-language string value in {feedback_language_name}.
 
 Rules:
@@ -209,18 +227,21 @@ Rules:
 - Do NOT translate `category` values if they appear in the validated rubric.
 - Do not infer the learner's confidence, personality, or pronunciation from these text-only observations.
 - `top_3_priorities` must contain EXACTLY 3 items.
-- `next_exercise` must be a concrete spoken retry: say, record, or repeat aloud, with a duration and one observable focus. Do not prescribe a writing-only exercise, an internal ID, or an invented link.
+- `next_exercise` must be a concrete spoken retry or clearly labelled preparation drill: say, record, or repeat aloud, with a duration and one observable focus. A shorter preparation drill is allowed; do not confuse its duration with the full task.
+- `next_attempt_instruction` must explicitly ask for a full spoken retry lasting {target_duration_sec:g} seconds, using digits and a seconds/minutes unit. Include one observable focus. This field must not include any other duration.
+- `retry_duration_sec` must be the number {target_duration_sec:g}, the configured full-task duration.
+- Do not prescribe a writing-only exercise, an internal ID, or an invented link. All generated text must be complete and nonblank.
 - Do not change facts from the already validated rubric.
+- `style_suggestions` are optional alternatives to acceptable expressions. Keep them separate from grammar corrections; do not describe them as errors, put them in top_3_priorities, or use them to claim lower accuracy. They appear in a dedicated optional section in the app.
+- Acoustic metrics are displayed separately: do not describe pauses, hesitation, rhythm, pace, pronunciation, accent or intonation in any field. Discuss text structure only.
+- For EVERY recurring_grammar_errors finding, include at least one exact quoted example from that finding in top_3_priorities, explicitly as an expression to correct. Combine related findings if necessary. Do not call grammar error-free when findings are present.
+- Do not repeat an error diagnosis merely because an error category exists: use the quoted evidence and avoid blaming the learner for possible ASR artifacts.
+- The app displays audio measurements separately. Use the configured duration for the next exercise; do not infer delivery quality from recording length or the supplied duration gate.
 
-METRICS:
-- Speaking time: {metrics['speaking_time_sec']} s
-- Total pause time: {metrics['pause_total_sec']} s
-- Pause count: {metrics['pause_count']}
-- Words: {metrics['word_count']}
-- WPM: {metrics['wpm']}
-- Fillers: {metrics['fillers']}
-- Cohesion markers: {metrics['cohesion_markers']}
-- Complexity index: {metrics['complexity_index']}
+TASK CONTEXT:
+- Recording duration: {metrics.get('duration_sec', 'unknown')} s
+- Configured full-task duration: {target_duration_sec:g} s
+- Duration gate passed: {json.dumps((checks or {}).get('duration_pass'))}
 
 VALIDATED RUBRIC:
 {rubric_json}
@@ -231,7 +252,9 @@ Required JSON schema:
   "top_3_priorities": ["string", "string", "string"],
   "next_focus": "string",
   "next_exercise": "string",
-  "coach_summary": "string"
+  "coach_summary": "string",
+  "next_attempt_instruction": "Full spoken retry with the configured duration and one observable focus",
+  "retry_duration_sec": {target_duration_sec:g}
 }}
 """
 

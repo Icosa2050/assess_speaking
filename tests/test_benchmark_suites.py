@@ -60,6 +60,21 @@ class BenchmarkSuiteTests(unittest.TestCase):
                 self.assertEqual(suite.llm_contract.response_parser, "extract_json_object")
                 self.assertEqual(suite.llm_contract.rubric_schema, "RubricResult")
 
+    def test_missing_profile_key_uses_frozen_language_benchmark(self):
+        for language, filename in (
+            ("en", "english_monologue_cefr_v1.json"),
+            ("it", "italian_monologue_cefr_v1.json"),
+        ):
+            payload = json.loads((self.fixtures_dir / filename).read_text())
+            del payload["language_profile_key"]
+            with self.subTest(language=language), tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / "unpinned.json"
+                path.write_text(json.dumps(payload))
+                suite = load_benchmark_suite(path)
+                self.assertEqual(suite.language_profile_key, f"{language}_benchmark")
+                profile = require_resolved_language_profile(language, profile_key=suite.language_profile_key)
+                self.assertEqual(profile.scorer_version, suite.scorer_version)
+
     def test_each_active_case_maps_to_expected_ranges(self):
         for suite in self.suites:
             for case in suite.cases:

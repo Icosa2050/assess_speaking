@@ -20,7 +20,7 @@ test("transcribes Italian audio, gets oMLX feedback, and reloads the saved histo
     .toBe("playwright.omlx.config.ts");
   const backend = "http://127.0.0.1:8812";
   const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
-  const audio = path.join(repoRoot, "output/speech/it_b1_near_perfect.wav");
+  const audio = path.join(repoRoot, "samples/cefr/it/B1/travel_story.wav");
   expect(existsSync(audio), `Required Italian audio fixture is missing: ${audio}`).toBeTruthy();
   const { baseUrl, model, apiKey } = readOmlxConfig();
   expect(model, "Set OMLX_MODEL to an installed chat model ID").not.toBe("");
@@ -75,7 +75,7 @@ test("transcribes Italian audio, gets oMLX feedback, and reloads the saved histo
     await page.getByTestId("setup.learning_language").selectOption("it");
     await page.getByTestId("setup.cefr").selectOption("B1");
     await page.getByTestId("setup.advanced_topic").click();
-    await page.getByTestId("setup.custom_theme").fill("Il mio posto preferito: una biblioteca");
+    await page.getByTestId("setup.custom_theme").fill("Il mio ultimo viaggio");
     await page.getByTestId("setup.duration").selectOption("90");
     await page.getByTestId("setup.continue").click();
     await expect(page).toHaveURL(/\/speak$/);
@@ -107,7 +107,7 @@ test("transcribes Italian audio, gets oMLX feedback, and reloads the saved histo
     expect(payload).toBeTruthy();
     const transcript = String(payload.transcript_full || "");
     expect(transcript.split(/\s+/).length).toBeGreaterThan(50);
-    expect(transcript.toLowerCase()).toContain("biblioteca");
+    expect(transcript.toLowerCase()).toContain("mare");
     const report = payload.report as Record<string, any>;
     expect(report.scores.mode, "Deterministic fallback must not pass this test").toBe("hybrid");
     for (const score of [report.scores.final, report.scores.llm]) {

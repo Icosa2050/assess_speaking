@@ -162,7 +162,11 @@ def load_benchmark_suite(path: str | Path) -> BenchmarkSuite:
     if language_profile_key is not None:
         language_profile_key = str(language_profile_key).strip() or None
     if language_profile_key is None:
-        language_profile_key = default_language_profile_key(language_code)
+        language_profile_key = (
+            f"{language_code.strip().lower()}_benchmark"
+            if language_code.strip().lower() in {"en", "it"}
+            else default_language_profile_key(language_code)
+        )
 
     return BenchmarkSuite(
         suite_id=str(payload["suite_id"]),
