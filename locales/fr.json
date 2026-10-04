@@ -102,9 +102,16 @@
     "whisper_download_failed": "Échec du téléchargement de Whisper : {detail}",
     "section_provider": "Section B · Choisir un service d’IA",
     "provider_label": "Service d’IA",
-    "local_first_intro": "Commence avec un fournisseur local. Ollama et LM Studio ne nécessitent généralement pas de clé API.",
+    "local_first_intro": "Choisis un fournisseur local, ChatGPT ou Groq avec une offre gratuite. Les fournisseurs cloud reçoivent le texte des exercices.",
     "show_advanced": "Afficher les fournisseurs cloud et les options avancées",
     "hide_advanced": "Masquer les fournisseurs cloud et les options avancées",
+    "groq_models": {
+      "recommended": "Recommandé",
+      "fast": "Plus rapide",
+      "preview": "Aperçu",
+      "choose": "Choisis un modèle de feedback compatible",
+      "help": "Ces modèles donnent un retour sur les exercices. Les modèles Groq Whisper, vocaux et de sécurité ont d’autres fonctions et ne sont pas sélectionnables ici."
+    },
     "groq_console": "Obtenir une clé API dans la console Groq",
     "provider_options": {
       "groq": {

@@ -71,14 +71,15 @@ test("xAI uses API keys at its fixed endpoint; switching providers clears an ent
 for (const locale of ["en", "it"]) {
   test(`Groq key setup, quota error and retry (${locale})`, async ({ page }) => {
     let probes = 0;
+    let selectedModel = "openai/gpt-oss-120b";
     await page.route("**/v1/runtime/settings", r => r.fulfill({json:{ui_locale:locale,whisper_model:"tiny",connections:[],active_connection_id:""}}));
     await page.route("**/v1/runtime/settings/test-connection", async r => {
       probes++;
-      expect(r.request().postDataJSON().connection).toMatchObject({provider_choice:"groq",model:"openai/gpt-oss-120b",base_url:"https://api.groq.com/openai/v1",api_key:"groq-fixture"});
+      expect(r.request().postDataJSON().connection).toMatchObject({provider_choice:"groq",model:selectedModel,base_url:"https://api.groq.com/openai/v1",api_key:"groq-fixture"});
       if (probes === 1) {
         await r.fulfill({status:502,json:{detail:{code:"runtime_error",detail:"Groq usage limit reached. Wait and retry."}}});
       } else {
-        await r.fulfill({json:{provider:"groq",base_url:"https://api.groq.com/openai/v1",service_base_url:"https://api.groq.com/openai/v1",health_endpoint:"https://api.groq.com/openai/v1/models",discovered_models:["openai/gpt-oss-120b"],tested_at:"2026-10-04",content_preview:"Structured feedback verified"}});
+        await r.fulfill({json:{provider:"groq",base_url:"https://api.groq.com/openai/v1",service_base_url:"https://api.groq.com/openai/v1",health_endpoint:"https://api.groq.com/openai/v1/models",discovered_models:["openai/gpt-oss-120b"],tested_at:"2026-10-04",content_preview:`Structured feedback verified: ${selectedModel}`}});
       }
     });
     await page.goto("/settings");
@@ -96,8 +97,15 @@ for (const locale of ["en", "it"]) {
     await expect(page.getByTestId("runtime_connection.form_status")).toContainText("Groq usage limit reached");
     await expect(page.getByTestId("runtime_connection.api_key")).toHaveValue("groq-fixture");
     await page.getByTestId("runtime_connection.test_connection").click();
-    await expect(page.getByTestId("runtime_connection.form_status")).toContainText("Structured feedback verified");
+    await expect(page.getByTestId("runtime_connection.form_status")).toContainText(`Structured feedback verified: ${selectedModel}`);
     expect(probes).toBe(2);
+    for (const model of ["openai/gpt-oss-20b", "qwen/qwen3.8-27b"]) {
+      selectedModel = model;
+      await page.getByTestId("runtime_connection.model").selectOption(model);
+      await page.getByTestId("runtime_connection.test_connection").click();
+      await expect.poll(() => probes).toBe(model === "openai/gpt-oss-20b" ? 3 : 4);
+      await expect(page.getByTestId("runtime_connection.form_status")).toContainText(`Structured feedback verified: ${selectedModel}`);
+    }
     await select.selectOption("xai");
     await expect(page.getByTestId("runtime_connection.api_key")).toHaveValue("");
   });

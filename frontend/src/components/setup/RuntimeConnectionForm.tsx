@@ -41,6 +41,12 @@ const PROVIDER_DEFAULT_BASE_URLS: Record<(typeof PROVIDER_CHOICES)[number], stri
   openai_compatible: "",
 };
 
+const GROQ_FEEDBACK_MODELS = [
+  { id: "openai/gpt-oss-120b", label: "GPT-OSS 120B", hint: "recommended" },
+  { id: "openai/gpt-oss-20b", label: "GPT-OSS 20B", hint: "fast" },
+  { id: "qwen/qwen3.8-27b", label: "Qwen 3.8 27B", hint: "preview" },
+] as const;
+
 const DEFAULT_OPENROUTER_HTTP_REFERER = "http://localhost:8503";
 const DEFAULT_OPENROUTER_APP_TITLE = "Vostavo";
 
@@ -69,7 +75,6 @@ const ADVANCED_PROVIDER_CHOICES = new Set<string>([
   "openrouter",
   "chatgpt",
   "xai",
-  "groq",
   "openai_compatible",
 ]);
 
@@ -254,7 +259,7 @@ export const RuntimeConnectionForm = ({
     variant === "settings" || showAdvancedProviders || selectedProviderIsAdvanced;
   const providerChoices =
     variant === "runtime-setup" && !advancedProvidersVisible
-      ? PROVIDER_CHOICES.filter((option) => LOCAL_PROVIDER_CHOICES.has(option) || option === "chatgpt")
+      ? PROVIDER_CHOICES.filter((option) => LOCAL_PROVIDER_CHOICES.has(option) || option === "chatgpt" || option === "groq")
       : PROVIDER_CHOICES;
   const providerCanUseApiKey = !LOCAL_PROVIDER_CHOICES.has(providerChoice);
   const savedSecretPresent = initialSecretState === "present";
@@ -279,6 +284,10 @@ export const RuntimeConnectionForm = ({
   };
 
   const validateDraft = (candidate: RuntimeConnectionDraft): boolean => {
+    if (candidate.provider_choice === "groq" && !GROQ_FEEDBACK_MODELS.some((model) => model.id === candidate.model)) {
+      setLocalValidationMessage(translate("runtime_setup.groq_models.choose"));
+      return false;
+    }
     if (
       String(candidate.provider_choice || "").trim() === "openrouter" &&
       !isValidOpenRouterHttpReferer(candidate.openrouter_http_referer || "")
@@ -430,16 +439,34 @@ export const RuntimeConnectionForm = ({
           <span style={{ fontWeight: 600, color: "#33514b" }}>
             {translate(`${copyRoot}.model`)}
           </span>
-          <input
-            value={normalizedDraft.model}
-            onChange={(event) => updateDraft({ model: event.target.value })}
-            style={inputStyle}
-            type="text"
-            {...semanticAttributes(SEMANTIC_IDS.runtimeConnection.model)}
-          />
+          {providerChoice === "groq" ? (
+            <select
+              value={normalizedDraft.model}
+              onChange={(event) => updateDraft({ model: event.target.value })}
+              style={inputStyle}
+              {...semanticAttributes(SEMANTIC_IDS.runtimeConnection.model)}
+            >
+              {!GROQ_FEEDBACK_MODELS.some((model) => model.id === normalizedDraft.model) ? (
+                <option value={normalizedDraft.model} disabled>{translate("runtime_setup.groq_models.choose")}</option>
+              ) : null}
+              {GROQ_FEEDBACK_MODELS.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.label} — {translate(`runtime_setup.groq_models.${model.hint}`)}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              value={normalizedDraft.model}
+              onChange={(event) => updateDraft({ model: event.target.value })}
+              style={inputStyle}
+              type="text"
+              {...semanticAttributes(SEMANTIC_IDS.runtimeConnection.model)}
+            />
+          )}
         </label>
 
-        {detectedModels.length > 0 ? (
+        {providerChoice !== "groq" && detectedModels.length > 0 ? (
           <label style={fieldStyle}>
             <span style={{ fontWeight: 600, color: "#33514b" }}>
               {translate("runtime_setup.detected_local_models_label")}
@@ -464,7 +491,11 @@ export const RuntimeConnectionForm = ({
           </label>
         ) : null}
 
-        {detectedModelMessage ? (
+        {providerChoice === "groq" ? (
+          <p style={{ margin: 0, lineHeight: 1.55, color: "#33514b" }}>{translate("runtime_setup.groq_models.help")}</p>
+        ) : null}
+
+        {providerChoice !== "groq" && detectedModelMessage ? (
           <p style={{ margin: 0, lineHeight: 1.55, color: "#33514b" }}>{detectedModelMessage}</p>
         ) : null}
 

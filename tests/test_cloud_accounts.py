@@ -380,19 +380,24 @@ def groq_sdk(monkeypatch, response=None, failure=None):
     return factory, client
 
 
-def test_groq_probe_uses_strict_nonstreaming_chat_protocol(monkeypatch):
+@pytest.mark.parametrize('model', ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b'])
+def test_groq_probe_uses_strict_nonstreaming_chat_protocol(monkeypatch, model):
     from assessment_runtime.llm_client import test_connection
     factory, client = groq_sdk(monkeypatch)
     def echo(**payload):
         result = payload['messages'][0]['content'].split('exactly: ', 1)[1]
         return SimpleNamespace(model_dump=lambda: {'choices':[{'finish_reason':'stop','message':{'content':result}}]})
     client.chat.completions.create.side_effect = echo
-    result = test_connection(provider='groq', model='openai/gpt-oss-120b', api_key='groq-secret')
+    result = test_connection(provider='groq', model=model, api_key='groq-secret')
     assert result['ok'] and result['provider'] == 'groq'
     assert factory.call_args.kwargs['base_url'] == 'https://api.groq.com/openai/v1'
     assert factory.call_args.kwargs['max_retries'] == 0
     payload = client.chat.completions.create.call_args.kwargs
-    assert payload['stream'] is False and payload['reasoning_effort'] == 'low'
+    assert payload['stream'] is False and payload['model'] == model
+    if model.startswith('openai/'):
+        assert payload['reasoning_effort'] == 'low'
+    else:
+        assert 'reasoning_effort' not in payload
     assert payload['max_completion_tokens'] == 4096
     assert payload['response_format']['json_schema']['strict'] is True
     assert payload['response_format']['json_schema']['name'] == 'assess_speaking_rubric'

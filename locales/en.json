@@ -102,9 +102,16 @@
     "whisper_download_failed": "Whisper download failed: {detail}",
     "section_provider": "Section B · Choose an AI option",
     "provider_label": "AI option",
-    "local_first_intro": "Start with a local provider. Ollama and LM Studio usually do not need API keys.",
+    "local_first_intro": "Choose a local provider, ChatGPT, or Groq with a free tier. Cloud providers receive your practice text.",
     "show_advanced": "Show cloud and advanced providers",
     "hide_advanced": "Hide cloud and advanced providers",
+    "groq_models": {
+      "recommended": "Recommended",
+      "fast": "Faster",
+      "preview": "Preview",
+      "choose": "Choose a supported feedback model",
+      "help": "These models provide practice feedback. Groq Whisper, voice and safety models have different roles and cannot be selected for feedback."
+    },
     "groq_console": "Get an API key at the Groq console",
     "provider_options": {
       "groq": {

@@ -102,9 +102,16 @@
     "whisper_download_failed": "Whisper-Download fehlgeschlagen: {detail}",
     "section_provider": "Abschnitt B · KI-Anbieter wählen",
     "provider_label": "KI-Anbieter",
-    "local_first_intro": "Für den Einstieg eignet sich ein lokaler Anbieter. Ollama und LM Studio benötigen in der Regel keinen API-Schlüssel.",
+    "local_first_intro": "Wähle einen lokalen Anbieter, ChatGPT oder Groq mit kostenlosem Tarif. Cloud-Anbieter erhalten den Übungstext.",
     "show_advanced": "Cloud-Anbieter und weitere Optionen anzeigen",
     "hide_advanced": "Cloud-Anbieter und weitere Optionen ausblenden",
+    "groq_models": {
+      "recommended": "Empfohlen",
+      "fast": "Schneller",
+      "preview": "Vorschau",
+      "choose": "Wähle ein unterstütztes Feedback-Modell",
+      "help": "Diese Modelle geben Übungsfeedback. Groq-Whisper-, Sprachsynthese- und Sicherheitsmodelle haben andere Aufgaben und sind hier nicht auswählbar."
+    },
     "groq_console": "API-Schlüssel in der Groq-Konsole erstellen",
     "provider_options": {
       "groq": {
