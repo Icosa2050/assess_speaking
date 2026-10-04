@@ -100,8 +100,8 @@ def resolved_base_url(provider: str | None, base_url: str | None) -> str:
 def runtime_base_url(provider: str | None, base_url: str | None) -> str:
     normalized_provider = normalize_provider(provider)
     resolved = resolved_base_url(normalized_provider, base_url)
-    if normalized_provider == "ollama" and resolved and not resolved.endswith("/v1"):
-        return f"{resolved.rstrip('/')}/v1"
+    if normalized_provider == "ollama" and resolved:
+        return f"{service_base_url(normalized_provider, resolved)}/v1"
     return resolved.rstrip("/")
 
 
@@ -113,8 +113,12 @@ def service_base_url(provider: str | None, base_url: str | None) -> str:
             return DEFAULT_SETUP_BASE_URLS["ollama_local"].rstrip("/")
         return default_base_url(normalized_provider).rstrip("/")
     resolved = candidate.rstrip("/")
-    if normalized_provider == "ollama" and resolved.endswith("/v1"):
-        return resolved[: -len("/v1")]
+    if normalized_provider == "ollama":
+        # Setup accepts native /api and compatible /v1 roots. Older saved
+        # cloud connections also contain /api/v1; both APIs share the host root.
+        for suffix in ("/v1", "/api"):
+            if resolved.endswith(suffix):
+                resolved = resolved[: -len(suffix)]
     return resolved
 
 

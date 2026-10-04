@@ -2,12 +2,26 @@
 
 Updated: October 4, 2026. Vostavo has seven API-key/local connection choices and one ChatGPT browser-authorization flow. These are provider connections; the app itself remains local/guest.
 
+## Current focus: Ollama Cloud and ChatGPT
+
+Live-test priority is Ollama Cloud and ChatGPT. xAI testing is deferred; no xAI account or API credits are needed for the current work.
+
+The supplied `OLLAMA_API_KEY` in the repository `.env` was verified with `gpt-oss:120b`:
+
+```sh
+.venv/bin/python scripts/check_provider_connections.py --providers ollama_cloud --env-file .env --model ollama_cloud=gpt-oss:120b
+```
+
+Use the model ID returned by `https://ollama.com/api/tags`, without the local CLI `:cloud` suffix. Vostavo normalizes the native `/api` setup URL to `/api/tags` for discovery and `/v1/chat/completions` for inference. Legacy saved `/api/v1` URLs are normalized too. The GPT-OSS connection probe has a bounded 256-token budget.
+
+ChatGPT requires the one-time browser authorization in section 3. The user completed this successfully in the isolated test app; the saved `gpt-6-astra` session passed model discovery and structured-feedback inference. An API key or an existing Codex/Claude CLI login is not that Vostavo authorization.
+
 ## 1. Account-free regression suite
 
 Run from the repository root:
 
 ```sh
-.venv/bin/python -m pytest -q tests/test_provider_connection_checks.py tests/test_cloud_accounts.py tests/test_llm_client.py tests/test_app_core_services.py
+.venv/bin/python -m pytest -q tests/test_ollama_cloud_connection.py tests/test_provider_connection_checks.py tests/test_cloud_accounts.py tests/test_llm_client.py tests/test_app_core_services.py
 npm --prefix frontend test
 npm --prefix frontend run typecheck
 npm --prefix frontend run test:e2e -- --config playwright.connections.config.ts
@@ -93,7 +107,7 @@ The runner asks that backend to use its saved session and selected model. Refres
 
 - **Groq:** your supplied key already works. No additional account needed. A separate test project/key can keep test usage separate. Stay on Free if desired; allow the three feedback models.
 - **OpenRouter:** your existing API key can be used for a small probe. For repeat CI runs, create a dedicated key with a credit limit and allow a model supporting structured output.
-- **xAI:** create an account/API key in the xAI console, enable a supported text model and arrange API credits. A Grok consumer subscription alone is not the API credential this app uses. Put the key in `XAI_API_KEY`; do not paste it into chat.
+- **xAI:** deferred at the user’s request. No account setup or paid test is needed now. Existing fixture coverage remains.
 - **Ollama Cloud:** use an Ollama account, create an API key, choose a cloud model available to that account, and set `OLLAMA_API_KEY`. The current Vostavo cloud connection uses that key, not an automated website login.
 - **Local Ollama/LM Studio:** no cloud account required. Start the local server and load a model. If LM Studio authentication is enabled, create a token and use `LMSTUDIO_API_KEY`.
 - **ChatGPT:** one manual sign-in as above. OpenAI API keys are not a substitute for this plan-authorization flow. No account was created on your behalf; email verification, plan choice and personal consent are yours.
@@ -113,8 +127,9 @@ Run the account-free suite on normal CI. Run live checks only through an explici
 
 ## Verified run on October 4
 
-- Live: all three Groq models, OpenRouter `openai/gpt-oss-120b`, local Ollama `qwen3.5:4b`, local LM Studio `qwen2.5-3b-instruct` passed save/reload/probe/delete.
+- Live: Ollama Cloud `gpt-oss:120b`, all three Groq models, OpenRouter `openai/gpt-oss-120b`, local Ollama `qwen3.5:4b`, local LM Studio `qwen2.5-3b-instruct` passed save/reload/probe/delete.
 - Browser: 23 fixture-based Chromium journeys passed in English and Italian.
 - Frontend: 155 tests and typecheck passed.
-- Backend: 150 focused cases passed, including the real loopback callback and persistence, cleanup, isolation and redaction regressions.
-- xAI, Ollama Cloud, arbitrary compatible servers and real ChatGPT consent were not live-tested. No xAI/Ollama Cloud test credentials or signed-in ChatGPT test connection were supplied.
+- Backend: 158 focused cases passed, including the real loopback callback and persistence, cleanup, isolation and redaction regressions.
+- ChatGPT: manual browser authorization completed, then the automatic saved-session check passed with `gpt-6-astra`. This does not exercise forced expiry, provider-side revocation or unattended initial consent.
+- xAI is deferred. Arbitrary compatible servers remain untested live. The live connection checks do not establish full learner-feedback quality.

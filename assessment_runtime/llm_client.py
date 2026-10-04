@@ -495,6 +495,9 @@ def test_connection(
     normalized_provider = normalize_provider(provider)
     probe_prompt = "Reply with OK."
     probe_payload: dict[str, Any] = {"temperature": 0, "max_tokens": 8}
+    if normalized_provider == "ollama":
+        # Hosted reasoning models may consume tokens before emitting even "OK".
+        probe_payload["max_tokens"] = 256
     if normalized_provider in {"openrouter", "chatgpt", "xai", "groq"}:
         # Check the actual rubric protocol, rather than accepting plain-chat
         # models which cannot satisfy assessment's strict schema requirements.
