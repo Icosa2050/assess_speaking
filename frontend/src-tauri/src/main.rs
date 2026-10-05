@@ -1,223 +1,70 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod desktop;
+use std::sync::Mutex;
+use tauri::Manager;
 
-use std::collections::HashMap;
-use std::env;
-use std::error::Error;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-
-const DESKTOP_API_BASE_URL_ENV_VAR: &str = "VOSTAVO_DESKTOP_API_BASE_URL";
-const DEPLOYMENT_MODE_ENV_VAR: &str = "VOSTAVO_DEPLOYMENT_MODE";
-const LAUNCH_MODE_ENV_VAR: &str = "VOSTAVO_LAUNCH_MODE";
-const DESKTOP_PACKAGING_SAFE_ENV_VAR: &str = "VOSTAVO_DESKTOP_PACKAGING_SAFE";
-const AUTH_MODE_ENV_VAR: &str = "VOSTAVO_AUTH_MODE";
-const PYTHON_BIN_ENV_VAR: &str = "PYTHON_BIN";
-
-struct DesktopRuntimeBridge {
-    api_base_url: String,
-    deployment_mode: String,
-    launch_mode: String,
-    packaging_safe: bool,
-    auth_mode: String,
-}
-
-fn escape_js(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('\'', "\\'")
-        .replace('"', "\\\"")
-        .replace('`', "\\`")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('\u{2028}', "\\u2028")
-        .replace('\u{2029}', "\\u2029")
-        .replace("</", "<\\/")
-}
-
-fn packaging_safe_from_env(value: &str) -> bool {
-    matches!(
-        value.trim().to_ascii_lowercase().as_str(),
-        "1" | "true" | "yes"
-    )
-}
-
-fn desktop_bridge_from_env() -> Option<DesktopRuntimeBridge> {
-    let api_base_url = env::var(DESKTOP_API_BASE_URL_ENV_VAR).ok()?;
-    let trimmed = api_base_url.trim().to_string();
-    if trimmed.is_empty() {
-        return None;
-    }
-    Some(DesktopRuntimeBridge {
-        api_base_url: trimmed,
-        deployment_mode: env::var(DEPLOYMENT_MODE_ENV_VAR).unwrap_or_else(|_| "local".to_string()),
-        launch_mode: env::var(LAUNCH_MODE_ENV_VAR).unwrap_or_else(|_| "repo".to_string()),
-        packaging_safe: env::var(DESKTOP_PACKAGING_SAFE_ENV_VAR)
-            .map(|value| packaging_safe_from_env(&value))
-            .unwrap_or(false),
-        auth_mode: env::var(AUTH_MODE_ENV_VAR).unwrap_or_else(|_| "guest".to_string()),
-    })
-}
-
-fn repo_root() -> PathBuf {
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    manifest_dir
-        .parent()
-        .and_then(Path::parent)
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| manifest_dir.to_path_buf())
-}
-
-fn parse_bootstrap_lines(stdout: &str) -> HashMap<String, String> {
-    let mut values = HashMap::new();
-    for line in stdout.lines() {
-        if let Some((key, value)) = line.split_once('=') {
-            values.insert(key.trim().to_string(), value.trim().to_string());
-        }
-    }
-    values
-}
-
-fn command_is_available(executable: &str) -> bool {
-    Command::new(executable).arg("--version").output().is_ok()
-}
-
-fn resolve_python_executable(root: &Path) -> PathBuf {
-    if let Ok(value) = env::var(PYTHON_BIN_ENV_VAR) {
-        let trimmed = value.trim();
-        if !trimmed.is_empty() {
-            return PathBuf::from(trimmed);
-        }
-    }
-
-    for candidate in [
-        root.join(".venv").join("bin").join("python"),
-        root.join(".venv").join("Scripts").join("python.exe"),
-    ] {
-        if candidate.exists() {
-            return candidate;
-        }
-    }
-
-    let candidate_names: &[&str] = if cfg!(target_os = "windows") {
-        &["python", "py"]
-    } else {
-        &["python3", "python"]
-    };
-    for candidate in candidate_names {
-        if command_is_available(candidate) {
-            return PathBuf::from(candidate);
-        }
-    }
-
-    PathBuf::from(candidate_names[0])
-}
-
-fn bootstrap_from_repo_launcher() -> Result<DesktopRuntimeBridge, Box<dyn Error>> {
-    let root = repo_root();
-    let python_executable = resolve_python_executable(&root);
-    let output = Command::new(&python_executable)
-        .arg(root.join("scripts").join("bootstrap_backend.py"))
-        .current_dir(&root)
-        .output()
-        .map_err(|error| {
-            std::io::Error::other(format!(
-                "failed to run desktop bootstrap with {}: {}",
-                python_executable.display(),
-                error
-            ))
-        })?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let detail = format!("desktop bootstrap failed: {}", stderr.trim());
-        return Err(std::io::Error::other(detail).into());
-    }
-
-    let values = parse_bootstrap_lines(&String::from_utf8_lossy(&output.stdout));
-    let api_base_url = values
-        .get(DESKTOP_API_BASE_URL_ENV_VAR)
-        .cloned()
-        .unwrap_or_default();
-    if api_base_url.trim().is_empty() {
-        return Err(std::io::Error::other("desktop bootstrap did not return a backend URL").into());
-    }
-
-    Ok(DesktopRuntimeBridge {
-        api_base_url,
-        deployment_mode: values
-            .get(DEPLOYMENT_MODE_ENV_VAR)
-            .cloned()
-            .unwrap_or_else(|| "local".to_string()),
-        launch_mode: values
-            .get(LAUNCH_MODE_ENV_VAR)
-            .cloned()
-            .unwrap_or_else(|| "repo".to_string()),
-        packaging_safe: values
-            .get(DESKTOP_PACKAGING_SAFE_ENV_VAR)
-            .map(|value| packaging_safe_from_env(value))
-            .unwrap_or(false),
-        auth_mode: values
-            .get(AUTH_MODE_ENV_VAR)
-            .cloned()
-            .unwrap_or_else(|| "guest".to_string()),
-    })
-}
-
-fn desktop_runtime_bridge() -> Result<DesktopRuntimeBridge, Box<dyn Error>> {
-    if let Some(runtime) = desktop_bridge_from_env() {
-        return Ok(runtime);
-    }
-
-    bootstrap_from_repo_launcher().map_err(|error| {
-        std::io::Error::other(format!(
-            "could not initialize Vostavo desktop bridge from {} or launcher bootstrap: {}",
-            DESKTOP_API_BASE_URL_ENV_VAR, error
-        ))
-        .into()
-    })
-}
-
-fn desktop_bridge_script(runtime: &DesktopRuntimeBridge) -> String {
-    format!(
-        "window.__VOSTAVO_DESKTOP__ = Object.freeze({{ apiBaseUrl: '{}', deploymentMode: '{}', launchMode: '{}', packagingSafe: {}, authMode: '{}' }});",
-        escape_js(&runtime.api_base_url),
-        escape_js(&runtime.deployment_mode),
-        escape_js(&runtime.launch_mode),
-        if runtime.packaging_safe { "true" } else { "false" },
-        escape_js(&runtime.auth_mode),
-    )
+fn bridge(runtime: &desktop::Runtime) -> String {
+    format!("window.__VOSTAVO_DESKTOP__ = Object.freeze({});", serde_json::json!({
+        "apiBaseUrl": runtime.api_base_url, "sessionToken": runtime.session_token,
+        "mediaToken": runtime.media_token,
+        "deploymentMode": "local", "launchMode": runtime.launch_mode,
+        "packagingSafe": true, "authMode": "guest"
+    }))
 }
 
 fn main() {
-    let runtime = desktop_runtime_bridge().expect("could not initialize Vostavo desktop bridge");
-    tauri::Builder::default()
-        .setup(move |app| {
-            let config = app
-                .config()
-                .app
-                .windows
-                .iter()
-                .find(|window| window.label == "main")
-                .ok_or_else(|| std::io::Error::other("main webview configuration is missing"))?;
-            tauri::WebviewWindowBuilder::from_config(app, config)?
-                .initialization_script(&desktop_bridge_script(&runtime))
-                .build()?;
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |information| {
+        use std::io::Write;
+        let logs = desktop::data_root().join("logs");
+        let _ = std::fs::create_dir_all(&logs);
+        if let Ok(mut log) = std::fs::OpenOptions::new().create(true).append(true).open(logs.join("desktop-startup.log")) {
+            let _ = writeln!(log, "Desktop startup failure: {information}");
+        }
+        previous_hook(information);
+    }));
+    let mut context = tauri::generate_context!();
+    // macOS reads the Dock/application icon from Contents/Resources/Vostavo.icns.
+    // The source PNG is 16-bit, which Tauri's window-icon decoder misinterprets
+    // as twice as many RGBA pixels. Do not install that Windows-style icon.
+    #[cfg(target_os = "macos")]
+    context.set_default_window_icon(None);
+    let app = tauri::Builder::default()
+        .manage(Mutex::new(None::<desktop::BackendOwner>))
+        .setup(|app| {
+            tauri::WebviewWindowBuilder::new(app, "loading", tauri::WebviewUrl::App("loading.html".into()))
+                .title("Vostavo").inner_size(560.0, 300.0).resizable(false).build()?;
+            let handle = app.handle().clone();
+            let config = app.config().app.windows.iter().find(|window| window.label == "main").cloned().ok_or("Main window configuration is missing")?;
+            std::thread::spawn(move || {
+                match desktop::BackendOwner::launch() {
+                    Ok((owner, runtime)) => {
+                        *handle.state::<Mutex<Option<desktop::BackendOwner>>>().lock().unwrap() = Some(owner);
+                        let result = tauri::WebviewWindowBuilder::from_config(&handle, &config)
+                            .and_then(|builder| builder.on_navigation(|url| {
+                                matches!((url.scheme(), url.host_str()), ("tauri", Some("localhost")) | ("http", Some("tauri.localhost")) | ("https", Some("tauri.localhost")))
+                                    || cfg!(debug_assertions) && url.host_str() == Some("127.0.0.1") && url.port() == Some(4173)
+                            }).initialization_script(&bridge(&runtime)).build());
+                        if let Err(error) = result {
+                            startup_failure(&handle, &error.to_string());
+                        } else if let Some(window) = handle.get_webview_window("loading") { let _ = window.close(); }
+                    }
+                    Err(error) => startup_failure(&handle, &error),
+                }
+            });
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Vostavo desktop shell");
+        .build(context)
+        .expect("Could not create the Vostavo application");
+    app.run(|handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            handle.state::<Mutex<Option<desktop::BackendOwner>>>().lock().unwrap().take();
+        }
+    });
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn escape_js_escapes_script_and_literal_boundaries() {
-        let escaped = escape_js("a'b\"c`d\\e\nf\rg\u{2028}h\u{2029}</script>");
-
-        assert_eq!(
-            escaped,
-            "a\\'b\\\"c\\`d\\\\e\\nf\\rg\\u2028h\\u2029<\\/script>"
-        );
-    }
+fn startup_failure(handle: &tauri::AppHandle, error: &str) {
+    let message = format!("{error}\n\nStartup log: {}", desktop::data_root().join("logs/desktop-startup.log").display());
+    rfd::MessageDialog::new().set_title("Vostavo").set_description(&message).set_level(rfd::MessageLevel::Error).show();
+    handle.exit(1);
 }

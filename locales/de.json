@@ -667,9 +667,6 @@
     "app_data_error_detail": "App-Daten können unter {path} nicht geschrieben werden: {detail}",
     "app_data_location_title": "Speicherort der App-Daten",
     "app_data_location_warning_detail": "Die App-Daten verwenden einen repo-lokalen Override unter {path}. Das ist für die Entwicklung in Ordnung, aber die normale App sollte die benutzerspezifischen Systemordner außerhalb von {project_root} verwenden.",
-    "ffmpeg_title": "ffmpeg",
-    "ffmpeg_ok_detail": "ffmpeg ist unter {path} verfügbar.",
-    "ffmpeg_error_detail": "ffmpeg ist noch nicht verfügbar. Installiere es vor Aufnahme oder Audio-Upload.",
     "whisper_title": "Whisper-Modell",
     "whisper_ok_detail": "Whisper-Modell {model} ist unter {path} zwischengespeichert.",
     "whisper_warning_detail": "Das Whisper-Modell {model} wurde noch nicht heruntergeladen. Öffne die KI-Einrichtung und lade es vor der ersten vollständigen Bewertung herunter.",
@@ -690,7 +687,10 @@
     "maintenance_logs_warning_detail": "Die Protokolle belegen mehr Speicher als erwartet: {size_bytes} Byte in {file_count} Dateien. Davon sind {unexpected_count} unerwartete Protokolldateien. Öffne die Einstellungen, um archivierte Protokolle zu bereinigen.",
     "maintenance_open_settings": "Einstellungen öffnen",
     "microphone_title": "Mikrofon",
-    "microphone_info_detail": "Der Mikrofonzugriff wird geprüft, sobald du eine Aufnahme startest."
+    "microphone_info_detail": "Der Mikrofonzugriff wird geprüft, sobald du eine Aufnahme startest.",
+    "media_title": "Audiodecoder",
+    "media_ok_detail": "Der mitgelieferte Audiodecoder ist verfügbar.",
+    "media_error_detail": "Der Audiodecoder ist nicht verfügbar. Installiere Vostavo erneut."
   },
   "library": {
     "title": "Wähle deine nächste Übung",

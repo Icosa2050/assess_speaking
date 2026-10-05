@@ -11,7 +11,7 @@ class ErrorCode(str, Enum):
     BACKEND_UNAVAILABLE = "backend_unavailable"
     LOCAL_PROVIDER_NOT_INSTALLED = "local_provider_not_installed"
     LOCAL_PROVIDER_NOT_RUNNING = "local_provider_not_running"
-    MISSING_FFMPEG = "missing_ffmpeg"
+    MEDIA_DECODE_ERROR = "media_decode_error"
     MISSING_WHISPER_MODEL = "missing_whisper_model"
     VALIDATION = "validation_error"
     CONFIG = "configuration_error"

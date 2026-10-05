@@ -667,9 +667,6 @@
     "app_data_error_detail": "No se pueden guardar datos de la aplicación en {path}: {detail}",
     "app_data_location_title": "Ubicación de los datos de la aplicación",
     "app_data_location_warning_detail": "Una configuración personalizada guarda los datos dentro del repositorio, en {path}. Es válido para desarrollo, pero la aplicación de uso habitual debe usar las carpetas del sistema de cada usuario, fuera de {project_root}.",
-    "ffmpeg_title": "ffmpeg",
-    "ffmpeg_ok_detail": "ffmpeg está disponible en {path}.",
-    "ffmpeg_error_detail": "ffmpeg aún no está disponible. Instálalo antes de grabar o subir audio.",
     "whisper_title": "Modelo Whisper",
     "whisper_ok_detail": "El modelo Whisper {model} está guardado en la caché de {path}.",
     "whisper_warning_detail": "El modelo Whisper {model} aún no está en caché. Descárgalo en Configurar la IA local antes de realizar una evaluación completa.",
@@ -690,7 +687,10 @@
     "maintenance_logs_warning_detail": "Los registros ocupan más de lo previsto: {file_count} archivos usan {size_bytes} bytes y se encontraron {unexpected_count} archivos de registro inesperados. Abre Ajustes para eliminar los registros rotados.",
     "maintenance_open_settings": "Abrir Ajustes",
     "microphone_title": "Preparación de la grabadora",
-    "microphone_info_detail": "El permiso de acceso al micrófono se comprueba al abrir la grabadora en la pantalla Hablar."
+    "microphone_info_detail": "El permiso de acceso al micrófono se comprueba al abrir la grabadora en la pantalla Hablar.",
+    "media_title": "Decodificación de audio",
+    "media_ok_detail": "El decodificador de audio incluido está disponible.",
+    "media_error_detail": "El decodificador de audio no está disponible. Reinstala Vostavo."
   },
   "library": {
     "title": "Elige tu próximo ejercicio",

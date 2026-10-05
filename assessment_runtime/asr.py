@@ -6,7 +6,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 import os
 import shutil
-import subprocess
 import tempfile
 import time
 import wave
@@ -497,44 +496,9 @@ def _chunk_audio_for_asr(path: Path, *, chunk_duration_sec: float) -> Any:
     if chunk_duration_sec <= 0:
         raise RuntimeError("ASR chunk duration must be positive.")
     temp_dir = Path(tempfile.mkdtemp(prefix=f"{path.stem}-asr-chunks-"))
-    output_pattern = temp_dir / "chunk-%03d.wav"
     try:
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-y",
-                "-i",
-                str(path),
-                "-ac",
-                "1",
-                "-ar",
-                "16000",
-                "-f",
-                "segment",
-                "-segment_time",
-                str(chunk_duration_sec),
-                "-reset_timestamps",
-                "1",
-                str(output_pattern),
-            ],
-            check=True,
-            capture_output=True,
-        )
-        chunk_paths = sorted(temp_dir.glob("chunk-*.wav"))
-        if not chunk_paths:
-            raise RuntimeError("Audio chunking produced no output.")
-        yield chunk_paths
-    except FileNotFoundError as exc:
-        raise RuntimeError(
-            "ffmpeg is required for chunked ASR fallback. Please install it via Homebrew: `brew install ffmpeg`."
-        ) from exc
-    except subprocess.CalledProcessError as exc:
-        stderr = (exc.stderr or b"").decode("utf-8", errors="replace").strip()
-        detail = stderr or str(exc)
-        raise RuntimeError(f"Audio chunking failed: {detail}") from exc
+        from assessment_runtime.media import write_chunks
+        yield write_chunks(path, temp_dir, chunk_duration_sec)
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 

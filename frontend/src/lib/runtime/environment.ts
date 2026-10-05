@@ -27,13 +27,13 @@ export const resolveLocalDesktopApiBaseUrl = (override?: string): string => {
     return trimTrailingSlash(explicitOverride);
   }
 
+  if (isDesktopRuntime()) {
+    return trimTrailingSlash(readDesktopRuntimeBridge().apiBaseUrl);
+  }
+
   const envOverride = readEnvBaseUrl();
   if (envOverride) {
     return trimTrailingSlash(envOverride);
-  }
-
-  if (isDesktopRuntime()) {
-    return trimTrailingSlash(readDesktopRuntimeBridge().apiBaseUrl);
   }
 
   const origin = readWindowOrigin();
@@ -55,3 +55,19 @@ export const runtimeEnvironment = {
   resolveLocalDesktopApiBaseUrl,
   buildApiUrl,
 } as const;
+
+export const desktopSessionHeaders = (baseUrl?: string): Record<string, string> => {
+  if (!isDesktopRuntime()) return {};
+  const runtime = readDesktopRuntimeBridge();
+  return runtime.sessionToken && resolveLocalDesktopApiBaseUrl(baseUrl) === trimTrailingSlash(runtime.apiBaseUrl)
+    ? { "X-Vostavo-Session": runtime.sessionToken } : {};
+};
+
+export const buildAudioUrl = (path: string): string => {
+  const url = buildApiUrl(path);
+  const token = isDesktopRuntime() ? readDesktopRuntimeBridge().mediaToken : undefined;
+  if (!token) return url;
+  const audioUrl = new URL(url);
+  audioUrl.searchParams.set("session", token);
+  return audioUrl.toString();
+};

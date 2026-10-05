@@ -52,7 +52,7 @@ def _build_paths(root: Path) -> AppDataPaths:
 
 class StartupDiagnosticsTests(unittest.TestCase):
     @mock.patch("app_core.diagnostics.describe_model_availability")
-    @mock.patch("app_core.diagnostics.shutil.which", return_value="/opt/homebrew/bin/ffmpeg")
+    @mock.patch("app_core.diagnostics._media_available", return_value=True)
     @mock.patch("app_core.diagnostics.llm_health_check")
     def test_collect_startup_diagnostics_reports_local_runtime_health(
         self,
@@ -70,27 +70,27 @@ class StartupDiagnosticsTests(unittest.TestCase):
 
         by_key = {item.key: item for item in diagnostics}
         self.assertEqual(by_key["app_data"].status, "ok")
-        self.assertEqual(by_key["ffmpeg"].status, "ok")
+        self.assertEqual(by_key["media_decoder"].status, "ok")
         self.assertEqual(by_key["whisper"].status, "ok")
         self.assertEqual(by_key["runtime"].status, "ok")
         self.assertEqual(by_key["runtime_local_health"].status, "ok")
         self.assertEqual(by_key["microphone"].status, "info")
 
     @mock.patch("app_core.diagnostics.describe_model_availability")
-    @mock.patch("app_core.diagnostics.shutil.which", return_value=None)
-    def test_collect_startup_diagnostics_reports_missing_ffmpeg(self, _mock_which, mock_model_availability):
+    @mock.patch("app_core.diagnostics._media_available", return_value=False)
+    def test_collect_startup_diagnostics_reports_missing_media_decoder(self, _mock_which, mock_model_availability):
         mock_model_availability.return_value = {"cached": False, "cached_path": None}
         with tempfile.TemporaryDirectory() as tmpdir:
             state = AppState(prefs=AppPreferences(log_dir=tmpdir))
             diagnostics = collect_startup_diagnostics(state, include_runtime_health=False)
 
         by_key = {item.key: item for item in diagnostics}
-        self.assertEqual(by_key["ffmpeg"].status, "error")
+        self.assertEqual(by_key["media_decoder"].status, "error")
         self.assertEqual(by_key["whisper"].status, "warning")
         self.assertEqual(by_key["runtime"].status, "warning")
 
     @mock.patch("app_core.diagnostics.describe_model_availability")
-    @mock.patch("app_core.diagnostics.shutil.which", return_value="/opt/homebrew/bin/ffmpeg")
+    @mock.patch("app_core.diagnostics._media_available", return_value=True)
     @mock.patch(
         "app_core.diagnostics.resolve_connection_runtime",
         return_value=RuntimeConfig(
@@ -147,7 +147,7 @@ class StartupDiagnosticsTests(unittest.TestCase):
         self.assertEqual(by_key["runtime_api_key"].detail_args["credential_state"], "missing")
 
     @mock.patch("app_core.diagnostics.describe_model_availability")
-    @mock.patch("app_core.diagnostics.shutil.which", return_value="/opt/homebrew/bin/ffmpeg")
+    @mock.patch("app_core.diagnostics._media_available", return_value=True)
     @mock.patch("app_core.diagnostics.llm_health_check", side_effect=RuntimeError("connection refused"))
     def test_collect_startup_diagnostics_reports_unreachable_local_provider(
         self,
@@ -165,7 +165,7 @@ class StartupDiagnosticsTests(unittest.TestCase):
         self.assertEqual(by_key["runtime_local_health"].status, "error")
 
     @mock.patch("app_core.diagnostics.describe_model_availability")
-    @mock.patch("app_core.diagnostics.shutil.which", return_value="/opt/homebrew/bin/ffmpeg")
+    @mock.patch("app_core.diagnostics._media_available", return_value=True)
     @mock.patch("app_core.diagnostics.tempfile.NamedTemporaryFile", side_effect=OSError("permission denied"))
     def test_collect_startup_diagnostics_reports_unwritable_app_data_dir(
         self,
@@ -195,7 +195,7 @@ class StartupDiagnosticsTests(unittest.TestCase):
         self.assertEqual(by_key["app_data"].detail_args["path"], str(paths.temp_dir))
 
     @mock.patch("app_core.diagnostics.describe_model_availability")
-    @mock.patch("app_core.diagnostics.shutil.which", return_value="/opt/homebrew/bin/ffmpeg")
+    @mock.patch("app_core.diagnostics._media_available", return_value=True)
     def test_collect_startup_diagnostics_warns_for_repo_local_app_data_override(self, _mock_which, mock_model_availability):
         mock_model_availability.return_value = {"cached": True, "cached_path": "/tmp/whisper-cache"}
         repo_root = Path(__file__).resolve().parents[1]
@@ -231,7 +231,7 @@ class StartupDiagnosticsTests(unittest.TestCase):
         self.assertEqual(by_key["app_data_location"].status, "warning")
 
     @mock.patch("app_core.diagnostics.describe_model_availability")
-    @mock.patch("app_core.diagnostics.shutil.which", return_value="/opt/homebrew/bin/ffmpeg")
+    @mock.patch("app_core.diagnostics._media_available", return_value=True)
     @mock.patch(
         "app_core.diagnostics.resolve_connection_runtime",
         return_value=RuntimeConfig(
@@ -288,7 +288,7 @@ class StartupDiagnosticsTests(unittest.TestCase):
         self.assertEqual(by_key["runtime_api_key"].detail_args["credential_state"], "saved")
 
     @mock.patch("app_core.diagnostics.describe_model_availability")
-    @mock.patch("app_core.diagnostics.shutil.which", return_value="/opt/homebrew/bin/ffmpeg")
+    @mock.patch("app_core.diagnostics._media_available", return_value=True)
     def test_collect_startup_diagnostics_adds_maintenance_warnings(self, _mock_which, mock_model_availability):
         mock_model_availability.return_value = {"cached": True, "cached_path": "/tmp/whisper-cache"}
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -332,7 +332,7 @@ class StartupDiagnosticsTests(unittest.TestCase):
         self.assertEqual(by_key["maintenance_logs"].detail_args["target_page"], "/settings")
 
     @mock.patch("app_core.diagnostics.describe_model_availability")
-    @mock.patch("app_core.diagnostics.shutil.which", return_value="/opt/homebrew/bin/ffmpeg")
+    @mock.patch("app_core.diagnostics._media_available", return_value=True)
     def test_collect_startup_diagnostics_skips_maintenance_warnings_when_clean(self, _mock_which, mock_model_availability):
         mock_model_availability.return_value = {"cached": True, "cached_path": "/tmp/whisper-cache"}
         with tempfile.TemporaryDirectory() as tmpdir:

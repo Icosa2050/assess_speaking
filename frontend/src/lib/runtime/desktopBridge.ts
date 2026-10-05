@@ -3,6 +3,8 @@ export type DesktopAuthMode = "guest" | "optional" | "required";
 
 export interface DesktopRuntimeBridge {
   apiBaseUrl: string;
+  sessionToken?: string;
+  mediaToken?: string;
   deploymentMode: "local";
   launchMode: DesktopLaunchMode;
   packagingSafe: boolean;
@@ -51,6 +53,8 @@ export const readDesktopRuntimeBridge = (): DesktopRuntimeBridge => {
       typeof candidate?.apiBaseUrl === "string" && candidate.apiBaseUrl.trim()
         ? candidate.apiBaseUrl.trim()
         : DEFAULT_DESKTOP_RUNTIME.apiBaseUrl,
+    sessionToken: typeof candidate?.sessionToken === "string" ? candidate.sessionToken : undefined,
+    mediaToken: typeof candidate?.mediaToken === "string" ? candidate.mediaToken : undefined,
     deploymentMode: "local",
     launchMode: isLaunchMode(String(candidate?.launchMode || ""))
       ? candidate!.launchMode!

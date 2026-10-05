@@ -3,14 +3,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { RuntimeConnectionDraft } from "@/lib/api/types";
 import { apiClient } from "@/lib/api/client";
 import { isDesktopRuntime } from "@/lib/runtime/desktopBridge";
-import { buildApiUrl } from "@/lib/runtime/environment";
+import { buildApiUrl, desktopSessionHeaders } from "@/lib/runtime/environment";
 import { createTranslator } from "@/lib/i18n";
 import type { UiLocale } from "@/lib/state/sessionDraft";
 
 type Attempt = { status: string; detail?: string; connection_id?: string; persistent?: boolean };
 export async function chatGPTRequest<T>(path: string, method = "GET", body?: object): Promise<T> {
   const response = await fetch(buildApiUrl(`/v1/runtime/chatgpt/${path}`), {
-    method, headers: { "X-Vostavo-Client": "desktop", "Content-Type": "application/json" },
+    method, headers: { ...desktopSessionHeaders(), "X-Vostavo-Client": "desktop", "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(60_000),
   });
   const result = await response.json().catch(() => ({}));

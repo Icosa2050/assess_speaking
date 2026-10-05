@@ -1338,8 +1338,8 @@ class ConvertToWavTests(unittest.TestCase):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-    @mock.patch("assess_speaking.subprocess.run", side_effect=FileNotFoundError("ffmpeg"))
-    def test_convert_to_wav_requires_ffmpeg(self, _mock_run):
+    @mock.patch("assessment_runtime.media.write_wav", side_effect=FileNotFoundError("missing file"))
+    def test_convert_to_wav_cleans_up_missing_input(self, _mock_run):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_wav = Path(tmpdir) / "in-conversion.wav"
             with mock.patch(
@@ -1348,14 +1348,14 @@ class ConvertToWavTests(unittest.TestCase):
             ):
                 with self.assertRaises(RuntimeError) as ctx:
                     assess_speaking._convert_to_wav(Path("in.mp3"))
-        self.assertIn("ffmpeg is required", str(ctx.exception))
+        self.assertIn("Audio conversion failed", str(ctx.exception))
         self.assertFalse(tmp_wav.exists())
 
     @mock.patch(
-        "assess_speaking.subprocess.run",
-        side_effect=subprocess.CalledProcessError(1, "ffmpeg", stderr=b"bad input"),
+        "assessment_runtime.media.write_wav",
+        side_effect=ValueError("bad input"),
     )
-    def test_convert_to_wav_handles_ffmpeg_failure(self, _mock_run):
+    def test_convert_to_wav_handles_decoder_failure(self, _mock_run):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_wav = Path(tmpdir) / "broken-conversion.wav"
             with mock.patch(

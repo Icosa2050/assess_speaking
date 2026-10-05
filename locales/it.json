@@ -667,9 +667,6 @@
     "app_data_error_detail": "L'app non può salvare i dati in {path}: {detail}",
     "app_data_location_title": "Posizione dei dati dell'app",
     "app_data_location_warning_detail": "I dati dell'app usano un percorso personalizzato interno al repository: {path}. È adatto allo sviluppo, ma nell'uso normale l'app dovrebbe usare le cartelle di sistema dell'utente, esterne a {project_root}.",
-    "ffmpeg_title": "ffmpeg",
-    "ffmpeg_ok_detail": "ffmpeg è disponibile in {path}.",
-    "ffmpeg_error_detail": "ffmpeg non è ancora disponibile. Installalo prima di registrare o caricare audio.",
     "whisper_title": "Modello Whisper",
     "whisper_ok_detail": "Il modello Whisper {model} è in cache in {path}.",
     "whisper_warning_detail": "Il modello Whisper {model} non è ancora in cache. Scaricalo in Configura l'IA locale prima di eseguire una valutazione completa.",
@@ -690,7 +687,10 @@
     "maintenance_logs_warning_detail": "I log occupano più spazio del previsto: {file_count} file utilizzano {size_bytes} byte e sono presenti {unexpected_count} file di log inattesi. Apri Impostazioni per eliminare i log archiviati dalla rotazione.",
     "maintenance_open_settings": "Apri Impostazioni",
     "microphone_title": "Stato del registratore",
-    "microphone_info_detail": "Il permesso di accesso al microfono viene verificato quando apri il registratore nella pagina Parla."
+    "microphone_info_detail": "Il permesso di accesso al microfono viene verificato quando apri il registratore nella pagina Parla.",
+    "media_title": "Decodifica audio",
+    "media_ok_detail": "Il decoder audio incluso è disponibile.",
+    "media_error_detail": "Il decoder audio non è disponibile. Reinstalla Vostavo e riprova."
   },
   "library": {
     "title": "Scegli il prossimo esercizio",

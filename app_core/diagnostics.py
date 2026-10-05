@@ -64,21 +64,20 @@ def _app_data_writable_diagnostic(paths) -> StartupDiagnostic:
     )
 
 
-def _ffmpeg_diagnostic() -> StartupDiagnostic:
-    ffmpeg_path = shutil.which("ffmpeg")
-    if ffmpeg_path:
-        return StartupDiagnostic(
-            key="ffmpeg",
-            status="ok",
-            title_key="diagnostics.ffmpeg_title",
-            detail_key="diagnostics.ffmpeg_ok_detail",
-            detail_args={"path": ffmpeg_path},
-        )
+def _media_available() -> bool:
+    try:
+        import av
+        return bool(av.library_versions)
+    except (ImportError, OSError):
+        return False
+
+
+def _media_diagnostic() -> StartupDiagnostic:
     return StartupDiagnostic(
-        key="ffmpeg",
-        status="error",
-        title_key="diagnostics.ffmpeg_title",
-        detail_key="diagnostics.ffmpeg_error_detail",
+        key="media_decoder",
+        status="ok" if _media_available() else "error",
+        title_key="diagnostics.media_title",
+        detail_key="diagnostics.media_ok_detail" if _media_available() else "diagnostics.media_error_detail",
     )
 
 
@@ -362,7 +361,7 @@ def collect_startup_diagnostics(state, *, include_runtime_health: bool = True) -
     )
     diagnostics = [
         _app_data_writable_diagnostic(paths),
-        _ffmpeg_diagnostic(),
+        _media_diagnostic(),
         _whisper_diagnostic(str(getattr(state.prefs, "whisper_model", "") or "small")),
     ]
     repo_local_override = _repo_local_override_diagnostic(paths)

@@ -4,7 +4,7 @@ export type ErrorCode =
   | "backend_unavailable"
   | "local_provider_not_installed"
   | "local_provider_not_running"
-  | "missing_ffmpeg"
+  | "media_decode_error"
   | "missing_whisper_model"
   | "validation_error"
   | "configuration_error"
