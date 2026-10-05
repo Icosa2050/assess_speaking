@@ -2,6 +2,7 @@ import { lazy, useEffect, useMemo } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
+import { SavedLocale } from "@/components/shell/SavedLocale";
 import { AppShell } from "@/components/shell/AppShell";
 import { apiClient } from "@/lib/api/client";
 import { createTranslator, resolveUiLocale } from "@/lib/i18n";
@@ -9,6 +10,7 @@ import { queryKeys } from "@/lib/query/queryClient";
 import { AppStoreProvider, useAppStore } from "@/lib/state/appStore";
 import { HomeRoute } from "@/routes/HomeRoute";
 
+const RehearsalRoute = lazy(() => import("@/routes/RehearsalRoute").then(module => ({ default: module.RehearsalRoute })));
 const GuideRoute = lazy(() => import("@/routes/GuideRoute").then(module => ({ default: module.GuideRoute })));
 const HistoryRoute = lazy(() => import("@/routes/HistoryRoute").then(module => ({ default: module.HistoryRoute })));
 const LibraryRoute = lazy(() => import("@/routes/LibraryRoute").then(module => ({ default: module.LibraryRoute })));
@@ -50,6 +52,7 @@ const routeDefinitions: AppRouteDefinition[] = [
   },
   { path: "/session-setup", navGroup: "practice", navKey: "nav.setup", titleKey: "setup.title", bodyKey: "setup.body" },
   { path: "/speak", navGroup: "practice", navKey: "nav.speak", titleKey: "speak.title", bodyKey: "speak.body" },
+  { path: "/rehearsal", navGroup: "practice", navKey: "rehearsal.title", titleKey: "rehearsal.title", bodyKey: "rehearsal.body" },
   { path: "/review", navGroup: "practice", navKey: "nav.review", titleKey: "review.title", bodyKey: "review.body" },
   { path: "/history", navGroup: "progress", navKey: "nav.history", titleKey: "history.title", bodyKey: "history.body" },
   { path: "/library", navGroup: "discover", navKey: "nav.library", titleKey: "library.title", bodyKey: "library.body" },
@@ -134,6 +137,7 @@ export const AppFrame = () => {
         <Route path="runtime-setup" element={<SetupRoute />} />
         <Route path="session-setup" element={<SessionSetupRoute />} />
         <Route path="speak" element={<SpeakRoute />} />
+        <Route path="rehearsal" element={<RehearsalRoute />} />
         <Route path="review" element={<ReviewRoute />} />
         <Route path="history" element={<HistoryRoute />} />
         <Route path="library" element={<LibraryRoute />} />
@@ -153,6 +157,7 @@ export default function App() {
     <AppStoreProvider
       store={undefined}
     >
+      <SavedLocale />
       <AppFrame />
     </AppStoreProvider>
   );

@@ -23,6 +23,8 @@ from assess_core.schemas import AssessmentReport, REPORT_SCHEMA_VERSION, RubricR
 from assess_core.settings import Settings
 from app_core.runtime_providers import default_base_url, normalize_provider, resolved_base_url
 from assessment_runtime.asr import available_asr_providers, transcribe as _transcribe
+from assessment_runtime.feedback_claims import FEEDBACK_CLAIM_POLICY
+from assessment_runtime.transcript_quality import TRANSCRIPT_QUALITY_POLICY, transcript_quality
 from assessment_runtime.assessment_prompts import (
     COACHING_PROMPT_VERSION,
     PROMPT_VERSION,
@@ -39,7 +41,9 @@ from assessment_runtime.feedback import build_fallback_coaching, generate_feedba
 from assessment_runtime.llm_client import (
     LLMClientError,
     LLMSchemaError,
+    LLMTranscriptUncertaintyError,
     OLLAMA_INFERENCE_PROFILE,
+    OPENROUTER_INFERENCE_PROFILE,
     LMSTUDIO_INFERENCE_PROFILE,
     extract_json_object as _extract_json_object,
     generate_coaching_summary,
@@ -290,9 +294,9 @@ def _split_pipe_categories(value: str) -> list[str]:
     return [item.strip() for item in str(value).split("|") if item.strip()]
 
 
-def build_progress_delta(history_path: Path, report: dict) -> Optional[dict]:
+def build_progress_delta(history_path: Path, report: dict, *, practice: dict | None = None) -> Optional[dict]:
     speaker_id = str(report.get("input", {}).get("speaker_id") or "").strip()
-    learning_language = str(report.get("input", {}).get("learning_language") or "").strip().lower()
+    learning_language = str(report.get("input", {}).get("learning_language") or report.get("input", {}).get("expected_language") or "").strip().lower()
     task_family = str(report.get("input", {}).get("task_family") or "").strip()
     if not speaker_id or not task_family or not history_path.exists():
         return None
@@ -311,6 +315,9 @@ def build_progress_delta(history_path: Path, report: dict) -> Optional[dict]:
             )
         ]
 
+    # CSV rows alone do not carry enough provenance to compare analysis settings.
+    from assessment_runtime.comparison import comparable_history_rows
+    prior_rows = comparable_history_rows(history_path, report, practice, prior_rows)
     if not prior_rows:
         return None
 
@@ -361,6 +368,7 @@ def build_progress_delta(history_path: Path, report: dict) -> Optional[dict]:
         return round(current_float - previous_value, 2)
 
     return {
+        "comparison_verified": True,
         "comparison_scope": {
             "speaker_id": speaker_id,
             "learning_language": learning_language,
@@ -745,6 +753,7 @@ def _dry_run_assessment(
             "prompt_version": PROMPT_VERSION,
             "rubric_prompt_version": RUBRIC_PROMPT_VERSION,
             "coaching_prompt_version": COACHING_PROMPT_VERSION,
+            "feedback_claim_policy": FEEDBACK_CLAIM_POLICY,
             "transcription_basis": TRANSCRIPTION_BASIS,
             "transcription_caveat": TRANSCRIPTION_CAVEAT,
             "dry_run": True,
@@ -808,6 +817,7 @@ def run_assessment(
     min_word_count: Optional[int] = None,
     llm_timeout_sec: Optional[float] = None,
     llm_base_url: Optional[str] = None,
+    llm_api_key: str | Callable[[], str] | None = None,
     asr_compute_type: Optional[str] = None,
     asr_fallback_compute_type: Optional[str] = None,
     pause_threshold_offset_db: Optional[float] = None,
@@ -830,7 +840,7 @@ def run_assessment(
     chosen_min_words = min_word_count if min_word_count is not None else settings.min_word_count
     chosen_llm_timeout = llm_timeout_sec if llm_timeout_sec is not None else settings.llm_timeout_sec
     chosen_llm_base_url = _resolve_llm_base_url(chosen_provider, llm_base_url, settings)
-    chosen_llm_api_key = _resolve_llm_api_key(chosen_provider)
+    chosen_llm_api_key = llm_api_key if llm_api_key is not None else (None if chosen_provider in {"chatgpt", "xai", "groq"} else _resolve_llm_api_key(chosen_provider))
     chosen_asr_compute_type = asr_compute_type or settings.asr_compute_type
     chosen_asr_fallback = (
         settings.asr_fallback_compute_type
@@ -908,6 +918,10 @@ def run_assessment(
             language_profile_key=chosen_profile_key,
         )
         transcript = asr_result["text"]
+        asr_quality = transcript_quality(asr_result)
+        transcript_uncertain = asr_quality["status"] == "uncertain"
+        if transcript_uncertain:
+            warnings.extend(["transcript_uncertain", "llm_skipped_transcript_uncertain"])
         detected_language = str(asr_result.get("detected_language") or chosen_language)
         language_probability = _language_probability(asr_result.get("language_probability"))
         asr_language_pass = _language_codes_match(detected_language, chosen_language)
@@ -925,7 +939,9 @@ def run_assessment(
         else:
             if not asr_language_pass:
                 warnings.append("language_detection_uncertain")
-            if metrics["word_count"] < chosen_min_words:
+            if transcript_uncertain:
+                timings_ms["llm"] = 0.0
+            elif metrics["word_count"] < chosen_min_words:
                 warnings.append("llm_skipped_low_word_count")
                 timings_ms["llm"] = 0.0
             else:
@@ -950,7 +966,15 @@ def run_assessment(
                         openrouter_http_referer=os.getenv("OPENROUTER_HTTP_REFERER"),
                         openrouter_app_title=os.getenv("OPENROUTER_APP_TITLE"),
                         max_validation_retries=1,
+                        transcript=transcript,
+                        asr_words=asr_result["words"],
                     )
+                except LLMTranscriptUncertaintyError as exc:
+                    transcript_uncertain = True
+                    warnings.extend(["transcript_uncertain", "llm_invalid_schema"])
+                    asr_quality.update(status="uncertain", trigger="quoted_asr_evidence_uncertain")
+                    errors.append(str(exc))
+                    llm_raw = json.dumps({"error": "quoted_asr_evidence_uncertain", "detail": str(exc)})
                 except LLMSchemaError as exc:
                     warnings.append("llm_invalid_schema")
                     errors.append(str(exc))
@@ -964,6 +988,18 @@ def run_assessment(
         if not llm_raw and not rubric_obj:
             llm_raw = json.dumps({"error": "llm_skipped"})
 
+        language_pass = asr_language_pass or not hard_language_mismatch
+        if rubric_obj is not None and rubric_obj.language_ok is False:
+            language_pass = False
+        checks = compute_checks(
+            metrics=metrics,
+            rubric=rubric_obj,
+            target_duration_sec=target_duration_sec,
+            min_word_count=chosen_min_words,
+            duration_pass_ratio=settings.duration_pass_ratio,
+            language_pass=language_pass,
+        )
+
         if rubric_obj is not None:
             _emit_status("generating_coaching")
             coaching_prompt_text = coaching_prompt(
@@ -973,6 +1009,8 @@ def run_assessment(
                 target_duration_sec=target_duration_sec,
                 expected_language=chosen_language,
                 feedback_language=chosen_feedback_language,
+                checks=checks,
+                transcript=transcript,
             )
             stage_start = time.perf_counter()
             try:
@@ -987,6 +1025,8 @@ def run_assessment(
                     openrouter_http_referer=os.getenv("OPENROUTER_HTTP_REFERER"),
                     openrouter_app_title=os.getenv("OPENROUTER_APP_TITLE"),
                     max_validation_retries=1,
+                    target_duration_sec=target_duration_sec,
+                    rubric=rubric_obj.to_dict(),
                 )
             except LLMClientError as exc:
                 warnings.append("coaching_unavailable")
@@ -999,17 +1039,6 @@ def run_assessment(
         _emit_status("finalizing_report")
         det_score = deterministic_score(metrics)
         llm_score = rubric_score(rubric_obj)
-        language_pass = asr_language_pass or not hard_language_mismatch
-        if rubric_obj is not None and rubric_obj.language_ok is False:
-            language_pass = False
-        checks = compute_checks(
-            metrics=metrics,
-            rubric=rubric_obj,
-            target_duration_sec=target_duration_sec,
-            min_word_count=chosen_min_words,
-            duration_pass_ratio=settings.duration_pass_ratio,
-            language_pass=language_pass,
-        )
         asr_speaking_time_sec = round(_asr_speaking_time_from_words(asr_result["words"]), 2)
         speaking_time_delta_sec = round(abs(float(metrics["speaking_time_sec"]) - asr_speaking_time_sec), 2)
         asr_pause_consistent = speaking_time_delta_sec <= max(3.0, float(metrics["duration_sec"]) * 0.25)
@@ -1037,7 +1066,7 @@ def run_assessment(
             detected_language_probability=language_probability,
         )
         profile = resolve_language_profile(chosen_language, profile_key=chosen_profile_key)
-        requires_human_review = llm_score is None or not language_pass or checks["content_validity_pass"] is False
+        requires_human_review = transcript_uncertain or llm_score is None or not language_pass or checks["content_validity_pass"] is False
         if coaching_obj is None:
             coaching_obj = build_fallback_coaching(
                 metrics=metrics,
@@ -1063,6 +1092,8 @@ def run_assessment(
                 "feedback_language": chosen_feedback_language,
                 "detected_language": detected_language,
                 "detected_language_probability": language_probability,
+                "transcript_quality": asr_quality,
+                "transcript_quality_policy": TRANSCRIPT_QUALITY_POLICY,
                 "theme": theme,
                 "task_family": chosen_task_family,
                 "speaker_id": chosen_speaker_id,
@@ -1070,6 +1101,7 @@ def run_assessment(
                 "prompt_version": PROMPT_VERSION,
                 "rubric_prompt_version": RUBRIC_PROMPT_VERSION,
                 "coaching_prompt_version": COACHING_PROMPT_VERSION,
+            "feedback_claim_policy": FEEDBACK_CLAIM_POLICY,
                 "transcription_basis": TRANSCRIPTION_BASIS,
                 "transcription_caveat": TRANSCRIPTION_CAVEAT,
                 "asr_compute_type": chosen_asr_compute_type,
@@ -1078,7 +1110,7 @@ def run_assessment(
                 "asr_compute_fallback_used": bool(asr_result.get("compute_fallback_used", False)),
                 "pause_threshold_offset_db": chosen_pause_threshold,
                 "scoring_model_version": SCORING_MODEL_VERSION,
-                "llm_inference_profile": {"ollama": OLLAMA_INFERENCE_PROFILE, "lmstudio": LMSTUDIO_INFERENCE_PROFILE}.get(chosen_provider) if rubric_obj is not None else None,
+                "llm_inference_profile": {"ollama": OLLAMA_INFERENCE_PROFILE, "lmstudio": LMSTUDIO_INFERENCE_PROFILE, "openrouter": OPENROUTER_INFERENCE_PROFILE}.get(chosen_provider) if rubric_obj is not None else None,
                 "language_profile": profile.code if profile is not None else None,
                 "language_profile_key": chosen_profile_key,
                 "language_profile_version": profile.scorer_version if profile is not None else None,

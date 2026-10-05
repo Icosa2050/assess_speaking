@@ -66,6 +66,13 @@ LOCAL_SUPPORT_API_ROUTES: tuple[str, ...] = (
 )
 
 LOCAL_RUNTIME_MANAGEMENT_ROUTES: tuple[str, ...] = (
+    "/v1/runtime/chatgpt/sign-in",
+    "/v1/runtime/chatgpt/pending",
+    "/v1/runtime/chatgpt/attempts/{attempt_id}",
+    "/v1/runtime/chatgpt/attempts/{attempt_id}/cancel",
+    "/v1/runtime/chatgpt/attempts/{attempt_id}/open-browser",
+    "/v1/runtime/chatgpt/connections/{connection_id}/model",
+    "/v1/runtime/chatgpt/connections/{connection_id}",
     "/v1/runtime/settings",
     "/v1/runtime/settings/test-connection",
     "/v1/runtime/settings/connections/{connection_id}/default",

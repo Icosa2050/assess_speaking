@@ -417,10 +417,20 @@ def _build_transcription_result(
     compute_fallback_used: bool,
     time_offset_sec: float = 0.0,
 ) -> dict[str, Any]:
+    from assessment_runtime.transcript_quality import finite_number
+
     words: list[dict[str, Any]] = []
+    segment_diagnostics: list[dict[str, float]] = []
     full_text: list[str] = []
     for segment in segments:
         full_text.append(segment.text.strip())
+        diagnostics = {}
+        for name in ("avg_logprob", "no_speech_prob"):
+            value = finite_number(getattr(segment, name, None))
+            if value is not None:
+                diagnostics[name] = value
+        if diagnostics and segment.text.strip():
+            segment_diagnostics.append(diagnostics)
         if segment.words:
             for word in segment.words:
                 token = word.word.strip().lower()
@@ -430,6 +440,8 @@ def _build_transcription_result(
                             "t0": float(word.start) + time_offset_sec,
                             "t1": float(word.end) + time_offset_sec,
                             "text": token,
+                            **({"probability": probability} if
+                               (probability := finite_number(getattr(word, "probability", None))) is not None else {}),
                         }
                     )
 
@@ -443,6 +455,7 @@ def _build_transcription_result(
     return {
         "text": " ".join(part for part in full_text if part).strip(),
         "words": words,
+        "segment_diagnostics": segment_diagnostics,
         "compute_type_used": compute_type_used,
         "compute_fallback_used": compute_fallback_used,
         "detected_language": detected_language,
@@ -471,6 +484,7 @@ def _merge_chunk_transcriptions(chunk_results: list[dict[str, Any]]) -> dict[str
     return {
         "text": " ".join(part for part in text_parts if part).strip(),
         "words": merged_words,
+        "segment_diagnostics": [segment for result in chunk_results for segment in result.get("segment_diagnostics", [])],
         "compute_type_used": compute_type_used,
         "compute_fallback_used": compute_fallback_used,
         "detected_language": detected_language,

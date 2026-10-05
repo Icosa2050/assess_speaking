@@ -45,6 +45,11 @@ def fixture_assessment(audio, whisper_model, llm_model, **kwargs):
         "on_topic": True, "language_ok": True,
         "recurring_grammar_errors": [], "coherence_issues": [], "lexical_gaps": [],
         "evidence_quotes": [transcript], "confidence": "medium",
+        "style_suggestions": [{
+            "original": "I visited a library" if language == "en" else "vorrei tornarci con un amico",
+            "suggestion": "I went to a library" if language == "en" else "mi piacerebbe tornarci con un amico",
+            "explanation": "Optional alternative; the original is grammatical." if language == "en" else "Alternativa facoltativa; la frase originale è grammaticalmente corretta.",
+        }],
     })
     coaching = CoachingSummary.from_dict({
         "strengths": ["Fixture strength"], "top_3_priorities": ["Fixture detail", "Fixture ending", "Fixture structure"],

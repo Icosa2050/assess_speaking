@@ -16,7 +16,7 @@ class LanguageProfilesTests(unittest.TestCase):
         self.assertEqual(profile.label, "English")
         self.assertIn("however", profile.discourse_markers)
         self.assertIn("uh", profile.fillers)
-        self.assertEqual(profile.scorer_version, "language_profile_en_v2")
+        self.assertEqual(profile.scorer_version, "language_profile_en_v3_live")
 
     def test_get_language_profile_returns_none_for_unknown_language(self):
         self.assertIsNone(get_language_profile("xx"))
@@ -39,8 +39,8 @@ class LanguageProfilesTests(unittest.TestCase):
         self.assertEqual(profile.scorer_version, "language_profile_it_v1_live_shadow")
 
     def test_default_language_profile_key_tracks_language_defaults(self):
-        self.assertEqual(default_language_profile_key("en"), "en")
-        self.assertEqual(default_language_profile_key("it"), "it")
+        self.assertEqual(default_language_profile_key("en"), "en_live")
+        self.assertEqual(default_language_profile_key("it"), "it_live")
         self.assertIsNone(default_language_profile_key("xx"))
 
     def test_require_resolved_language_profile_accepts_matching_profile_key(self):
@@ -55,9 +55,9 @@ class LanguageProfilesTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             require_resolved_language_profile("it", profile_key="en")
 
-    def test_require_language_profile_uses_italian_live_shadow_as_default(self):
+    def test_require_language_profile_uses_current_italian_live_as_default(self):
         profile = require_language_profile("it")
-        self.assertEqual(profile.scorer_version, "language_profile_it_v1_live_shadow")
+        self.assertEqual(profile.scorer_version, "language_profile_it_v2_live")
 
     def test_fallback_language_profile_returns_generic_profile_for_unknown_language(self):
         profile = fallback_language_profile("xx")

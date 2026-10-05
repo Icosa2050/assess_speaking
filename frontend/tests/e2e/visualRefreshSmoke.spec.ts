@@ -446,8 +446,7 @@ test("renders primary visual-refresh artifacts without serif typography", async 
   // These legacy reports have no saved analysis context; don't chart unlike attempts.
   await expect(page.getByTestId("practice-legacy")).toBeVisible();
   await expect(page.getByTestId("history-priority-resolved")).toHaveCount(0);
-  await expect(page.getByTestId("history-attempts-table")).toBeVisible();
-  await expect(page.getByTestId("history-attempts-mobile-list")).not.toBeVisible();
+  await expect(page.getByTestId("history-attempts-list")).toBeVisible();
   await expect(page.getByTestId("history-detail-digest")).toBeVisible();
   await expect(page.getByTestId("history-detail-digest")).toContainText(
     "Keep the structure and close with one personal reflection.",
@@ -475,6 +474,7 @@ test("renders primary visual-refresh artifacts without serif typography", async 
   await expect(page.getByTestId("history-attempts-table")).not.toBeVisible();
   await expect(page.getByTestId("history-detail-select")).not.toBeVisible();
   await expect(page.getByTestId("history-detail-digest")).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 0));
   const storyBox = await page.getByTestId("practice-progress").boundingBox();
   expect(storyBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(844);
   await expectMobileRouteAudit(page, "visual-refresh-smoke-history-mobile.png");

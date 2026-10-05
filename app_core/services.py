@@ -42,7 +42,7 @@ from app_core.runtime_providers import (
     service_base_url,
 )
 from app_core.runtime_resolver import active_connection, resolve_connection_runtime, sync_runtime_fields
-from app_core.secret_store import SecretStoreStatus, delete_secret, secret_store_status, set_secret
+from app_core.secret_store import SecretStoreStatus, delete_secret, secret_store_status, set_secret, get_secret, SessionSecretStore, SERVICE_NAME
 from app_core.state import (
     AssessmentJobState,
     DEFAULT_MODEL,
@@ -90,7 +90,15 @@ def _persist_connection_secret(connection: ProviderConnection, api_key: str) -> 
     connection.secret_ref = str(connection.secret_ref or connection_secret_ref(connection.connection_id)).strip()
     if not str(api_key or "").strip():
         return delete_secret(connection.secret_ref, env_var_names=_secret_env_var_names(connection.provider_kind))
-    return set_secret(connection.secret_ref, str(api_key).strip(), env_var_names=_secret_env_var_names(connection.provider_kind))
+    status = set_secret(connection.secret_ref, str(api_key).strip(), env_var_names=_secret_env_var_names(connection.provider_kind))
+    if connection.provider_kind in {"xai", "groq"}:
+        persistent = status.persistent and get_secret(connection.secret_ref) == str(api_key).strip()
+        connection.provider_metadata["persistent"] = persistent
+        if persistent:
+            SessionSecretStore().delete_secret(SERVICE_NAME, connection.secret_ref)
+        else:
+            SessionSecretStore().set_secret(SERVICE_NAME, connection.secret_ref, str(api_key).strip())
+    return status
 
 
 def resolve_log_dir(log_dir: str | Path | None = None) -> Path:
@@ -130,6 +138,12 @@ def build_provider_connection(
     openrouter_app_title: str = "",
     existing_connection: ProviderConnection | None = None,
 ) -> ProviderConnection:
+    if provider_kind_from_choice(provider_choice) == "chatgpt":
+        raise ValueError("Use Sign in with ChatGPT to connect this account.")
+    if provider_kind_from_choice(provider_choice) in {"xai", "groq"}:
+        runtime_base_url(provider_kind_from_choice(provider_choice), base_url)
+        if not str(model or "").strip():
+            raise ValueError("Choose a provider model before saving.")
     connection = existing_connection or ProviderConnection(connection_id=uuid4().hex)
     connection.connection_id = str(connection.connection_id or uuid4().hex)
     connection.provider_kind = provider_kind_from_choice(provider_choice)
@@ -141,7 +155,7 @@ def build_provider_connection(
     ).strip()
     connection.secret_ref = str(connection.secret_ref or connection_secret_ref(connection.connection_id)).strip()
     connection.is_local = provider_choice in {"ollama_local", "lmstudio_local"} or "localhost" in connection.base_url or "127.0.0.1" in connection.base_url
-    connection.auth_mode = "bearer" if connection.provider_kind == "openrouter" or str(api_key or "").strip() else "none"
+    connection.auth_mode = "bearer" if requires_api_key(connection.provider_kind) or str(api_key or "").strip() else "none"
     metadata: dict[str, Any] = {}
     if connection.provider_kind == "openrouter":
         metadata = {
@@ -212,7 +226,8 @@ def save_provider_connection(
             connection.provider_metadata.get("app_title") or DEFAULT_OPENROUTER_APP_TITLE
         ).strip()
     state.prefs.llm_api_key = provided_api_key
-    secret_status = _persist_connection_secret(connection, provided_api_key)
+    secret_status = (secret_store_status() if connection.provider_kind == "chatgpt"
+                     else _persist_connection_secret(connection, provided_api_key))
     save_state_preferences(state, persist_draft=persist_draft)
     return secret_status
 
@@ -258,10 +273,11 @@ def delete_provider_connection(
     if removed is None:
         return False
 
-    delete_secret(
-        str(removed.secret_ref or connection_secret_ref(removed.connection_id)).strip(),
-        env_var_names=_secret_env_var_names(removed.provider_kind),
-    )
+    if removed.provider_kind != "chatgpt":
+        delete_secret(
+            str(removed.secret_ref or connection_secret_ref(removed.connection_id)).strip(),
+            env_var_names=_secret_env_var_names(removed.provider_kind),
+        )
 
     next_active_id = state.prefs.active_connection_id
     if next_active_id == connection_id:
@@ -683,7 +699,7 @@ def save_state_preferences(state, *, persist_draft: bool = True) -> SecretStoreS
         )
         sync_runtime_fields(state.prefs)
     active = active_connection(state.prefs)
-    if active is not None and current_api_key:
+    if active is not None and current_api_key and active.provider_kind != "chatgpt":
         secret_status = _persist_connection_secret(active, current_api_key)
     else:
         secret_status = secret_store_status(env_var_names=_secret_env_var_names(state.prefs.provider))
@@ -763,6 +779,8 @@ def _runtime_setup_test_timeout(provider_choice: str = "", base_url: str = "", t
     candidate = str(base_url or "").strip().lower()
     is_local_setup_provider = selected_choice in {"ollama_local", "lmstudio_local"}
     is_localhost_endpoint = "localhost" in candidate or "127.0.0.1" in candidate
+    if selected_choice in {"chatgpt", "xai", "groq"}:
+        return max(float(timeout_sec), 60.0)
     if is_local_setup_provider or is_localhost_endpoint:
         return max(float(timeout_sec), 30.0)
     return float(timeout_sec)
@@ -779,7 +797,7 @@ def _health_payload_models(payload: dict[str, Any] | None) -> list[str]:
         for item in items:
             if not isinstance(item, dict):
                 continue
-            for value_key in ("id", "name", "model"):
+            for value_key in ("id", "name", "model", "slug"):
                 candidate = str(item.get(value_key) or "").strip()
                 if candidate:
                     if candidate not in discovered:
@@ -1216,6 +1234,10 @@ def load_history_records(log_dir: str | Path | None = None) -> list[object]:
 def _history_str(value: Any) -> str:
     if value is None:
         return ""
+    if isinstance(value, datetime):
+        # Legacy reports store server-local naive times. Resolve them on the
+        # server so browsers in other timezones see the same instant.
+        return value.astimezone(UTC).isoformat()
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return str(value)

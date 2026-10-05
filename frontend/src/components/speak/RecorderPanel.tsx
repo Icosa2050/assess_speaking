@@ -154,6 +154,9 @@ const visualizerBarScales = [0.36, 0.68, 0.46, 0.82, 0.54, 0.74, 0.42, 0.62, 0.3
 
 export const RecorderPanel = ({
   canRemove,
+  maxSeconds = MAX_RECORDING_SECONDS,
+  allowUpload = true,
+  onRecordingActiveChange,
   downloadName,
   inputMode,
   onFileSelected,
@@ -166,6 +169,9 @@ export const RecorderPanel = ({
   translate,
 }: {
   canRemove: boolean;
+  maxSeconds?: number;
+  allowUpload?: boolean;
+  onRecordingActiveChange?: (active: boolean) => void;
   downloadName?: string;
   inputMode: RecordingInputMethod;
   onFileSelected: (file: File | null) => void;
@@ -182,6 +188,7 @@ export const RecorderPanel = ({
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const chunksRef = useRef<Blob[]>([]);
   const discardStopRef = useRef(false);
+  const recorderFailedRef = useRef(false);
   const elapsedSecondsRef = useRef(0);
   const mountedRef = useRef(true);
   const recordingMimeTypeRef = useRef("audio/webm");
@@ -191,6 +198,10 @@ export const RecorderPanel = ({
   const stopFallbackRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    onRecordingActiveChange?.(recorderPhase === "requesting" || recorderPhase === "recording");
+  }, [onRecordingActiveChange, recorderPhase]);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -238,6 +249,10 @@ export const RecorderPanel = ({
         return;
       }
 
+      if (recorderFailedRef.current) {
+        setRecorderPhase("error");
+        return;
+      }
       setRecorderPhase("idle");
       elapsedSecondsRef.current = recordedSeconds;
       setElapsedSeconds(recordedSeconds);
@@ -259,12 +274,12 @@ export const RecorderPanel = ({
       });
       onFileSelected(file);
       setRecorderMessage(
-        recordedSeconds >= MAX_RECORDING_SECONDS
+        recordedSeconds >= maxSeconds
           ? translate("speak.recording_auto_stopped")
           : translate("speak.recording_saved"),
       );
     },
-    [cleanupRecorder, onFileSelected, translate],
+    [cleanupRecorder, maxSeconds, onFileSelected, translate],
   );
 
   const stopRecording = useCallback(
@@ -381,11 +396,12 @@ export const RecorderPanel = ({
         return;
       }
       const mimeType = preferredRecordingMimeType();
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       streamRef.current = stream;
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       recorderRef.current = recorder;
       recordingMimeTypeRef.current = recorder.mimeType || mimeType || "audio/webm";
       discardStopRef.current = false;
+      recorderFailedRef.current = false;
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -393,6 +409,7 @@ export const RecorderPanel = ({
         }
       };
       recorder.onerror = (event) => {
+        recorderFailedRef.current = true;
         cleanupRecorder();
         if (!mountedRef.current) {
           return;
@@ -410,7 +427,7 @@ export const RecorderPanel = ({
         const nextElapsed = Math.floor((Date.now() - startedAtRef.current) / 1000);
         elapsedSecondsRef.current = nextElapsed;
         setElapsedSeconds(nextElapsed);
-        if (nextElapsed >= MAX_RECORDING_SECONDS && recorderRef.current?.state === "recording") {
+        if (nextElapsed >= maxSeconds && recorderRef.current?.state === "recording") {
           recorderRef.current.stop();
         }
       }, 1000);
@@ -528,7 +545,7 @@ export const RecorderPanel = ({
           <Icon className={styles.controlIcon} name="microphone" size={18} />
           {translate("speak.input_method_record")}
         </button>
-        <button
+        {allowUpload && <button
           type="button"
           onClick={() => handleModeChange("upload")}
           className={styles.controlButton}
@@ -538,7 +555,7 @@ export const RecorderPanel = ({
         >
           <Icon className={styles.controlIcon} name="upload" size={18} />
           {translate("speak.input_method_upload")}
-        </button>
+        </button>}
       </div>
       {inputMode === "record" ? (
         <div

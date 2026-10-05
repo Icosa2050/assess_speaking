@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "corpus_id": "feedback_quality_bilingual_v1",
+  "corpus_type": "authored_transcript_feedback",
+  "languages": [
+    "en",
+    "it"
+  ],
+  "notes": "Authored clean/error pairs for future transcript-controlled feedback comparisons. These are explicit language examples, not recordings, certified learner samples, CEFR labels or scoring calibration. Independent bilingual review should precede use as a semantic benchmark. Generation guards establish quote membership and output shape, not the correctness of a diagnosis.",
+  "cases": [
+    {
+      "case_id": "en_modal_clean",
+      "pair_id": "en_modal",
+      "language_code": "en",
+      "theme": "Remote work",
+      "variant": "clean",
+      "transcript": "Working from home can save commuting time. However, companies should offer a balanced system for everyone.",
+      "expected_grammar_errors": []
+    },
+    {
+      "case_id": "en_modal_seeded",
+      "pair_id": "en_modal",
+      "language_code": "en",
+      "theme": "Remote work",
+      "variant": "seeded_error",
+      "transcript": "Working from home can saves commuting time. However, companies should offer a balanced system for everyone.",
+      "corrected_reference": "Working from home can save commuting time. However, companies should offer a balanced system for everyone.",
+      "expected_grammar_errors": [
+        {
+          "category": "verb_conjugation_present",
+          "quote": "can saves commuting time",
+          "correction": "can save commuting time",
+          "reason": "Use the base form after the modal can."
+        }
+      ]
+    },
+    {
+      "case_id": "en_agreement_clean",
+      "pair_id": "en_agreement",
+      "language_code": "en",
+      "theme": "A local journey",
+      "variant": "clean",
+      "transcript": "My sister takes the train to work every morning. She enjoys the journey because she can read a book.",
+      "expected_grammar_errors": []
+    },
+    {
+      "case_id": "en_agreement_seeded",
+      "pair_id": "en_agreement",
+      "language_code": "en",
+      "theme": "A local journey",
+      "variant": "seeded_error",
+      "transcript": "My sister take the train to work every morning. She enjoys the journey because she can read a book.",
+      "corrected_reference": "My sister takes the train to work every morning. She enjoys the journey because she can read a book.",
+      "expected_grammar_errors": [
+        {
+          "category": "verb_conjugation_present",
+          "quote": "My sister take the train",
+          "correction": "My sister takes the train",
+          "reason": "The third-person singular subject needs takes in the present simple."
+        }
+      ]
+    },
+    {
+      "case_id": "it_gender_clean",
+      "pair_id": "it_gender",
+      "language_code": "it",
+      "theme": "Un viaggio al mare",
+      "variant": "clean",
+      "transcript": "La spiaggia è bella e tranquilla. Dopo una passeggiata siamo andati in un piccolo ristorante vicino al mare.",
+      "expected_grammar_errors": []
+    },
+    {
+      "case_id": "it_gender_seeded",
+      "pair_id": "it_gender",
+      "language_code": "it",
+      "theme": "Un viaggio al mare",
+      "variant": "seeded_error",
+      "transcript": "La spiaggia è bello e tranquilla. Dopo una passeggiata siamo andati in un piccolo ristorante vicino al mare.",
+      "corrected_reference": "La spiaggia è bella e tranquilla. Dopo una passeggiata siamo andati in un piccolo ristorante vicino al mare.",
+      "expected_grammar_errors": [
+        {
+          "category": "gender_agreement",
+          "quote": "La spiaggia è bello",
+          "correction": "La spiaggia è bella",
+          "reason": "L'aggettivo deve concordare con il nome femminile spiaggia."
+        }
+      ]
+    },
+    {
+      "case_id": "it_mood_clean",
+      "pair_id": "it_mood",
+      "language_code": "it",
+      "theme": "Il dibattito pubblico",
+      "variant": "clean",
+      "transcript": "Se vogliamo che le piattaforme sostengano un dibattito migliore, dobbiamo leggere con attenzione. Inoltre, è utile confrontare fonti diverse.",
+      "expected_grammar_errors": []
+    },
+    {
+      "case_id": "it_mood_seeded",
+      "pair_id": "it_mood",
+      "language_code": "it",
+      "theme": "Il dibattito pubblico",
+      "variant": "seeded_error",
+      "transcript": "Se vogliamo che le piattaforme sostengono un dibattito migliore, dobbiamo leggere con attenzione. Inoltre, è utile confrontare fonti diverse.",
+      "corrected_reference": "Se vogliamo che le piattaforme sostengano un dibattito migliore, dobbiamo leggere con attenzione. Inoltre, è utile confrontare fonti diverse.",
+      "expected_grammar_errors": [
+        {
+          "category": "mood_selection",
+          "quote": "vogliamo che le piattaforme sostengono",
+          "correction": "vogliamo che le piattaforme sostengano",
+          "reason": "La proposizione dipendente da vogliamo che richiede il congiuntivo in questa frase."
+        }
+      ]
+    }
+  ]
+}

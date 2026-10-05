@@ -1,6 +1,6 @@
 # Plan Status
 
-Last updated: 2026-07-23
+Last updated: 2026-10-04
 
 This file distinguishes living roadmap documents from completed task plans. The
 rule of thumb is:
@@ -48,6 +48,7 @@ rule of thumb is:
 
 | Plan | Classification | Notes |
 |---|---|---|
+| `docs/superpowers/plans/2026-10-04-cloud-provider-access.md` | Implemented; live authorization pending | ChatGPT browser sign-in and xAI Grok API connection; existing OpenRouter integration retained. Local regression and English/Italian connection journeys pass. |
 | `docs/DESKTOP_HOSTED_PRODUCT_PLAN.md` | Approved future roadmap | Local React/Tauri baseline is current; hosted persistence/auth is not implemented yet. |
 | `docs/superpowers/specs/2026-07-22-signed-macos-dmg-design.md` | Approved packaging design, not yet executed | Developer ID-signed, notarized, stapled arm64 DMG with a PyInstaller onedir helper, packaged-PyAV ffmpeg removal, per-launch loopback auth token, and an inside-out signing pipeline. First entry under the new `docs/superpowers/specs/` directory for design specs that precede an execution plan. |
 | `docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md` | Supporting UX roadmap | Keep active, but execute only with PAL review for screen changes. |

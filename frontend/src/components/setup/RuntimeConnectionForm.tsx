@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ChatGPTConnection } from "./ChatGPTConnection";
 
 import type { ConnectionSecretState, RuntimeConnectionDraft } from "@/lib/api/types";
 import { createTranslator, semanticAttributes, SEMANTIC_IDS } from "@/lib/i18n";
@@ -23,6 +24,9 @@ const PROVIDER_CHOICES = [
   "ollama_cloud",
   "lmstudio_local",
   "openrouter",
+  "chatgpt",
+  "xai",
+  "groq",
   "openai_compatible",
 ] as const;
 
@@ -31,8 +35,17 @@ const PROVIDER_DEFAULT_BASE_URLS: Record<(typeof PROVIDER_CHOICES)[number], stri
   ollama_cloud: "https://ollama.com/api",
   lmstudio_local: "http://localhost:1234/v1",
   openrouter: "https://openrouter.ai/api/v1",
+  chatgpt: "https://api.openai.com/v1",
+  xai: "https://api.x.ai/v1",
+  groq: "https://api.groq.com/openai/v1",
   openai_compatible: "",
 };
+
+const GROQ_FEEDBACK_MODELS = [
+  { id: "openai/gpt-oss-120b", label: "GPT-OSS 120B", hint: "recommended" },
+  { id: "openai/gpt-oss-20b", label: "GPT-OSS 20B", hint: "fast" },
+  { id: "qwen/qwen3.8-27b", label: "Qwen 3.8 27B", hint: "preview" },
+] as const;
 
 const DEFAULT_OPENROUTER_HTTP_REFERER = "http://localhost:8503";
 const DEFAULT_OPENROUTER_APP_TITLE = "Vostavo";
@@ -60,6 +73,8 @@ const LOCAL_PROVIDER_CHOICES = new Set<string>(["ollama_local", "lmstudio_local"
 const ADVANCED_PROVIDER_CHOICES = new Set<string>([
   "ollama_cloud",
   "openrouter",
+  "chatgpt",
+  "xai",
   "openai_compatible",
 ]);
 
@@ -156,6 +171,7 @@ type RuntimeConnectionFormProps = {
   isBusy?: boolean;
   locale: UiLocale;
   onBack?: () => void;
+  onAccountConnected?: (id: string, notice?: string) => void;
   onDetectLocalModels?: (draft: RuntimeConnectionDraft) => void;
   onProviderChange?: (providerChoice: string) => void;
   onSave: (payload: { clearSavedSecret: boolean; draft: RuntimeConnectionDraft }) => void;
@@ -174,6 +190,7 @@ export const RuntimeConnectionForm = ({
   isBusy = false,
   locale,
   onBack,
+  onAccountConnected,
   onDetectLocalModels,
   onProviderChange,
   onSave,
@@ -242,7 +259,7 @@ export const RuntimeConnectionForm = ({
     variant === "settings" || showAdvancedProviders || selectedProviderIsAdvanced;
   const providerChoices =
     variant === "runtime-setup" && !advancedProvidersVisible
-      ? PROVIDER_CHOICES.filter((option) => LOCAL_PROVIDER_CHOICES.has(option))
+      ? PROVIDER_CHOICES.filter((option) => LOCAL_PROVIDER_CHOICES.has(option) || option === "chatgpt" || option === "groq")
       : PROVIDER_CHOICES;
   const providerCanUseApiKey = !LOCAL_PROVIDER_CHOICES.has(providerChoice);
   const savedSecretPresent = initialSecretState === "present";
@@ -267,6 +284,10 @@ export const RuntimeConnectionForm = ({
   };
 
   const validateDraft = (candidate: RuntimeConnectionDraft): boolean => {
+    if (candidate.provider_choice === "groq" && !GROQ_FEEDBACK_MODELS.some((model) => model.id === candidate.model)) {
+      setLocalValidationMessage(translate("runtime_setup.groq_models.choose"));
+      return false;
+    }
     if (
       String(candidate.provider_choice || "").trim() === "openrouter" &&
       !isValidOpenRouterHttpReferer(candidate.openrouter_http_referer || "")
@@ -293,14 +314,15 @@ export const RuntimeConnectionForm = ({
         normalizeBaseUrlForComparison(currentBaseUrl) ===
           normalizeBaseUrlForComparison(providerDefaultBaseUrl(previousProviderChoice));
 
+      const nextDefaultModel = nextProviderChoice === "groq" ? "openai/gpt-oss-120b" : "";
       return {
         ...current,
         provider_choice: nextProviderChoice,
         label: keepAutoLabel ? nextLabel : current.label,
-        model: currentProviderChanged ? "" : current.model,
-        base_url: keepAutoBaseUrl ? providerDefaultBaseUrl(nextProviderChoice) : current.base_url,
+        model: currentProviderChanged ? nextDefaultModel : current.model,
+        base_url: (nextProviderChoice === "groq" || nextProviderChoice === "xai" || nextProviderChoice === "chatgpt" || keepAutoBaseUrl) ? providerDefaultBaseUrl(nextProviderChoice) : current.base_url,
         api_key:
-          variant === "runtime-setup" && !nextProviderCanUseApiKey ? "" : current.api_key,
+          currentProviderChanged || (variant === "runtime-setup" && !nextProviderCanUseApiKey) ? "" : current.api_key,
       };
     });
     if (providerChanged) {
@@ -370,6 +392,10 @@ export const RuntimeConnectionForm = ({
           </button>
         ) : null}
 
+        {providerChoice === "groq" ? <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">{translate("runtime_setup.groq_console")}</a> : null}
+
+        {providerChoice === "xai" ? <a href="https://console.x.ai" target="_blank" rel="noopener noreferrer">{translate("chatgpt.xai_console")}</a> : null}
+
         {providerChoice === "ollama_cloud" ? (
           <p style={{ margin: 0, lineHeight: 1.55, color: "#33514b" }}>
             {translate("runtime_setup.ollama_cloud_note")}
@@ -383,6 +409,12 @@ export const RuntimeConnectionForm = ({
         ) : null}
       </section>
 
+      {providerChoice === "chatgpt" ? (
+        <ChatGPTConnection connectionId={normalizedInitialDraft.provider_choice === "chatgpt" ? normalizedInitialDraft.connection_id : ""}
+          locale={locale} onConnected={onAccountConnected} onTest={onTest}
+          onSave={(draft) => onSave({ draft, clearSavedSecret: false })}
+          testMessage={displayedStatusMessage} busy={isBusy} />
+      ) : <>
       <section style={sectionStyle}>
         {variant === "runtime-setup" ? (
           <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
@@ -407,16 +439,34 @@ export const RuntimeConnectionForm = ({
           <span style={{ fontWeight: 600, color: "#33514b" }}>
             {translate(`${copyRoot}.model`)}
           </span>
-          <input
-            value={normalizedDraft.model}
-            onChange={(event) => updateDraft({ model: event.target.value })}
-            style={inputStyle}
-            type="text"
-            {...semanticAttributes(SEMANTIC_IDS.runtimeConnection.model)}
-          />
+          {providerChoice === "groq" ? (
+            <select
+              value={normalizedDraft.model}
+              onChange={(event) => updateDraft({ model: event.target.value })}
+              style={inputStyle}
+              {...semanticAttributes(SEMANTIC_IDS.runtimeConnection.model)}
+            >
+              {!GROQ_FEEDBACK_MODELS.some((model) => model.id === normalizedDraft.model) ? (
+                <option value={normalizedDraft.model} disabled>{translate("runtime_setup.groq_models.choose")}</option>
+              ) : null}
+              {GROQ_FEEDBACK_MODELS.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.label} — {translate(`runtime_setup.groq_models.${model.hint}`)}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              value={normalizedDraft.model}
+              onChange={(event) => updateDraft({ model: event.target.value })}
+              style={inputStyle}
+              type="text"
+              {...semanticAttributes(SEMANTIC_IDS.runtimeConnection.model)}
+            />
+          )}
         </label>
 
-        {detectedModels.length > 0 ? (
+        {providerChoice !== "groq" && detectedModels.length > 0 ? (
           <label style={fieldStyle}>
             <span style={{ fontWeight: 600, color: "#33514b" }}>
               {translate("runtime_setup.detected_local_models_label")}
@@ -441,7 +491,11 @@ export const RuntimeConnectionForm = ({
           </label>
         ) : null}
 
-        {detectedModelMessage ? (
+        {providerChoice === "groq" ? (
+          <p style={{ margin: 0, lineHeight: 1.55, color: "#33514b" }}>{translate("runtime_setup.groq_models.help")}</p>
+        ) : null}
+
+        {providerChoice !== "groq" && detectedModelMessage ? (
           <p style={{ margin: 0, lineHeight: 1.55, color: "#33514b" }}>{detectedModelMessage}</p>
         ) : null}
 
@@ -451,6 +505,7 @@ export const RuntimeConnectionForm = ({
           </span>
           <input
             value={normalizedDraft.base_url}
+            readOnly={providerChoice === "xai" || providerChoice === "groq"}
             onChange={(event) => updateDraft({ base_url: event.target.value })}
             placeholder={translate("runtime_setup.base_url_placeholder")}
             style={inputStyle}
@@ -672,6 +727,7 @@ export const RuntimeConnectionForm = ({
           ) : null}
         </div>
       </section>
+      </>}
     </div>
   );
 };

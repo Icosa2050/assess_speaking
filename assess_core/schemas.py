@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+import math
 from typing import Any
 
 from assess_core.coaching_taxonomy import (
@@ -123,6 +124,8 @@ class CoachingSummary:
     next_focus: str
     next_exercise: str
     coach_summary: str
+    next_attempt_instruction: str | None = None
+    retry_duration_sec: float | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "CoachingSummary":
@@ -135,16 +138,56 @@ class CoachingSummary:
         priorities = _str_list(data["top_3_priorities"], "top_3_priorities")
         if len(priorities) != 3:
             raise SchemaValidationError("top_3_priorities: must contain exactly 3 items")
+        instruction = data.get("next_attempt_instruction")
+        if instruction is not None:
+            instruction = _str_value(instruction, "next_attempt_instruction")
+        retry_duration = data.get("retry_duration_sec")
+        if retry_duration is not None:
+            if isinstance(retry_duration, bool) or not isinstance(retry_duration, (float, int)):
+                raise SchemaValidationError("retry_duration_sec: must be numeric")
+            retry_duration = float(retry_duration)
+            if not math.isfinite(retry_duration) or retry_duration <= 0:
+                raise SchemaValidationError("retry_duration_sec: must be finite and positive")
         return cls(
             strengths=strengths,
             top_3_priorities=priorities,
             next_focus=_str_value(data["next_focus"], "next_focus"),
             next_exercise=_str_value(data["next_exercise"], "next_exercise"),
             coach_summary=_str_value(data["coach_summary"], "coach_summary"),
+            next_attempt_instruction=instruction,
+            retry_duration_sec=retry_duration,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        result = asdict(self)
+        for key in ("next_attempt_instruction", "retry_duration_sec"):
+            if result[key] is None:
+                result.pop(key)
+        return result
+
+
+@dataclass(frozen=True)
+class StyleSuggestion:
+    original: str
+    suggestion: str
+    explanation: str
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], *, key: str) -> "StyleSuggestion":
+        _require_keys(data, {"original", "suggestion", "explanation"}, key)
+        return cls(**{name: _str_value(data[name], f"{key}.{name}")
+                      for name in ("original", "suggestion", "explanation")})
+
+
+def _style_list(raw: Any) -> list[StyleSuggestion]:
+    if not isinstance(raw, list):
+        raise SchemaValidationError("style_suggestions: must be list")
+    result = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise SchemaValidationError(f"style_suggestions[{index}]: must be object")
+        result.append(StyleSuggestion.from_dict(item, key=f"style_suggestions[{index}]"))
+    return result
 
 
 @dataclass(frozen=True)
@@ -167,6 +210,7 @@ class RubricResult:
     lexical_gaps: list[CategorizedIssue] = field(default_factory=list)
     evidence_quotes: list[str] = field(default_factory=list)
     confidence: str = "medium"
+    style_suggestions: list[StyleSuggestion] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "RubricResult":
@@ -222,10 +266,14 @@ class RubricResult:
             ),
             evidence_quotes=_str_list(data["evidence_quotes"], "evidence_quotes"),
             confidence=_enum_str(data["confidence"], "confidence", COACHING_CONFIDENCE_LEVELS),
+            style_suggestions=_style_list(data["style_suggestions"]) if "style_suggestions" in data else None,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        result = asdict(self)
+        if self.style_suggestions is None:
+            result.pop("style_suggestions")
+        return result
 
 
 @dataclass(frozen=True)

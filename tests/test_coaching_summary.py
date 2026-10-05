@@ -80,6 +80,7 @@ class CoachingSummaryTests(unittest.TestCase):
             provider="ollama",
             model="x",
             prompt="p",
+            rubric={},
         )
         self.assertEqual(len(coaching.top_3_priorities), 3)
         self.assertIn("coach_summary", raw)
@@ -91,6 +92,7 @@ class CoachingSummaryTests(unittest.TestCase):
                     provider="ollama",
                     model="x",
                     prompt="p",
+            rubric={},
                     max_validation_retries=1,
                 )
 

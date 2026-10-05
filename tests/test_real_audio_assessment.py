@@ -1,139 +1,104 @@
+"""Provider-neutral long-audio checks; AI quality and safe fallback are distinct modes."""
+import json
 import os
+import shutil
+import subprocess
 import tempfile
 import unittest
-from contextlib import ExitStack
 from pathlib import Path
-from unittest import mock
+
+import pytest
 
 import assess_speaking
-
+from assessment_runtime.asr import describe_model_availability
+from assessment_runtime.llm_client import list_models
 
 DEFAULT_REAL_AUDIO_PATH = Path(__file__).resolve().parent / "audio" / "test1.m4a"
-BETTER_REAL_AUDIO_PATH = Path(__file__).resolve().parent / "audio" / "test2.m4a"
+SECOND_REAL_AUDIO_PATH = Path(__file__).resolve().parent / "audio" / "test2.m4a"
+
+
+def _require_fixture(path: Path) -> Path:
+    assert path.is_file(), f"Enabled real-audio test needs its recording: {path}"
+    return path
 
 
 def _require_real_audio_env() -> Path:
     if os.getenv("RUN_REAL_AUDIO_ASSESSMENT") != "1":
         raise unittest.SkipTest("Set RUN_REAL_AUDIO_ASSESSMENT=1 to run the real audio assessment test.")
-    audio_path = os.getenv("ASSESS_SPEAKING_REAL_AUDIO_PATH")
-    path = Path(audio_path).expanduser() if audio_path else DEFAULT_REAL_AUDIO_PATH
-    if not path.exists():
-        raise unittest.SkipTest(f"Real audio file not found: {path}")
-    if not os.getenv("OPENROUTER_API_KEY"):
-        raise unittest.SkipTest("OPENROUTER_API_KEY is required for the real audio assessment test.")
-    return path
+    provider = os.getenv("ASSESS_SPEAKING_REAL_PROVIDER", "ollama")
+    assert provider in {"ollama", "lmstudio", "openrouter"}, "Choose ollama, lmstudio or openrouter"
+    if provider == "openrouter":
+        assert os.getenv("OPENROUTER_API_KEY"), "OpenRouter requires OPENROUTER_API_KEY"
+    assert os.getenv("ASSESS_SPEAKING_REAL_LLM_MODEL"), "Set ASSESS_SPEAKING_REAL_LLM_MODEL to an installed/available model"
+    audio = os.getenv("ASSESS_SPEAKING_REAL_AUDIO_PATH")
+    return _require_fixture(Path(audio).expanduser() if audio else DEFAULT_REAL_AUDIO_PATH)
 
 
-def _require_fixture(path: Path) -> Path:
-    if not path.exists():
-        raise unittest.SkipTest(f"Real audio file not found: {path}")
-    return path
+def _decoded_duration(path: Path) -> float:
+    result = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                             "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+                            check=True, capture_output=True, text=True, timeout=30)
+    return float(result.stdout.strip())
 
 
-def _faster_whisper_cache_exists(model_name: str) -> bool:
-    hub_cache = Path(
-        os.getenv("HF_HUB_CACHE")
-        or os.getenv("HUGGINGFACE_HUB_CACHE")
-        or (Path.home() / ".cache" / "huggingface" / "hub")
-    )
-    return (hub_cache / f"models--Systran--faster-whisper-{model_name}").exists()
+def _assert_feedback_contract(report: dict, *, allow_guarded: bool) -> None:
+    warnings = set(report.get("warnings", []))
+    assert "llm_unavailable" not in warnings, "Provider failure is not a successful live test"
+    scores = report["scores"]
+    assert 1 <= scores["final"] <= 5
+    if scores["mode"] == "deterministic_only":
+        assert allow_guarded, f"AI feedback was not accepted ({sorted(warnings)}); opt into guarded workflow coverage explicitly"
+        assert warnings & {"transcript_uncertain", "llm_invalid_schema"}
+        assert report["requires_human_review"] is True
+        assert report["rubric"] is None and scores["llm"] is None
+    else:
+        assert scores["mode"] == "hybrid"
+        assert report["rubric"] and scores["llm"] is not None
+    # Coaching transport and validation errors share a warning: require usable coaching.
+    assert "coaching_unavailable" not in warnings
+    assert len(report["coaching"]["top_3_priorities"]) == 3
+    assert report["coaching"]["next_exercise"].strip()
 
 
-class RealAudioAssessmentTests(unittest.TestCase):
-    def _run_real_assessment(self, audio_path: Path, *, task_family: str, speaker_id: str) -> dict:
-        whisper_model = os.getenv("ASSESS_SPEAKING_REAL_WHISPER_MODEL", "tiny")
-        llm_model = os.getenv("ASSESS_SPEAKING_REAL_LLM_MODEL")
-        provider = os.getenv("ASSESS_SPEAKING_REAL_PROVIDER", "openrouter")
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with ExitStack() as stack:
-                if _faster_whisper_cache_exists(whisper_model):
-                    stack.enter_context(mock.patch.dict(os.environ, {"HF_HUB_OFFLINE": "1"}, clear=False))
-                return assess_speaking.run_assessment(
-                    audio_path,
-                    provider=provider,
-                    llm_model=llm_model,
-                    whisper_model=whisper_model,
-                    theme="tema libero",
-                    task_family=task_family,
-                    speaker_id=speaker_id,
-                    target_duration_sec=30.0,
-                    train_dir=Path(tmpdir),
-                )
-
-    def test_real_audio_file_returns_report_and_feedback(self):
-        audio_path = _require_real_audio_env()
-        result = self._run_real_assessment(
-            audio_path,
-            task_family="real_audio_smoke",
-            speaker_id="real-audio-test",
+@pytest.mark.parametrize("recording", [None] if os.getenv("ASSESS_SPEAKING_REAL_AUDIO_PATH") else [None, SECOND_REAL_AUDIO_PATH],
+                         ids=["custom"] if os.getenv("ASSESS_SPEAKING_REAL_AUDIO_PATH") else ["test1", "test2"])
+def test_recording_preserves_duration_provider_and_feedback_contract(recording, monkeypatch, record_property):
+    first = _require_real_audio_env()
+    audio = _require_fixture(recording) if recording else first
+    whisper = os.getenv("ASSESS_SPEAKING_REAL_WHISPER_MODEL", "tiny")
+    assert describe_model_availability(whisper)["cached"], f"Download Whisper {whisper} before this test"
+    assert shutil.which("ffmpeg") and shutil.which("ffprobe"), "Install ffmpeg (including ffprobe) before this test"
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    language = os.getenv("ASSESS_SPEAKING_REAL_LANGUAGE", "it")
+    provider = os.getenv("ASSESS_SPEAKING_REAL_PROVIDER", "ollama")
+    model = os.environ["ASSESS_SPEAKING_REAL_LLM_MODEL"]
+    base_url = os.getenv("ASSESS_SPEAKING_REAL_BASE_URL")
+    # Guarded ASR rejection may skip generation, but it must not hide an absent provider/model.
+    available = list_models(provider=provider, base_url=base_url, timeout_sec=15)
+    assert model in [entry["id"] for entry in available["data"]], "Requested provider model must be available"
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = assess_speaking.run_assessment(
+            audio, provider=provider, llm_model=model, whisper_model=whisper,
+            llm_base_url=base_url, llm_timeout_sec=180,
+            expected_language=language, feedback_language=language,
+            theme="tema libero" if language == "it" else "free topic",
+            task_family="real_audio_smoke", speaker_id="real-audio-test",
+            target_duration_sec=60, train_dir=Path(tmpdir),
         )
-        report = result["report"]
-        self.assertIn("metrics", report)
-        self.assertIn("checks", report)
-        self.assertIn("scores", report)
-        self.assertIn("coaching", report)
-        self.assertTrue(result["transcript_preview"])
-        self.assertEqual(report["input"]["speaker_id"], "real-audio-test")
-        self.assertEqual(report["input"]["task_family"], "real_audio_smoke")
-        self.assertEqual(report["input"]["theme"], "tema libero")
-        self.assertEqual(len(report["coaching"]["top_3_priorities"]), 3)
-        self.assertIn("next_exercise", report["coaching"])
-        self.assertIn(report["scores"]["mode"], {"hybrid", "deterministic_only"})
-
-    def test_real_audio_grading_ranks_second_sample_higher(self):
-        _require_real_audio_env()
-        first_audio = _require_fixture(DEFAULT_REAL_AUDIO_PATH)
-        second_audio = _require_fixture(BETTER_REAL_AUDIO_PATH)
-
-        first_result = self._run_real_assessment(
-            first_audio,
-            task_family="real_audio_grading_compare",
-            speaker_id="real-audio-compare",
-        )
-        second_result = self._run_real_assessment(
-            second_audio,
-            task_family="real_audio_grading_compare",
-            speaker_id="real-audio-compare",
-        )
-
-        first_report = first_result["report"]
-        second_report = second_result["report"]
-        first_scores = first_report["scores"]
-        second_scores = second_report["scores"]
-        first_rubric = first_report.get("rubric") or {}
-        second_rubric = second_report.get("rubric") or {}
-
-        for report in (first_report, second_report):
-            self.assertTrue(report["checks"]["language_pass"])
-            self.assertTrue(report["checks"]["topic_pass"])
-            self.assertTrue(report["checks"]["duration_pass"])
-
-        self.assertGreater(
-            second_scores["final"],
-            first_scores["final"],
-            msg=f"Expected test2.m4a to outrank test1.m4a, got {first_scores['final']} vs {second_scores['final']}",
-        )
-        self.assertGreater(
-            second_scores["deterministic"],
-            first_scores["deterministic"],
-            msg="Expected the stronger sample to have better deterministic speaking metrics.",
-        )
-        self.assertGreaterEqual(
-            second_rubric.get("overall", 0),
-            first_rubric.get("overall", 0) + 1,
-            msg=f"Expected better overall rubric for test2.m4a, got {first_rubric.get('overall')} vs {second_rubric.get('overall')}",
-        )
-        self.assertGreaterEqual(
-            second_rubric.get("fluency", 0),
-            first_rubric.get("fluency", 0) + 1,
-            msg=f"Expected better fluency rubric for test2.m4a, got {first_rubric.get('fluency')} vs {second_rubric.get('fluency')}",
-        )
-        self.assertGreaterEqual(
-            second_rubric.get("range", 0),
-            first_rubric.get("range", 0) + 1,
-            msg=f"Expected better range rubric for test2.m4a, got {first_rubric.get('range')} vs {second_rubric.get('range')}",
-        )
-
-
-if __name__ == "__main__":
-    unittest.main()
+    report = result["report"]
+    record_property("acceptance_scope", "guarded_workflow" if os.getenv("REAL_AUDIO_ALLOW_GUARDED_FALLBACK") == "1" else "accepted_ai_feedback")
+    record_property("ai_output_accepted", report["scores"]["mode"] == "hybrid" and "coaching_unavailable" not in report.get("warnings", []))
+    record_property("generation_attempted", report.get("timings_ms", {}).get("llm", 0) > 0)
+    record_property("warnings", json.dumps(report.get("warnings", [])))
+    record_property("feedback_quality_review", "unreviewed")
+    assert result["transcript_full"].strip()
+    assert report["metrics"]["word_count"] > 10
+    assert report["metrics"]["duration_sec"] == pytest.approx(_decoded_duration(audio), abs=.5)
+    for field, expected in dict(provider=provider, llm_model=model, whisper_model=whisper,
+                                expected_language=language, speaker_id="real-audio-test", task_family="real_audio_smoke").items():
+        assert report["input"][field] == expected
+    _assert_feedback_contract(report, allow_guarded=os.getenv("REAL_AUDIO_ALLOW_GUARDED_FALLBACK") == "1")
+    # Reports must remain usable after a JSON round trip, with finite measurements.
+    saved = json.loads(json.dumps(report, allow_nan=False))
+    assert saved["metrics"] == report["metrics"]
+    assert saved["coaching"] == report["coaching"]

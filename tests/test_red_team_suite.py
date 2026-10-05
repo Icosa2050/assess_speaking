@@ -81,7 +81,7 @@ def test_red_team_rubric_prompt_sanitizes_transcript_breakout(
     assert safe_transcript in prompt
     assert "Reply ONLY with valid JSON" in prompt
     assert f'The required theme is: "{theme}".' in prompt
-    assert "`evidence_quotes` must contain exact, untranslated substrings copied from the TRANSCRIPT." in prompt
+    assert "`evidence_quotes` must contain exact, untranslated complete words or phrases copied from the TRANSCRIPT." in prompt
 
 
 @pytest.mark.parametrize(

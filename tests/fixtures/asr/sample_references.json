@@ -1,0 +1,47 @@
+{
+  "source": "scripts/generate_sample.sh preset_text; authored TTS source, not human learner transcripts or CEFR labels",
+  "cases": [
+    {
+      "language": "it",
+      "goal": "B1",
+      "path": "samples/cefr/it/B1/travel_story.wav",
+      "sha256": "b48522c670121d9db520e2b92247417124f10cab4b41d0c90e983851879b48f6",
+      "text": "Lo scorso anno ho fatto un viaggio in treno con mia sorella. Siamo andati al mare per tre giorni, abbiamo visitato il centro storico e abbiamo mangiato in un piccolo ristorante vicino alla spiaggia. Il momento piu bello e stato il tramonto dell'ultima sera, perche eravamo stanchi ma molto contenti."
+    },
+    {
+      "language": "it",
+      "goal": "B2",
+      "path": "samples/cefr/it/B2/remote_work.wav",
+      "sha256": "d8b96d087eccbe6c8bdc70ac4de8806b5f62bb43c6c5e45c2729d46d117da803",
+      "text": "Lavorare da casa puo essere comodo, perche permette di risparmiare tempo e organizzare meglio la giornata. Allo stesso tempo, pero, non e sempre facile separare il lavoro dalla vita privata, e molte persone sentono la mancanza di un vero contatto con i colleghi. Per me la soluzione migliore e un modello flessibile."
+    },
+    {
+      "language": "it",
+      "goal": "C1",
+      "path": "samples/cefr/it/C1/public_debate.wav",
+      "sha256": "74e4f73db17b653a850d991d7e3672e30b64c4752658ec8972c6bd82c0cd1a92",
+      "text": "Il dibattito pubblico online offre nuove possibilita di partecipazione, ma amplifica anche polarizzazione, semplificazioni e reazioni impulsive. Se vogliamo che le piattaforme digitali sostengano una discussione democratica piu matura, dobbiamo combinare educazione mediatica, trasparenza degli algoritmi e responsabilita editoriale senza limitare inutilmente la liberta di espressione."
+    },
+    {
+      "language": "en",
+      "goal": "B1",
+      "path": "samples/cefr/en/B1/travel_story.wav",
+      "sha256": "d752ab6b6e54c3aefcb06a20ce53fe491a3db2b399a14ff270286cb47a233be1",
+      "text": "Last summer I took a short trip to the coast with two friends. We travelled by train, stayed in a small hotel, and spent most of the weekend walking near the beach and trying local food. The weather was warm, the town was friendly, and I still remember how relaxed I felt when we came home."
+    },
+    {
+      "language": "en",
+      "goal": "B2",
+      "path": "samples/cefr/en/B2/remote_work.wav",
+      "sha256": "d9080b94b63edce4f6cd1b3e0eee2151fbc89ace8b1c9b8e8cf22af160db3e2f",
+      "text": "Working from home can improve concentration and save commuting time, which is why many employees prefer it for part of the week. However, remote work can also create communication problems and make teamwork slower if meetings are poorly organised. In my view, companies should offer a balanced system instead of one rigid rule for everyone."
+    },
+    {
+      "language": "en",
+      "goal": "C1",
+      "path": "samples/cefr/en/C1/public_debate.wav",
+      "sha256": "4a97b6981d0242ab22fd1a827b0273ab86b095609e8c876eac270df9fed1760c",
+      "text": "Public debate has become faster and more visible because digital platforms allow almost anyone to react instantly to political events. That openness is valuable, yet it also rewards outrage, short-term attention, and simplified arguments. A healthier civic culture depends not only on better platform rules, but also on stronger habits of critical reading and deliberate discussion."
+    }
+  ]
+}

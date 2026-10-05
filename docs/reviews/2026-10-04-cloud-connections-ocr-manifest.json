@@ -1,0 +1,145 @@
+{
+  "date": "2026-10-04",
+  "mode": "workspace",
+  "preview_total_files": 53,
+  "total_files": 25,
+  "reviewed_files": 25,
+  "skipped_files": 0,
+  "coverage_rate": 1.0,
+  "files": [
+    {
+      "path": "app_backend/app.py",
+      "status": "modified",
+      "review": "reviewed"
+    },
+    {
+      "path": "app_backend/contracts.py",
+      "status": "modified",
+      "review": "reviewed"
+    },
+    {
+      "path": "app_backend/jobs.py",
+      "status": "modified",
+      "review": "reviewed"
+    },
+    {
+      "path": "app_core/runtime_providers.py",
+      "status": "modified",
+      "review": "reviewed"
+    },
+    {
+      "path": "app_core/runtime_resolver.py",
+      "status": "modified",
+      "review": "reviewed"
+    },
+    {
+      "path": "app_core/services.py",
+      "status": "modified",
+      "review": "reviewed"
+    },
+    {
+      "path": "app_core/state.py",
+      "status": "modified",
+      "review": "reviewed"
+    },
+    {
+      "path": "assess_speaking.py",
+      "status": "modified",
+      "review": "reviewed"
+    },
+    {
+      "path": "assessment_runtime/llm_client.py",
+      "status": "modified",
+      "review": "reviewed"
+    },
+    {
+      "path": "assessment_runtime/runner.py",
+      "status": "modified",
+      "review": "reviewed"
+    },
+    {
+      "path": "frontend/src/components/setup/RuntimeConnectionForm.tsx",
+      "status": "modified",
+      "review": "reviewed"
+    },
+    {
+      "path": "frontend/src/lib/api/client.ts",
+      "status": "modified",
+      "review": "reviewed"
+    },
+    {
+      "path": "frontend/src/routes/SettingsRoute.tsx",
+      "status": "modified",
+      "review": "reviewed"
+    },
+    {
+      "path": "frontend/src/routes/SetupRoute.tsx",
+      "status": "modified",
+      "review": "reviewed"
+    },
+    {
+      "path": "frontend/src/routes/SpeakRoute.tsx",
+      "status": "modified",
+      "review": "reviewed"
+    },
+    {
+      "path": "locales/de.json",
+      "status": "modified",
+      "review": "reviewed"
+    },
+    {
+      "path": "locales/en.json",
+      "status": "modified",
+      "review": "reviewed"
+    },
+    {
+      "path": "locales/es.json",
+      "status": "modified",
+      "review": "reviewed"
+    },
+    {
+      "path": "locales/fr.json",
+      "status": "modified",
+      "review": "reviewed"
+    },
+    {
+      "path": "locales/it.json",
+      "status": "modified",
+      "review": "reviewed"
+    },
+    {
+      "path": "app_backend/chatgpt_routes.py",
+      "status": "added",
+      "review": "reviewed"
+    },
+    {
+      "path": "app_core/chatgpt_auth.py",
+      "status": "added",
+      "review": "reviewed"
+    },
+    {
+      "path": "app_core/preference_lock.py",
+      "status": "added",
+      "review": "reviewed"
+    },
+    {
+      "path": "assessment_runtime/responses_client.py",
+      "status": "added",
+      "review": "reviewed"
+    },
+    {
+      "path": "frontend/src/components/setup/ChatGPTConnection.tsx",
+      "status": "added",
+      "review": "reviewed"
+    }
+  ],
+  "additional_manual_review": [
+    "requirements.txt",
+    "tests/test_cloud_accounts.py",
+    "frontend/tests/e2e/cloudConnections.spec.ts",
+    "docs/superpowers/plans/2026-10-04-cloud-provider-access.md"
+  ],
+  "excluded_count": 28,
+  "excluded_reason": "OCR built-in documentation/test filters plus unrelated user-owned untracked work and temporary verification files.",
+  "findings_record": "2026-10-04-cloud-connections-implementation.md"
+}

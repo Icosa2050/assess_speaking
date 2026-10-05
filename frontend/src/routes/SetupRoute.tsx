@@ -396,7 +396,8 @@ export const SetupRoute = () => {
       setActiveConnectionId(response.active_connection_id);
       setSetupComplete(response.connections.length > 0);
       setFormStatus("saved");
-      setFormStatusMessage(translate("runtime_setup.save_success"));
+      const saved = response.connections.find(c => c.connection_id === response.active_connection_id);
+      setFormStatusMessage(translate(saved?.provider_metadata.persistent === false ? "runtime_setup.save_success_session_only" : "runtime_setup.save_success"));
       await handleInvalidateRuntime();
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
@@ -528,6 +529,7 @@ export const SetupRoute = () => {
 
       <div id="runtime-setup-connection">
         <RuntimeConnectionForm
+          onAccountConnected={(_id, notice) => { if (notice) setFormStatusMessage(notice); }}
           detectedModelMessage={detectedModelMessage}
           detectedModels={detectedModels}
           initialDraft={initialDraft}

@@ -125,7 +125,12 @@ def estimate_render_duration(text: str, rate_wpm: int) -> RenderDurationEstimate
     )
 
 
-def _render_text_metrics(seed: SyntheticSeed, duration_estimate: RenderDurationEstimate) -> dict[str, float]:
+def _render_text_metrics(
+    seed: SyntheticSeed,
+    duration_estimate: RenderDurationEstimate,
+    *,
+    language_profile_key: str | None = None,
+) -> dict[str, float]:
     text = text_to_render(seed)
     normalized_text = SILENCE_MARKER_RE.sub(" ", text)
     pause_durations = [int(value) / 1000.0 for value in SILENCE_MARKER_RE.findall(text)]
@@ -134,14 +139,17 @@ def _render_text_metrics(seed: SyntheticSeed, duration_estimate: RenderDurationE
         "duration_sec": duration_estimate.estimated_total_duration_sec,
         "pauses": [(0.0, 0.0, pause_duration) for pause_duration in pause_durations],
     }
-    return transcript_metrics_from(words, audio_feats, language_code=seed.language_code)
+    return transcript_metrics_from(
+        words, audio_feats, language_code=seed.language_code,
+        language_profile_key=language_profile_key,
+    )
 
 
 def _resolve_benchmark_case(
     benchmark_root: Path,
     seed: SyntheticSeed,
-    cache: dict[str, BenchmarkCase],
-) -> BenchmarkCase | None:
+    cache: dict[str, tuple[BenchmarkCase, str | None]],
+) -> tuple[BenchmarkCase, str | None] | None:
     if not seed.benchmark_suite_id or not seed.benchmark_case_id:
         return None
     cache_key = f"{seed.benchmark_suite_id}:{seed.benchmark_case_id}"
@@ -159,8 +167,9 @@ def _resolve_benchmark_case(
         raise ValueError(
             f"Benchmark case {seed.benchmark_case_id!r} was not found in suite {seed.benchmark_suite_id!r}"
         )
-    cache[cache_key] = benchmark_case
-    return benchmark_case
+    resolved = (benchmark_case, suite.language_profile_key)
+    cache[cache_key] = resolved
+    return resolved
 
 
 def _metric_tolerance(metric_name: str, expected: float) -> float:
@@ -177,13 +186,17 @@ def _validate_seed_benchmark_alignment(
     *,
     duration_estimate: RenderDurationEstimate,
     benchmark_root: Path,
-    cache: dict[str, BenchmarkCase],
+    cache: dict[str, tuple[BenchmarkCase, str | None]],
 ) -> None:
-    benchmark_case = _resolve_benchmark_case(benchmark_root, seed, cache)
-    if benchmark_case is None:
+    resolved = _resolve_benchmark_case(benchmark_root, seed, cache)
+    if resolved is None:
         return
 
-    computed_metrics = _render_text_metrics(seed, duration_estimate)
+    benchmark_case, profile_key = resolved
+    # Alignment belongs to the pinned benchmark, not evolving live defaults.
+    computed_metrics = _render_text_metrics(
+        seed, duration_estimate, language_profile_key=profile_key,
+    )
     issues: list[str] = []
     for metric_name, expected_value in benchmark_case.metrics.items():
         if metric_name not in BENCHMARK_ALIGNMENT_TOLERANCES:
@@ -246,7 +259,7 @@ def _render_seed_item(
     audio_dir: Path,
     transcript_dir: Path,
     benchmark_root: Path | None,
-    benchmark_case_cache: dict[str, BenchmarkCase],
+    benchmark_case_cache: dict[str, tuple[BenchmarkCase, str | None]],
 ) -> dict:
     config = resolve_render_config(manifest, seed)
     duration_estimate = estimate_render_duration(text_to_render(seed), config.rate_wpm)
@@ -369,7 +382,7 @@ def render_seed_manifest(
 
     output_root_path.mkdir(parents=True, exist_ok=True)
     benchmark_root_path = Path(benchmark_root) if benchmark_root is not None else None
-    benchmark_case_cache: dict[str, BenchmarkCase] = {}
+    benchmark_case_cache: dict[str, tuple[BenchmarkCase, str | None]] = {}
     with tempfile.TemporaryDirectory(prefix=f".{manifest.manifest_id}-staging-", dir=output_root_path) as staging_root:
         staging_bundle_dir = Path(staging_root) / manifest.manifest_id
         audio_dir = staging_bundle_dir / "audio"

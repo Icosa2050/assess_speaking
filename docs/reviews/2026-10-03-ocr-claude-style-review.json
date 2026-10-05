@@ -1,0 +1,513 @@
+{
+  "date": "2026-10-03",
+  "method": "OCR deterministic preview/rule resolution; host performs review. Separate approved Claude CLI review; suggestions independently triaged with production-client fixture reproductions.",
+  "scope": "All 28 OCR-reviewable workspace entries plus eight manually included tests/fixtures/docs. User-owned untracked material excluded. Claude received selected source, authored tests and docs only.",
+  "total_files": 28,
+  "reviewed_files": 28,
+  "skipped_files": 0,
+  "coverage_rate": 100.0,
+  "checklist": [
+    {
+      "path": "app_backend/app.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "assess_core/language_profiles.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "assess_core/schemas.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "assess_speaking.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "assessment_runtime/asr.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "assessment_runtime/assessment_prompts.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "assessment_runtime/llm_client.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "assessment_runtime/metrics.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "assessment_runtime/runner.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "benchmarking/benchmark_suites.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "benchmarking/synthetic_benchmark_generation.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/playwright.ollama.config.ts",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/src/components/review/ReviewSummary.tsx",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/src/components/review/WarningsPanel.tsx",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/de.json",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/en.json",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/es.json",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/fr.json",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "locales/it.json",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "tests/e2e/journey_backend.py",
+      "status": "modified",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "assessment_runtime/comparison.py",
+      "status": "added",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "assessment_runtime/feedback_claims.py",
+      "status": "added",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "assessment_runtime/output_validation.py",
+      "status": "added",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "assessment_runtime/transcript_quality.py",
+      "status": "added",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "frontend/tests/live/workflowEvidence.ts",
+      "status": "added",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "scripts/inspect_journey_evidence.py",
+      "status": "added",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "scripts/journey_keyring.py",
+      "status": "added",
+      "review_status": "reviewed"
+    },
+    {
+      "path": "scripts/run_live_journeys.py",
+      "status": "added",
+      "review_status": "reviewed"
+    }
+  ],
+  "supplementary_reviewed": [
+    "frontend/tests/journeys/bilingualPractice.spec.ts",
+    "frontend/src/components/review/ReviewSummary.test.tsx",
+    "tests/test_feedback_styles.py",
+    "tests/test_feedback_quality_corpus_v2.py",
+    "tests/test_generation_validation.py",
+    "tests/fixtures/feedback_quality/bilingual_v2.json",
+    "tests/fixtures/feedback_quality/README.md",
+    "docs/reviews/2026-10-03-grammar-style-separation.md"
+  ],
+  "excluded_files": [
+    {
+      "path": "frontend/tests/journeys/bilingualPractice.spec.ts",
+      "status": "modified",
+      "insertions": 10,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "frontend/tests/live/ollamaBilingual.spec.ts",
+      "status": "modified",
+      "insertions": 231,
+      "deletions": 42,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_app_backend_api.py",
+      "status": "modified",
+      "insertions": 25,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_assess_speaking.py",
+      "status": "modified",
+      "insertions": 11,
+      "deletions": 15,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_benchmark_suites.py",
+      "status": "modified",
+      "insertions": 15,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_coaching_summary.py",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_integration_openrouter.py",
+      "status": "modified",
+      "insertions": 1,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_language_profiles.py",
+      "status": "modified",
+      "insertions": 5,
+      "deletions": 5,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_llm_client.py",
+      "status": "modified",
+      "insertions": 5,
+      "deletions": 3,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_synthetic_benchmark_generation.py",
+      "status": "modified",
+      "insertions": 19,
+      "deletions": 1,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": ".codegraph/.gitignore",
+      "status": "added",
+      "insertions": 5,
+      "deletions": 0,
+      "exclude_reason": "user_exclude"
+    },
+    {
+      "path": "docs/plans/2026-10-03-feedback-hardening.md",
+      "status": "added",
+      "insertions": 47,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/reviews/2026-10-02-live-bilingual-workflows.md",
+      "status": "added",
+      "insertions": 188,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/reviews/2026-10-03-feedback-hardening.md",
+      "status": "added",
+      "insertions": 269,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/reviews/2026-10-03-grammar-style-separation.md",
+      "status": "added",
+      "insertions": 25,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "docs/testing/live-bilingual-workflows.md",
+      "status": "added",
+      "insertions": 149,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "frontend/src/components/review/ReviewSummary.test.tsx",
+      "status": "added",
+      "insertions": 66,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "frontend/src/components/review/WarningsPanel.test.tsx",
+      "status": "added",
+      "insertions": 15,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "last_conversation_and_missing_baseline.txt",
+      "status": "added",
+      "insertions": 171,
+      "deletions": 0,
+      "exclude_reason": "user_exclude"
+    },
+    {
+      "path": "package-lock.json",
+      "status": "added",
+      "insertions": 6,
+      "deletions": 0,
+      "exclude_reason": "user_exclude"
+    },
+    {
+      "path": "package.json",
+      "status": "added",
+      "insertions": 1,
+      "deletions": 0,
+      "exclude_reason": "user_exclude"
+    },
+    {
+      "path": "prompts/b2_script.txt",
+      "status": "added",
+      "insertions": 3,
+      "deletions": 0,
+      "exclude_reason": "user_exclude"
+    },
+    {
+      "path": "prompts/c1_script.txt",
+      "status": "added",
+      "insertions": 3,
+      "deletions": 0,
+      "exclude_reason": "user_exclude"
+    },
+    {
+      "path": "prompts/sample_b2.wav",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "prompts/sample_c1.wav",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "scripts/bootstrap_env.sh",
+      "status": "added",
+      "insertions": 92,
+      "deletions": 0,
+      "exclude_reason": "user_exclude"
+    },
+    {
+      "path": "scripts/generate_b2_sample.sh",
+      "status": "added",
+      "insertions": 7,
+      "deletions": 0,
+      "exclude_reason": "user_exclude"
+    },
+    {
+      "path": "scripts/generate_c1_sample.sh",
+      "status": "added",
+      "insertions": 7,
+      "deletions": 0,
+      "exclude_reason": "user_exclude"
+    },
+    {
+      "path": "scripts/run_sample_workflow.py",
+      "status": "added",
+      "insertions": 34,
+      "deletions": 0,
+      "exclude_reason": "user_exclude"
+    },
+    {
+      "path": "tests/data/sample_metrics.json",
+      "status": "added",
+      "insertions": 24,
+      "deletions": 0,
+      "exclude_reason": "user_exclude"
+    },
+    {
+      "path": "tests/fixtures/feedback_quality/README.md",
+      "status": "added",
+      "insertions": 7,
+      "deletions": 0,
+      "exclude_reason": "unsupported_ext"
+    },
+    {
+      "path": "tests/fixtures/feedback_quality/bilingual_v1.json",
+      "status": "added",
+      "insertions": 116,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/fixtures/feedback_quality/bilingual_v2.json",
+      "status": "added",
+      "insertions": 410,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_feedback_claims.py",
+      "status": "added",
+      "insertions": 131,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_feedback_provenance.py",
+      "status": "added",
+      "insertions": 197,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_feedback_quality_corpus.py",
+      "status": "added",
+      "insertions": 85,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_feedback_quality_corpus_v2.py",
+      "status": "added",
+      "insertions": 46,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_feedback_styles.py",
+      "status": "added",
+      "insertions": 156,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_generation_validation.py",
+      "status": "added",
+      "insertions": 308,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_live_journey_runner.py",
+      "status": "added",
+      "insertions": 106,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_metrics_live.py",
+      "status": "added",
+      "insertions": 75,
+      "deletions": 0,
+      "exclude_reason": "default_path"
+    },
+    {
+      "path": "tests/test_sample_workflow.py",
+      "status": "added",
+      "insertions": 28,
+      "deletions": 0,
+      "exclude_reason": "user_exclude"
+    }
+  ],
+  "comments": [
+    {
+      "path": "assessment_runtime/output_validation.py",
+      "start_line": 162,
+      "end_line": 164,
+      "severity": "medium",
+      "category": "bug",
+      "content": "Common correction phrasing is accepted as optional style: production generate_rubric accepts explanations \"Correct ... to ...\", \"La frase è errata.\" and \"Das Original ist ein Fehler.\" The vocabulary guard misses these supported-language forms, so the dedicated optional section can still label acceptable expressions as errors. Add regressions for explicit correction instructions and EN/IT/DE error inflections while retaining positive statements such as \"the original is correct\"."
+    },
+    {
+      "path": "assessment_runtime/output_validation.py",
+      "start_line": 162,
+      "end_line": 164,
+      "severity": "medium",
+      "category": "bug",
+      "content": "The reassurance stripper rejects common explicit denials. \"The original needs no correction\", \"This isn't an error\", and \"Das Original ist nicht falsch\" each exhaust both generation attempts and raise LLMSchemaError. This discards the whole rubric for a valid optional explanation. Recognize scoped negation/contractions across supported feedback languages and preserve checks on the remainder of each sentence."
+    },
+    {
+      "path": "assessment_runtime/output_validation.py",
+      "start_line": 187,
+      "end_line": 189,
+      "severity": "medium",
+      "category": "bug",
+      "content": "Target-language alternatives are evaluated as assessor acoustic claims. With transcript \"I like the rhythm of this song\", the grammatical optional alternative \"I enjoy the rhythm of this song\" fails the acoustic detector and exhausts rubric repair. The alternative is learner/topic content, not an assessment of delivery. Separate replacement text from assessor claims; retain acoustic checks on explanations and comments, with known target-language examples handled consistently."
+    },
+    {
+      "path": "assessment_runtime/output_validation.py",
+      "start_line": 238,
+      "end_line": 240,
+      "severity": "medium",
+      "category": "bug",
+      "content": "Matching the full optional original anywhere in all coaching fields is both over-broad and incomplete. A valid optional original \"good\" makes unrelated strength \"Good supporting examples\" fail both attempts; conversely \"Replace good with enjoyable in your opening\" passes when original is \"The trip was good\", promoting an optional preference into correction priorities. Use explicit references/structured correction intent rather than broad whole-original membership; add both positive and negative coaching regressions."
+    },
+    {
+      "path": "assessment_runtime/llm_client.py",
+      "start_line": 469,
+      "end_line": 476,
+      "severity": "low",
+      "category": "bug",
+      "content": "The OpenRouter capability probe asks for an exact object that does not satisfy its strict schema. RubricResult defaults style_suggestions to None and to_dict omits it, while generation_json_schema requires that key. Capturing the request confirms style_suggestions is the sole missing required field. Initialize style_suggestions=[] so the exact-copy prompt and requested schema agree; this review did not make a live API request or establish that every provider rejects the mismatch."
+    }
+  ],
+  "verification": {
+    "focused_backend": "126 passed",
+    "review_ui": "7 passed",
+    "network": "No live model calls in reproductions; _chat_completion mocked with authored responses",
+    "production_changes": "None during review"
+  },
+  "limits": [
+    "Not independent bilingual human review or model-quality evaluation",
+    "Coverage count describes OCR-selected code, not every local/untracked file",
+    "Existing all-or-nothing rubric rejection and lenient omitted style field are intentional design choices, not separate findings",
+    "Schema null rejection conforms to array contract",
+    "Fixture journeys establish storage/rendering; they do not execute generation guards",
+    "Comparison signature and five locale keys checked directly; Claude uncertainty about their absence disproved"
+  ]
+}

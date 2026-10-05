@@ -5,6 +5,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,10 @@ from starlette.concurrency import run_in_threadpool
 from starlette.formparsers import MultiPartException
 from starlette.requests import ClientDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from app_core.chatgpt_auth import ChatGPTAuthError, cached_access_token, access_token
+from app_backend.chatgpt_routes import install_chatgpt_routes
+from app_core.preference_lock import synchronized_preferences
 
 from app_backend.config import BackendRuntimeConfig, build_backend_runtime_config, clear_backend_state, write_backend_state
 from app_backend.uploads import UploadRejected, parse_upload, upload_limits
@@ -48,6 +52,7 @@ from app_backend.contracts import (
     UploadResponse,
     WhisperModelStatusResponse,
 )
+from assessment_runtime.llm_client import LLMClientError
 from app_backend.jobs import AssessmentBusyError, JobManager
 from app_backend.maintenance import execute_cleanup
 from app_backend.support_bundle import (
@@ -75,12 +80,13 @@ from app_core.services import (
     load_report_payload,
     provider_choice_for_connection,
     save_provider_connection,
+    save_state_preferences,
     sanitize_setup_base_url,
     set_default_provider_connection,
     test_runtime_connection,
     whisper_model_status,
 )
-from app_core.secret_store import delete_secret, get_secret
+from app_core.secret_store import delete_secret, get_secret, SessionSecretStore, SERVICE_NAME
 from app_core.state import (
     build_default_state,
     normalize_openrouter_app_title,
@@ -151,6 +157,10 @@ def _saved_connection_api_key(connection) -> str:
     secret_ref = str(getattr(connection, "secret_ref", "") or "").strip()
     if not secret_ref:
         return ""
+    if connection.provider_kind == "chatgpt":
+        return cached_access_token(secret_ref)
+    if connection.provider_kind in {"xai", "groq"}:
+        return SessionSecretStore().get_secret(SERVICE_NAME, secret_ref) or str(get_secret(secret_ref) or "")
     return str(get_secret(secret_ref) or "").strip()
 
 
@@ -165,6 +175,8 @@ def _connection_secret_state(connection) -> ConnectionSecretState:
 def _serialize_connection(connection) -> RuntimeSettingsConnection:
     provider_choice = provider_choice_for_connection(connection)
     metadata = dict(connection.provider_metadata or {})
+    if connection.provider_kind == "chatgpt" and SessionSecretStore().get_secret(SERVICE_NAME, connection.secret_ref):
+        metadata["persistent"] = False
     if normalize_provider(connection.provider_kind) == "openrouter":
         metadata["http_referer"] = normalize_openrouter_http_referer(metadata.get("http_referer"))
         metadata["app_title"] = normalize_openrouter_app_title(metadata.get("app_title"))
@@ -236,6 +248,13 @@ def _runtime_settings_draft_matches_existing(state, draft, existing_connection) 
 
 
 def _runtime_settings_test_connection_secret(state, draft) -> str:
+    if provider_kind_from_choice(draft.provider_choice) == "chatgpt":
+        connection = _find_runtime_settings_connection(state, draft.connection_id)
+        if connection is None or connection.provider_kind != "chatgpt" or not _runtime_settings_draft_matches_existing(state, draft, connection):
+            raise ChatGPTAuthError("Sign in with ChatGPT before testing this connection.")
+        if draft.model not in {m['slug'] for m in connection.provider_metadata.get('models', [])}:
+            raise ChatGPTAuthError("Choose an available ChatGPT model.")
+        return access_token(connection.secret_ref)
     api_key = str(draft.api_key or "").strip()
     if api_key:
         return api_key
@@ -259,6 +278,15 @@ def _save_runtime_settings(state, request: RuntimeSettingsSaveRequest):
         str(request.connection.connection_id or "").strip(),
     )
     draft = request.connection
+    if provider_kind_from_choice(draft.provider_choice) == "chatgpt" or (existing_connection and existing_connection.provider_kind == "chatgpt"):
+        if (existing_connection is None or existing_connection.provider_kind != "chatgpt"
+            or provider_kind_from_choice(draft.provider_choice) != "chatgpt" or draft.api_key or request.clear_saved_secret
+            or draft.model != existing_connection.default_model
+            or not _runtime_settings_draft_matches_existing(state, draft, existing_connection)):
+            raise ChatGPTAuthError("Manage this account through Continue with ChatGPT.")
+        # The normal Save action may update locale/Whisper, never replace account credentials.
+        save_state_preferences(state, persist_draft=False)
+        return existing_connection
     provider_choice = str(draft.provider_choice or provider_choice_for_connection(existing_connection, state.prefs.provider)).strip()
     if not provider_choice:
         raise ValueError("Choose a provider before saving the runtime settings.")
@@ -307,6 +335,18 @@ def _assessment_request_with_saved_runtime_secret(
     state,
     request: AssessmentCreateRequest,
 ) -> AssessmentCreateRequest:
+    if normalize_provider(request.provider) in {"chatgpt", "xai", "groq"}:
+        request = request.model_copy(update={"provider": normalize_provider(request.provider)})
+    if request.provider == "chatgpt":
+        connection = active_connection(state.prefs)
+        if connection is None or connection.provider_kind != "chatgpt":
+            raise ChatGPTAuthError("Select a saved ChatGPT connection first.")
+        if request.llm_model not in {m['slug'] for m in connection.provider_metadata.get('models', [])}:
+            raise ChatGPTAuthError("Choose an available ChatGPT model in settings.")
+        return request.model_copy(update={"llm_api_key": access_token(connection.secret_ref), "llm_base_url": "https://api.openai.com/v1"})
+    if request.provider in {"xai", "groq"}:
+        from app_core.runtime_providers import runtime_base_url
+        runtime_base_url(request.provider, request.llm_base_url)
     if str(request.llm_api_key or "").strip():
         return request
     connection = active_connection(state.prefs)
@@ -382,6 +422,7 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
         try:
             yield
         finally:
+            app.state.chatgpt_auth.close()
             app.state.job_manager.shutdown()
             clear_backend_state(
                 runtime_config.app_data.reports_dir,
@@ -405,6 +446,19 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
     app.state.runtime_config = runtime_config
     app.state.started_at = started_at
     app.state.job_manager = job_manager
+    install_chatgpt_routes(app, runtime_config, _load_persisted_state)
+
+    @app.exception_handler(ChatGPTAuthError)
+    async def chatgpt_error(_request: Request, exc: ChatGPTAuthError):
+        return JSONResponse(status_code=400, content={"detail": {"code": "configuration_error", "detail": str(exc)}})
+
+    @app.middleware("http")
+    async def local_origin_guard(request: Request, call_next):
+        origin = request.headers.get("origin")
+        # CORS alone does not reject cross-origin writes. Reject them before dispatch.
+        if origin and request.method != "OPTIONS" and not re.fullmatch(LOCAL_GUEST_ORIGIN_REGEX, origin):
+            return JSONResponse(status_code=403, content={"detail": {"code": "configuration_error", "detail": "Use the local Vostavo app."}})
+        return await call_next(request)
 
     @app.get("/v1/contract", response_model=LocalApiContractResponse, tags=[CONTRACT_TAG])
     def contract() -> LocalApiContractResponse:
@@ -449,6 +503,7 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
         return _build_runtime_settings_response(state)
 
     @app.put("/v1/runtime/settings", response_model=RuntimeSettingsResponse, tags=[LOCAL_RUNTIME_TAG])
+    @synchronized_preferences
     def save_runtime_settings(request: RuntimeSettingsSaveRequest) -> RuntimeSettingsResponse:
         state = _load_persisted_state(runtime_config)
         try:
@@ -461,13 +516,15 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
     def runtime_settings_test_connection(request: RuntimeConnectionTestRequest) -> RuntimeConnectionTestResponse:
         state = _load_persisted_state(runtime_config)
         draft = request.connection
+        api_key = ""
         try:
+            api_key = _runtime_settings_test_connection_secret(state, draft)
             result = test_runtime_connection(
                 provider=str(draft.provider_choice or "").strip(),
                 provider_choice=str(draft.provider_choice or "").strip(),
                 model=str(draft.model or "").strip(),
                 base_url=str(draft.base_url or "").strip(),
-                api_key=_runtime_settings_test_connection_secret(state, draft),
+                api_key=api_key,
                 openrouter_http_referer=str(draft.openrouter_http_referer or "").strip(),
                 openrouter_app_title=str(draft.openrouter_app_title or "").strip(),
             )
@@ -475,6 +532,11 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
             raise _http_error(400, ErrorCode.VALIDATION, str(exc)) from exc
         except OSError as exc:
             raise _http_error(500, ErrorCode.RUNTIME, str(exc)) from exc
+        except LLMClientError as exc:
+            detail = str(exc)
+            if api_key:
+                detail = detail.replace(api_key, "[redacted]")
+            raise _http_error(502, ErrorCode.RUNTIME, detail[:2048]) from exc
         tested_at = str((result.get("test_payload") or {}).get("tested_at") or "")
         content_preview = str((result.get("test_payload") or {}).get("content_preview") or "")
         return RuntimeConnectionTestResponse(
@@ -492,6 +554,7 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
         response_model=RuntimeSettingsResponse,
         tags=[LOCAL_RUNTIME_TAG],
     )
+    @synchronized_preferences
     def runtime_settings_set_default(connection_id: str) -> RuntimeSettingsResponse:
         state = _load_persisted_state(runtime_config)
         if not set_default_provider_connection(state, connection_id, persist_draft=False):
@@ -503,8 +566,12 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
         response_model=RuntimeSettingsResponse,
         tags=[LOCAL_RUNTIME_TAG],
     )
+    @synchronized_preferences
     def runtime_settings_delete(connection_id: str) -> RuntimeSettingsResponse:
         state = _load_persisted_state(runtime_config)
+        connection = _find_runtime_settings_connection(state, connection_id)
+        if connection and connection.provider_kind == "chatgpt":
+            raise ChatGPTAuthError("Use the ChatGPT Disconnect button to revoke this account.")
         if not delete_provider_connection(state, connection_id, persist_draft=False):
             raise _http_error(404, ErrorCode.VALIDATION, f"Runtime connection {connection_id} does not exist.")
         return _build_runtime_settings_response(state)
@@ -611,9 +678,20 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
 
     @app.post("/v1/assessments", response_model=AssessmentCreateResponse, tags=[PRODUCT_API_TAG])
     def create_assessment(request: AssessmentCreateRequest) -> AssessmentCreateResponse:
+        if normalize_provider(request.provider) in {"chatgpt", "xai", "groq"}:
+            request = request.model_copy(update={"provider": normalize_provider(request.provider)})
         try:
             state = _load_persisted_state(runtime_config)
+            if request.provider == "chatgpt":
+                with app.state.chatgpt_auth.lock:
+                    if any(p["status"] in {"waiting", "processing"} for p in app.state.chatgpt_auth.pending.values()):
+                        raise ChatGPTAuthError("Finish or cancel ChatGPT sign-in before starting an assessment.")
+                    state = _load_persisted_state(runtime_config)
+                    resolved = _assessment_request_with_saved_runtime_secret(state, request)
+                    return app.state.job_manager.submit(resolved, credential_ref=active_connection(state.prefs).secret_ref)
             return app.state.job_manager.submit(_assessment_request_with_saved_runtime_secret(state, request))
+        except ValueError as exc:
+            raise _http_error(400, ErrorCode.VALIDATION, str(exc)) from exc
         except AssessmentBusyError as exc:
             raise _http_error(409, ErrorCode.RUNTIME, str(exc)) from exc
         except FileNotFoundError as exc:

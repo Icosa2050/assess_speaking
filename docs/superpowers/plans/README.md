@@ -1,6 +1,6 @@
 # Superpowers Plan Index
 
-Last updated: 2026-07-22
+Last updated: 2026-10-04
 
 This directory now keeps only current execution plans at the top level. Completed
 or superseded task plans live under `archive/` so they do not look like the next
@@ -12,6 +12,7 @@ See `docs/PLAN_STATUS.md` for the wider repository plan map.
 
 | Plan | Status | Notes |
 |---|---|---|
+| [2026-10-04-cloud-provider-access.md](2026-10-04-cloud-provider-access.md) | Implemented; live authorization pending | ChatGPT browser sign-in and xAI Grok API connection; existing OpenRouter integration retained. Local regression and English/Italian connection journeys pass. |
 | `2026-06-09-learner-confidence-simplification.md` | Implemented simplification slice | PAL-refined slice: History duplicate priority reporting removed, History narrow-mobile story hardened, Speak optional context disclosure added, and overlapping assessment wait copy consolidated. |
 | `2026-06-09-active-learner-confidence-progress-story.md` | Implemented confidence slice | PAL-reviewed slice: saved-take reassurance in Speak plus an honest History next-practice cue derived from filtered progress rows. Review stays unchanged to avoid duplicating the existing next-step card. |
 | `2026-06-09-recommendation-and-speak-handoff-polish.md` | Implemented product-polish slice | PAL-reviewed slice: recent same-learner history informs the Session Setup recommended starter when safe, and Speak now has an inline assessment handoff hint without adding another card or backend contract. |

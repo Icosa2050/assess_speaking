@@ -9,6 +9,7 @@ import zipfile
 
 from fastapi.testclient import TestClient
 
+from assessment_runtime.llm_client import LLMClientError
 from app_backend.app import create_app
 from app_backend.config import build_backend_runtime_config
 from app_backend.contracts import (
@@ -270,7 +271,8 @@ class BackendApiTests(unittest.TestCase):
             history = client.get("/v1/history")
             self.assertEqual(history.status_code, 200)
             row = history.json()["items"][0]
-            self.assertEqual(row["timestamp"], "2026-05-05T22:22:30")
+            self.assertEqual(datetime.fromisoformat(row["timestamp"]).timestamp(), datetime(2026, 5, 5, 22, 22, 30).timestamp())
+            self.assertIsNotNone(datetime.fromisoformat(row["timestamp"]).tzinfo)
             self.assertEqual(row["session_id"], "sess-1")
             self.assertEqual(row["learning_language"], "it")
             self.assertEqual(row["top_priorities"], ["Keep speaking", "Use connectors", "Add detail"])
@@ -304,7 +306,13 @@ class BackendApiTests(unittest.TestCase):
         with mock.patch("app_core.services.load_history_records", return_value=[FakeHistoryRecord()]):
             rows = history_rows(Path("/unused"))
 
-        self.assertEqual(rows[0]["timestamp"], "2026-05-05T22:22:30")
+        self.assertEqual(datetime.fromisoformat(rows[0]["timestamp"]).timestamp(), FakeHistoryRecord.timestamp.timestamp())
+        self.assertIsNotNone(datetime.fromisoformat(rows[0]["timestamp"]).tzinfo)
+        # Already-aware reports retain the same instant through serialization.
+        FakeHistoryRecord.timestamp = datetime.fromisoformat("2026-05-05T22:22:30+05:30")
+        with mock.patch("app_core.services.load_history_records", return_value=[FakeHistoryRecord()]):
+            aware_rows = history_rows(Path("/unused"))
+        self.assertEqual(aware_rows[0]["timestamp"], "2026-05-05T16:52:30+00:00")
         self.assertEqual(rows[0]["session_id"], "42")
         self.assertEqual(rows[0]["speaker_id"], "")
         self.assertEqual(rows[0]["learning_language"], "it")
@@ -798,6 +806,30 @@ class BackendApiTests(unittest.TestCase):
                 self.assertTrue(downloaded.json()["cached"])
                 self.assertEqual(downloaded.json()["cached_path"], "/tmp/medium")
                 mock_download.assert_called_once_with("medium")
+
+    def test_runtime_test_connection_provider_failure_has_structured_error_and_cors(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = build_backend_runtime_config(log_dir=tmpdir, port=8773)
+            client = TestClient(create_app(config))
+            with mock.patch(
+                "app_backend.app.test_runtime_connection",
+                side_effect=LLMClientError("HTTP 404: No endpoints match your zero-data-retention policy; secret-test-key"),
+            ):
+                response = client.post(
+                    "/v1/runtime/settings/test-connection",
+                    headers={"Origin": "http://localhost:4179"},
+                    json={"connection": {
+                        "provider_choice": "openrouter", "label": "OpenRouter",
+                        "model": "qwen/qwen3-8b", "base_url": "https://openrouter.ai/api/v1",
+                        "api_key": "secret-test-key",
+                    }},
+                )
+            self.assertEqual(response.status_code, 502)
+            self.assertEqual(response.headers["access-control-allow-origin"], "http://localhost:4179")
+            self.assertEqual(response.json()["detail"]["code"], "runtime_error")
+            self.assertIn("zero-data-retention", response.json()["detail"]["detail"])
+            self.assertNotIn("secret-test-key", response.text)
+            self.assertIn("[redacted]", response.text)
 
     def test_runtime_test_connection_uses_saved_secret_when_key_field_is_blank(self):
         with tempfile.TemporaryDirectory() as tmpdir:

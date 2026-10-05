@@ -1,0 +1,231 @@
+{
+  "version": "semantic_review_v1",
+  "description": "Authored regression and transfer cases, not learner data or a proficiency benchmark. Expected verdicts are host-reviewed; never sent to the model.",
+  "sources": [
+    "https://dictionaryblog.cambridge.org/2016/11/23/modal-verbs-the-basics/",
+    "https://www.treccani.it/enciclopedia/concordanza_(La-grammatica-italiana)/",
+    "https://www.treccani.it/enciclopedia/congiuntivo-presente_(La-grammatica-italiana)/"
+  ],
+  "cases": [
+    {
+      "case_id": "en_modal_false",
+      "language": "en",
+      "transcript": "This option can save time.",
+      "feedback": {
+        "grammar": "Replace can save with can saves because option is singular."
+      },
+      "expected": "reject",
+      "rationale": "A modal takes the base form.",
+      "split": "regression"
+    },
+    {
+      "case_id": "en_modal_fix",
+      "language": "en",
+      "transcript": "This option can saves time.",
+      "feedback": {
+        "grammar": "Replace can saves with can save: the verb after can takes its base form."
+      },
+      "expected": "accept",
+      "rationale": "Correct correction and rule.",
+      "split": "regression"
+    },
+    {
+      "case_id": "en_modal_wrong_reason",
+      "language": "en",
+      "transcript": "This option can saves time.",
+      "feedback": {
+        "grammar": "Replace can saves with can save because time is the subject and it is plural."
+      },
+      "expected": "reject",
+      "rationale": "Right replacement with a fabricated subject and wrong rule.",
+      "split": "regression"
+    },
+    {
+      "case_id": "en_clean_feedback",
+      "language": "en",
+      "transcript": "This option can save time.",
+      "feedback": {
+        "coaching": "The sentence is grammatical. For your next spoken attempt, explain whose time it saves and give an example."
+      },
+      "expected": "accept",
+      "rationale": "Useful practice without invented diagnosis.",
+      "split": "regression"
+    },
+    {
+      "case_id": "it_obligation_shift",
+      "language": "it",
+      "transcript": "È importante che noi partiamo domani.",
+      "feedback": {
+        "style": "Alternativa facoltativa: Dobbiamo partire domani. Esprime la stessa idea."
+      },
+      "expected": "reject",
+      "rationale": "Importance does not entail obligation.",
+      "split": "regression"
+    },
+    {
+      "case_id": "it_importance_preserved",
+      "language": "it",
+      "transcript": "È importante che noi partiamo domani.",
+      "feedback": {
+        "style": "Alternativa facoltativa: È importante che partiamo domani. Il soggetto resta noi; puoi tenere il pronome se vuoi metterlo in rilievo."
+      },
+      "expected": "accept",
+      "rationale": "Same subject and importance; emphasis caveat included.",
+      "split": "regression"
+    },
+    {
+      "case_id": "en_recommendation_shift",
+      "language": "en",
+      "transcript": "Schools should offer a balanced system.",
+      "feedback": {
+        "style": "Optional alternative: Schools could consider offering a flexible system. This preserves the meaning."
+      },
+      "expected": "reject",
+      "rationale": "Weakens recommendation and changes balanced to flexible.",
+      "split": "regression"
+    },
+    {
+      "case_id": "en_contraction",
+      "language": "en",
+      "transcript": "I do not agree with this proposal.",
+      "feedback": {
+        "style": "Optional conversational alternative: I don't agree with this proposal. The full form also works, particularly for emphasis."
+      },
+      "expected": "accept",
+      "rationale": "Contraction preserves proposition with emphasis acknowledged.",
+      "split": "regression"
+    },
+    {
+      "case_id": "it_tickets_invention",
+      "language": "it",
+      "transcript": "Abbiamo comprato i biglietti per il viaggio.",
+      "feedback": {
+        "coaching": "Sostituisci biglietti con bagagli o itinerario per parlare del tuo volo in modo più preciso."
+      },
+      "expected": "reject",
+      "rationale": "Not synonyms; air travel was never specified.",
+      "split": "regression"
+    },
+    {
+      "case_id": "it_tickets_practice",
+      "language": "it",
+      "transcript": "Abbiamo comprato i biglietti per il viaggio.",
+      "feedback": {
+        "coaching": "Biglietti è appropriato. Nel prossimo tentativo, aggiungi una tua informazione sul viaggio, per esempio quando è avvenuto."
+      },
+      "expected": "accept",
+      "rationale": "Asks for new detail without asserting it as fact.",
+      "split": "regression"
+    },
+    {
+      "case_id": "it_person_wrong",
+      "language": "it",
+      "transcript": "È importante che noi parta domani.",
+      "feedback": {
+        "grammar": "Sostituisci parta con partiamo: il soggetto noi richiede la prima persona plurale; resta il congiuntivo dopo è importante che."
+      },
+      "expected": "accept",
+      "rationale": "Correct person agreement correction.",
+      "split": "regression"
+    },
+    {
+      "case_id": "it_person_wrong_rule",
+      "language": "it",
+      "transcript": "È importante che noi parta domani.",
+      "feedback": {
+        "grammar": "Usa partiamo perché il congiuntivo non è consentito dopo è importante che."
+      },
+      "expected": "reject",
+      "rationale": "Correct form justified by an incorrect rule.",
+      "split": "regression"
+    },
+    {
+      "case_id": "en_transfer_negation",
+      "language": "en",
+      "transcript": "I might not attend the meeting.",
+      "feedback": {
+        "style": "Optional alternative: I will attend the meeting. This is more concise and means the same thing."
+      },
+      "expected": "reject",
+      "rationale": "Deletes uncertainty and negation.",
+      "split": "transfer"
+    },
+    {
+      "case_id": "en_transfer_good",
+      "language": "en",
+      "transcript": "She must finishes the report today.",
+      "feedback": {
+        "grammar": "Use must finish: a modal is followed by the base verb, regardless of the subject."
+      },
+      "expected": "accept",
+      "rationale": "Correct modal rule on unseen vocabulary.",
+      "split": "transfer"
+    },
+    {
+      "case_id": "en_transfer_quantity",
+      "language": "en",
+      "transcript": "Some students prefer online lessons.",
+      "feedback": {
+        "style": "Optional alternative: All students prefer online lessons. This is clearer."
+      },
+      "expected": "reject",
+      "rationale": "Changes the quantified claim.",
+      "split": "transfer"
+    },
+    {
+      "case_id": "en_transfer_past",
+      "language": "en",
+      "transcript": "Yesterday we visited the museum.",
+      "feedback": {
+        "coaching": "Your past-tense sentence works. Retell the visit aloud and add one thing you saw."
+      },
+      "expected": "accept",
+      "rationale": "Correct sentence plus useful spoken practice.",
+      "split": "transfer"
+    },
+    {
+      "case_id": "it_transfer_time",
+      "language": "it",
+      "transcript": "Forse visiteremo Roma il mese prossimo.",
+      "feedback": {
+        "style": "Alternativa facoltativa: Abbiamo visitato Roma il mese scorso. Significa la stessa cosa."
+      },
+      "expected": "reject",
+      "rationale": "Changes time and uncertainty.",
+      "split": "transfer"
+    },
+    {
+      "case_id": "it_transfer_gender",
+      "language": "it",
+      "transcript": "La città è molto bello.",
+      "feedback": {
+        "grammar": "Usa bella: l’aggettivo si accorda con città, un nome femminile singolare."
+      },
+      "expected": "accept",
+      "rationale": "Correct agreement target and correction.",
+      "split": "transfer"
+    },
+    {
+      "case_id": "it_transfer_cause",
+      "language": "it",
+      "transcript": "Ho perso il treno. Sono arrivato tardi.",
+      "feedback": {
+        "style": "Alternativa facoltativa: Ho perso il treno perché sono arrivato tardi. Il rapporto causale è già certo."
+      },
+      "expected": "reject",
+      "rationale": "The context does not establish whether lateness caused or followed the missed train.",
+      "split": "transfer"
+    },
+    {
+      "case_id": "it_transfer_preserve",
+      "language": "it",
+      "transcript": "Non posso venire oggi.",
+      "feedback": {
+        "coaching": "La frase è corretta. Ripetila e aggiungi, se vuoi, il motivo per cui oggi non puoi venire."
+      },
+      "expected": "accept",
+      "rationale": "No invented correction or asserted fact.",
+      "split": "transfer"
+    }
+  ]
+}

@@ -135,18 +135,42 @@ ITALIAN_PROFILE_LIVE_SHADOW = replace(
     scorer_version="language_profile_it_v1_live_shadow",
 )
 
+# Keep historical keys and benchmark calibration frozen. New live sessions use
+# these versions so their changed lexical signals cannot be compared as though
+# they were measured under the old analysis conditions.
+ENGLISH_PROFILE_LIVE = replace(
+    ENGLISH_PROFILE_BENCHMARK,
+    discourse_markers=ENGLISH_PROFILE_BENCHMARK.discourse_markers + (
+        "in my view", "not only", "but also", "because", "although",
+        "yet", "nevertheless", "first of all", "finally", "at the same time",
+    ),
+    scorer_version="language_profile_en_v3_live",
+)
+
+ITALIAN_PROFILE_LIVE = replace(
+    ITALIAN_PROFILE_LIVE_SHADOW,
+    discourse_markers=ITALIAN_PROFILE_LIVE_SHADOW.discourse_markers + (
+        "però", "perché", "allo stesso tempo", "per esempio", "non solo",
+        "ma anche", "in questo modo", "per questo motivo", "dall'altro lato",
+        "non soltanto", "poiché", "anche se", "alla fine",
+    ),
+    scorer_version="language_profile_it_v2_live",
+)
+
 LANGUAGE_PROFILES: dict[str, LanguageProfile] = {
     "en": ENGLISH_PROFILE_BENCHMARK,
     "en_benchmark": ENGLISH_PROFILE_BENCHMARK,
     "en_live_shadow": ENGLISH_PROFILE_LIVE_SHADOW,
+    "en_live": ENGLISH_PROFILE_LIVE,
     "it": ITALIAN_PROFILE_LIVE_SHADOW,
     "it_benchmark": ITALIAN_PROFILE_BENCHMARK,
     "it_live_shadow": ITALIAN_PROFILE_LIVE_SHADOW,
+    "it_live": ITALIAN_PROFILE_LIVE,
 }
 
 LANGUAGE_PROFILE_DEFAULTS: dict[str, str] = {
-    "en": "en",
-    "it": "it",
+    "en": "en_live",
+    "it": "it_live",
 }
 
 DEFAULT_LANGUAGE_PROFILE = LanguageProfile(

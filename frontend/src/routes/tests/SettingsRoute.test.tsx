@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClient } from "@tanstack/react-query";
 
 import { renderWithProviders } from "@/test/renderWithProviders";
 
@@ -173,6 +174,33 @@ describe("Settings route", () => {
       recommended: true,
       recommendation_reason: "Scoring baseline",
     });
+  });
+
+  it("prevents editing a connection until initial saved settings are hydrated", async () => {
+    const pending = createDeferred<RuntimeSettingsResponse>();
+    mockedGetRuntimeSettings.mockReturnValue(pending.promise);
+    renderWithProviders(<AppFrame />, { initialEntries: ["/settings"], locale: "en" });
+
+    const provider = await screen.findByTestId("runtime_connection.provider");
+    expect(provider).toBeDisabled();
+    expect(screen.getByTestId("runtime_connection.test_connection")).toBeDisabled();
+    await act(async () => pending.resolve(runtimeSettings()));
+    await waitFor(() => expect(provider).toBeEnabled());
+    expect(provider).toHaveValue("openrouter");
+    expect(screen.getByTestId("runtime_connection.model")).toHaveValue("gpt-4.1-mini");
+  });
+
+  it("shows a settings load failure and keeps a new connection editable", async () => {
+    mockedGetRuntimeSettings.mockRejectedValue(new Error("backend offline"));
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/settings"], locale: "en",
+      queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Saved settings could not be loaded");
+    const provider = screen.getByTestId("runtime_connection.provider");
+    await waitFor(() => expect(provider).toBeEnabled());
+    fireEvent.change(provider, { target: { value: "openrouter" } });
+    expect(provider).toHaveValue("openrouter");
   });
 
   it("returns to Review after opening Settings from the navigation", async () => {

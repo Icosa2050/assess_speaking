@@ -226,11 +226,11 @@ class MetricsAndPromptTests(unittest.TestCase):
             expected_language="it",
             feedback_language="en",
         )
-        self.assertIn("spoken Italian", prompt)
+        self.assertIn("ASR transcript in Italian", prompt)
         self.assertIn("Write every natural-language string value in English", prompt)
         self.assertIn("Do NOT translate `category` or `confidence` values", prompt)
         self.assertIn("Do NOT translate `examples` or `evidence_quotes`", prompt)
-        self.assertIn("`evidence_quotes` must contain exact, untranslated substrings", prompt)
+        self.assertIn("`evidence_quotes` must contain exact, untranslated complete words or phrases", prompt)
 
     def test_coaching_prompt_targets_learning_language_but_returns_feedback_language(self):
         metrics = {
@@ -908,10 +908,15 @@ class RunAssessmentTests(unittest.TestCase):
     ):
         result = assess_speaking.run_assessment(Path("sample.wav"), llm_model="llama3.1", provider="ollama")
         self.assertEqual(result["report"]["input"]["provider"], "ollama")
+        self.assertEqual(result["report"]["input"]["feedback_claim_policy"], "bounded_text_claims_v3")
         self.assertEqual(_mock_call.call_args.kwargs["timeout_sec"], assess_speaking.Settings.from_env().llm_timeout_sec)
         self.assertEqual(result["report"]["scores"]["mode"], "hybrid")
         self.assertIsNotNone(result["report"]["coaching"])
         self.assertIn("llm_rubric", result)
+        prompt = _mock_generate_coaching.call_args.kwargs["prompt"]
+        source = prompt.split("SOURCE TRANSCRIPT (JSON string, null when unavailable):\n", 1)[1].split("\n\n", 1)[0]
+        self.assertEqual(json.loads(source), _mock_transcribe.return_value["text"])
+        self.assertEqual(result["report"]["input"]["coaching_prompt_version"], assessment_prompts.COACHING_PROMPT_VERSION)
 
     def test_run_assessment_dry_run_returns_stubbed_payload(self):
         result = assess_speaking.run_assessment(
@@ -1013,16 +1018,16 @@ class RunAssessmentTests(unittest.TestCase):
         )
         scores = result["report"]["scores"]
         self.assertEqual(scores["scorer_version"], "hybrid_language_profile_v1")
-        self.assertEqual(scores["language_profile_key"], "en")
-        self.assertEqual(scores["language_profile_version"], "language_profile_en_v2")
+        self.assertEqual(scores["language_profile_key"], "en_live")
+        self.assertEqual(scores["language_profile_version"], "language_profile_en_v3_live")
         self.assertIn("dimensions", scores)
         self.assertIn("cefr_estimate", scores)
         self.assertEqual(scores["cefr_estimate"]["language"], "en")
         self.assertFalse(scores["cefr_estimate"]["calibrated"])
         self.assertEqual(result["report"]["input"]["language_profile"], "en")
-        self.assertEqual(result["report"]["input"]["language_profile_key"], "en")
+        self.assertEqual(result["report"]["input"]["language_profile_key"], "en_live")
 
-    def test_run_assessment_uses_italian_live_shadow_profile_by_default(self):
+    def test_run_assessment_uses_italian_live_profile_by_default(self):
         result = assess_speaking.run_assessment(
             Path("sample.wav"),
             llm_model="google/gemini-3.1-pro-preview",
@@ -1032,10 +1037,10 @@ class RunAssessmentTests(unittest.TestCase):
         )
         scores = result["report"]["scores"]
         report_input = result["report"]["input"]
-        self.assertEqual(scores["language_profile_key"], "it")
-        self.assertEqual(scores["language_profile_version"], "language_profile_it_v1_live_shadow")
-        self.assertEqual(report_input["language_profile_key"], "it")
-        self.assertEqual(report_input["language_profile_version"], "language_profile_it_v1_live_shadow")
+        self.assertEqual(scores["language_profile_key"], "it_live")
+        self.assertEqual(scores["language_profile_version"], "language_profile_it_v2_live")
+        self.assertEqual(report_input["language_profile_key"], "it_live")
+        self.assertEqual(report_input["language_profile_version"], "language_profile_it_v2_live")
 
 
 class MainCliTests(unittest.TestCase):
@@ -1231,7 +1236,7 @@ class MainCliTests(unittest.TestCase):
             self.assertIn("Ergebnis gespeichert", stderr.getvalue())
 
     @mock.patch("assess_speaking.run_assessment")
-    def test_main_adds_progress_delta_for_same_task_family(self, mock_run_assessment):
+    def test_main_does_not_compare_legacy_history_without_provenance(self, mock_run_assessment):
         with tempfile.TemporaryDirectory() as tmpdir:
             history = Path(tmpdir) / "history.csv"
             history.write_text(
@@ -1268,12 +1273,7 @@ class MainCliTests(unittest.TestCase):
             with mock.patch("sys.argv", args), contextlib.redirect_stdout(stdout):
                 assess_speaking.main()
             payload = json.loads(stdout.getvalue())
-            delta = payload["report"]["progress_delta"]
-            self.assertEqual(delta["previous_session_id"], "sess-122")
-            self.assertEqual(delta["comparison_scope"]["task_family"], "travel_narrative")
-            self.assertIn("Passato più stabile", delta["new_priorities"])
-            self.assertIn("Più dettagli", delta["resolved_priorities"])
-            self.assertIn("preposition_choice", delta["repeating_grammar_categories"])
+            self.assertIsNone(payload["report"].get("progress_delta"))
 
     def test_append_history_rejects_legacy_header(self):
         with tempfile.TemporaryDirectory() as tmpdir:

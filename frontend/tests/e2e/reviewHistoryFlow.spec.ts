@@ -116,6 +116,7 @@ const reportPayload = (attempt: Attempt, previousSessionId = "") => ({
     },
     progress_delta: previousSessionId
       ? {
+          comparison_verified: true,
           previous_session_id: previousSessionId,
           score_delta: {
             final: 0.9,

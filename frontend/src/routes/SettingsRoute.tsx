@@ -197,6 +197,10 @@ export const SettingsRoute = () => {
 
   useEffect(() => {
     if (!runtimeSettingsQuery.data) {
+      if (runtimeSettingsQuery.isError && selectedConnectionId === null) {
+        setSelectedConnectionId("__new__");
+        setNewConnectionInitialDraft(buildDefaultDraft(translate, "ollama_local"));
+      }
       return;
     }
     const nextLocale = runtimeSettingsQuery.data.ui_locale as UiLocale;
@@ -215,7 +219,7 @@ export const SettingsRoute = () => {
         nextConnectionId === "__new__" ? buildDefaultDraft(translate, "ollama_local") : null,
       );
     }
-  }, [locale, runtimeSettingsQuery.data, selectedConnectionId, setUiLocale, translate]);
+  }, [locale, runtimeSettingsQuery.data, runtimeSettingsQuery.isError, selectedConnectionId, setUiLocale, translate]);
 
   const connections = useMemo(
     () => toSavedConnectionRecords(runtimeSettingsQuery.data?.connections ?? []),
@@ -324,7 +328,8 @@ export const SettingsRoute = () => {
       setSelectedConnectionId(response.active_connection_id || draft.connection_id || "__new__");
       setNewConnectionInitialDraft(null);
       setFormStatus("saved");
-      setFormStatusMessage(translate("settings.saved"));
+      const saved = response.connections.find(c => c.connection_id === response.active_connection_id);
+      setFormStatusMessage(translate(saved?.provider_metadata.persistent === false ? "runtime_setup.save_success_session_only" : "settings.saved"));
       await handleInvalidateRuntime();
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
@@ -557,7 +562,16 @@ export const SettingsRoute = () => {
         </div>
       </section>
 
+      {/* Initial settings hydration must finish before a draft can be edited. */}
+      {runtimeSettingsQuery.isError ? <p role="alert">{translate("settings.load_failed")}</p> : null}
+      <fieldset disabled={selectedConnectionId === null} aria-busy={selectedConnectionId === null}
+        style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <RuntimeConnectionForm
+        onAccountConnected={(id, notice) => {
+          if (!id) setNewConnectionInitialDraft(buildDefaultDraft(translate, "chatgpt"));
+          setSelectedConnectionId(id || "__new__");
+          if (notice) setFormStatusMessage(notice);
+        }}
         initialDraft={initialDraft}
         initialSecretState={initialSecretState}
         isBusy={isBusy}
@@ -573,6 +587,7 @@ export const SettingsRoute = () => {
         statusMessage={formStatusMessage}
         variant="settings"
       />
+      </fieldset>
 
       <SupportPanel
         activeConnectionId={runtimeSettingsQuery.data?.active_connection_id || preferences.activeConnectionId}
