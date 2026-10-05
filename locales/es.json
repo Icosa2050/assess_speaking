@@ -553,7 +553,7 @@
     "task_family_grammar": "Dificultades gramaticales recurrentes",
     "task_family_coherence": "Dificultades de estructura recurrentes",
     "attempts_title": "Evaluaciones guardadas",
-    "attempts_jump_hint": "Selecciona una evaluación para leer los consejos. El progreso y las comparaciones están debajo.",
+    "attempts_jump_hint": "Selecciona un intento para ver los comentarios y el progreso.",
     "details_title": "Evaluación seleccionada",
     "details_digest_title": "Resumen del intento seleccionado",
     "details_digest_body": "Las principales recomendaciones de este intento guardado.",

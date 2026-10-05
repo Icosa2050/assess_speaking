@@ -1234,6 +1234,10 @@ def load_history_records(log_dir: str | Path | None = None) -> list[object]:
 def _history_str(value: Any) -> str:
     if value is None:
         return ""
+    if isinstance(value, datetime):
+        # Legacy reports store server-local naive times. Resolve them on the
+        # server so browsers in other timezones see the same instant.
+        return value.astimezone(UTC).isoformat()
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return str(value)

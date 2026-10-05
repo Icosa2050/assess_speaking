@@ -76,10 +76,12 @@ const firstOrPlaceholder = (values: string[], translate: Translate): string =>
   values.find((value) => value.trim().length > 0) ?? translate("history.none");
 
 const HistoryDetailDigest = ({
+  locale,
   summary,
   translate,
 }: {
   summary: ReviewDisplaySummary;
+  locale: string;
   translate: Translate;
 }) => (
   <section
@@ -100,7 +102,7 @@ const HistoryDetailDigest = ({
         [
           "history-detail-digest-score",
           translate("history.details_digest_score"),
-          summary.scoreOverall !== null ? summary.scoreOverall.toFixed(1) : translate("history.none"),
+          summary.scoreOverall !== null ? new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(summary.scoreOverall) : translate("history.none"),
         ],
         ["history-detail-digest-band", translate("history.details_digest_band"), summary.band || translate("history.none")],
         [
@@ -143,12 +145,14 @@ const HistoryDetailDigest = ({
 );
 
 export const HistoryDetailPanel = ({
+  locale = "en",
   error,
   isLoading,
   payload,
   record,
   translate,
 }: {
+  locale?: string;
   error: string | null;
   isLoading: boolean;
   payload: JsonRecord | null;
@@ -206,7 +210,7 @@ export const HistoryDetailPanel = ({
           theme: record.theme || "-",
         })}
       </p>
-      <HistoryDetailDigest summary={summary} translate={translate} />
+      <HistoryDetailDigest locale={locale} summary={summary} translate={translate} />
       <WarningsPanel
         failedGates={summary.failedGates}
         requiresHumanReview={summary.requiresHumanReview}

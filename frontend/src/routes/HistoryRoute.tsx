@@ -192,7 +192,7 @@ const normalizeHistoryRecord = (
     overall: safeFloat(row.overall),
     reportPath: String(row.report_path || ""),
     requiresHumanReview: safeBool(row.requires_human_review) === true,
-    scoreLabel: finalScore !== null ? finalScore.toFixed(1) : translate("history.none"),
+    scoreLabel: finalScore !== null ? new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(finalScore) : translate("history.none"),
     sessionId: String(row.session_id || ""),
     speakerId: String(row.speaker_id || ""),
     taskFamily: String(row.task_family || ""),
@@ -458,6 +458,7 @@ export const HistoryRoute = () => {
         />
         <div ref={detailRef} tabIndex={-1} className={historyStyles.detail} role="region" aria-label={translate("history.details_title")}>
           <HistoryDetailPanel
+            locale={locale}
             key={selectedSessionId}
             error={detailQuery.isError ? translate("history.details_error") : null}
             isLoading={detailQuery.isPending}

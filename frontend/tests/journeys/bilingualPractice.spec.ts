@@ -54,9 +54,60 @@ async function review(page: Page, language: Language) {
   await expect(page.getByTestId("review-next-step-card")).toBeVisible();
 }
 
+// Verify displayed evidence against the persisted API rows, not fixture score guesses.
+async function assertHistory(page: Page, request: APIRequestContext, speaker: string, language: Language, sessions: string[]) {
+  await page.getByTestId("history-speaker-filter").selectOption(speaker);
+  await page.getByTestId("history-language-filter").selectOption(language);
+  await expect(page.getByTestId("history-detail-caption")).toContainText(sessions.at(-1)!);
+  const cards = page.getByTestId("history-attempts-list").locator('[data-testid^="history-attempt-card-"]');
+  await expect(cards).toHaveCount(sessions.length);
+  expect(await cards.evaluateAll(elements => elements.map(el => el.getAttribute("data-testid"))))
+    .toEqual([...sessions].reverse().map(id => `history-attempt-card-${id}`));
+  const progress = page.getByTestId("practice-progress");
+  const saved = (await (await request.get(`${backend}/v1/history`)).json()).items;
+  const rows = sessions.map(id => saved.find((row: { session_id: string }) => row.session_id === id));
+  const score = new Intl.NumberFormat(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(Number(rows.at(-1).final_score));
+  await expect(cards.first()).toContainText(score);
+  await expect(page.getByTestId("history-detail-digest-score")).toContainText(score);
+  const metricPicker = progress.locator('select').first();
+  for (const metric of ["final_score", "duration_sec", "elapsed_wpm", "pause_total_sec"]) {
+    await metricPicker.selectOption(metric);
+    const circles = progress.locator("svg circle");
+    await expect(circles).toHaveCount(sessions.length);
+    const maximum = metric === "final_score" ? 5 : Math.max(1, ...rows.map(row => Number(row[metric])));
+    const positions = await circles.evaluateAll(elements => elements.map(el => Number(el.getAttribute("cy"))));
+    rows.forEach((row, index) => expect(positions[index]).toBeCloseTo(174 - Number(row[metric]) / maximum * 140, 4));
+    await expect(progress.locator("svg polyline")).toHaveCount(sessions.length > 1 ? 1 : 0);
+    await expect(progress.locator("svg desc")).toHaveText(new RegExp(`^${sessions.length} `));
+    if (sessions.length > 1) {
+      const labels = await progress.locator('svg text[y="204"]').allTextContents();
+      const sameDay = new Date(rows[0].timestamp).toISOString().slice(0, 10) === new Date(rows.at(-1).timestamp).toISOString().slice(0, 10);
+      const axis = (stamp: string) => new Intl.DateTimeFormat(language, { timeZone: "UTC", ...(sameDay
+        ? { hour: "2-digit", minute: "2-digit", second: "2-digit" } as const
+        : { month: "short", day: "numeric" } as const) }).format(new Date(stamp));
+      expect(labels).toEqual([axis(rows[0].timestamp), axis(rows.at(-1).timestamp)]);
+    }
+    if (sessions.length > 1) {
+      const cells = page.getByTestId("practice-comparison").locator("tbody tr").nth(["final_score", "elapsed_wpm", "duration_sec", "pause_total_sec"].indexOf(metric)).locator("td");
+      const before = Number(rows.at(-2)[metric]);
+      const after = Number(rows.at(-1)[metric]);
+      const delta = Math.round((after - before) * 10) / 10;
+      const format = (value: number) => new Intl.NumberFormat(language, { maximumFractionDigits: 1 }).format(value);
+      await expect(cells).toHaveText([format(before), format(after), `${delta > 0 ? "+" : ""}${format(delta)}`]);
+    }
+  }
+  await metricPicker.selectOption("final_score");
+  // Count distinct days, including the rare run that crosses midnight or Monday.
+  const now = new Date();
+  const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  monday.setUTCDate(monday.getUTCDate() - (monday.getUTCDay() + 6) % 7);
+  const days = new Set(rows.filter(row => Date.parse(row.timestamp) >= monday.getTime()).map(row => new Date(row.timestamp).toISOString().slice(0, 10)));
+  await expect(page.getByTestId("practice-rhythm").locator('[data-completed="true"]')).toHaveCount(days.size);
+}
+
 for (const language of ["en", "it"] as const) {
   test.describe(language, () => {
-  test.use({ locale: language });
+  test.use({ locale: language, timezoneId: "UTC" });
   for (const goal of ["B1", "B2", "C1"] as const) {
     test(`${language} ${goal}: upload → review → microphone retry → saved history → playback → retry`, async ({ page, request }, testInfo) => {
       await configure(request, language);
@@ -76,7 +127,12 @@ for (const language of ["en", "it"] as const) {
       await expect(page.getByTestId("review-priorities")).not.toContainText(optionalStyle[0].original);
       await page.screenshot({ path: testInfo.outputPath(`${language}-${goal}-optional-style-review.png`), fullPage: true });
       expect(firstSession).not.toBe(first.id);
-      await page.getByTestId("review-action-try-again").click();
+      await page.getByTestId("review-action-view-history").click();
+      await assertHistory(page, request, speaker, language, [firstSession]);
+      await expect(page.getByTestId("practice-comparison").locator("table")).toHaveCount(0);
+      await expect(page.getByTestId("practice-progress").locator("audio")).toHaveCount(1);
+      await page.getByTestId("practice-rhythm").getByRole("combobox").selectOption("3");
+      await page.getByTestId("practice-retry").click();
       await expect(page.getByTestId("speak.submit")).toBeDisabled();
       await page.getByTestId("speak.input_mode_record").click();
       await page.getByTestId("speak.record_start").click();
@@ -103,7 +159,7 @@ for (const language of ["en", "it"] as const) {
       expect(stored.payload.report.input.prompt_version).toBe("rubric_multilingual_v5");
       expect(stored.payload.meta.practice).toMatchObject({ goal, prompt_text: first.body.prompt_text, retry_of_session_id: firstSession });
       await page.getByTestId("review-action-view-history").click();
-      await expect(page.getByTestId("history-detail-caption")).toContainText(secondSession);
+      await assertHistory(page, request, speaker, language, [firstSession, secondSession]);
       await expect(page.getByTestId("practice-progress").locator("svg circle")).toHaveCount(2);
       await expect(page.getByTestId("practice-comparison").locator("tbody tr")).toHaveCount(4);
       const earlierAudio = page.locator(`audio[src$="/${firstSession}/audio"]`);
@@ -121,6 +177,7 @@ for (const language of ["en", "it"] as const) {
       expect((await range.body()).length).toBe(64);
       await page.reload();
       await page.getByTestId("history-language-filter").selectOption(language);
+      await expect(page.getByTestId("practice-rhythm").getByRole("combobox")).toHaveValue("3");
       // Reload deliberately drops the in-memory draft; disk-backed reports must survive.
       await expect(page.getByTestId("history-detail-caption")).toContainText(secondSession);
       await expect(page.getByTestId("practice-progress")).toContainText(goal);
@@ -139,6 +196,24 @@ for (const language of ["en", "it"] as const) {
       const third = await submit(page);
       expect(third.body).toMatchObject({ expected_language: language, target_cefr: goal, prompt_text: first.body.prompt_text, retry_of_session_id: secondSession, target_duration_sec: 90, feedback_language: language });
       await review(page, language);
+      const thirdStatus = await (await request.get(`${backend}/v1/assessments/${third.id}`)).json();
+      const thirdSession = thirdStatus.payload.report.session_id;
+      await page.getByTestId("review-action-view-history").click();
+      await assertHistory(page, request, speaker, language, [firstSession, secondSession, thirdSession]);
+      await expect(page.locator(`audio[src$="/${secondSession}/audio"]`)).toHaveCount(1);
+      await expect(page.locator(`audio[src$="/${thirdSession}/audio"]`)).toHaveCount(1);
+      await page.getByTestId(`history-attempt-card-${firstSession}`).click();
+      await expect(page.getByTestId("history-detail-caption")).toContainText(firstSession);
+      await expect(page.getByTestId("practice-progress").locator("svg circle")).toHaveCount(1);
+      await expect(page.getByTestId("practice-comparison").locator("table")).toHaveCount(0);
+      await page.getByTestId(`history-attempt-card-${thirdSession}`).click();
+      await expect(page.getByTestId("practice-progress").locator("svg circle")).toHaveCount(3);
+      await page.screenshot({ path: testInfo.outputPath(`${language}-${goal}-third-attempt-mobile.png`), fullPage: true });
+      await page.reload();
+      await assertHistory(page, request, speaker, language, [firstSession, secondSession, thirdSession]);
+      await page.setViewportSize({ width: 1280, height: 1000 });
+      await page.getByTestId("practice-progress").scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath(`${language}-${goal}-progress-overview.png`) });
     });
   }
 

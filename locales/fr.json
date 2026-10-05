@@ -553,7 +553,7 @@
     "task_family_grammar": "Difficultés grammaticales récurrentes",
     "task_family_coherence": "Difficultés de structure récurrentes",
     "attempts_title": "Évaluations enregistrées",
-    "attempts_jump_hint": "Sélectionne une évaluation pour lire les conseils. Les progrès et comparaisons sont plus bas.",
+    "attempts_jump_hint": "Sélectionnez un essai pour voir les retours et les progrès.",
     "details_title": "Évaluation sélectionnée",
     "details_digest_title": "Résumé de l’essai consulté",
     "details_digest_body": "Les principaux conseils de cet essai enregistré.",

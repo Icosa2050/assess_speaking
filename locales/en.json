@@ -553,7 +553,7 @@
     "task_family_grammar": "Recurring grammar",
     "task_family_coherence": "Recurring structure",
     "attempts_title": "Saved reviews",
-    "attempts_jump_hint": "Select a review to open its feedback. Progress and comparisons are below.",
+    "attempts_jump_hint": "Select a review to see its feedback and progress.",
     "details_title": "Selected review",
     "details_digest_title": "Attempt summary",
     "details_digest_body": "The main coaching points from this saved attempt.",

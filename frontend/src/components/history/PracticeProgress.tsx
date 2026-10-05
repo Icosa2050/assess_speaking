@@ -39,6 +39,10 @@ export function PracticeProgress({ rows, selected, locale, onSelect, onRetry }: 
   const max = metric === "final_score" ? 5 : Math.max(1, ...values);
   const start = Date.parse(valid[0]?.timestamp ?? "") || 0;
   const end = Date.parse(valid.at(-1)?.timestamp ?? "") || start;
+  const sameDay = valid.length > 1 && new Date(start).toDateString() === new Date(end).toDateString();
+  const axisDate = (stamp: string) => new Intl.DateTimeFormat(locale, sameDay
+    ? { hour: "2-digit", minute: "2-digit", second: "2-digit" }
+    : { month: "short", day: "numeric" }).format(new Date(stamp));
   const x = (row: HistoryRow) => end === start ? chartWidth / 2 : 36 + (Date.parse(row.timestamp) - start) / (end - start) * (chartWidth - 54);
   const y = (row: HistoryRow) => 174 - measurement(row[metric])! / max * 140;
   const date = (stamp: string) => Number.isFinite(Date.parse(stamp))
@@ -85,8 +89,8 @@ export function PracticeProgress({ rows, selected, locale, onSelect, onRetry }: 
               {valid.map((row) => <circle key={row.session_id} cx={x(row)} cy={y(row)} r={row.session_id === selected.session_id ? 6 : 4} fill="currentColor">
                 <title>{date(row.timestamp)} · {row.theme}: {format(row[metric])}</title>
               </circle>)}
-              <text x="36" y="204">{new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(new Date(valid[0].timestamp))}</text>
-              {end !== start && <text x={chartWidth - 18} y="204" textAnchor="end">{new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(new Date(valid.at(-1)!.timestamp))}</text>}
+              <text x="36" y="204">{axisDate(valid[0].timestamp)}</text>
+              {end !== start && <text x={chartWidth - 18} y="204" textAnchor="end">{axisDate(valid.at(-1)!.timestamp)}</text>}
             </svg> : <p>{t("practice.no_measurements")}</p>}
             <p className={styles.muted}>{t("practice.conditions", { count: cohort.length, seconds: selected.practice!.target_duration_sec })}</p>
           </> : <p data-testid="practice-legacy">{t("practice.legacy")}</p>}
