@@ -137,8 +137,8 @@ def prunable_job_metadata_files(
 
 def _error_code_from_detail(detail: str, *, provider: str = "") -> ErrorCode:
     lowered = str(detail or "").lower()
-    if "ffmpeg" in lowered:
-        return ErrorCode.MISSING_FFMPEG
+    if "audio" in lowered and any(value in lowered for value in ("decoder", "decode", "conversion", "chunking")):
+        return ErrorCode.MEDIA_DECODE_ERROR
     if "whisper" in lowered and ("missing" in lowered or "cache" in lowered or "download" in lowered):
         return ErrorCode.MISSING_WHISPER_MODEL
     if provider in {"ollama", "lmstudio"}:

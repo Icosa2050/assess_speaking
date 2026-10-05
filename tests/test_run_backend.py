@@ -117,9 +117,19 @@ class RunBackendLoggingTests(unittest.TestCase):
                 "scripts.run_backend._configure_backend_logging",
                 side_effect=_configure,
             ) as mock_configure_logging, mock.patch(
-                "scripts.run_backend.uvicorn.run",
-                side_effect=_run,
-            ) as mock_uvicorn_run:
+                "scripts.run_backend.socket.socket",
+            ) as mock_socket_factory, mock.patch(
+                "scripts.run_backend.signal.signal",
+            ), mock.patch(
+                "scripts.run_backend.create_app",
+                return_value=mock.sentinel.app,
+            ), mock.patch(
+                "scripts.run_backend.uvicorn.Server",
+            ) as mock_server_factory:
+                bound_socket = mock_socket_factory.return_value
+                bound_socket.getsockname.return_value = ("127.0.0.1", 8764)
+                server = mock_server_factory.return_value
+                server.run.side_effect = _run
                 result = run_backend.main(
                     [
                         "--app-data-dir",
@@ -144,7 +154,9 @@ class RunBackendLoggingTests(unittest.TestCase):
         )
         mock_startup_cleanup.assert_called_once_with(config)
         mock_configure_logging.assert_called_once_with(config.log_file)
-        mock_uvicorn_run.assert_called_once()
+        mock_server_factory.assert_called_once()
+        server.run.assert_called_once_with(sockets=[bound_socket])
+        bound_socket.close.assert_called_once_with()
 
 
 if __name__ == "__main__":

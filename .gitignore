@@ -56,3 +56,7 @@ node_modules/
 .playwright-cli/
 .playwright-mcp/
 .serena/
+
+# macOS delivery build environments and artifacts
+/.build-macos/
+/frontend/src-tauri/target/

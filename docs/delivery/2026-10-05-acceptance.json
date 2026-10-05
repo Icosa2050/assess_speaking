@@ -1,0 +1,61 @@
+{
+  "mode": "internal",
+  "version": "0.1.0",
+  "minimum_macos": "14.0",
+  "sha256": "1e637493f38d12a87894fa0f5e92062f6da36545a1171838f543c3cda3ee5332",
+  "lock_sha256": "09a4deda90d9fe140347aec04fb783788a4885d59c30583e59cee0b246bca5aa",
+  "python": "Python 3.12.11",
+  "pyinstaller": "6.16.0",
+  "rust": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+  "frozen_self_test": {
+    "ok": true,
+    "frozen": true,
+    "sample_bytes": 546960,
+    "vad": true,
+    "certificates": true
+  },
+  "gatekeeper_accepted": false,
+  "artifact": "Vostavo-0.1.0-arm64-internal-adhoc.dmg",
+  "native_binary_count": 111,
+  "acceptance_checks": [
+    "read-only mounted helper self-test",
+    "copied helper self-test with repository/Homebrew/global cache reads denied",
+    "fresh state, protected health, wrong token/host rejection, docs disabled, packaged samples",
+    "English and Italian real frozen ASR/spawned workers, uploads, reports, history, ranged audio",
+    "owner EOF shutdown, readiness cleanup, persisted history after restart",
+    "signature remains valid after use"
+  ],
+  "sample_attempts": [
+    {
+      "language": "en",
+      "word_count": 56,
+      "duration_sec": 17.09
+    },
+    {
+      "language": "it",
+      "word_count": 49,
+      "duration_sec": 16.05
+    }
+  ],
+  "native_webview": {
+    "result": "passed",
+    "path": "/private/tmp/vostavo-native-delivery/Vostavo.app",
+    "observed_url": "tauri://localhost",
+    "observed_screen": "Practice Home, readiness, native navigation",
+    "vite_running": false
+  },
+  "regression": {
+    "python_focused": 137,
+    "frontend": 166,
+    "bilingual_browser_journeys": 10,
+    "real_shutdown": 2,
+    "rust": 1,
+    "typecheck": "passed"
+  },
+  "remaining": [
+    "Developer ID signing and notarization with real credentials",
+    "quarantined browser download/clean second Mac acceptance",
+    "physical microphone/TCC permission and denial recovery",
+    "cold-cache model download"
+  ]
+}

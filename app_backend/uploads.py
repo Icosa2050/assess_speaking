@@ -5,6 +5,8 @@ import shutil
 import tempfile
 import subprocess
 import signal
+import sys
+import json
 from pathlib import Path
 
 from starlette.formparsers import MultiPartException, MultiPartParser
@@ -24,41 +26,39 @@ def ensure_copy_space(destination: Path, size: int) -> None:
 
 def validate_audio_duration(path: Path) -> None:
     """Bound decoding even for compressed files with absent/untrusted duration."""
-    # A temporary PCM file keeps validation out of RAM. -t also limits how much
-    # compressed input can expand; the extra second distinguishes overlong clips.
-    with tempfile.TemporaryFile() as pcm:
+    # Run bundled native decoding in a killable subprocess, with no PCM expansion
+    # in memory or on disk. The result file contains only a bounded status object.
+    with tempfile.NamedTemporaryFile(suffix=".json") as result_file:
+        previous_handler = signal.getsignal(signal.SIGTERM)
+        def cancel_validation(signum, _frame):
+            raise SystemExit(128 + signum)
+        decoder = None
         try:
-            # This function runs on the assessment worker's main thread. Let
-            # cancellation unwind cleanup instead of orphaning its decoder.
-            previous_handler = signal.getsignal(signal.SIGTERM)
-            def cancel_validation(signum, _frame):
-                raise SystemExit(128 + signum)
-            decoder = None
+            signal.signal(signal.SIGTERM, cancel_validation)
+            command = [sys.executable]
+            if not getattr(sys, "frozen", False):
+                command.append(str(Path(__file__).resolve().parents[1] / "scripts/run_backend.py"))
+            command.extend(["--validate-audio", str(path), "--max-seconds", str(MAX_AUDIO_SECONDS), "--validation-result", result_file.name])
+            decoder = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            decoder.wait(timeout=90)
             try:
-                signal.signal(signal.SIGTERM, cancel_validation)
-                decoder = subprocess.Popen(
-                    ["ffmpeg", "-v", "error", "-nostdin", "-i", str(path), "-t", str(MAX_AUDIO_SECONDS + 1),
-                     "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "pipe:1"],
-                    stdout=pcm, stderr=subprocess.DEVNULL,
-                )
-                returncode = decoder.wait(timeout=90)
-            finally:
-                try:
-                    if decoder is not None:
-                        if decoder.poll() is None:
-                            decoder.kill()
-                        decoder.wait()
-                finally:
-                    signal.signal(signal.SIGTERM, previous_handler)
+                result = json.loads(Path(result_file.name).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                raise ValueError("This file could not be decoded as audio. Choose a playable recording and retry.") from None
+            if not result.get("ok"):
+                raise ValueError(result.get("detail") or "This file could not be decoded as audio.")
         except subprocess.TimeoutExpired as exc:
             raise ValueError("Audio decoding took too long. Export a shorter MP3 or WAV and retry.") from exc
         except FileNotFoundError as exc:
-            raise RuntimeError("ffmpeg is missing. Install it with brew install ffmpeg, then restart Vostavo.") from exc
-        size = pcm.tell()
-        if returncode or size == 0:
-            raise ValueError("This file could not be decoded as audio. Choose a playable recording and retry.")
-        if size > MAX_AUDIO_SECONDS * 16000 * 2:
-            raise ValueError("Recordings can be at most 20 minutes. Split this recording into oral practice parts and retry.")
+            raise RuntimeError("The bundled audio decoder is unavailable. Reinstall Vostavo and retry.") from exc
+        finally:
+            try:
+                if decoder is not None:
+                    if decoder.poll() is None:
+                        decoder.kill()
+                    decoder.wait()
+            finally:
+                signal.signal(signal.SIGTERM, previous_handler)
 
 
 class UploadRejected(MultiPartException):

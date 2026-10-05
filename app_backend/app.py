@@ -434,6 +434,9 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
         title="Vostavo Local Backend",
         version="0.1.0",
         lifespan=_lifespan,
+        docs_url=None if os.environ.get("VOSTAVO_SESSION_TOKEN") else "/docs",
+        redoc_url=None if os.environ.get("VOSTAVO_SESSION_TOKEN") else "/redoc",
+        openapi_url=None if os.environ.get("VOSTAVO_SESSION_TOKEN") else "/openapi.json",
         openapi_tags=OPENAPI_TAGS,
     )
     app.add_middleware(
@@ -459,6 +462,9 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
         if origin and request.method != "OPTIONS" and not re.fullmatch(LOCAL_GUEST_ORIGIN_REGEX, origin):
             return JSONResponse(status_code=403, content={"detail": {"code": "configuration_error", "detail": "Use the local Vostavo app."}})
         return await call_next(request)
+
+    from app_backend.desktop_session import install_desktop_session, TOKEN_ENV, MEDIA_TOKEN_ENV
+    install_desktop_session(app, os.environ.get(TOKEN_ENV, ""), runtime_config.port, os.environ.get(MEDIA_TOKEN_ENV, ""))
 
     @app.get("/v1/contract", response_model=LocalApiContractResponse, tags=[CONTRACT_TAG])
     def contract() -> LocalApiContractResponse:

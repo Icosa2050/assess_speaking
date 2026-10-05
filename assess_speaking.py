@@ -604,24 +604,13 @@ def _convert_to_wav(audio_path: Path) -> Path:
             prefix=f"{audio_path.stem}-",
         ) as tmp_handle:
             tmp_wav = Path(tmp_handle.name)
-        subprocess.run(
-            ["ffmpeg", "-y", "-i", str(audio_path), "-ac", "1", "-ar", "16000", str(tmp_wav)],
-            check=True,
-            capture_output=True,
-        )
+        from assessment_runtime.media import write_wav
+        write_wav(audio_path, tmp_wav)
         return tmp_wav
-    except FileNotFoundError as exc:
+    except (ValueError, OSError, ImportError) as exc:
         if tmp_wav and tmp_wav.exists():
             tmp_wav.unlink()
-        raise RuntimeError(
-            "ffmpeg is required for non-WAV input. Please install it via Homebrew: `brew install ffmpeg`."
-        ) from exc
-    except subprocess.CalledProcessError as exc:
-        if tmp_wav and tmp_wav.exists():
-            tmp_wav.unlink()
-        stderr = (exc.stderr or b"").decode("utf-8", errors="replace").strip()
-        detail = stderr or str(exc)
-        raise RuntimeError(f"Audio conversion failed: {detail}") from exc
+        raise RuntimeError(f"Audio conversion failed: {exc}") from exc
 
 
 def _asr_speaking_time_from_words(words: list[dict]) -> float:

@@ -667,9 +667,6 @@
     "app_data_error_detail": "App data is not writable at {path}: {detail}",
     "app_data_location_title": "App data location",
     "app_data_location_warning_detail": "App data is using a repo-local override at {path}. This is fine for development, but the normal app should use the per-user system folders outside {project_root}.",
-    "ffmpeg_title": "ffmpeg",
-    "ffmpeg_ok_detail": "ffmpeg is available at {path}.",
-    "ffmpeg_error_detail": "ffmpeg is not available yet. Install it before recording or uploading audio.",
     "whisper_title": "Whisper model",
     "whisper_ok_detail": "Whisper model {model} is cached at {path}.",
     "whisper_warning_detail": "Whisper model {model} is not cached yet. Download it in Runtime Setup before a full assessment run.",
@@ -690,7 +687,10 @@
     "maintenance_logs_warning_detail": "Logs exceed the expected footprint: {file_count} files use {size_bytes} bytes and {unexpected_count} unexpected log files were found. Open Settings to clear rotated logs.",
     "maintenance_open_settings": "Open Settings",
     "microphone_title": "Recorder readiness",
-    "microphone_info_detail": "Microphone access is checked when you start recording on the Speak page."
+    "microphone_info_detail": "Microphone access is checked when you start recording on the Speak page.",
+    "media_title": "Audio decoder",
+    "media_ok_detail": "The bundled audio decoder is available.",
+    "media_error_detail": "The audio decoder is unavailable. Reinstall Vostavo and retry."
   },
   "library": {
     "title": "Pick your next exercise",

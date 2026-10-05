@@ -667,9 +667,6 @@
     "app_data_error_detail": "Impossible d’écrire les données de l’application à l’emplacement {path} : {detail}",
     "app_data_location_title": "Emplacement des données de l’application",
     "app_data_location_warning_detail": "Les données de l’application utilisent un emplacement personnalisé dans le dépôt : {path}. Cela convient au développement, mais l’application doit normalement utiliser les dossiers système propres à l’utilisateur, en dehors de {project_root}.",
-    "ffmpeg_title": "ffmpeg",
-    "ffmpeg_ok_detail": "ffmpeg est disponible à l’emplacement {path}.",
-    "ffmpeg_error_detail": "ffmpeg n’est pas encore disponible. Installe-le avant d’enregistrer ou d’importer un fichier audio.",
     "whisper_title": "Modèle Whisper",
     "whisper_ok_detail": "Le modèle Whisper {model} est en cache à l’emplacement {path}.",
     "whisper_warning_detail": "Le modèle Whisper {model} n’est pas encore en cache. Télécharge-le dans la configuration de l’IA locale avant une évaluation complète.",
@@ -690,7 +687,10 @@
     "maintenance_logs_warning_detail": "Les journaux dépassent le volume attendu : {file_count} fichiers occupent {size_bytes} octets et {unexpected_count} fichiers journaux inattendus ont été trouvés. Ouvre les paramètres pour supprimer les anciens journaux archivés.",
     "maintenance_open_settings": "Ouvrir les paramètres",
     "microphone_title": "Disponibilité de l’enregistreur",
-    "microphone_info_detail": "L’autorisation d’accès au microphone du navigateur est vérifiée lorsque tu ouvres l’enregistreur sur la page Parler."
+    "microphone_info_detail": "L’autorisation d’accès au microphone du navigateur est vérifiée lorsque tu ouvres l’enregistreur sur la page Parler.",
+    "media_title": "Décodage audio",
+    "media_ok_detail": "Le décodeur audio intégré est disponible.",
+    "media_error_detail": "Le décodeur audio est indisponible. Réinstallez Vostavo."
   },
   "library": {
     "title": "Choisir ton prochain exercice",

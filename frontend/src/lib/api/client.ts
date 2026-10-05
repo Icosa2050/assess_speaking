@@ -1,4 +1,4 @@
-import { buildApiUrl } from "@/lib/runtime/environment";
+import { buildApiUrl, desktopSessionHeaders } from "@/lib/runtime/environment";
 
 import type {
   AssessmentCreateRequest,
@@ -47,7 +47,7 @@ const isErrorCode = (value: string): value is ErrorCode =>
     "backend_unavailable",
     "local_provider_not_installed",
     "local_provider_not_running",
-    "missing_ffmpeg",
+    "media_decode_error",
     "missing_whisper_model",
     "validation_error",
     "configuration_error",
@@ -128,6 +128,7 @@ const requestJson = async <TResponse>(
     ...init,
     headers: {
       Accept: "application/json",
+      ...desktopSessionHeaders(options.baseUrl),
       ...options.headers,
     },
     signal,
@@ -148,6 +149,7 @@ const requestBlob = async (
   const signal = mergeSignals(options.signal, options.timeoutMs ?? LONG_RUNNING_TIMEOUT_MS);
   const response = await fetch(buildApiUrl(route, options.baseUrl), {
     ...init,
+    headers: { ...desktopSessionHeaders(options.baseUrl), ...init.headers },
     signal,
   });
 
@@ -263,6 +265,7 @@ export const createApiClient = (baseUrl?: string) => ({
         xhr.open("POST", buildApiUrl("/v1/uploads", baseUrl));
         xhr.timeout = options.timeoutMs ?? UPLOAD_TIMEOUT_MS;
         xhr.setRequestHeader("Accept", "application/json");
+        Object.entries(desktopSessionHeaders(baseUrl)).forEach(([key, value]) => xhr.setRequestHeader(key, value));
         xhr.upload.onprogress = (event) => {
           if (event.lengthComputable) options.onProgress?.(Math.round(event.loaded / event.total * 100));
         };
