@@ -15,6 +15,13 @@
 - Treat existing uncommitted changes as user-owned unless the task clearly depends on them.
 - Prefer small, local edits and verification over workflow advice.
 
+## Delivery Focus And Future Server Support
+
+- User decision recorded on 2026-10-05: the current delivery focus is the macOS DMG.
+- A server version is planned for the future. Preserve valuable server/backend methods and tests while working on DMG delivery.
+- Fix stale mocks and isolate server lifecycle side effects in unit tests. Keep real server coverage in bounded integration tests rather than deleting it to make PR checks pass.
+- PR checks must have explicit time limits and useful diagnostics for hangs.
+
 ## Verification And Blocker Triage
 
 - When asked what is blocking, run or explicitly verify both the backend and the frontend before reporting status.
