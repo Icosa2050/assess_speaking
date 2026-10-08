@@ -6,7 +6,7 @@ import {
   type BrowserSnapshot, type BrowserRestore,
 } from "./storage";
 
-export type JournalStatus = { transaction: { id: string; phase: string } | null; archived: string[]; completed: string[] };
+export type JournalStatus = { transaction: { id: string; phase: string } | null; archived: string[]; completed: string[]; recovery_error?: string | null };
 export type BackupResult = { id: string; filename: string; size_bytes: number; missing: string[] };
 export type RestorePreview = { id: string; attempts: number; skipped_attempts: string[]; skipped_rehearsals: string[]; missing: string[]; browser: BrowserSnapshot };
 const route = (path: string) => `/v1/journal/${path}` as FrozenApiRoute;

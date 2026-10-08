@@ -9,7 +9,7 @@ export function JournalRecoveryNotice({ locale }: { locale: UiLocale }) {
   const [pending, setPending] = useState(false);
   useEffect(() => {
     let active = true;
-    const refresh = () => { void journalRecoveryStatus().then(status => { if (active) setPending(!!status.transaction); }).catch(() => {}); };
+    const refresh = () => { void journalRecoveryStatus().then(status => { if (active) setPending(!!status.transaction || !!status.recovery_error); }).catch(() => {}); };
     refresh(); window.addEventListener("focus", refresh);
     return () => { active = false; window.removeEventListener("focus", refresh); };
   }, [pathname]);

@@ -143,9 +143,24 @@ mod tests {
         #[cfg(unix)] {
             std::os::unix::fs::symlink(&unrelated, drafts.join("bundle_0123456789ad.zip")).unwrap();
         }
-        prune_draft_attachments(&drafts, now).unwrap();
+        cleanup_draft_attachments(&root).unwrap();
         assert!(!old.exists()); assert!(fresh.exists()); assert!(unrelated.exists());
         #[cfg(unix)] { assert!(fs::symlink_metadata(drafts.join("bundle_0123456789ad.zip")).is_ok()); }
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn startup_cleanup_does_not_follow_a_linked_draft_directory() {
+        let root = directory();
+        assert!(cleanup_draft_attachments(&root).is_ok());
+        #[cfg(unix)] {
+            let external = directory();
+            let retained = external.join("bundle_0123456789ab.zip");
+            fs::write(&retained, b"retained fixture").unwrap();
+            std::os::unix::fs::symlink(&external, root.join("support-email-drafts")).unwrap();
+            assert!(cleanup_draft_attachments(&root).is_err());
+            assert_eq!(fs::read(retained).unwrap(), b"retained fixture");
+            fs::remove_dir_all(external).unwrap();
+        }
         fs::remove_dir_all(root).unwrap();
     }
 }
@@ -210,15 +225,32 @@ fn prune_draft_attachments(directory: &Path, now: std::time::SystemTime) -> Resu
     Ok(())
 }
 
+fn validate_draft_directory(root: &Path, directory: &Path) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(directory).map_err(|_| "Email attachment directory is unavailable".to_string())?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink()
+        || !directory.canonicalize().map_err(|_| "Email attachment directory is unavailable".to_string())?.starts_with(root.canonicalize().map_err(|_| "App data is unavailable".to_string())?) {
+        return Err("Invalid email attachment directory".into());
+    }
+    Ok(())
+}
+
+pub fn cleanup_draft_attachments(root: &Path) -> Result<(), String> {
+    let directory = root.join("support-email-drafts");
+    match fs::symlink_metadata(&directory) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err("Email attachment directory is unavailable".into()),
+        Ok(_) => {}
+    }
+    validate_draft_directory(root, &directory)?;
+    prune_draft_attachments(&directory, std::time::SystemTime::now())
+}
+
 pub fn draft_attachment(root: &Path, source: &Path) -> Result<PathBuf, String> {
     // Mail may read an attachment after its automation reply. Keep a private
     // draft-owned copy independent of the expiring download package.
     let directory = root.join("support-email-drafts");
     fs::create_dir_all(&directory).map_err(|_| "Could not retain the email attachment".to_string())?;
-    if fs::symlink_metadata(&directory).map_err(|_| "Email attachment directory is unavailable".to_string())?.file_type().is_symlink()
-        || !directory.canonicalize().map_err(|_| "Email attachment directory is unavailable".to_string())?.starts_with(root.canonicalize().map_err(|_| "App data is unavailable".to_string())?) {
-        return Err("Invalid email attachment directory".into());
-    }
+    validate_draft_directory(root, &directory)?;
     #[cfg(unix)] {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).map_err(|_| "Could not protect email attachments".to_string())?;

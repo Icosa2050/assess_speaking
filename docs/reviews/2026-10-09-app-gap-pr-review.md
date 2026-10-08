@@ -31,3 +31,16 @@ CodeRabbit reported permanently pending costs without a recovery path. Keeping u
 - Quality checks and whitespace checks passed.
 
 GitHub checks and rebuilt DMG evidence are recorded separately with their exact commit/artifact identities; these local results do not claim public signing, physical-microphone crackling diagnosis, live-provider acceptance or a human coaching study.
+
+## OCR follow-up against current source
+
+The supplied OCR review targets `7edfabc`; `b93b953` is the subsequent review-fix commit. Verify against that current source rather than treating all four findings as still open.
+
+- **High, invisible recovery:** still valid. `JournalStatus` now retains `recovery_error`; the global notice detects it even with a null transaction. Settings displays the backend's repair guidance and disables unavailable backup/restore actions. A damaged purge journal remains intact and mutations remain blocked; the UI does not pretend that this state was automatically repaired.
+- **Medium, support draft retention:** `b93b953` added seven-day pruning at the next handoff. This follow-up also prunes on app startup, covering copies from failed or abandoned handoffs without requiring another support request. Refuse linked draft directories and keep newer attachments, unrelated files, symlinks and Mail's own drafts untouched. Cleanup failure does not prevent app startup.
+- **Medium, default Python submission:** already fixed in `b93b953`, with local-route acceptance before upload and explicit confirmation for external destinations. A later live CodeRabbit re-review of `jobs.py` and `journal_routes.py` completed with zero findings.
+- **Medium, initial archived rehearsals:** still valid. Load browser archives alongside backend status on mount, preserve either successful result if the other request fails, and report initial-load errors. Immediate archived Undo is now exercised through real IndexedDB and the Settings UI.
+
+All four new frontend regressions failed before the fixes and passed afterward. A Settings unit-test mock was updated to isolate unrelated journal/network reads instead of allowing a real fetch to race its settings-error assertion. CodeRabbit re-reviewed the six changed implementation/test files with zero findings; later test-only additions received local inspection.
+
+Follow-up verification: 1,250 backend tests passed (19 opt-in skips), 253 frontend tests passed across 36 files, typecheck and seven Rust tests passed, and all five mandatory localhost browser contract identities passed once without retries. Browser coverage includes error-only recovery notices, repair guidance, immediate archived Undo and the existing restore/sharing recovery contracts.

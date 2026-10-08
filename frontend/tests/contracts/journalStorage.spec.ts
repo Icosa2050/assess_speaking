@@ -29,6 +29,24 @@ test("populated v1 migrates without losing audio; global maintenance excludes an
     const archived = await store.getRehearsal(id); const hidden = (await store.listRehearsals()).length === 0;
     const audio = await (await store.loadPartRecording(archived, 0)).text(); await store.undoRehearsalArchive(archived);
     return { hidden, audio, count: (await store.listRehearsals()).length }; }, saved.id)).toEqual({ hidden: true, audio: "Synthetic recording", count: 1 });
+  await page.evaluate(async id => { const path = "/src/lib/rehearsal/storage.ts"; const store = await import(path);
+    await store.deleteRehearsal(await store.getRehearsal(id)); }, saved.id);
+  await other.reload();
+  await expect(other.getByTestId("journal-panel").getByText(/Archive fixture/)).toBeVisible();
+  await other.getByTestId("journal-panel").getByRole("button", {name: "Undo", exact: true}).click();
+  await expect(other.getByTestId("journal-panel").getByText(/Archive fixture/)).toHaveCount(0);
+  const recoveryError = "Synthetic damaged purge: original data has been retained.";
+  await other.route("**/v1/journal/status", route => route.fulfill({json: {
+    transaction: null, archived: [], completed: [], recovery_error: recoveryError,
+  }}));
+  await other.goto("/");
+  await expect(other.getByTestId("journal-recovery-notice")).toBeVisible();
+  await other.getByTestId("journal-recovery-notice").getByRole("link").click();
+  await expect(other.getByTestId("journal-panel").getByRole("alert")).toHaveText(recoveryError);
+  await expect(other.getByRole("button", {name: "Create and save backup", exact: true})).toBeDisabled();
+  await other.unroute("**/v1/journal/status");
+  await other.reload();
+  await expect(other.getByTestId("journal-recovery-notice")).toHaveCount(0);
   expect(await page.evaluate(async id => { const path = "/src/lib/rehearsal/storage.ts", apiPath = "/src/lib/rehearsal/maintenance.ts";
     const store = await import(path); const api = await import(apiPath); const item = await store.getRehearsal(id);
     await store.deleteRehearsal(item); await api.rehearsalRemoval(await store.getRehearsal(id));

@@ -409,6 +409,22 @@ def test_direct_api_purge_requires_reference_snapshot_and_exact_preview(tmp_path
         assert j.state() is None
 
 
+def test_status_exposes_damaged_purge_without_restore_transaction(tmp_path):
+    from fastapi.testclient import TestClient
+    from app_backend.app import create_app
+    from app_backend.config import build_backend_runtime_config
+    config = build_backend_runtime_config(app_data_dir=tmp_path / 'app', cache_dir=tmp_path / 'cache', port=8871)
+    purge = config.app_data.root / 'maintenance/purge.json'
+    purge.parent.mkdir(parents=True, exist_ok=True)
+    purge.write_text('{damaged purge fixture')
+    with TestClient(create_app(config)) as client:
+        status = client.get('/v1/journal/status').json()
+        assert status['transaction'] is None
+        assert 'Recovery files are unavailable' in status['recovery_error']
+        assert client.post('/v1/journal/begin').status_code == 409
+    assert purge.read_text() == '{damaged purge fixture'
+
+
 def test_shared_cache_file_survives_purge_without_stranding_recovery(tmp_path):
     j = journal(tmp_path); seed(j); j.archive_attempt('session0')
     cache = j.config.jobs_dir / 'asmt_fixture-stages'; cache.mkdir()

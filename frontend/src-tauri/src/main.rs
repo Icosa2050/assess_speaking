@@ -39,6 +39,9 @@ fn main() {
             let handle = app.handle().clone();
             let config = app.config().app.windows.iter().find(|window| window.label == "main").cloned().ok_or("Main window configuration is missing")?;
             std::thread::spawn(move || {
+                if let Err(error) = support::cleanup_draft_attachments(&desktop::data_root()) {
+                    eprintln!("Support attachment cleanup: {error}");
+                }
                 match desktop::BackendOwner::launch() {
                     Ok((owner, runtime)) => {
                         *handle.state::<Mutex<Option<desktop::BackendOwner>>>().lock().unwrap() = Some(owner);

@@ -27,6 +27,15 @@ vi.mock("@/lib/api/client", async (importOriginal) => ({
   },
 }));
 
+vi.mock("@/lib/rehearsal/maintenance", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/rehearsal/maintenance")>(),
+  journalRecoveryStatus: vi.fn().mockResolvedValue({transaction: null, archived: [], completed: []}),
+}));
+vi.mock("@/lib/rehearsal/storage", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/rehearsal/storage")>(),
+  listArchivedRehearsals: vi.fn().mockResolvedValue([]),
+}));
+
 import { apiClient } from "@/lib/api/client";
 import { AppFrame } from "@/App";
 import type {
