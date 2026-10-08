@@ -9,6 +9,9 @@ export interface DesktopRuntimeBridge {
   launchMode: DesktopLaunchMode;
   packagingSafe: boolean;
   authMode: DesktopAuthMode;
+  saveLearnerBackup?: (backupId: string) => Promise<{ status: "saved" | "cancelled" }>;
+  draftSupportEmail?: (bundleId: string, recipient: string) => Promise<{ status: "drafted" }>;
+  saveSupportBundle?: (bundleId: string) => Promise<{ status: "saved" | "cancelled" }>;
 }
 
 type DesktopBridgeWindow = Window &
@@ -55,6 +58,9 @@ export const readDesktopRuntimeBridge = (): DesktopRuntimeBridge => {
         : DEFAULT_DESKTOP_RUNTIME.apiBaseUrl,
     sessionToken: typeof candidate?.sessionToken === "string" ? candidate.sessionToken : undefined,
     mediaToken: typeof candidate?.mediaToken === "string" ? candidate.mediaToken : undefined,
+    saveLearnerBackup: typeof candidate?.saveLearnerBackup === "function" ? candidate.saveLearnerBackup : undefined,
+    draftSupportEmail: typeof candidate?.draftSupportEmail === "function" ? candidate.draftSupportEmail : undefined,
+    saveSupportBundle: typeof candidate?.saveSupportBundle === "function" ? candidate.saveSupportBundle : undefined,
     deploymentMode: "local",
     launchMode: isLaunchMode(String(candidate?.launchMode || ""))
       ? candidate!.launchMode!

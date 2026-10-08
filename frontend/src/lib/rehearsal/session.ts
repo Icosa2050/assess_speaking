@@ -4,9 +4,10 @@ export type RehearsalLanguage = "en" | "it";
 export type RehearsalPart = {
   id: string; prompt: string; durationSec: number; taskFamily?: TaskFamily;
   recorded: boolean; audioId?: string; jobId?: string; reportId?: string;
-  retryOf?: string;
+  retryOf?: string; missingRecording?: boolean;
 };
 export type Rehearsal = {
+  archivedAt?: string; restoredFrom?: string;
   version: 1; revision: number; id: string; createdAt: string; language: RehearsalLanguage;
   goal: CefrLevel; speaker: string; preparationSec: number; preparationEndsAt?: number;
   phase: "ready" | "preparation" | "speaking" | "review";

@@ -69,6 +69,7 @@ def _sample_report(*, overall: int = 4) -> dict:
         "checks": {
             "duration_pass": False,
             "topic_pass": True,
+            "content_validity_pass": True,
             "min_words_pass": True,
             "language_pass": True,
             "asr_speaking_time_sec": 28.5,
@@ -378,6 +379,38 @@ class ParsingAndBaselineTests(unittest.TestCase):
         self.assertEqual(result["targets"]["wpm"]["status"], "not_assessed")
         self.assertIsNone(result["targets"]["wpm"]["ok"])
 
+    def test_three_word_recording_cannot_pass_pace_or_fillers(self):
+        metrics = {"word_count": 3, "speaking_time_sec": 2.25, "wpm": 80, "fillers": 0}
+        checks = assess_speaking.compute_checks(metrics, None, 60, 5, 0.8, True)
+        result = assess_speaking.evaluate_baseline("B1", metrics, checks=checks)
+
+        self.assertFalse(result["valid"])
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["invalidated_by"], ["duration_pass", "min_words_pass"])
+        self.assertEqual(result["unverified_gates"], ["content_validity_pass"])
+        for target in result["targets"].values():
+            self.assertEqual(target["status"], "not_assessed")
+            self.assertIsNone(target["ok"])
+
+    def test_baseline_requires_content_evidence_even_for_long_recording(self):
+        result = assess_speaking.evaluate_baseline(
+            "B1", {"word_count": 100, "wpm": 100, "fillers": 0},
+            checks={"language_pass": True, "topic_pass": None, "content_validity_pass": None,
+                    "duration_pass": True, "min_words_pass": True},
+        )
+        self.assertFalse(result["valid"])
+        self.assertEqual(result["unverified_gates"], ["content_validity_pass"])
+        self.assertEqual(result["targets"]["fillers"]["status"], "not_assessed")
+
+    def test_baseline_checks_allow_eligible_speech_but_withhold_short_attempts(self):
+        checks = dict.fromkeys(assess_speaking.BASELINE_INVALIDATING_GATES, True)
+        metrics = {"word_count": 100, "wpm": 100, "fillers": 0}
+        self.assertTrue(assess_speaking.evaluate_baseline("B1", metrics, checks=checks)["passed"])
+        checks["duration_pass"] = False
+        result = assess_speaking.evaluate_baseline("B1", metrics, checks=checks)
+        self.assertFalse(result["valid"])
+        self.assertEqual(result["invalidated_by"], ["duration_pass"])
+
     def test_load_audio_features_requires_parselmouth(self):
         with mock.patch.object(audio_features, "parselmouth", None), mock.patch.object(audio_features, "call", None):
             with self.assertRaises(RuntimeError) as ctx:
@@ -611,7 +644,7 @@ class RunAssessmentTests(unittest.TestCase):
         )
 
     @mock.patch.object(assess_speaking, "generate_rubric")
-    @mock.patch.object(assess_speaking, "load_audio_features", return_value={"duration_sec": 20.0, "pauses": []})
+    @mock.patch.object(assess_speaking, "load_audio_features", return_value={"duration_sec": 30.0, "pauses": []})
     @mock.patch.object(
         assess_speaking,
         "transcribe",
@@ -738,7 +771,7 @@ class RunAssessmentTests(unittest.TestCase):
         self.assertFalse(result["baseline_comparison"]["valid"])
         mock_generate.assert_called_once()
 
-    @mock.patch.object(assess_speaking, "load_audio_features", return_value={"duration_sec": 4.0, "pauses": []})
+    @mock.patch.object(assess_speaking, "load_audio_features", return_value={"duration_sec": 30.0, "pauses": []})
     @mock.patch.object(
         assess_speaking,
         "transcribe",

@@ -61,7 +61,7 @@ class RuntimeResolverTests(unittest.TestCase):
         self.assertEqual(prefs.openrouter_app_title, "Vostavo")
 
     @mock.patch("app_core.runtime_resolver.get_secret", return_value="")
-    def test_resolve_runtime_config_uses_provider_environment_fallback(self, _mock_get_secret):
+    def test_saved_cloud_connection_does_not_borrow_environment_key(self, _mock_get_secret):
         prefs = AppPreferences(
             connections=[
                 ProviderConnection(
@@ -79,7 +79,7 @@ class RuntimeResolverTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": "env-key", "LLM_API_KEY": ""}, clear=False):
             runtime = resolve_runtime_config(prefs)
 
-        self.assertEqual(runtime.api_key, "env-key")
+        self.assertEqual(runtime.api_key, "")
 
     @mock.patch("app_core.runtime_resolver.get_secret", return_value="saved-key")
     def test_resolve_runtime_config_defaults_invalid_openrouter_referer(self, _mock_get_secret):

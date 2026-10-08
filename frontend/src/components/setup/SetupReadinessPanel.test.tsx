@@ -25,7 +25,7 @@ const labels: Record<string, string> = {
   "runtime_setup.setup_guide_sample_blocked": "Finish speech recognition and AI tutor setup first.",
   "runtime_setup.setup_guide_download_model": "Download model",
   "runtime_setup.setup_guide_connect_ai": "Connect AI",
-  "runtime_setup.setup_guide_check_microphone": "Set up a session",
+  "runtime_setup.setup_guide_check_microphone": "Test microphone",
   "runtime_setup.setup_guide_run_sample": "Start a session",
   "runtime_setup.setup_guide_status_loading": "Checking",
   "runtime_setup.setup_guide_status_ready": "Ready",
@@ -129,13 +129,13 @@ describe("SetupReadinessPanel", () => {
       ),
     ).toBeVisible();
     expect(
-      screen.getByRole("progressbar", { name: "1 of 2 core services ready" }),
+      screen.getByRole("progressbar", { name: "1 of 3 core services ready" }),
     ).toHaveAttribute("aria-valuenow", "1");
-    expect(screen.getByText("1/2 core services ready")).toBeVisible();
+    expect(screen.getByText("1/3 core services ready")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Ready to speak" })).not.toBeInTheDocument();
   });
 
-  it("marks core setup ready without pretending microphone permission was checked", () => {
+  it("keeps setup incomplete until the microphone sample is confirmed", () => {
     const rows: SetupReadinessRow[] = setupRows.map((row) =>
       row.key === "speech_recognition" || row.key === "ai_tutor"
         ? { ...row, status: "ready" }
@@ -150,11 +150,11 @@ describe("SetupReadinessPanel", () => {
       />,
     );
 
-    expect(screen.getByRole("progressbar", { name: "2 of 2 core services ready" })).toHaveAttribute(
+    expect(screen.getByRole("progressbar", { name: "2 of 3 core services ready" })).toHaveAttribute(
       "aria-valuemax",
-      "2",
+      "3",
     );
-    expect(screen.getByText("2/2 core services ready")).toBeVisible();
+    expect(screen.getByText("2/3 core services ready")).toBeVisible();
     expect(screen.getByTestId("runtime_setup.setup_guide.microphone")).toHaveAttribute(
       "data-status",
       "setup",

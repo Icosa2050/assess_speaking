@@ -106,7 +106,8 @@ def test_concurrent_assessment_is_refused_without_starting_worker(config):
     with pytest.raises(AssessmentBusyError):
         manager.submit(AssessmentCreateRequest(audio_id='not-even-looked-up', whisper='small', provider='ollama',
             llm_model='test', expected_language='en', feedback_language='en', speaker_id='test', task_family='generic', theme='test', target_duration_sec=90))
-    assert list(config.jobs_dir.iterdir()) == []
+    assert list(config.jobs_dir.glob("*.json")) == []
+    assert set(path.suffix for path in config.jobs_dir.iterdir()) <= {".lock"}
 
 
 def test_copy_does_not_reserve_spool_space_twice(config):

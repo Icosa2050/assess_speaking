@@ -9,6 +9,7 @@ type ProgressRingProps = {
   showStatus?: boolean;
   status: string;
   value: number;
+  valueLabel?: string;
 };
 
 const clampValue = (value: number, max: number): number => {
@@ -26,6 +27,7 @@ export const ProgressRing = ({
   showStatus = true,
   status,
   value,
+  valueLabel,
 }: ProgressRingProps) => {
   const safeMax = Number.isFinite(max) && max > 0 ? Math.round(max) : 100;
   const safeValue = clampValue(value, safeMax);
@@ -49,7 +51,7 @@ export const ProgressRing = ({
         className={styles.ringGraphic}
         style={style}
       >
-        <span className={styles.ringValue}>{percent}%</span>
+        <span className={styles.ringValue}>{valueLabel ?? `${percent}%`}</span>
       </div>
       <div className={styles.ringCopy}>
         <span className={styles.ringLabel}>{label}</span>

@@ -26,7 +26,15 @@ export async function downloadRecording(page: Page, testInfo: TestInfo, name: st
 
 export async function playAndSeek(page: Page, selector: string, minimumDurationSec = 10) {
   const audio = page.locator(selector);
-  await audio.evaluate(async (el: HTMLAudioElement) => { await el.play(); });
+  await audio.evaluate(async (el: HTMLAudioElement) => {
+    if ("sinkId" in AudioContext.prototype) {
+      const context = new AudioContext({ sinkId: { type: "none" } } as AudioContextOptions);
+      context.createMediaElementSource(el).connect(context.destination);
+      el.addEventListener("emptied", () => void context.close(), { once: true });
+      await context.resume();
+    }
+    await el.play();
+  });
   await expect.poll(() => audio.evaluate((el: HTMLAudioElement) => el.currentTime)).toBeGreaterThan(.1);
   await audio.evaluate((el: HTMLAudioElement) => el.pause());
   if (!Number.isFinite(await audio.evaluate((el: HTMLAudioElement) => el.duration))) {

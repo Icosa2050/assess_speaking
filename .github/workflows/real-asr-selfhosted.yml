@@ -72,9 +72,12 @@ jobs:
           PY
 
       - name: Run sample-audio integration
+        timeout-minutes: 10
         run: |
           set -o pipefail
-          python -m unittest tests.test_sample_integration -v 2>&1 | tee "$ARTIFACT_DIR/sample-audio-integration.log"
+          python -m pytest --version
+          python -m pytest tests/test_sample_integration.py -vv -o faulthandler_timeout=60 --junitxml="$ARTIFACT_DIR/sample-audio.xml" 2>&1 | tee "$ARTIFACT_DIR/sample-audio-integration.log"
+          python scripts/check_integration_junit.py sample "$ARTIFACT_DIR/sample-audio.xml"
 
       - name: Generate sample assessment report
         run: |
@@ -110,6 +113,7 @@ jobs:
           name: real-asr-${{ inputs.whisper_model || 'tiny' }}-${{ github.run_id }}
           path: |
             ${{ env.ARTIFACT_DIR }}/sample-audio-integration.log
+            ${{ env.ARTIFACT_DIR }}/sample-audio.xml
             ${{ env.ARTIFACT_DIR }}/assessment-cli.log
             ${{ env.ARTIFACT_DIR }}/metadata.txt
             ${{ env.ARTIFACT_DIR }}/hf-cache-tree.txt

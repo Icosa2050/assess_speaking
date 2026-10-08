@@ -1,9 +1,8 @@
-import { expect, test, type Page, type APIRequestContext } from "@playwright/test";
-import { fileURLToPath } from "node:url";
+import { assertCapturedDuration, calibrateMicrophone } from "./microphone";
+import { expect, test, type Page, type APIRequestContext } from "../fixtures";
 import path from "node:path";
 
-const backend = "http://127.0.0.1:8814";
-const root = fileURLToPath(new URL("../../..", import.meta.url));
+const backend = process.env.VOSTAVO_FIXTURE_BACKEND_URL!;
 const samples = { B1: "travel_story.wav", B2: "remote_work.wav", C1: "public_debate.wav" };
 type Language = "en" | "it";
 type Goal = keyof typeof samples;
@@ -34,7 +33,7 @@ async function setup(page: Page, language: Language, goal: Goal, speaker: string
 
 async function upload(page: Page, language: Language, goal: Goal) {
   await page.getByTestId("speak.input_mode_upload").click();
-  await page.getByTestId("speak.upload_input").setInputFiles(path.join(root, "samples/cefr", language, goal, samples[goal]));
+  await page.getByTestId("speak.upload_input").setInputFiles(path.join(process.env.VOSTAVO_JOURNEY_AUDIO_DIR!, language, goal, samples[goal]));
   await expect(page.getByTestId("speak.submit")).toBeEnabled();
 }
 
@@ -135,12 +134,14 @@ for (const language of ["en", "it"] as const) {
       await page.getByTestId("practice-retry").click();
       await expect(page.getByTestId("speak.submit")).toBeDisabled();
       await page.getByTestId("speak.input_mode_record").click();
+      await calibrateMicrophone(page, "/speak");
       await page.getByTestId("speak.record_start").click();
       await expect(page.getByTestId("speak.record_stop")).toBeVisible();
       // MediaRecorder needs real elapsed audio, not a fake timer.
-      await page.waitForTimeout(2200);
+      await page.waitForTimeout(45_000);
       await page.getByTestId("speak.record_stop").click();
       await expect(page.getByTestId("speak.submit")).toBeEnabled();
+      await assertCapturedDuration(page);
       const second = await submit(page);
       expect(second.body).toMatchObject({ expected_language: language, target_cefr: goal, retry_of_session_id: firstSession, feedback_language: language, prompt_text: first.body.prompt_text, target_duration_sec: 90 });
       await review(page, language);
@@ -149,7 +150,8 @@ for (const language of ["en", "it"] as const) {
       expect(secondStatus.payload.report.checks.duration_pass).toBe(false);
       const duration = secondStatus.payload.report.metrics.duration_sec;
       expect(duration).toBeGreaterThan(1);
-      expect(duration).toBeLessThan(10);
+      expect(duration).toBeGreaterThanOrEqual(30);
+      expect(duration).toBeLessThan(55);
       const rows = (await (await request.get(`${backend}/v1/history`)).json()).items;
       const secondRow = rows.find((row: { session_id: string }) => row.session_id === secondSession);
       expect(secondRow.elapsed_wpm).toBeCloseTo(secondRow.word_count * 60 / duration, 1);

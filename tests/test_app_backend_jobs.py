@@ -66,6 +66,29 @@ class BackendJobsTests(unittest.TestCase):
 
         self.assertEqual(status.status.value, "completed")
 
+    def test_failed_worker_start_allows_retry_with_same_request_id(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8769)
+            manager = JobManager(config)
+            upload = manager.register_upload(data=b"fake-audio", filename="sample.wav")
+            request = AssessmentCreateRequest(
+                audio_id=upload.audio_id, request_id="retry-start", whisper="tiny",
+                provider="ollama", llm_model="demo-model", expected_language="it",
+                feedback_language="en", speaker_id="speaker", task_family="free_monologue",
+                theme="Travel", target_duration_sec=90,
+            )
+            failed = mock.Mock()
+            failed.start.side_effect = OSError("spawn failed")
+            retried = mock.Mock()
+            with mock.patch.object(manager._ctx, "Process", side_effect=[failed, retried]):
+                with self.assertRaisesRegex(OSError, "spawn failed"):
+                    manager.submit(request)
+                self.assertEqual(list(config.jobs_dir.glob("*.json")), [])
+                created = manager.submit(request)
+            retried.start.assert_called_once_with()
+            self.assertIs(manager._processes[created.assessment_id], retried)
+            self.assertTrue(manager._resolve_audio_path(upload.audio_id).exists())
+
     def test_submit_does_not_persist_llm_api_key_in_job_metadata(self):
         with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
             config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8769)
@@ -112,6 +135,8 @@ class BackendJobsTests(unittest.TestCase):
             saved_payload = {
                 "report": {
                     "scores": {"final": 4.2, "band": "B2"},
+                    "metrics": {"duration_sec": 31},
+                    "checks": {"min_words_pass": True, "language_pass": True, "content_validity_pass": True},
                     "coaching": {"next_focus": "Use clearer connectors."},
                 }
             }
@@ -209,6 +234,27 @@ class BackendJobsTests(unittest.TestCase):
             self.assertEqual(payload["error"]["code"], ErrorCode.LOCAL_PROVIDER_NOT_RUNNING.value)
             self.assertIn("connection refused", payload["error"]["detail"])
 
+    def test_worker_reports_short_recording_without_creating_a_review(self):
+        from assessment_runtime.recording_policy import RecordingTooShortError
+
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8771)
+            job_file = config.jobs_dir / "asmt_short.json"
+            job_file.write_text(json.dumps({"assessment_id": "asmt_short", "status": "queued"}), encoding="utf-8")
+            request_payload = {"theme": "Synthetic topic", "speaker_id": "synthetic", "task_family": "free_monologue",
+                               "target_duration_sec": 60, "whisper": "small", "provider": "ollama",
+                               "log_dir": str(config.app_data.reports_dir)}
+            with mock.patch("app_backend.jobs.validate_audio_duration"), mock.patch(
+                "app_backend.jobs.execute_assessment_run", side_effect=RecordingTooShortError(),
+            ):
+                _job_worker(str(job_file), request_payload, str(config.app_data.uploads_dir / "short.wav"))
+            payload = json.loads(job_file.read_text(encoding="utf-8"))
+            self.assertEqual(payload["status"], JobStatus.FAILED.value)
+            self.assertEqual(payload["error"]["code"], ErrorCode.RECORDING_TOO_SHORT.value)
+            self.assertIn("at least 30 seconds", payload["error"]["detail"])
+            self.assertIsNone(payload.get("payload"))
+            self.assertIsNone(payload.get("report_path"))
+
     def test_get_status_marks_unfinished_job_failed_when_worker_exited(self):
         with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
             config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8772)
@@ -274,3 +320,33 @@ class BackendJobsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_completed_worker_teardown_is_drained_before_a_following_submission(tmp_path):
+    config = build_backend_runtime_config(app_data_dir=tmp_path / 'app', cache_dir=tmp_path / 'cache', port=8765)
+    manager = JobManager(config)
+    process = mock.Mock()
+    process.is_alive.return_value = True
+    manager._processes['asmt_completed'] = process
+    (config.jobs_dir / 'asmt_completed.json').write_text(json.dumps({'assessment_id': 'asmt_completed', 'status': 'completed'}))
+    process.join.side_effect = lambda timeout: setattr(process.is_alive, 'return_value', False)
+    request = AssessmentCreateRequest(audio_id='aud_fixture', whisper='tiny', provider='ollama', llm_model='fixture', expected_language='en', feedback_language='en', speaker_id='fixture', task_family='free_monologue', theme='travel', target_duration_sec=90)
+    with mock.patch.object(manager, '_submit', return_value='accepted'):
+        assert manager.submit(request) == 'accepted'
+    process.join.assert_any_call(timeout=1.0)
+    assert 'asmt_completed' not in manager._processes
+
+
+def test_active_worker_is_not_joined_or_cancelled_to_admit_a_second_submission(tmp_path):
+    import pytest
+    from app_backend.jobs import AssessmentBusyError
+    config = build_backend_runtime_config(app_data_dir=tmp_path / 'app', cache_dir=tmp_path / 'cache', port=8765)
+    manager = JobManager(config)
+    process = mock.Mock()
+    process.is_alive.return_value = True
+    manager._processes['asmt_active'] = process
+    (config.jobs_dir / 'asmt_active.json').write_text(json.dumps({'status': 'running'}))
+    with pytest.raises(AssessmentBusyError):
+        manager.submit(AssessmentCreateRequest(audio_id='aud_fixture', whisper='tiny', provider='ollama', llm_model='fixture', expected_language='en', feedback_language='en', speaker_id='fixture', task_family='free_monologue', theme='travel', target_duration_sec=90))
+    process.join.assert_not_called()
+    process.terminate.assert_not_called()

@@ -14,7 +14,7 @@ from app_core.state import (
     normalize_openrouter_app_title,
     normalize_openrouter_http_referer,
 )
-from app_core.runtime_providers import normalize_provider, runtime_base_url
+from app_core.runtime_providers import normalize_provider, runtime_base_url, SUPPORTED_PROVIDERS
 from app_core.secret_store import get_secret, SessionSecretStore, SERVICE_NAME
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ def _connection_api_key(connection: ProviderConnection, provider: str) -> str:
     if provider == "chatgpt":
         from app_core.chatgpt_auth import cached_access_token
         return cached_access_token(connection.secret_ref)
-    if provider in {"xai", "groq"}:
+    if provider in {"xai", "groq", "openrouter"}:
         return (SessionSecretStore().get_secret(SERVICE_NAME, connection.secret_ref) or get_secret(connection.secret_ref)) if connection.secret_ref else ""
     if connection.secret_ref:
         secret = get_secret(connection.secret_ref)
@@ -67,8 +67,7 @@ def active_connection(prefs: AppPreferences) -> ProviderConnection | None:
         return None
     if getattr(prefs, "active_connection_id", ""):
         match = next((item for item in connections if item.connection_id == prefs.active_connection_id), None)
-        if match is not None:
-            return match
+        return match
     match = next((item for item in connections if item.is_default), None)
     if match is not None:
         return match
@@ -76,11 +75,13 @@ def active_connection(prefs: AppPreferences) -> ProviderConnection | None:
 
 
 def resolve_connection_runtime(connection: ProviderConnection) -> RuntimeConfig:
+    if connection.provider_kind not in SUPPORTED_PROVIDERS:
+        return RuntimeConfig(provider=connection.provider_kind, model="", base_url="", connection_id=connection.connection_id, provider_metadata={"disabled": True})
     provider = normalize_provider(connection.provider_kind)
     metadata = dict(connection.provider_metadata or {})
     runtime = RuntimeConfig(
         provider=provider,
-        model=str(connection.default_model or DEFAULT_MODEL),
+        model=str(connection.default_model if provider in {"openrouter", "chatgpt", "xai", "groq"} else connection.default_model or DEFAULT_MODEL),
         base_url=runtime_base_url(provider, connection.base_url),
         api_key=_connection_api_key(connection, provider),
         connection_id=str(connection.connection_id or ""),

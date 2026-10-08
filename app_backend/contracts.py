@@ -12,6 +12,8 @@ class ErrorCode(str, Enum):
     LOCAL_PROVIDER_NOT_INSTALLED = "local_provider_not_installed"
     LOCAL_PROVIDER_NOT_RUNNING = "local_provider_not_running"
     MEDIA_DECODE_ERROR = "media_decode_error"
+    RECORDING_TOO_SHORT = "recording_too_short"
+    SHARING_CHANGED = "sharing_changed"
     MISSING_WHISPER_MODEL = "missing_whisper_model"
     VALIDATION = "validation_error"
     CONFIG = "configuration_error"
@@ -49,12 +51,18 @@ CANONICAL_PRODUCT_API_ROUTES: tuple[str, ...] = (
     "/v1/runtime",
     "/v1/uploads",
     "/v1/uploads/limits",
+    "/v1/assessment-route",
+    "/v1/runtime/sharing",
     "/v1/assessments",
     "/v1/assessments/{assessment_id}",
     "/v1/assessments/{assessment_id}/cancel",
+    "/v1/assessments/{assessment_id}/resume",
+    "/v1/assessments/{assessment_id}/resume-route",
     "/v1/history",
     "/v1/history/{session_id}",
     "/v1/history/{session_id}/audio",
+    "/v1/history/{session_id}/resume",
+    "/v1/history/{session_id}/resume-route",
     "/v1/samples",
 )
 
@@ -66,6 +74,12 @@ LOCAL_SUPPORT_API_ROUTES: tuple[str, ...] = (
 )
 
 LOCAL_RUNTIME_MANAGEMENT_ROUTES: tuple[str, ...] = (
+    "/v1/runtime/cloud",
+    "/v1/runtime/cloud/spending/{request_id}/reconcile",
+    "/v1/runtime/cloud/openrouter/sign-in",
+    "/v1/runtime/cloud/openrouter/attempts/{attempt_id}",
+    "/v1/runtime/cloud/openrouter/attempts/{attempt_id}/open-browser",
+    "/v1/runtime/cloud/openrouter/cancel",
     "/v1/runtime/chatgpt/sign-in",
     "/v1/runtime/chatgpt/pending",
     "/v1/runtime/chatgpt/attempts/{attempt_id}",
@@ -133,6 +147,8 @@ class RuntimeSettingsConnection(BaseModel):
 class RuntimeSettingsResponse(BaseModel):
     ui_locale: str
     whisper_model: str
+    asr_provider: str = "local"
+    asr_model: str = ""
     active_connection_id: str = ""
     connections: list[RuntimeSettingsConnection] = Field(default_factory=list)
 
@@ -243,6 +259,9 @@ class UploadResponse(BaseModel):
 
 
 class AssessmentCreateRequest(BaseModel):
+    sharing_fingerprint: str = Field(default="", max_length=64, pattern=r"^[a-f0-9]*$")
+    request_id: str = Field(default="", max_length=128, pattern=r"^[a-zA-Z0-9_-]*$")
+    resume_assessment_id: str = Field(default="", max_length=128, pattern=r"^[a-zA-Z0-9_-]*$")
     audio_id: str
     whisper: str
     provider: str
@@ -290,6 +309,8 @@ class AssessmentStatusResponse(BaseModel):
 
 
 class HistoryRow(BaseModel):
+    eligibility: dict[str, Any] | None = None
+    content_validity_pass: Any = None
     timestamp: str = ""
     session_id: str = ""
     speaker_id: str = ""

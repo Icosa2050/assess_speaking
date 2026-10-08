@@ -9,6 +9,8 @@ import { renderWithProviders } from "@/test/renderWithProviders";
 vi.mock("@/lib/api/client", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/api/client")>(),
   apiClient: {
+    getSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
+    getResumeSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
     createSupportBundle: vi.fn(),
     deleteRuntimeSettingsConnection: vi.fn(),
     downloadSupportBundle: vi.fn(),
@@ -23,6 +25,15 @@ vi.mock("@/lib/api/client", async (importOriginal) => ({
     postWhisperModelDownload: vi.fn(),
     putRuntimeSettings: vi.fn(),
   },
+}));
+
+vi.mock("@/lib/rehearsal/maintenance", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/rehearsal/maintenance")>(),
+  journalRecoveryStatus: vi.fn().mockResolvedValue({transaction: null, archived: [], completed: []}),
+}));
+vi.mock("@/lib/rehearsal/storage", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/rehearsal/storage")>(),
+  listArchivedRehearsals: vi.fn().mockResolvedValue([]),
 }));
 
 import { apiClient } from "@/lib/api/client";

@@ -138,7 +138,8 @@ class BackendApiTests(unittest.TestCase):
         self.assertEqual(runtime.status_code, 200)
         self.assertFalse(runtime.json()["configured"])
 
-    def test_backend_api_returns_structured_errors_for_missing_resources_and_failed_actions(self):
+    @mock.patch("app_backend.sharing.assessment_route", return_value={"available": True, "fingerprint": "a" * 64})
+    def test_backend_api_returns_structured_errors_for_missing_resources_and_failed_actions(self, _route):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = build_backend_runtime_config(log_dir=tmpdir, port=8781)
             app = create_app(config)
@@ -170,6 +171,7 @@ class BackendApiTests(unittest.TestCase):
                     "/v1/assessments",
                     json={
                         "audio_id": "aud_missing",
+                        "sharing_fingerprint": "a" * 64,
                         "whisper": "small",
                         "provider": "openrouter",
                         "llm_model": "google/gemini-3.1-pro-preview",
@@ -949,7 +951,8 @@ class BackendApiTests(unittest.TestCase):
         )
         mock_test_connection.assert_called_once()
 
-    def test_assessment_routes_delegate_to_job_manager(self):
+    @mock.patch("app_backend.sharing.assessment_route", return_value={"available": True, "fingerprint": "a" * 64})
+    def test_assessment_routes_delegate_to_job_manager(self, _route):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = build_backend_runtime_config(log_dir=tmpdir, port=8767)
             app = create_app(config)
@@ -972,6 +975,7 @@ class BackendApiTests(unittest.TestCase):
                     "/v1/assessments",
                     json={
                         "audio_id": "aud_1",
+                        "sharing_fingerprint": "a" * 64,
                         "whisper": "small",
                         "provider": "openrouter",
                         "llm_model": "google/gemini-3.1-pro-preview",
@@ -1046,6 +1050,7 @@ class BackendApiTests(unittest.TestCase):
                         "/v1/assessments",
                         json={
                             "audio_id": "aud_1",
+                            "sharing_fingerprint": client.post("/v1/assessment-route", json={"provider": "openrouter", "llm_model": "google/gemini-3.1-pro-preview", "whisper": "small"}).json()["fingerprint"],
                             "whisper": "small",
                             "provider": "openrouter",
                             "llm_model": "google/gemini-3.1-pro-preview",
@@ -1268,7 +1273,7 @@ class BackendApiTests(unittest.TestCase):
                 self.assertIn("storage_summary.json", names)
                 self.assertIn("client/client_snapshot.json", names)
                 self.assertIn("client/client_diagnostics.json", names)
-                self.assertIn("jobs/asmt_recent.json", names)
+                self.assertTrue(any(name.startswith("jobs/") for name in names))
                 self.assertIn("logs/backend.log", names)
                 self.assertFalse(any(name.startswith("reports/") for name in names))
                 self.assertFalse(any(name.startswith("recordings/") for name in names))
@@ -1291,9 +1296,10 @@ class BackendApiTests(unittest.TestCase):
                 self.assertNotIn("secret_ref", client_diagnostics[0]["detail_args"])
                 self.assertTrue(any(item["key"] == "runtime_health" for item in client_diagnostics))
 
-                job_payload = json.loads(archive.read("jobs/asmt_recent.json"))
-                self.assertEqual(job_payload["request"]["llm_api_key"], "[redacted]")
-                self.assertNotIn("secret_ref", job_payload["request"]["connection"])
+                job_name = next(name for name in names if name.startswith("jobs/"))
+                job_payload = json.loads(archive.read(job_name))
+                self.assertEqual(job_payload["request"], {"provider": "openrouter"})
+                self.assertNotIn("payload", job_payload)
 
                 log_content = archive.read("logs/backend.log").decode("utf-8")
                 self.assertNotIn("top-secret", log_content)

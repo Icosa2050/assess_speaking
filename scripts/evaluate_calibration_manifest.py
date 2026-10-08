@@ -26,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--feedback-language", default=None)
     parser.add_argument("--llm-timeout-sec", type=float, default=None)
     parser.add_argument("--language-profile-key", default=None)
+    parser.add_argument("--task-goal", choices=["B1", "B2", "C1"], help="Task goal shared by all inputs; independent of held-out proficiency labels")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--include-raw-llm", action="store_true")
     parser.add_argument("--include-full-report", action="store_true")
@@ -47,6 +48,7 @@ def main() -> int:
         manifest,
         config=CalibrationRunConfig(
             whisper_model=args.whisper_model,
+            task_goal=args.task_goal,
             provider=args.provider,
             llm_model=args.llm_model,
             feedback_language=args.feedback_language,

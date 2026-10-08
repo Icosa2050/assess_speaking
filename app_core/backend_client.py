@@ -109,6 +109,11 @@ def get_api_contract(*, log_dir: str | Path | None = None) -> LocalApiContractRe
     return LocalApiContractResponse(**response.json())
 
 
+def get_sharing_route(selection: dict[str, Any], *, log_dir: str | Path | None = None) -> dict[str, Any]:
+    """Display this response before passing its fingerprint to create_assessment."""
+    return _request("POST", "/v1/assessment-route", log_dir=log_dir, json=selection, timeout_sec=10.0).json()
+
+
 def create_assessment(request: dict[str, Any], *, log_dir: str | Path | None = None) -> AssessmentCreateResponse:
     response = _request("POST", "/v1/assessments", log_dir=log_dir, json=request, timeout_sec=10.0)
     return AssessmentCreateResponse(**response.json())

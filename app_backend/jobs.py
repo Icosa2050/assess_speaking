@@ -25,7 +25,9 @@ from app_backend.contracts import (
     UploadResponse,
 )
 from assessment_runtime.runner import AssessmentRunRequest, execute_assessment_run
+from assessment_runtime.recording_policy import RecordingTooShortError
 from app_backend.uploads import COPY_CHUNK_BYTES, MAX_UPLOAD_BYTES, UploadRejected, ensure_copy_space, upload_limits, validate_audio_duration
+from app_core.cloud_policy import locked_file
 
 INCOMPLETE_JOB_STATUSES = {JobStatus.QUEUED.value, JobStatus.RUNNING.value}
 TERMINAL_JOB_STATUSES = {JobStatus.COMPLETED.value, JobStatus.FAILED.value, JobStatus.CANCELLED.value}
@@ -135,6 +137,24 @@ def prunable_job_metadata_files(
     return sorted(candidates)
 
 
+def unreferenced_job_stage_directories(jobs_dir: Path, *, excluding: list[Path] | None = None) -> list[Path]:
+    """Select managed caches after metadata pruning, preserving shared resume roots."""
+    excluded = set(excluding or [])
+    referenced: set[Path] = set()
+    for job_file in jobs_dir.glob("*.json"):
+        if job_file in excluded:
+            continue
+        payload = _read_json(job_file)
+        if not payload:
+            # Unreadable retained metadata is not evidence its cache is unused.
+            logger.warning("Keeping checkpoint caches because job metadata %s is unreadable.", job_file)
+            return []
+        root = Path(payload.get("stage_cache_dir") or (jobs_dir / (job_file.stem + "-stages")))
+        referenced.add(root.resolve())
+    return sorted(path for path in jobs_dir.glob("asmt_*-stages")
+                  if path.is_dir() and not path.is_symlink() and path.resolve() not in referenced)
+
+
 def _error_code_from_detail(detail: str, *, provider: str = "") -> ErrorCode:
     lowered = str(detail or "").lower()
     if "audio" in lowered and any(value in lowered for value in ("decoder", "decode", "conversion", "chunking")):
@@ -159,9 +179,11 @@ def _build_summary(payload: dict[str, Any] | None) -> AssessmentSummary | None:
     report = payload.get("report") if isinstance(payload.get("report"), dict) else {}
     scores = report.get("scores") if isinstance(report.get("scores"), dict) else {}
     coaching = report.get("coaching") if isinstance(report.get("coaching"), dict) else {}
+    from assessment_runtime.eligibility import eligibility
+    assessable = eligibility(report, payload.get("metrics"))["state"] == "assessable"
     return AssessmentSummary(
-        score_overall=scores.get("final"),
-        band=str(scores.get("band") or ""),
+        score_overall=scores.get("final") if assessable else None,
+        band=str(scores.get("band") or "") if assessable else "",
         next_focus=str(coaching.get("next_focus") or ""),
     )
 
@@ -226,6 +248,40 @@ def _job_worker(job_file: str, request_payload: dict[str, Any], audio_path: str,
             raise LLMClientError(result.get("error") or "Reconnect your ChatGPT account.")
         return result["token"]
 
+    cloud_records = []
+    cloud_transport_dead = False
+    last_reply = {}
+    def cloud_request(message):
+        nonlocal cloud_transport_dead
+        nonlocal last_reply
+        from assessment_runtime.llm_client import LLMClientError
+        if cloud_transport_dead:
+            raise LLMClientError("Cloud transport stopped. Resume retained work after the provider request finishes.")
+        if message.get("operation") == "reject_reply":
+            message = {**message, **last_reply}
+        message = {**message, "rpc_id": uuid4().hex}
+        try:
+            credentials.send(message)
+            if not credentials.poll(660 if message.get("operation") == "asr" else 360):
+                cloud_transport_dead = True
+                raise LLMClientError("Cloud request timed out. Retained work can be resumed.")
+            result = credentials.recv()
+        except (EOFError, OSError):
+            cloud_transport_dead = True
+            raise LLMClientError("Cloud session ended. Reconnect and resume retained work.") from None
+        if result.get("rpc_id") != message["rpc_id"]:
+            cloud_transport_dead = True
+            raise LLMClientError("Cloud response did not match its stage. Resume retained work.")
+        if result.get("error"):
+            raise LLMClientError(result["error"])
+        value = result["value"]
+        if message["operation"] == "completion":
+            last_reply = {key: value.get(key, "") for key in ("reply_cache_id", "reply_text_sha256")}
+            cloud_records.append({key: value.get(key) for key in ("provider", "model", "route", "cost_usd", "fallback_reason", "reservation_id", "cache_reused", "original_cost_usd")})
+        return value
+    from assessment_runtime.cloud_transport import completion, provenance
+    transport_token = completion.set(cloud_request if request_payload.get("cloud_broker") else None)
+    provenance_token = provenance.set(cloud_records)
     try:
         request_api_key = str(request_payload.get("llm_api_key") or "").strip()
         if request_api_key and request_payload.get("provider") not in {"chatgpt", "xai", "groq"}:
@@ -242,7 +298,10 @@ def _job_worker(job_file: str, request_payload: dict[str, Any], audio_path: str,
         result = execute_assessment_run(
             AssessmentRunRequest(
                 audio=Path(audio_path),
-                whisper_model=request_payload["whisper"],
+                whisper_model=request_payload.get("asr_model") if request_payload.get("asr_provider") == "groq" else request_payload["whisper"],
+                asr_provider="groq" if request_payload.get("asr_provider") == "groq" else None,
+                cloud_asr=(lambda: cloud_request({"operation": "asr", "language": request_payload.get("expected_language")})) if request_payload.get("asr_provider") == "groq" else None,
+                stage_cache_dir=Path(request_payload["stage_cache_dir"]) if request_payload.get("stage_cache_dir") else None,
                 llm_model=request_payload.get("llm_model"),
                 provider=request_payload.get("provider"),
                 target_cefr=request_payload.get("target_cefr"),
@@ -257,7 +316,8 @@ def _job_worker(job_file: str, request_payload: dict[str, Any], audio_path: str,
                 language_profile_key=request_payload.get("language_profile_key"),
                 feedback_language=request_payload.get("feedback_language"),
                 llm_base_url=request_payload.get("llm_base_url"),
-                llm_api_key=current_access_token if credentials is not None else (request_payload.get("llm_api_key") or None),
+                llm_connection_id=request_payload.get("llm_connection_id", ""),
+                llm_api_key="" if request_payload.get("cloud_broker") else current_access_token if credentials is not None else (request_payload.get("llm_api_key") or None),
                 dry_run=bool(request_payload.get("dry_run", False)),
                 log_dir=Path(request_payload["log_dir"]),
                 label=request_payload.get("label", ""),
@@ -287,10 +347,18 @@ def _job_worker(job_file: str, request_payload: dict[str, Any], audio_path: str,
             progress=1.0,
             completed_at=_now_iso(),
             error=ErrorResponse(
-                code=_error_code_from_detail(detail, provider=str(request_payload.get("provider") or "")),
+                code=ErrorCode.RECORDING_TOO_SHORT if isinstance(exc, RecordingTooShortError) else _error_code_from_detail(detail, provider=str(request_payload.get("provider") or "")),
                 detail=detail,
             ).model_dump(),
         )
+
+    finally:
+        completion.reset(transport_token)
+        provenance.reset(provenance_token)
+
+
+class AssessmentIdentityConflictError(ValueError):
+    pass
 
 
 class JobManager:
@@ -346,6 +414,16 @@ class JobManager:
             original_name=filename,
         )
 
+    def wait_for_finished_workers(self) -> None:
+        # Completed metadata may be visible before the spawned process finishes
+        # teardown. Give only terminal workers a bounded chance to exit; active
+        # analysis is never cancelled or admitted concurrently.
+        for assessment_id, process in list(self._processes.items()):
+            payload = _read_json(_job_file(self._config.jobs_dir, assessment_id))
+            if payload.get("status") in TERMINAL_JOB_STATUSES_NORMALIZED:
+                process.join(timeout=1.0)
+                self._reconcile_process(assessment_id, payload)
+
     def _resolve_audio_path(self, audio_id: str) -> Path:
         payload = _read_json(_upload_meta_file(self.uploads_dir, audio_id))
         candidate = Path(str(payload.get("stored_path") or "")).expanduser()
@@ -353,20 +431,33 @@ class JobManager:
             raise FileNotFoundError(f"Uploaded audio {audio_id} is not available anymore.")
         return candidate
 
-    def submit(self, request: AssessmentCreateRequest, *, credential_ref: str = "") -> AssessmentCreateResponse:
-        with self._submit_lock:
+    def submit(self, request: AssessmentCreateRequest, *, credential_ref: str = "", cloud_runtime=None, llm_connection_id: str = "") -> AssessmentCreateResponse:
+        with self._submit_lock, locked_file(self._config.jobs_dir / "retention.lock"):
+            if request.request_id:
+                identity = _sanitize_request_metadata(request.model_dump())
+                for path in self._config.jobs_dir.glob("*.json"):
+                    prior = _read_json(path)
+                    saved = prior.get("request", {})
+                    if saved.get("request_id") != request.request_id:
+                        continue
+                    comparable = {key: saved.get(key) for key in identity}
+                    if comparable != identity:
+                        raise AssessmentIdentityConflictError("This submission ID already belongs to a different request or sharing route.")
+                    return AssessmentCreateResponse(assessment_id=prior["assessment_id"], status=JobStatus(prior["status"]))
+            self.wait_for_finished_workers()
             if any(process.is_alive() for process in list(self._processes.values())):
                 raise AssessmentBusyError("Another attempt is still being analysed. Wait for it to finish or cancel it, then retry.")
             if upload_limits(self.uploads_dir)["available_bytes"] <= 0:
                 raise OSError("Not enough free disk space to analyse audio. Free some space and retry.")
-            return self._submit(request, credential_ref=credential_ref)
+            return self._submit(request, credential_ref=credential_ref, cloud_runtime=cloud_runtime, llm_connection_id=llm_connection_id)
 
-    def _submit(self, request: AssessmentCreateRequest, *, credential_ref: str = "") -> AssessmentCreateResponse:
+    def _submit(self, request: AssessmentCreateRequest, *, credential_ref: str = "", cloud_runtime=None, llm_connection_id: str = "") -> AssessmentCreateResponse:
         assessment_id = f"asmt_{uuid4().hex}"
         audio_path = self._resolve_audio_path(request.audio_id)
         worker_request = {
             **request.model_dump(),
             "log_dir": str(self._config.app_data.reports_dir),
+            "llm_connection_id": llm_connection_id,
         }
         payload = {
             "assessment_id": assessment_id,
@@ -382,27 +473,77 @@ class JobManager:
             "audio_path": str(audio_path.resolve()),
         }
         job_file = _job_file(self._config.jobs_dir, assessment_id)
-        _write_json(job_file, payload)
+        cache_root = self._config.jobs_dir / (assessment_id + "-stages")
+        if request.resume_assessment_id:
+            prior = _read_json(_job_file(self._config.jobs_dir, request.resume_assessment_id))
+            if not prior or prior.get("status") not in TERMINAL_JOB_STATUSES_NORMALIZED or prior.get("request", {}).get("audio_id") != request.audio_id:
+                raise ValueError("Choose a retained terminal assessment of the same recording to resume.")
+            cache_root = Path(prior.get("stage_cache_dir") or (self._config.jobs_dir / (request.resume_assessment_id + "-stages")))
+            retained = prior.get("payload") or {}
+            retained_id = (retained.get("report") or {}).get("session_id")
+            if retained_id:
+                from assessment_runtime.checkpoints import StageCache
+                StageCache(cache_root).seed_attempt(retained_id, (retained.get("meta") or {}).get("timestamp"))
+        worker_request["stage_cache_dir"] = str(cache_root)
+        payload["stage_cache_dir"] = str(cache_root)
         parent = child = None
-        if request.provider == "chatgpt":
+        if cloud_runtime is not None:
+            if cloud_runtime.primary is not None:
+                worker_request["llm_connection_id"] = cloud_runtime.primary.connection_id
+                worker_request["llm_base_url"] = cloud_runtime.primary.base_url
+            cloud_runtime.audio_path = audio_path
+            cloud_runtime.cache_root = cache_root
+            parent, child = self._ctx.Pipe()
+            worker_request["llm_api_key"] = ""
+            worker_request["cloud_broker"] = True
+            worker_request["asr_provider"] = cloud_runtime.settings.asr_provider
+            worker_request["asr_model"] = cloud_runtime.settings.asr_model
+        elif request.provider == "chatgpt":
             if not credential_ref:
                 raise ValueError("A saved ChatGPT account is required.")
             parent, child = self._ctx.Pipe()
             worker_request["llm_api_key"] = ""
         args = (str(job_file), worker_request, str(audio_path.resolve()))
-        process = self._ctx.Process(target=_job_worker, args=(*args, child) if child is not None else args)
         try:
+            process = self._ctx.Process(target=_job_worker, args=(*args, child) if child is not None else args)
+            _write_json(job_file, payload)
             process.start()
-        except BaseException:  # quality: allow[broad-except] close IPC handles on failed process creation, then re-raise
-            if parent is not None:
-                parent.close()
-                child.close()
+        except BaseException:  # quality: allow[broad-except] discard unaccepted jobs and close IPC on failed spawn, then re-raise
+            try:
+                job_file.unlink(missing_ok=True)
+            finally:
+                if parent is not None:
+                    parent.close()
+                    child.close()
             raise
         self._processes[assessment_id] = process
         if child is not None:
             child.close()
-            threading.Thread(target=self._serve_credentials, args=(process, parent, credential_ref), daemon=True).start()
+            threading.Thread(target=self._serve_cloud if cloud_runtime else self._serve_credentials, args=(process, parent, cloud_runtime or credential_ref), daemon=True).start()
         return AssessmentCreateResponse(assessment_id=assessment_id, status=JobStatus.QUEUED)
+
+    @staticmethod
+    def _serve_cloud(process, channel, runtime):
+        runtime.cancelled = lambda: not process.is_alive()
+        try:
+            while process.is_alive():
+                if not channel.poll(0.5):
+                    continue
+                message = channel.recv()
+                try:
+                    result = {"value": runtime.handle(message), "rpc_id": message.get("rpc_id")}
+                except Exception as exc:  # quality: allow[broad-except] provider boundary returns safe typed application diagnostics
+                    from app_core.cloud_policy import CloudPolicyError
+                    from app_core.chatgpt_auth import ChatGPTAuthError
+                    from assessment_runtime.responses_client import ResponsesError
+                    from assessment_runtime.groq_asr import GroqASRError
+                    safe = isinstance(exc, (CloudPolicyError, ChatGPTAuthError, ResponsesError, GroqASRError))
+                    result = {"error": str(exc) if safe else "Cloud request failed. Your recording and completed stages are retained.", "rpc_id": message.get("rpc_id")}
+                channel.send(result)
+        except (EOFError, BrokenPipeError, OSError):
+            pass
+        finally:
+            channel.close()
 
     @staticmethod
     def _serve_credentials(process, channel, credential_ref):
@@ -461,6 +602,7 @@ class JobManager:
         if not job_file.exists():
             return None
         payload = self._reconcile_process(assessment_id, _read_json(job_file))
+        from assessment_runtime.eligibility import annotate_payload
         return AssessmentStatusResponse(
             assessment_id=assessment_id,
             status=JobStatus(str(payload.get("status") or JobStatus.FAILED.value)),
@@ -468,8 +610,8 @@ class JobManager:
             progress=float(payload.get("progress") or 0.0),
             error=(ErrorResponse(**payload["error"]) if isinstance(payload.get("error"), dict) else None),
             report_path=str(payload.get("report_path") or "") or None,
-            summary=(AssessmentSummary(**payload["summary"]) if isinstance(payload.get("summary"), dict) else None),
-            payload=payload.get("payload") if isinstance(payload.get("payload"), dict) else None,
+            summary=_build_summary(payload.get("payload")),
+            payload=annotate_payload(payload["payload"]) if isinstance(payload.get("payload"), dict) else None,
         )
 
     def cancel(self, assessment_id: str) -> AssessmentStatusResponse | None:

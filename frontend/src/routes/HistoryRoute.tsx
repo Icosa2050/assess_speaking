@@ -10,6 +10,8 @@ import { measurement, retryDraft } from "@/lib/history/practiceProgress";
 import layoutStyles from "@/components/ui/layout.module.css";
 import { apiClient } from "@/lib/api/client";
 import { createTranslator } from "@/lib/i18n";
+import { withJournalLock } from "@/lib/rehearsal/storage";
+import { journalRequest } from "@/lib/rehearsal/maintenance";
 import { queryKeys } from "@/lib/query/queryClient";
 import { useAppStore } from "@/lib/state/appStore";
 
@@ -170,11 +172,12 @@ const normalizeHistoryRecord = (
   translate: ReturnType<typeof createTranslator>,
 ): HistoryViewRecord => {
   const languageCode = String(row.learning_language || "").trim().toLowerCase();
-  const finalScore = safeFloat(row.final_score);
-  const bandValue = safeInt(row.band);
+  const assessable = !row.eligibility || row.eligibility.state === "assessable";
+  const finalScore = assessable ? safeFloat(row.final_score) : null;
+  const bandValue = assessable ? safeInt(row.band) : null;
 
   const baseRecord = {
-    bandLabel: String(row.band || "").trim() || translate("history.none"),
+    bandLabel: assessable ? String(row.band || "").trim() || translate("history.none") : translate("history.none"),
     bandValue,
     coherenceIssueCategories: Array.isArray(row.coherence_issue_categories)
       ? row.coherence_issue_categories.map(String).filter(Boolean)
@@ -189,7 +192,7 @@ const normalizeHistoryRecord = (
     languageLabel: languageLabel(languageCode, translate),
     languagePass: safeBool(row.language_pass),
     minWordsPass: safeBool(row.min_words_pass),
-    overall: safeFloat(row.overall),
+    overall: assessable ? safeFloat(row.overall) : null,
     reportPath: String(row.report_path || ""),
     requiresHumanReview: safeBool(row.requires_human_review) === true,
     scoreLabel: finalScore !== null ? new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(finalScore) : translate("history.none"),
@@ -271,6 +274,9 @@ export const formatTrendSummary = (
 };
 
 export const HistoryRoute = () => {
+  const [archiveConfirm, setArchiveConfirm] = useState(false);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [archiveError, setArchiveError] = useState("");
   const navigate = useNavigate();
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const applySetup = useAppStore((state) => state.applySetup);
@@ -447,7 +453,7 @@ export const HistoryRoute = () => {
         <HistoryList
           attempts={attempts}
           onSelectSession={(sessionId) => {
-            setSelectedSessionId(sessionId);
+            setArchiveConfirm(false); setArchiveError(""); setSelectedSessionId(sessionId);
             if (window.matchMedia?.("(max-width: 1000px)").matches) {
               detailRef.current?.focus({ preventScroll: true });
               detailRef.current?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" });
@@ -457,6 +463,18 @@ export const HistoryRoute = () => {
           translate={translate}
         />
         <div ref={detailRef} tabIndex={-1} className={historyStyles.detail} role="region" aria-label={translate("history.details_title")}>
+          {selectedSessionId && <div>
+            {archiveConfirm && <p>{translate("journal.archive_confirm")}</p>}
+            {archiveError && <p role="alert">{archiveError}</p>}
+            <button disabled={archiveBusy} onClick={() => {
+              if (!archiveConfirm) { setArchiveConfirm(true); return; }
+              setArchiveBusy(true); setArchiveError("");
+              void withJournalLock(() => journalRequest(`attempts/${encodeURIComponent(selectedSessionId)}/archive`, {}), true).then(async () => {
+                setArchiveConfirm(false); await historyQuery.refetch();
+              }).catch(cause => setArchiveError(cause instanceof Error ? cause.message : String(cause))).finally(() => setArchiveBusy(false));
+            }}>{translate(archiveConfirm ? "journal.archive_confirm" : "journal.archive_attempt")}</button>
+            {archiveConfirm && <button disabled={archiveBusy} onClick={() => setArchiveConfirm(false)}>{translate("journal.cancel")}</button>}
+          </div>}
           <HistoryDetailPanel
             locale={locale}
             key={selectedSessionId}

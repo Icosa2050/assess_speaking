@@ -39,6 +39,9 @@ class AssessmentRunRequest:
     no_log: bool = False
     label: str = ""
     notes: str = ""
+    stage_cache_dir: Path | None = None
+    cloud_asr: Callable[[], dict] | None = None
+    llm_connection_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -60,10 +63,13 @@ def _build_meta(*, request: AssessmentRunRequest, report: dict[str, Any], timest
             "rubric_prompt_version", "transcription_basis", "language_profile_key",
             "asr_compute_type_used", "pause_threshold_offset_db", "llm_inference_profile",
             "language_profile_version", "coaching_prompt_version", "feedback_language",
-            "transcript_quality_policy", "feedback_claim_policy",
+            "transcript_quality_policy", "feedback_claim_policy", "asr_model", "asr_diagnostic_policy",
         )},
         sort_keys=True,
     )
+    routes = [{key: route.get(key) for key in ("provider", "model", "route")} for route in report_input.get("cloud_routes", [])]
+    if routes:
+        analysis_signature = json.dumps({"analysis": analysis_signature, "routes": routes}, sort_keys=True)
     return {
         "timestamp": timestamp,
         "audio_path": str(request.audio.resolve()),
@@ -111,7 +117,14 @@ def _build_stdout_payload(assessment: dict[str, Any], *, meta: dict[str, Any], r
     return output
 
 
-def execute_assessment_run(
+def execute_assessment_run(request: AssessmentRunRequest, *, status_callback=None) -> AssessmentRunResult:
+    from app_core.app_data import resolve_app_data_root
+    from app_core.journal_lock import journal_guard
+    with journal_guard(resolve_app_data_root()):
+        return _execute_assessment_run(request, status_callback=status_callback)
+
+
+def _execute_assessment_run(
     request: AssessmentRunRequest,
     *,
     status_callback: Callable[[str], None] | None = None,
@@ -143,12 +156,23 @@ def execute_assessment_run(
         pause_threshold_offset_db=request.pause_threshold_offset_db,
         dry_run=request.dry_run,
         status_callback=status_callback,
+        **({"stage_cache_dir": request.stage_cache_dir} if request.stage_cache_dir else {}),
+        **({"cloud_asr": request.cloud_asr} if request.cloud_asr else {}),
+        **({"llm_connection_id": request.llm_connection_id} if request.llm_connection_id else {}),
     )
 
-    report = dict(assessment["report"])
+    from assessment_runtime.eligibility import annotate_report
+    report = annotate_report(dict(assessment["report"]), assessment.get("metrics"))
+    if request.stage_cache_dir:
+        from assessment_runtime.checkpoints import StageCache
+        report["session_id"] = StageCache(request.stage_cache_dir).attempt_id()
     run_dt = datetime.now()
     resolved_log_dir = Path(request.log_dir)
-    meta = _build_meta(request=request, report=report, timestamp=run_dt.isoformat(timespec="seconds"))
+    timestamp = run_dt.isoformat(timespec="seconds")
+    if request.stage_cache_dir:
+        timestamp = StageCache(request.stage_cache_dir).created_at() or timestamp
+    meta = _build_meta(request=request, report=report, timestamp=timestamp)
+    meta["analysis_timestamp"] = run_dt.isoformat(timespec="seconds")
     progress_delta = assess_cli.build_progress_delta(
         resolved_log_dir / "history.csv", report, practice=meta["practice"],
     )
@@ -174,7 +198,8 @@ def execute_assessment_run(
     report_path = assess_cli.build_report_path(resolved_log_dir, request.audio, request.label or None, run_dt)
     # Repeated CLI runs can share the same audio/label and timestamp second.
     # A session suffix prevents overwriting the parent's retained report.
-    report_path = report_path.with_name(f"{report_path.stem}_{report['session_id']}.json")
+    from uuid import uuid4
+    report_path = report_path.with_name(f"{report_path.stem}_{report['session_id']}_{uuid4().hex[:8]}.json")
     saved_payload = {
         **output,
         "transcript_full": assessment["transcript_full"],
@@ -190,6 +215,9 @@ def execute_assessment_run(
         rubric_obj = assess_cli.extract_rubric_json(assessment["llm_rubric"])
     priorities = [str(item) for item in (coaching_obj.get("top_3_priorities") or []) if str(item).strip()]
     padded_priorities = priorities[:3] + [""] * max(0, 3 - len(priorities[:3]))
+    # CSV consumers cannot distinguish provisional numeric observations from
+    # grades. Keep them in the annotated JSON, but never publish them as grades.
+    assessable = report["eligibility"]["state"] == "assessable"
     assess_cli.append_history(
         resolved_log_dir / "history.csv",
         {
@@ -211,13 +239,13 @@ def execute_assessment_run(
             "duration_pass": report.get("checks", {}).get("duration_pass", ""),
             "topic_pass": report.get("checks", {}).get("topic_pass", ""),
             "language_pass": report.get("checks", {}).get("language_pass", ""),
-            "fluency": (rubric_obj or {}).get("fluency", ""),
-            "cohesion": (rubric_obj or {}).get("cohesion", ""),
-            "accuracy": (rubric_obj or {}).get("accuracy", ""),
-            "range": (rubric_obj or {}).get("range", ""),
-            "overall": (rubric_obj or {}).get("overall", ""),
-            "final_score": report.get("scores", {}).get("final", ""),
-            "band": report.get("scores", {}).get("band", ""),
+            "fluency": (rubric_obj or {}).get("fluency", "") if assessable else "",
+            "cohesion": (rubric_obj or {}).get("cohesion", "") if assessable else "",
+            "accuracy": (rubric_obj or {}).get("accuracy", "") if assessable else "",
+            "range": (rubric_obj or {}).get("range", "") if assessable else "",
+            "overall": (rubric_obj or {}).get("overall", "") if assessable else "",
+            "final_score": report.get("scores", {}).get("final", "") if assessable else "",
+            "band": report.get("scores", {}).get("band", "") if assessable else "",
             "requires_human_review": report.get("requires_human_review", ""),
             "top_priority_1": padded_priorities[0],
             "top_priority_2": padded_priorities[1],

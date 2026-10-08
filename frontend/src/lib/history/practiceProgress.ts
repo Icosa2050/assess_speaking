@@ -15,6 +15,7 @@ export const chronological = (rows: HistoryRow[]): HistoryRow[] => [...rows].sor
 // Unknown conditions are not evidence of matching conditions. Legacy reports stay in the journal.
 export const comparisonKey = (row: HistoryRow): string | null => {
   const context = row.practice;
+  if (row.eligibility && row.eligibility.state !== "assessable") return null;
   if (!context || context.version !== 1 || !context.goal || !context.scoring_version ||
       !context.analysis_signature || !["hybrid", "deterministic_only"].includes(context.scoring_mode ?? "") ||
       !context.provider || !context.model || !context.whisper_model || context.dry_run ||

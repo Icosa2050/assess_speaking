@@ -1,0 +1,430 @@
+{
+  "default": [
+    [
+      "e2e/libraryGuideFlow.spec.ts",
+      "",
+      "library and guide browser flow",
+      "keeps Guide reachable and carries a prepared sample into Session Setup and Speak"
+    ],
+    [
+      "e2e/localGuestFlow.spec.ts",
+      "",
+      "local guest shared frontend",
+      "Home keeps History and Settings reachable before runtime setup is complete"
+    ],
+    [
+      "e2e/microphoneReadiness.spec.ts",
+      "",
+      "setup tests real browser audio and carries its result to Home without removing notices"
+    ],
+    [
+      "e2e/microphoneReadiness.spec.ts",
+      "",
+      "home-started recording requires the setup sample and playback confirmation"
+    ],
+    [
+      "e2e/microphoneReadiness.spec.ts",
+      "",
+      "drawer-started recording requires the setup sample and playback confirmation"
+    ],
+    [
+      "e2e/microphoneReadiness.spec.ts",
+      "",
+      "denied microphone access gives guidance and never counts as ready"
+    ],
+    [
+      "e2e/microphoneReadiness.spec.ts",
+      "",
+      "rehearsal requires calibration and retains learner choices through setup"
+    ],
+    [
+      "e2e/microphoneReadiness.spec.ts",
+      "",
+      "rejects near-clipping input and keeps calibration incomplete"
+    ],
+    [
+      "e2e/minimumReviewDuration.spec.ts",
+      "",
+      "short upload is rejected by the real local worker without a review or history entry"
+    ],
+    [
+      "e2e/reviewChangeTaskFlow.spec.ts",
+      "",
+      "review change-task browser flow",
+      "returns to Session Setup with learner identity preserved and task details cleared"
+    ],
+    [
+      "e2e/reviewHistoryFlow.spec.ts",
+      "",
+      "review and history replacement flow",
+      "keeps empty Review and History states actionable"
+    ],
+    [
+      "e2e/reviewHistoryFlow.spec.ts",
+      "",
+      "review and history replacement flow",
+      "runs two deterministic attempts, shows progress, and opens the latest history detail"
+    ],
+    [
+      "e2e/sessionNickname.spec.ts",
+      "",
+      "nickname survives navigation and starting another practice, including edits and clearing"
+    ],
+    [
+      "e2e/settingsSupportFlow.spec.ts",
+      "",
+      "settings support flow",
+      "settings runs support actions against the local guest backend"
+    ],
+    [
+      "e2e/shortSpeechReview.spec.ts",
+      "",
+      "saved review withholds passes for three words"
+    ],
+    [
+      "e2e/shortSpeechReview.spec.ts",
+      "",
+      "saved review retains eligible guidance"
+    ],
+    [
+      "e2e/smokeLocalGuest.spec.ts",
+      "",
+      "local guest smoke",
+      "home routes to runtime setup on a clean backend"
+    ],
+    [
+      "e2e/visualRefreshSmoke.spec.ts",
+      "",
+      "renders primary visual-refresh artifacts without serif typography"
+    ]
+  ],
+  "connections": [
+    [
+      "e2e/cloudAccountPersistence.spec.ts",
+      "",
+      "real backend persists cloud settings and a usable PKCE account after reload"
+    ],
+    [
+      "e2e/cloudConnections.spec.ts",
+      "",
+      "ChatGPT connect, account model, feedback probe and disconnect (en)"
+    ],
+    [
+      "e2e/cloudConnections.spec.ts",
+      "",
+      "ChatGPT connect, account model, feedback probe and disconnect (it)"
+    ],
+    [
+      "e2e/cloudConnections.spec.ts",
+      "",
+      "xAI uses API keys at its fixed endpoint; switching providers clears an entered key"
+    ],
+    [
+      "e2e/cloudConnections.spec.ts",
+      "",
+      "Groq key setup, quota error and retry (en)"
+    ],
+    [
+      "e2e/cloudConnections.spec.ts",
+      "",
+      "Groq key setup, quota error and retry (it)"
+    ],
+    [
+      "e2e/cloudConnections.spec.ts",
+      "",
+      "cloud transcription, OpenRouter login, fallback and spending recovery (en)"
+    ],
+    [
+      "e2e/cloudConnections.spec.ts",
+      "",
+      "cloud transcription, OpenRouter login, fallback and spending recovery (it)"
+    ],
+    [
+      "e2e/providerLoginMethods.spec.ts",
+      "",
+      "groq: save, reload, use saved credential and remove (en)"
+    ],
+    [
+      "e2e/providerLoginMethods.spec.ts",
+      "",
+      "xai: save, reload, use saved credential and remove (en)"
+    ],
+    [
+      "e2e/providerLoginMethods.spec.ts",
+      "",
+      "openrouter: save, reload, use saved credential and remove (en)"
+    ],
+    [
+      "e2e/providerLoginMethods.spec.ts",
+      "",
+      "ollama_cloud: save, reload, use saved credential and remove (en)"
+    ],
+    [
+      "e2e/providerLoginMethods.spec.ts",
+      "",
+      "ollama_local: save, reload, use saved credential and remove (en)"
+    ],
+    [
+      "e2e/providerLoginMethods.spec.ts",
+      "",
+      "lmstudio_local: save, reload, use saved credential and remove (en)"
+    ],
+    [
+      "e2e/providerLoginMethods.spec.ts",
+      "",
+      "openai_compatible: save, reload, use saved credential and remove (en)"
+    ],
+    [
+      "e2e/providerLoginMethods.spec.ts",
+      "",
+      "ChatGPT cancel and denied consent can be retried (en)"
+    ],
+    [
+      "e2e/providerLoginMethods.spec.ts",
+      "",
+      "groq: save, reload, use saved credential and remove (it)"
+    ],
+    [
+      "e2e/providerLoginMethods.spec.ts",
+      "",
+      "xai: save, reload, use saved credential and remove (it)"
+    ],
+    [
+      "e2e/providerLoginMethods.spec.ts",
+      "",
+      "openrouter: save, reload, use saved credential and remove (it)"
+    ],
+    [
+      "e2e/providerLoginMethods.spec.ts",
+      "",
+      "ollama_cloud: save, reload, use saved credential and remove (it)"
+    ],
+    [
+      "e2e/providerLoginMethods.spec.ts",
+      "",
+      "ollama_local: save, reload, use saved credential and remove (it)"
+    ],
+    [
+      "e2e/providerLoginMethods.spec.ts",
+      "",
+      "lmstudio_local: save, reload, use saved credential and remove (it)"
+    ],
+    [
+      "e2e/providerLoginMethods.spec.ts",
+      "",
+      "openai_compatible: save, reload, use saved credential and remove (it)"
+    ],
+    [
+      "e2e/providerLoginMethods.spec.ts",
+      "",
+      "ChatGPT cancel and denied consent can be retried (it)"
+    ],
+    [
+      "e2e/runtimeSetupRecovery.spec.ts",
+      "",
+      "Ollama discovery preserves the user's URL and selects a discovered model"
+    ],
+    [
+      "e2e/runtimeSetupRecovery.spec.ts",
+      "",
+      "LM Studio failure keeps the form editable and a corrected retry succeeds"
+    ]
+  ],
+  "journeys": [
+    [
+      "journeys/bilingualPractice.spec.ts",
+      "",
+      "en",
+      "en B1: upload → review → microphone retry → saved history → playback → retry"
+    ],
+    [
+      "journeys/bilingualPractice.spec.ts",
+      "",
+      "en",
+      "en B2: upload → review → microphone retry → saved history → playback → retry"
+    ],
+    [
+      "journeys/bilingualPractice.spec.ts",
+      "",
+      "en",
+      "en C1: upload → review → microphone retry → saved history → playback → retry"
+    ],
+    [
+      "journeys/bilingualPractice.spec.ts",
+      "",
+      "en",
+      "en: upload error, assessment failure, cancellation and recovery"
+    ],
+    [
+      "journeys/bilingualPractice.spec.ts",
+      "",
+      "en",
+      "en: changed goals and languages stay separate; missing audio is recoverable"
+    ],
+    [
+      "journeys/bilingualPractice.spec.ts",
+      "",
+      "it",
+      "it B1: upload → review → microphone retry → saved history → playback → retry"
+    ],
+    [
+      "journeys/bilingualPractice.spec.ts",
+      "",
+      "it",
+      "it B2: upload → review → microphone retry → saved history → playback → retry"
+    ],
+    [
+      "journeys/bilingualPractice.spec.ts",
+      "",
+      "it",
+      "it C1: upload → review → microphone retry → saved history → playback → retry"
+    ],
+    [
+      "journeys/bilingualPractice.spec.ts",
+      "",
+      "it",
+      "it: upload error, assessment failure, cancellation and recovery"
+    ],
+    [
+      "journeys/bilingualPractice.spec.ts",
+      "",
+      "it",
+      "it: changed goals and languages stay separate; missing audio is recoverable"
+    ],
+    [
+      "journeys/timedRehearsal.spec.ts",
+      "",
+      "timed rehearsal en",
+      "preparation → three saved parts → reload → recovered analysis → targeted retry"
+    ],
+    [
+      "journeys/timedRehearsal.spec.ts",
+      "",
+      "timed rehearsal it",
+      "preparation → three saved parts → reload → recovered analysis → targeted retry"
+    ],
+    [
+      "journeys/webkitPractice.spec.ts",
+      "",
+      "WebKit en: upload, saved feedback, replay and retry"
+    ],
+    [
+      "journeys/webkitPractice.spec.ts",
+      "",
+      "WebKit it: upload, saved feedback, replay and retry"
+    ]
+  ],
+  "journeys-chromium": [
+    [
+      "journeys/bilingualPractice.spec.ts",
+      "",
+      "en",
+      "en B1: upload → review → microphone retry → saved history → playback → retry"
+    ],
+    [
+      "journeys/bilingualPractice.spec.ts",
+      "",
+      "en",
+      "en B2: upload → review → microphone retry → saved history → playback → retry"
+    ],
+    [
+      "journeys/bilingualPractice.spec.ts",
+      "",
+      "en",
+      "en C1: upload → review → microphone retry → saved history → playback → retry"
+    ],
+    [
+      "journeys/bilingualPractice.spec.ts",
+      "",
+      "en",
+      "en: upload error, assessment failure, cancellation and recovery"
+    ],
+    [
+      "journeys/bilingualPractice.spec.ts",
+      "",
+      "en",
+      "en: changed goals and languages stay separate; missing audio is recoverable"
+    ],
+    [
+      "journeys/bilingualPractice.spec.ts",
+      "",
+      "it",
+      "it B1: upload → review → microphone retry → saved history → playback → retry"
+    ],
+    [
+      "journeys/bilingualPractice.spec.ts",
+      "",
+      "it",
+      "it B2: upload → review → microphone retry → saved history → playback → retry"
+    ],
+    [
+      "journeys/bilingualPractice.spec.ts",
+      "",
+      "it",
+      "it C1: upload → review → microphone retry → saved history → playback → retry"
+    ],
+    [
+      "journeys/bilingualPractice.spec.ts",
+      "",
+      "it",
+      "it: upload error, assessment failure, cancellation and recovery"
+    ],
+    [
+      "journeys/bilingualPractice.spec.ts",
+      "",
+      "it",
+      "it: changed goals and languages stay separate; missing audio is recoverable"
+    ],
+    [
+      "journeys/timedRehearsal.spec.ts",
+      "",
+      "timed rehearsal en",
+      "preparation → three saved parts → reload → recovered analysis → targeted retry"
+    ],
+    [
+      "journeys/timedRehearsal.spec.ts",
+      "",
+      "timed rehearsal it",
+      "preparation → three saved parts → reload → recovered analysis → targeted retry"
+    ]
+  ],
+  "journeys-webkit": [
+    [
+      "journeys/webkitPractice.spec.ts",
+      "",
+      "WebKit en: upload, saved feedback, replay and retry"
+    ],
+    [
+      "journeys/webkitPractice.spec.ts",
+      "",
+      "WebKit it: upload, saved feedback, replay and retry"
+    ]
+  ],
+  "contracts": [
+    [
+      "contracts/journalStorage.spec.ts",
+      "",
+      "a maintenance lease refuses direct API uploads, submission and settings writes"
+    ],
+    [
+      "contracts/journalStorage.spec.ts",
+      "",
+      "browser quota rollback compensates backend publication; a lost completion reply recovers after reload"
+    ],
+    [
+      "contracts/journalStorage.spec.ts",
+      "",
+      "full learner ZIP transfers rehearsal audio to a fresh browser profile and skips existing identities on repeated restore"
+    ],
+    [
+      "contracts/journalStorage.spec.ts",
+      "",
+      "populated v1 migrates without losing audio; global maintenance excludes another tab and archive supports Undo"
+    ],
+    [
+      "contracts/rehearsalSharing.spec.ts",
+      "",
+      "Rehearsal preserves completed work when sharing changes and reload resumes only remaining parts"
+    ]
+  ]
+}
