@@ -115,6 +115,7 @@ export const SessionSetupRoute = () => {
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const preferences = useAppStore((state) => state.preferences);
   const draft = useAppStore((state) => state.draft);
+  const updateDraft = useAppStore((state) => state.updateDraft);
   const applySetup = useAppStore((state) => state.applySetup);
   const setCurrentPage = useAppStore((state) => state.setCurrentPage);
   const setReturnTo = useAppStore((state) => state.setReturnTo);
@@ -122,7 +123,7 @@ export const SessionSetupRoute = () => {
   const translate = createTranslator(locale);
 
   const [library, setLibrary] = useState<ThemeLibrary>(() => themeLibraryRepository.load());
-  const [speakerId, setSpeakerId] = useState(draft.speakerId);
+  const speakerId = draft.speakerId;
   const [selectedLanguage, setSelectedLanguage] = useState(() =>
     deriveInitialLanguage(library, draft.learningLanguage),
   );
@@ -462,7 +463,7 @@ export const SessionSetupRoute = () => {
         }}
         onSetupStepChange={setSetupStep}
         onSpeakerIdChange={(value) => {
-          setSpeakerId(value);
+          updateDraft({ speakerId: value });
           if (errors.length > 0) {
             setErrors([]);
           }

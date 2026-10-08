@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from contextlib import nullcontext
 import logging
 from pathlib import Path
 
@@ -12,7 +13,8 @@ from app_backend.config import (
     SUPPORT_BUNDLE_DIRNAME,
 )
 from app_backend.contracts import CleanupTarget, MaintenanceCleanupResponse
-from app_backend.jobs import prunable_job_metadata_files
+from app_backend.jobs import prunable_job_metadata_files, unreferenced_job_stage_directories
+from app_core.cloud_policy import locked_file
 
 logger = logging.getLogger(__name__)
 
@@ -124,20 +126,13 @@ def cleanup_candidates(
     return []
 
 
-def execute_cleanup(
-    runtime_config: BackendRuntimeConfig,
-    target: CleanupTarget,
-    *,
-    dry_run: bool = False,
-    now: datetime | None = None,
-) -> MaintenanceCleanupResponse:
-    candidates = cleanup_candidates(runtime_config, target, now=now)
+def _delete_candidates(candidates: list[Path], *, dry_run: bool) -> tuple[int, int, list[str]]:
     deleted_file_count = 0
     freed_bytes = 0
     warnings: list[str] = []
     for path in candidates:
         try:
-            size_bytes = path.stat().st_size
+            size_bytes = (path.lstat() if path.is_symlink() else path.stat()).st_size
         except OSError:
             logger.warning("Could not inspect cleanup candidate %s.", path, exc_info=True)
             warnings.append(f"Could not inspect cleanup candidate: {path}")
@@ -154,13 +149,49 @@ def execute_cleanup(
             continue
         deleted_file_count += 1
         freed_bytes += size_bytes
-    return MaintenanceCleanupResponse(
-        target=target,
-        dry_run=dry_run,
-        deleted_file_count=deleted_file_count,
-        freed_bytes=freed_bytes,
-        warnings=warnings,
-    )
+    return deleted_file_count, freed_bytes, warnings
+
+
+def execute_cleanup(
+    runtime_config: BackendRuntimeConfig,
+    target: CleanupTarget,
+    *,
+    dry_run: bool = False,
+    now: datetime | None = None,
+) -> MaintenanceCleanupResponse:
+    prune_jobs = target in {CleanupTarget.JOBS, CleanupTarget.ALL_SAFE}
+    # A resume publishes another reference to a shared cache. Serialize that
+    # publication with retention, including dry-run inspection.
+    guard = locked_file(runtime_config.jobs_dir / "retention.lock") if prune_jobs else nullcontext()
+    with guard:
+        candidates = cleanup_candidates(runtime_config, target, now=now)
+        deleted_file_count, freed_bytes, warnings = _delete_candidates(candidates, dry_run=dry_run)
+        if prune_jobs:
+            # Re-read after successful deletion: failed metadata deletes must
+            # still protect their checkpoints. Preview excludes planned deletes.
+            roots = unreferenced_job_stage_directories(runtime_config.jobs_dir, excluding=candidates if dry_run else None)
+            for root in roots:
+                entries = list(root.rglob("*"))
+                files = [path for path in entries if path.is_file() or path.is_symlink()]
+                count, size, failures = _delete_candidates(files, dry_run=dry_run)
+                deleted_file_count += count
+                freed_bytes += size
+                warnings.extend(failures)
+                if not dry_run:
+                    directories = [path for path in entries if path.is_dir() and not path.is_symlink()]
+                    for directory in sorted(directories, key=lambda path: len(path.parts), reverse=True) + [root]:
+                        try:
+                            directory.rmdir()
+                        except OSError:
+                            logger.warning("Could not remove checkpoint directory %s.", directory, exc_info=True)
+                            warnings.append(f"Could not remove checkpoint directory: {directory}")
+        return MaintenanceCleanupResponse(
+            target=target,
+            dry_run=dry_run,
+            deleted_file_count=deleted_file_count,
+            freed_bytes=freed_bytes,
+            warnings=warnings,
+        )
 
 
 def startup_cleanup_targets() -> tuple[CleanupTarget, ...]:

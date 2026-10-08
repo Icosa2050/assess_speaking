@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from app_core.chatgpt_auth import ChatGPTAuthError, cached_access_token, access_token
 from app_backend.chatgpt_routes import install_chatgpt_routes
-from app_core.preference_lock import synchronized_preferences
+from app_core.preference_lock import synchronized_preferences, PREFERENCES_LOCK
 
 from app_backend.config import BackendRuntimeConfig, build_backend_runtime_config, clear_backend_state, write_backend_state
 from app_backend.uploads import UploadRejected, parse_upload, upload_limits
@@ -53,7 +53,7 @@ from app_backend.contracts import (
     WhisperModelStatusResponse,
 )
 from assessment_runtime.llm_client import LLMClientError
-from app_backend.jobs import AssessmentBusyError, JobManager
+from app_backend.jobs import AssessmentBusyError, AssessmentIdentityConflictError, JobManager
 from app_backend.maintenance import execute_cleanup
 from app_backend.support_bundle import (
     build_storage_summary,
@@ -159,7 +159,7 @@ def _saved_connection_api_key(connection) -> str:
         return ""
     if connection.provider_kind == "chatgpt":
         return cached_access_token(secret_ref)
-    if connection.provider_kind in {"xai", "groq"}:
+    if connection.provider_kind in {"xai", "groq", "openrouter"}:
         return SessionSecretStore().get_secret(SERVICE_NAME, secret_ref) or str(get_secret(secret_ref) or "")
     return str(get_secret(secret_ref) or "").strip()
 
@@ -174,7 +174,7 @@ def _connection_secret_state(connection) -> ConnectionSecretState:
 
 def _serialize_connection(connection) -> RuntimeSettingsConnection:
     provider_choice = provider_choice_for_connection(connection)
-    metadata = dict(connection.provider_metadata or {})
+    metadata = {key: value for key, value in (connection.provider_metadata or {}).items() if not key.startswith("_")}
     if connection.provider_kind == "chatgpt" and SessionSecretStore().get_secret(SERVICE_NAME, connection.secret_ref):
         metadata["persistent"] = False
     if normalize_provider(connection.provider_kind) == "openrouter":
@@ -423,6 +423,7 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
             yield
         finally:
             app.state.chatgpt_auth.close()
+            app.state.openrouter_auth.close()
             app.state.job_manager.shutdown()
             clear_backend_state(
                 runtime_config.app_data.reports_dir,
@@ -449,7 +450,11 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
     app.state.runtime_config = runtime_config
     app.state.started_at = started_at
     app.state.job_manager = job_manager
+    from app_backend.journal_routes import install_journal_routes
+    install_journal_routes(app, runtime_config)
     install_chatgpt_routes(app, runtime_config, _load_persisted_state)
+    from app_backend.cloud_routes import install_cloud_routes
+    install_cloud_routes(app, runtime_config, _load_persisted_state)
 
     @app.exception_handler(ChatGPTAuthError)
     async def chatgpt_error(_request: Request, exc: ChatGPTAuthError):
@@ -495,7 +500,7 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
             return RuntimeResponse(configured=False)
         runtime_state = resolve_connection_runtime(connection)
         return RuntimeResponse(
-            configured=True,
+            configured=bool(runtime_state.model),
             provider=runtime_state.provider,
             model=runtime_state.model,
             base_url=runtime_state.base_url,
@@ -506,12 +511,18 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
     @app.get("/v1/runtime/settings", response_model=RuntimeSettingsResponse, tags=[LOCAL_RUNTIME_TAG])
     def runtime_settings() -> RuntimeSettingsResponse:
         state = _load_persisted_state(runtime_config)
-        return _build_runtime_settings_response(state)
+        from app_core.cloud_policy import read_settings
+        cloud = read_settings(runtime_config.app_data.root)
+        return _build_runtime_settings_response(state).model_copy(update={"asr_provider": cloud.asr_provider, "asr_model": cloud.asr_model})
 
     @app.put("/v1/runtime/settings", response_model=RuntimeSettingsResponse, tags=[LOCAL_RUNTIME_TAG])
     @synchronized_preferences
     def save_runtime_settings(request: RuntimeSettingsSaveRequest) -> RuntimeSettingsResponse:
         state = _load_persisted_state(runtime_config)
+        from app_core.cloud_policy import read_settings
+        mode = read_settings(runtime_config.app_data.root).openrouter_modes.get(request.connection.connection_id)
+        if mode == "free" and (not request.connection.model.endswith(":free") or request.connection.model.startswith("openrouter/")):
+            raise _http_error(400, ErrorCode.CONFIG, "Select an explicit :free model or change this connection's access policy first.")
         try:
             _save_runtime_settings(state, request)
         except ValueError as exc:
@@ -524,16 +535,22 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
         draft = request.connection
         api_key = ""
         try:
+            from app_core.cloud_policy import read_settings
+            if read_settings(runtime_config.app_data.root).openrouter_modes.get(draft.connection_id):
+                if draft.provider_choice != "openrouter" or draft.base_url.rstrip("/") != "https://openrouter.ai/api/v1":
+                    raise ValueError("Managed OpenRouter access requires its fixed provider endpoint.")
             api_key = _runtime_settings_test_connection_secret(state, draft)
-            result = test_runtime_connection(
-                provider=str(draft.provider_choice or "").strip(),
-                provider_choice=str(draft.provider_choice or "").strip(),
-                model=str(draft.model or "").strip(),
-                base_url=str(draft.base_url or "").strip(),
-                api_key=api_key,
-                openrouter_http_referer=str(draft.openrouter_http_referer or "").strip(),
-                openrouter_app_title=str(draft.openrouter_app_title or "").strip(),
-            )
+            from app_core.openrouter_cloud import probe_policy
+            with probe_policy(runtime_config.app_data.root, draft.connection_id, draft.model, api_key):
+                result = test_runtime_connection(
+                    provider=str(draft.provider_choice or "").strip(),
+                    provider_choice=str(draft.provider_choice or "").strip(),
+                    model=str(draft.model or "").strip(),
+                    base_url=str(draft.base_url or "").strip(),
+                    api_key=api_key,
+                    openrouter_http_referer=str(draft.openrouter_http_referer or "").strip(),
+                    openrouter_app_title=str(draft.openrouter_app_title or "").strip(),
+                )
         except ValueError as exc:
             raise _http_error(400, ErrorCode.VALIDATION, str(exc)) from exc
         except OSError as exc:
@@ -682,20 +699,64 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
             finally:
                 upload_slots.release()
 
+    @app.post("/v1/assessment-route", tags=[PRODUCT_API_TAG])
+    def sharing_route(selection: dict):
+        from app_backend.sharing import assessment_route
+        from app_core.cloud_policy import read_settings
+        with app.state.chatgpt_auth.lock, PREFERENCES_LOCK:
+            return assessment_route(_load_persisted_state(runtime_config), read_settings(runtime_config.app_data.root), selection)
+
+    @app.get("/v1/runtime/sharing", tags=[PRODUCT_API_TAG])
+    def current_sharing_route():
+        return sharing_route({})
+
+    @app.get("/v1/assessments/{assessment_id}/resume-route", tags=[PRODUCT_API_TAG])
+    def assessment_resume_route(assessment_id: str):
+        from app_backend.jobs import _read_json, _job_file
+        with app.state.chatgpt_auth.lock, PREFERENCES_LOCK:
+            prior = _read_json(_job_file(runtime_config.jobs_dir, assessment_id))
+            if not prior:
+                raise _http_error(404, ErrorCode.VALIDATION, "Recovery data is no longer retained.")
+            # ASR cache identity belongs to the retained recording. A resume
+            # keeps that model while analysis/fallback use current preferences.
+            return sharing_route({'whisper': prior['request']['whisper']})
+
+    @app.get("/v1/history/{session_id}/resume-route", tags=[PRODUCT_API_TAG])
+    def history_resume_route(session_id: str):
+        from app_backend.jobs import _read_json
+        for path in runtime_config.jobs_dir.glob("*.json"):
+            prior = _read_json(path)
+            if ((prior.get('payload') or {}).get('report') or {}).get('session_id') == session_id:
+                return assessment_resume_route(prior['assessment_id'])
+        raise _http_error(404, ErrorCode.VALIDATION, "Recovery data is no longer retained.")
+
     @app.post("/v1/assessments", response_model=AssessmentCreateResponse, tags=[PRODUCT_API_TAG])
     def create_assessment(request: AssessmentCreateRequest) -> AssessmentCreateResponse:
         if normalize_provider(request.provider) in {"chatgpt", "xai", "groq"}:
             request = request.model_copy(update={"provider": normalize_provider(request.provider)})
         try:
-            state = _load_persisted_state(runtime_config)
-            if request.provider == "chatgpt":
-                with app.state.chatgpt_auth.lock:
-                    if any(p["status"] in {"waiting", "processing"} for p in app.state.chatgpt_auth.pending.values()):
-                        raise ChatGPTAuthError("Finish or cancel ChatGPT sign-in before starting an assessment.")
-                    state = _load_persisted_state(runtime_config)
-                    resolved = _assessment_request_with_saved_runtime_secret(state, request)
-                    return app.state.job_manager.submit(resolved, credential_ref=active_connection(state.prefs).secret_ref)
-            return app.state.job_manager.submit(_assessment_request_with_saved_runtime_secret(state, request))
+            from app_core.cloud_policy import read_settings
+            # Serialize job publication with ChatGPT login and disconnect.
+            with app.state.chatgpt_auth.lock, PREFERENCES_LOCK:
+                state = _load_persisted_state(runtime_config)
+                cloud = read_settings(runtime_config.app_data.root)
+                from app_backend.sharing import assessment_route
+                route = assessment_route(state, cloud, request.model_dump())
+                if not route['available'] or not request.sharing_fingerprint or request.sharing_fingerprint != route['fingerprint']:
+                    raise _http_error(409, ErrorCode.SHARING_CHANGED, "Sharing destinations changed or were not confirmed. Review the current route and submit again.")
+                if cloud.asr_provider == "groq" or request.provider in {"chatgpt", "xai", "groq"} or cloud.openrouter_modes.get(state.prefs.active_connection_id):
+                    from app_backend.cloud_runtime import CloudRuntime
+                    selected = active_connection(state.prefs)
+                    if selected is None or selected.provider_kind != request.provider or selected.default_model != request.llm_model:
+                        raise ValueError("Select the saved analysis connection and model before starting.")
+                    if request.provider == "chatgpt" and any(p["status"] in {"waiting", "processing"} for p in app.state.chatgpt_auth.pending.values()):
+                        raise ChatGPTAuthError("Finish or cancel ChatGPT sign-in first.")
+                    return app.state.job_manager.submit(request.model_copy(update={"llm_api_key": ""}), cloud_runtime=CloudRuntime(runtime_config.app_data.root, state, _saved_connection_api_key, settings=cloud))
+                selected = active_connection(state.prefs)
+                connection_id = selected.connection_id if selected and normalize_provider(selected.provider_kind) == normalize_provider(request.provider) else ""
+                return app.state.job_manager.submit(_assessment_request_with_saved_runtime_secret(state, request), llm_connection_id=connection_id)
+        except AssessmentIdentityConflictError as exc:
+            raise _http_error(409, ErrorCode.SHARING_CHANGED, str(exc)) from exc
         except ValueError as exc:
             raise _http_error(400, ErrorCode.VALIDATION, str(exc)) from exc
         except AssessmentBusyError as exc:
@@ -704,6 +765,33 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
             raise _http_error(404, ErrorCode.VALIDATION, str(exc)) from exc
         except OSError as exc:
             raise _http_error(500, ErrorCode.STORAGE, str(exc)) from exc
+
+    @app.post("/v1/history/{session_id}/resume", response_model=AssessmentCreateResponse, tags=[PRODUCT_API_TAG])
+    def resume_history(session_id: str, body: dict) -> AssessmentCreateResponse:
+        from app_backend.jobs import _read_json
+        for path in runtime_config.jobs_dir.glob("*.json"):
+            prior = _read_json(path)
+            report = (prior.get("payload") or {}).get("report") or {}
+            if report.get("session_id") == session_id:
+                return resume_assessment(prior["assessment_id"], body)
+        raise _http_error(404, ErrorCode.VALIDATION, "Recovery data is no longer retained; make a new recording.")
+
+    @app.post("/v1/assessments/{assessment_id}/resume", response_model=AssessmentCreateResponse, tags=[PRODUCT_API_TAG])
+    def resume_assessment(assessment_id: str, body: dict) -> AssessmentCreateResponse:
+        with app.state.chatgpt_auth.lock, PREFERENCES_LOCK:
+            from app_backend.jobs import _read_json, _job_file
+            prior = _read_json(_job_file(runtime_config.jobs_dir, assessment_id))
+            if not prior or prior.get("status") not in {"failed", "cancelled", "completed"}:
+                raise _http_error(400, ErrorCode.VALIDATION, "Choose a stopped or completed retained assessment.")
+            state = _load_persisted_state(runtime_config)
+            selected = active_connection(state.prefs)
+            if not selected:
+                raise _http_error(400, ErrorCode.CONFIG, "Select a saved analysis connection first.")
+            request = AssessmentCreateRequest.model_validate({**prior["request"], "request_id": body.get("request_id", ""),
+                "sharing_fingerprint": body.get("sharing_fingerprint", ""),
+                "resume_assessment_id": assessment_id, "provider": selected.provider_kind, "llm_model": selected.default_model,
+                "llm_base_url": selected.base_url, "llm_api_key": ""})
+            return create_assessment(request)
 
     @app.get("/v1/assessments/{assessment_id}", response_model=AssessmentStatusResponse, tags=[PRODUCT_API_TAG])
     def assessment_status(assessment_id: str) -> AssessmentStatusResponse:
@@ -729,14 +817,14 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
 
     @app.get("/v1/history/{session_id}", response_model=HistoryDetailResponse, tags=[PRODUCT_API_TAG])
     def history_detail(session_id: str) -> HistoryDetailResponse:
-        payload = _find_history_payload(session_id, runtime_config.app_data.reports_dir)
+        payload = _find_history_payload(session_id, runtime_config.app_data.reports_dir) or app.state.journal.archived_payload(session_id)
         if payload is None:
             raise _http_error(404, ErrorCode.VALIDATION, f"History entry {session_id} does not exist.")
         return HistoryDetailResponse(payload=payload)
 
     @app.get("/v1/history/{session_id}/audio", tags=[PRODUCT_API_TAG])
     def history_audio(session_id: str) -> FileResponse:
-        payload = _find_history_payload(session_id, runtime_config.app_data.reports_dir) or {}
+        payload = _find_history_payload(session_id, runtime_config.app_data.reports_dir) or app.state.journal.archived_payload(session_id) or {}
         meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
         saved_path = meta.get("audio_path")
         path = Path(saved_path).resolve() if isinstance(saved_path, str) and saved_path else None

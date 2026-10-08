@@ -1,0 +1,22 @@
+{
+  "root": "/var/folders/tb/gb1t8vy10896m7pjh_987gjh0000gn/T/vostavo-storage-native-uww753gx",
+  "app": "/var/folders/tb/gb1t8vy10896m7pjh_987gjh0000gn/T/vostavo-storage-native-uww753gx/Applications/Vostavo.app",
+  "pid": 72372,
+  "artifact": "/Users/bernhard/Development/assess_speaking/.build-macos/Vostavo-0.1.0-arm64-internal-adhoc.dmg",
+  "artifact_sha256": "c527c38109589f468acccd04dd8a8af25613338813a2c8651b7a069b5e774ac5",
+  "upgraded_from_sha256": "fab55ad82078b89b183679be73bc9539580ffeeea73faa5cc976b998d0b32519",
+  "backup": "Vostavo-backup-acb7c34213c94625ad1111423c927d96.zip",
+  "backup_sha256": "c88002a9c7d519548f255c5f65447c32b4904d9b210c699094bcd5156c65435b",
+  "backup_permissions": "0600",
+  "recording_sha256": "e68c0b2f7005f9a9aa454e357efcb1393885fd7b382cda7bdd12bac078adbbdc",
+  "recording_bytes": 992044,
+  "recording_seconds": 31,
+  "checks": [
+    "isolated app upgrade preserved populated native rehearsal profile",
+    "Create backup -> native Save Cancel -> same-ID retry -> completed Save",
+    "exact original synthetic audio bytes and rehearsal identity retained",
+    "native Open just-saved ZIP -> existing rehearsal previewed as skipped",
+    "restore preview cancelled without overwrite"
+  ],
+  "physical_microphone": "not tested"
+}

@@ -210,6 +210,11 @@ def _chat_completion(
     require_json_object: bool = False,
 ) -> str:
     normalized_provider = normalize_provider(provider)
+    from assessment_runtime.cloud_transport import completion
+    transport = completion.get()
+    if transport is not None:
+        return transport({"operation": "completion", "provider": normalized_provider, "model": model, "prompt": prompt,
+                          "timeout": timeout_sec, "schema": (extra_payload or {}).get("response_format", {}).get("json_schema")})["text"]
     if normalized_provider in {"chatgpt", "xai", "groq"}:
         from assessment_runtime.responses_client import complete, ResponsesError
         schema = (extra_payload or {}).get("response_format", {}).get("json_schema")
@@ -252,7 +257,7 @@ def _chat_completion(
         # Short structured feedback should return an answer within the request budget.
         # Ollama maps "none" to no thinking for models supporting this control.
         payload.update(reasoning_effort="none", max_tokens=4096)
-    elif normalized_provider == "lmstudio":
+    elif normalized_provider in {"lmstudio", "openrouter", "openai_compatible"}:
         payload["max_tokens"] = 4096
     if extra_payload:
         payload.update(extra_payload)
@@ -295,6 +300,13 @@ def _generation_payload(provider: str, kind: str, *, target_duration_sec: float 
     return payload
 
 
+def _reject_cloud_reply() -> None:
+    from assessment_runtime.cloud_transport import completion
+    transport = completion.get()
+    if transport is not None:
+        transport({"operation": "reject_reply"})
+
+
 def generate_rubric(
     provider: str,
     model: str,
@@ -332,6 +344,7 @@ def generate_rubric(
             validate_rubric_generation(rubric, transcript, asr_words)
             return rubric, raw
         except (SchemaValidationError, LLMClientError) as exc:
+            _reject_cloud_reply()
             last_error = exc
             if isinstance(exc, UncertainTranscriptEvidenceError):
                 uncertainty_error = exc
@@ -385,6 +398,7 @@ def generate_coaching_summary(
             validate_coaching_generation(coaching, target_duration_sec, rubric)
             return coaching, raw
         except (SchemaValidationError, LLMClientError) as exc:
+            _reject_cloud_reply()
             last_error = exc
             if attempt < max_validation_retries:
                 attempt_prompt = (

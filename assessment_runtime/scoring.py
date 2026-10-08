@@ -73,7 +73,7 @@ def compute_checks(
     target_duration_sec: float,
     min_word_count: int,
     duration_pass_ratio: float,
-    language_pass: bool,
+    language_pass: bool | None,
 ) -> dict:
     speaking_time = float(metrics.get("speaking_time_sec", 0))
     word_count = int(metrics.get("word_count", 0))

@@ -116,7 +116,7 @@ def test_red_team_run_assessment_marks_short_wrong_language_attempt_for_human_re
     fake_words = [{"text": part} for part in transcript.replace(".", "").split()]
 
     with (
-        mock.patch("assess_speaking.load_audio_features", return_value={"duration_sec": 4.0, "pauses": []}),
+        mock.patch("assess_speaking.load_audio_features", return_value={"duration_sec": 30.0, "pauses": []}),
         mock.patch(
             "assess_speaking.transcribe",
             return_value={

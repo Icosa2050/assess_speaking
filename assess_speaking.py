@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from assessment_runtime.eligibility import annotate_report
+
 import argparse
 from collections import Counter
 import csv
@@ -25,6 +27,7 @@ from app_core.runtime_providers import default_base_url, normalize_provider, res
 from assessment_runtime.asr import available_asr_providers, transcribe as _transcribe
 from assessment_runtime.feedback_claims import FEEDBACK_CLAIM_POLICY
 from assessment_runtime.transcript_quality import TRANSCRIPT_QUALITY_POLICY, transcript_quality
+from assessment_runtime.recording_policy import require_review_duration
 from assessment_runtime.assessment_prompts import (
     COACHING_PROMPT_VERSION,
     PROMPT_VERSION,
@@ -235,27 +238,37 @@ def build_report_path(log_dir: Path, audio: Path, label: Optional[str], when: da
 
 
 def append_history(history_path: Path, row: dict) -> None:
-    history_path.parent.mkdir(parents=True, exist_ok=True)
-    if history_path.exists():
-        with history_path.open(newline="", encoding="utf-8") as handle:
-            reader = csv.DictReader(handle)
-            existing_fieldnames = reader.fieldnames or []
-        if existing_fieldnames != HISTORY_FIELDNAMES:
-            raise RuntimeError(
-                f"Unsupported history.csv schema in {history_path}. Delete or replace the file with the current header."
-            )
-
-    exists = history_path.exists()
-    with history_path.open("a", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=HISTORY_FIELDNAMES)
-        if not exists:
-            writer.writeheader()
-        writer.writerow({key: row.get(key, "") for key in HISTORY_FIELDNAMES})
+    from app_core.cloud_policy import locked_file
+    import tempfile
+    with locked_file(history_path.with_suffix(".lock")):
+        existing = []
+        if history_path.exists():
+            with history_path.open(newline="", encoding="utf-8") as handle:
+                reader = csv.DictReader(handle)
+                if reader.fieldnames != HISTORY_FIELDNAMES:
+                    raise RuntimeError(f"Unsupported history.csv schema in {history_path}.")
+                existing = list(reader)
+        # A new analysis revision of one take replaces its journal pointer, not its retained report.
+        existing = [prior for prior in existing if not row.get("session_id") or prior.get("session_id") != row["session_id"]]
+        existing.append({key: row.get(key, "") for key in HISTORY_FIELDNAMES})
+        fd, name = tempfile.mkstemp(dir=history_path.parent)
+        try:
+            with os.fdopen(fd, "w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=HISTORY_FIELDNAMES)
+                writer.writeheader()
+                writer.writerows(existing)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(name, history_path)
+        finally:
+            if os.path.exists(name):
+                os.unlink(name)
 
 
 def append_session_jsonl(sessions_path: Path, payload: dict) -> None:
+    from app_core.cloud_policy import locked_file
     sessions_path.parent.mkdir(parents=True, exist_ok=True)
-    with sessions_path.open("a", encoding="utf-8") as handle:
+    with locked_file(sessions_path.with_suffix(".lock")), sessions_path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
 
@@ -379,7 +392,7 @@ def build_progress_delta(history_path: Path, report: dict, *, practice: dict | N
         "same_task_family_sessions_before": len(prior_rows),
         "score_delta": {
             "final": _delta(current_scores.get("final"), previous_final),
-            "overall": _delta(current_scores.get("llm"), previous_overall),
+            "overall": _delta((report.get("rubric") or {}).get("overall"), previous_overall),
             "wpm": _delta(current_metrics.get("wpm"), previous_wpm),
         },
         "gate_delta": {
@@ -389,14 +402,17 @@ def build_progress_delta(history_path: Path, report: dict, *, practice: dict | N
         },
         "latest_priorities": latest_priorities,
         "previous_priorities": previous_priorities,
-        "new_priorities": [item for item in latest_priorities if item not in previous_priorities],
-        "resolved_priorities": [item for item in previous_priorities if item not in latest_priorities],
+        # Rephrasing advice does not establish that an issue appeared or was resolved.
+        "new_priorities": [],
+        "resolved_priorities": [],
         "repeating_grammar_categories": [item for item in current_grammar if grammar_counts[item] > 0],
         "repeating_coherence_categories": [item for item in current_coherence if coherence_counts[item] > 0],
     }
 
 
-BASELINE_INVALIDATING_GATES = ("language_pass", "topic_pass", "content_validity_pass")
+BASELINE_INVALIDATING_GATES = (
+    "language_pass", "topic_pass", "content_validity_pass", "duration_pass", "min_words_pass",
+)
 BASELINE_REQUIRED_METRICS = ("wpm", "fillers")
 
 
@@ -447,9 +463,16 @@ def evaluate_baseline(level: Optional[str], metrics: dict, *, checks: dict | Non
     if not cfg:
         return None
     invalidated_by = _baseline_invalidated_by(checks)
+    # A missing content assessment cannot establish that mechanical metrics came
+    # from meaningful speech (for example when a tiny transcript skips the LLM).
+    unverified_gates = (
+        [gate for gate in ("content_validity_pass", "language_pass")
+         if checks.get(gate) is None and (gate == "content_validity_pass" or gate in checks)]
+        if isinstance(checks, dict) else []
+    )
     missing_required_metrics = _missing_required_baseline_metrics(metrics)
     invalidated = bool(invalidated_by)
-    not_assessed = invalidated or bool(missing_required_metrics)
+    not_assessed = invalidated or bool(missing_required_metrics) or bool(unverified_gates)
     valid = not not_assessed
 
     def hard_target(metric: str, expected: str, predicate) -> dict:
@@ -492,6 +515,7 @@ def evaluate_baseline(level: Optional[str], metrics: dict, *, checks: dict | Non
         "valid": valid,
         "passed": passed if valid else False,
         "invalidated_by": invalidated_by,
+        "unverified_gates": unverified_gates,
         "missing_required_metrics": missing_required_metrics,
         "targets": targets,
         "comment": cfg["notes"],
@@ -778,7 +802,7 @@ def _dry_run_assessment(
         "transcript_full": transcript,
         "transcript_preview": transcript[:400],
         "llm_rubric": json.dumps({"error": "llm_skipped_dry_run"}),
-        "report": AssessmentReport.from_dict(report).to_dict(),
+        "report": AssessmentReport.from_dict(annotate_report(report)).to_dict(),
     }
     baseline = evaluate_baseline(target_cefr, metrics, checks=checks) if target_cefr else None
     if baseline:
@@ -812,6 +836,9 @@ def run_assessment(
     pause_threshold_offset_db: Optional[float] = None,
     dry_run: bool = False,
     status_callback: Callable[[str], None] | None = None,
+    stage_cache_dir: Path | None = None,
+    cloud_asr: Callable[[], dict] | None = None,
+    llm_connection_id: str = "",
 ) -> dict:
     settings = Settings.from_env()
     chosen_provider = _infer_provider(provider, llm_model, settings)
@@ -860,6 +887,35 @@ def run_assessment(
             settings=settings,
         )
 
+    from assessment_runtime.checkpoints import StageCache
+    from assess_core.schemas import CoachingSummary
+    from assessment_runtime.cloud_transport import provenance
+    import hashlib
+    stage_cache = StageCache(stage_cache_dir) if stage_cache_dir else None
+    audio_hash = ""
+    if stage_cache:
+        with audio.open("rb") as handle:
+            audio_hash = hashlib.file_digest(handle, "sha256").hexdigest()
+    def cached(name, identity, produce):
+        return stage_cache.run(name, {"audio_sha256": audio_hash, **identity}, produce) if stage_cache else produce()
+    def cached_generation(name, prompt, produce):
+        if not stage_cache:
+            return produce()
+        def packed():
+            value, raw = produce()
+            from assessment_runtime.cloud_transport import provenance
+            routes = provenance.get() or []
+            return {"value": value.to_dict(), "raw": raw, "cloud_route": routes[-1] if routes else None}
+        saved = cached(name, {"prompt": prompt, "provider": chosen_provider, "model": chosen_model,
+                              "base_url": chosen_llm_base_url, "connection_id": llm_connection_id,
+                              "checkpoint_version": 2}, packed)
+        from assessment_runtime.cloud_transport import provenance
+        routes = provenance.get()
+        if routes is not None and saved.get("cloud_route") and (not routes or routes[-1] != saved["cloud_route"]):
+            routes.append(saved["cloud_route"])
+        cls = RubricResult if name == "rubric" else CoachingSummary
+        return cls.from_dict(saved["value"]), saved["raw"]
+
     tmp_wav = audio
     created_tmp = False
     if audio.suffix.lower() != ".wav":
@@ -885,19 +941,19 @@ def run_assessment(
 
         _emit_status("analyzing_audio")
         stage_start = time.perf_counter()
-        audio_feats = load_audio_features(tmp_wav, threshold_offset_db=chosen_pause_threshold)
+        audio_feats = cached("audio", {"threshold": chosen_pause_threshold}, lambda: load_audio_features(tmp_wav, threshold_offset_db=chosen_pause_threshold))
         timings_ms["audio_features"] = _elapsed_ms(stage_start)
+
+        # Apply the same rule to recordings, uploads, CLI runs and resumed jobs.
+        # Reject before local/cloud transcription or any model-generated review.
+        require_review_duration(float(audio_feats["duration_sec"]))
 
         _emit_status("transcribing")
         stage_start = time.perf_counter()
-        asr_result = transcribe(
-            tmp_wav,
-            whisper_model,
-            language=None,
-            compute_type=chosen_asr_compute_type,
-            fallback_compute_type=chosen_asr_fallback,
-            asr_provider=chosen_asr_provider,
-        )
+        asr_result = cached("transcript", {"asr_provider": chosen_asr_provider, "model": whisper_model, "normalization_policy": "groq_v3" if cloud_asr else "local_v1", "compute": chosen_asr_compute_type, "fallback": chosen_asr_fallback, "language": chosen_language},
+            lambda: cloud_asr() if cloud_asr else transcribe(
+                tmp_wav, whisper_model, language=None, compute_type=chosen_asr_compute_type,
+                fallback_compute_type=chosen_asr_fallback, asr_provider=chosen_asr_provider))
         timings_ms["asr"] = _elapsed_ms(stage_start)
 
         metrics = metrics_from(
@@ -944,7 +1000,7 @@ def run_assessment(
                 )
                 stage_start = time.perf_counter()
                 try:
-                    rubric_obj, llm_raw = generate_rubric(
+                    rubric_obj, llm_raw = cached_generation("rubric", prompt, lambda: generate_rubric(
                         provider=chosen_provider,
                         model=chosen_model,
                         prompt=prompt,
@@ -957,7 +1013,7 @@ def run_assessment(
                         max_validation_retries=1,
                         transcript=transcript,
                         asr_words=asr_result["words"],
-                    )
+                    ))
                 except LLMTranscriptUncertaintyError as exc:
                     transcript_uncertain = True
                     warnings.extend(["transcript_uncertain", "llm_invalid_schema"])
@@ -977,7 +1033,13 @@ def run_assessment(
         if not llm_raw and not rubric_obj:
             llm_raw = json.dumps({"error": "llm_skipped"})
 
-        language_pass = asr_language_pass or not hard_language_mismatch
+        language_detection_confident = (
+            asr_language_pass and language_probability is not None
+            and language_probability >= LANGUAGE_MISMATCH_CONFIDENCE_THRESHOLD
+        )
+        language_pass = False if hard_language_mismatch else True if language_detection_confident else None
+        if not language_detection_confident and not hard_language_mismatch and "language_detection_uncertain" not in warnings:
+            warnings.append("language_detection_uncertain")
         if rubric_obj is not None and rubric_obj.language_ok is False:
             language_pass = False
         checks = compute_checks(
@@ -988,8 +1050,9 @@ def run_assessment(
             duration_pass_ratio=settings.duration_pass_ratio,
             language_pass=language_pass,
         )
+        checks["language_detection_confident"] = language_detection_confident
 
-        if rubric_obj is not None:
+        if rubric_obj is not None and language_detection_confident:
             _emit_status("generating_coaching")
             coaching_prompt_text = coaching_prompt(
                 metrics=metrics,
@@ -1003,7 +1066,7 @@ def run_assessment(
             )
             stage_start = time.perf_counter()
             try:
-                coaching_obj, _coaching_raw = generate_coaching_summary(
+                coaching_obj, _coaching_raw = cached_generation("coaching", coaching_prompt_text, lambda: generate_coaching_summary(
                     provider=chosen_provider,
                     model=chosen_model,
                     prompt=coaching_prompt_text,
@@ -1016,7 +1079,7 @@ def run_assessment(
                     max_validation_retries=1,
                     target_duration_sec=target_duration_sec,
                     rubric=rubric_obj.to_dict(),
-                )
+                ))
             except LLMClientError as exc:
                 warnings.append("coaching_unavailable")
                 errors.append(str(exc))
@@ -1055,7 +1118,10 @@ def run_assessment(
             detected_language_probability=language_probability,
         )
         profile = resolve_language_profile(chosen_language, profile_key=chosen_profile_key)
-        requires_human_review = transcript_uncertain or llm_score is None or not language_pass or checks["content_validity_pass"] is False
+        cloud_asr_preview = chosen_asr_provider == "groq" and asr_quality["status"] == "unknown"
+        if cloud_asr_preview:
+            warnings.append("cloud_asr_preview")
+        requires_human_review = cloud_asr_preview or transcript_uncertain or llm_score is None or not language_pass or checks["content_validity_pass"] is False
         if coaching_obj is None:
             coaching_obj = build_fallback_coaching(
                 metrics=metrics,
@@ -1077,6 +1143,9 @@ def run_assessment(
                 "llm_model": chosen_model,
                 "whisper_model": whisper_model,
                 "asr_provider": chosen_asr_provider,
+                "asr_model": asr_result.get("asr_model", whisper_model),
+                "asr_diagnostic_policy": asr_result.get("diagnostic_policy", TRANSCRIPT_QUALITY_POLICY),
+                "cloud_routes": provenance.get() or [],
                 "expected_language": chosen_language,
                 "feedback_language": chosen_feedback_language,
                 "detected_language": detected_language,
@@ -1126,7 +1195,7 @@ def run_assessment(
                 report["warnings"].append("feedback_generation_failed")
                 report["errors"].append(str(exc))
 
-        validated_report = AssessmentReport.from_dict(report).to_dict()
+        validated_report = AssessmentReport.from_dict(annotate_report(report)).to_dict()
 
         out = {
             "metrics": metrics,

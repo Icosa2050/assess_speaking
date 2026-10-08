@@ -156,11 +156,13 @@ def coaching_prompt(metrics, rubric, theme, duration, *, expected_language, feed
     runner.main()
     assert runner.llm_client._chat_completion is original
     manifest=json.loads((output/'manifest.json').read_text())
-    assert manifest['completed_cases']==len(runner.CASE_IDS)==6
-    rows=[json.loads((output/(case_id+'.json')).read_text()) for case_id in runner.CASE_IDS]
+    ids=[case['case_id'] for case in json.loads(runner.CORPUS.read_text())['cases']]
+    assert manifest['completed_cases']==len(ids)==20
+    assert manifest['failed_cases']==1 and manifest['success_ratio']==19/20
+    rows=[json.loads((output/(case_id+'.json')).read_text()) for case_id in ids]
     assert sum(row['rubric_contract']=='failed' for row in rows)==1
     assert all(row['semantic_verdict']=='requires output inspection' for row in rows)
-    assert len(observed)==5
+    assert len(observed)==19
     assert all(p['response_format']['type']=='json_schema' for p in observed)
     if not historical:
         assert all(p['reasoning_effort']=='low' and p['max_tokens']==8192 for p in observed)

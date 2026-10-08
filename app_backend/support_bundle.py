@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 import json
+import hashlib
 import logging
 import platform
 from pathlib import Path
@@ -131,6 +132,18 @@ def _sanitize_text(content: str, stats: RedactionStats) -> str:
             else:
                 stats.redacted_secret_values += 1
         redacted = pattern.sub(replacer, redacted)
+    # Support diagnostics do not need learner home paths or free-form bearer/key
+    # values. Apply this to strings nested inside JSON as well as plain logs.
+    for pattern in (
+        r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*",
+        r"(?i)\b(?:sk-|gsk_)[A-Za-z0-9_-]{8,}",
+        r"(?i)(?:api_key|access_token|refresh_token|password|authorization|secret_ref)\s*[:=]\s*[^\s,;\"']+",
+        r"(?:/Users/|/home/)[^\s\"'<>]+",
+        r"/(?:private/)?(?:tmp|var/folders|Volumes|Applications|opt|srv|mnt|run)/[^\s\"'<>]+",
+        r"[A-Za-z]:\\Users\\[^\r\n\"'<>]+",
+    ):
+        redacted, count = re.subn(pattern, REDACTED_VALUE, redacted)
+        stats.redacted_secret_values += count
     return redacted
 
 
@@ -155,7 +168,7 @@ def _sanitize_for_bundle(value: Any, stats: RedactionStats) -> Any:
         return [_sanitize_for_bundle(item, stats) for item in value]
     if isinstance(value, tuple):
         return [_sanitize_for_bundle(item, stats) for item in value]
-    return value
+    return _sanitize_text(value, stats) if isinstance(value, str) else value
 
 
 def _read_json(path: Path) -> dict[str, Any] | list[Any] | None:
@@ -223,12 +236,21 @@ def _add_json_file_to_archive(
     _write_json(archive, entry_name, _sanitize_for_bundle(payload, stats))
 
 
-def _add_recent_jobs(archive: zipfile.ZipFile, runtime_config: BackendRuntimeConfig, stats: RedactionStats) -> None:
+def _add_recent_jobs(archive: zipfile.ZipFile, runtime_config: BackendRuntimeConfig, stats: RedactionStats, *, include_reports: bool = False) -> None:
     for job_file in _recent_job_files(runtime_config):
         payload = _read_json(job_file)
         if payload is None:
             continue
-        entry_name = f"jobs/{job_file.name}"
+        if not include_reports:
+            # Job payloads contain transcripts/reports. Diagnostic packages must
+            # respect the independent reports opt-in even for completed jobs.
+            safe = {key: payload[key] for key in ('assessment_id','status','phase','progress','created_at','completed_at') if key in payload}
+            for field in ('request','request_metadata'):
+                if isinstance(payload.get(field),dict):
+                    safe[field]={key:value for key,value in payload[field].items() if key in ('provider','llm_model','whisper','dry_run','sharing_fingerprint')}
+            if isinstance(payload.get('error'),dict): safe['error']={'code':payload['error'].get('code')}
+            payload=safe
+        entry_name = _relative_entry(runtime_config.jobs_dir, job_file, folder_name="jobs")
         _add_json_file_to_archive(archive, entry_name=entry_name, payload=payload, stats=stats)
 
 
@@ -249,7 +271,8 @@ def _add_text_file_to_archive(
 
 def _relative_entry(root: Path, path: Path, *, folder_name: str) -> str:
     relative_path = path.relative_to(root).as_posix()
-    return f"{folder_name}/{relative_path}"
+    identifier = hashlib.sha256(relative_path.encode()).hexdigest()[:16]
+    return f"{folder_name}/{identifier}{path.suffix.lower()}"
 
 
 def _add_optional_tree(
@@ -291,9 +314,11 @@ def create_support_bundle(
     runtime_metadata = build_runtime_metadata(runtime_config.app_data).as_dict()
 
     with zipfile.ZipFile(bundle_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        _write_json(
+        _add_json_file_to_archive(
             archive,
-            "runtime_metadata.json",
+            entry_name="runtime_metadata.json",
+            stats=stats,
+            payload=
             {
                 "platform": {
                     "system": platform.system(),
@@ -314,7 +339,7 @@ def create_support_bundle(
             payload=_backend_state_payload(runtime_config),
             stats=stats,
         )
-        _write_json(archive, "backend_diagnostics.json", _backend_diagnostics_payload(runtime_config))
+        _add_json_file_to_archive(archive, entry_name="backend_diagnostics.json", payload=_backend_diagnostics_payload(runtime_config), stats=stats)
         _add_json_file_to_archive(
             archive,
             entry_name="client/client_snapshot.json",
@@ -327,10 +352,7 @@ def create_support_bundle(
             payload=request.client_diagnostics,
             stats=stats,
         )
-        archive.writestr(
-            "storage_summary.json",
-            build_storage_summary(runtime_config).model_dump_json(indent=2),
-        )
+        _add_json_file_to_archive(archive, entry_name="storage_summary.json", payload=build_storage_summary(runtime_config).model_dump(), stats=stats)
         if runtime_config.log_file.exists():
             _add_text_file_to_archive(
                 archive,
@@ -338,7 +360,7 @@ def create_support_bundle(
                 source=runtime_config.log_file,
                 stats=stats,
             )
-        _add_recent_jobs(archive, runtime_config, stats)
+        _add_recent_jobs(archive, runtime_config, stats, include_reports=request.include_reports)
         if request.include_reports:
             _add_optional_tree(
                 archive,
@@ -370,7 +392,7 @@ def create_support_bundle(
                 "include_reports": request.include_reports,
                 "include_recordings": request.include_recordings,
                 "include_uploads": request.include_uploads,
-                "runtime_metadata": runtime_metadata,
+                "runtime_metadata": _sanitize_for_bundle(runtime_metadata, stats),
                 "redaction": {
                     **stats.as_dict(),
                     "secret_ref_policy": "full_redaction",

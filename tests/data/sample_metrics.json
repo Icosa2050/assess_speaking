@@ -1,0 +1,24 @@
+[
+  {
+    "label": "sample_b2",
+    "level": "B2",
+    "metrics": {
+      "wpm": 118.0,
+      "fillers": 2,
+      "cohesion_markers": 1,
+      "complexity_index": 1
+    },
+    "notes": "Synthetic B2 narrative"
+  },
+  {
+    "label": "sample_c1",
+    "level": "C1",
+    "metrics": {
+      "wpm": 134.0,
+      "fillers": 2,
+      "cohesion_markers": 3,
+      "complexity_index": 3
+    },
+    "notes": "Synthetic C1 analysis"
+  }
+]

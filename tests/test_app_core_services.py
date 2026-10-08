@@ -800,7 +800,7 @@ class AppShellServiceTests(unittest.TestCase):
         self.assertTrue(next(item for item in state.prefs.connections if item.connection_id == "local").is_default)
 
     @mock.patch("app_core.services.delete_secret")
-    def test_delete_provider_connection_removes_secret_and_promotes_remaining_connection(self, mock_delete_secret):
+    def test_delete_selected_connection_requires_explicit_reselection(self, mock_delete_secret):
         with tempfile.TemporaryDirectory() as tmpdir:
             state = AppState(
                 prefs=AppPreferences(
@@ -835,8 +835,8 @@ class AppShellServiceTests(unittest.TestCase):
 
         self.assertTrue(deleted)
         self.assertEqual(len(state.prefs.connections), 1)
-        self.assertEqual(state.prefs.active_connection_id, "backup")
-        self.assertTrue(state.prefs.connections[0].is_default)
+        self.assertEqual(state.prefs.active_connection_id, "__missing__")
+        self.assertFalse(state.prefs.connections[0].is_default)
         mock_delete_secret.assert_called_once()
 
     @mock.patch("app_core.services.llm_health_check")
@@ -1371,14 +1371,16 @@ class AppShellServiceTests(unittest.TestCase):
             }
         )
         self.assertEqual(summary["report_id"], "report-1")
-        self.assertEqual(summary["band"], "B2")
+        self.assertEqual(summary["band"], "")
+        self.assertIsNone(summary["score_overall"])
+        self.assertEqual(summary["eligibility"]["state"], "invalid_content")
         self.assertEqual(summary["notes"], "Remember to add examples.")
         self.assertEqual(summary["strengths"], ["Clear sequencing"])
         self.assertEqual(summary["priorities"], ["More detail"])
         self.assertEqual(summary["learning_language"], "it")
-        self.assertEqual(summary["baseline"]["level"], "B2")
+        self.assertIsNone(summary["baseline"])
         self.assertEqual(summary["failed_gates"], ["topic_pass", "content_validity_pass"])
-        self.assertEqual(summary["progress_items"][0]["kind"], "previous_session")
+        self.assertEqual(summary["progress_items"], [])
 
     def test_load_report_payload_reads_saved_json(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -1,3 +1,4 @@
+import { useSharingRoute, SharingSummary } from "@/lib/setup/sharing";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -13,6 +14,7 @@ import type {
   RuntimeSettingsResponse,
 } from "@/lib/api/types";
 import { createTranslator } from "@/lib/i18n";
+import { MIN_REVIEW_SECONDS } from "@/lib/recordingPolicy";
 import { pollingIntervals, queryKeys } from "@/lib/query/queryClient";
 import {
   resolveSpeakRouteGuardTarget,
@@ -140,6 +142,7 @@ const toReviewState = (
 
 export const SpeakRoute = () => {
   const navigate = useNavigate();
+  const setMicrophoneStatus = useAppStore(state => state.setMicrophoneStatus);
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const preferences = useAppStore((state) => state.preferences);
   const draft = useAppStore((state) => state.draft);
@@ -154,9 +157,12 @@ export const SpeakRoute = () => {
   const clearRecording = useAppStore((state) => state.clearRecording);
   const updateReview = useAppStore((state) => state.updateReview);
 
-  const translate = createTranslator(locale);
+  const translate = useMemo(() => createTranslator(locale), [locale]);
   const lifecycleState = useAppStore(selectAssessmentLifecycleState);
   const canSubmitAssessment = useAppStore(selectCanSubmitAssessment);
+  const microphoneSetupPassed = useAppStore(state => state.microphoneSetupPassed);
+  const microphoneDeviceId = useAppStore(state => state.microphoneDeviceId);
+  const microphoneVoiceProcessing = useAppStore(state => state.microphoneVoiceProcessing);
 
   const runtimeQuery = useQuery({
     queryKey: queryKeys.runtime,
@@ -198,10 +204,12 @@ export const SpeakRoute = () => {
 
   const [inputMode, setInputMode] = useState<RecordingInputMethod>(recording.inputMethod || "record");
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [recordedDurationSec, setRecordedDurationSec] = useState<number | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const uploadController = useRef<AbortController | null>(null);
+  const submission = useRef<{ signature: string; requestId: string } | null>(null);
   const savedUpload = useRef<{ file: File; audioId: string } | null>(null);
   const previewUrlRef = useRef("");
 
@@ -213,6 +221,7 @@ export const SpeakRoute = () => {
     }
     setPreviewUrl("");
     setAttachedFile(null);
+    setRecordedDurationSec(null);
     clearRecording({ preserveInputs: true });
   };
 
@@ -234,7 +243,7 @@ export const SpeakRoute = () => {
     setInputMode(nextMode);
   };
 
-  const handleFileSelected = (file: File | null) => {
+  const handleFileSelected = (file: File | null, durationSec?: number) => {
     clearAttachment();
     if (!file) {
       return;
@@ -248,6 +257,7 @@ export const SpeakRoute = () => {
     previewUrlRef.current = nextPreviewUrl;
     setPreviewUrl(nextPreviewUrl);
     setAttachedFile(file);
+    setRecordedDurationSec(durationSec ?? null);
     updateRecording({
       status: "ready",
       assessmentState: "idle",
@@ -266,6 +276,8 @@ export const SpeakRoute = () => {
     });
   };
 
+  const sharingSelection = { provider: runtimeQuery.data?.provider || "", llm_model: runtimeQuery.data?.model || "", llm_base_url: runtimeQuery.data?.base_url || "", whisper: effectiveWhisperModel };
+  const sharingQuery = useSharingRoute(sharingSelection, Boolean(runtimeQuery.data?.configured));
   const assessmentStatusQuery = useQuery({
     queryKey: queryKeys.assessment(recording.job.assessmentId || "pending"),
     queryFn: () => apiClient.getAssessmentStatus(recording.job.assessmentId),
@@ -289,7 +301,7 @@ export const SpeakRoute = () => {
       status: nextStatus.status,
       phase: nextStatus.phase,
       progress: nextStatus.progress,
-      error: nextStatus.error?.detail ?? "",
+      error: nextStatus.error?.code === "recording_too_short" ? translate("speak.recording_too_short") : nextStatus.error?.detail ?? "",
       reportPath: nextStatus.report_path ?? "",
     });
 
@@ -297,7 +309,7 @@ export const SpeakRoute = () => {
       updateReview(toReviewState(nextStatus));
       navigate("/review");
     }
-  }, [assessmentStatusQuery.data, navigate, setRecordingJob, updateReview]);
+  }, [assessmentStatusQuery.data, navigate, setRecordingJob, updateReview, translate]);
 
   useEffect(() => {
     if (assessmentStatusQuery.error instanceof ApiClientError) {
@@ -321,8 +333,9 @@ export const SpeakRoute = () => {
   const assessmentOwnsAttachment =
     lifecycleState === "queued" || lifecycleState === "running" || lifecycleState === "completed";
   const hasAttachment = assessmentOwnsAttachment ? storeHasAttachment : Boolean(attachedFile);
-  const canSubmitLiveAttachment = canSubmitAssessment && Boolean(attachedFile);
-  const statusMessage = buildStatusMessage({
+  const shortRecording = recordedDurationSec !== null && recordedDurationSec < MIN_REVIEW_SECONDS;
+  const canSubmitLiveAttachment = canSubmitAssessment && Boolean(attachedFile) && !shortRecording && Boolean(sharingQuery.data?.available);
+  const statusMessage = shortRecording ? translate("speak.recording_too_short") : buildStatusMessage({
     errorMessage: recording.error || recording.job.error,
     hasAttachment,
     hasMissingAttachment: storeHasAttachment && !attachedFile && !assessmentOwnsAttachment,
@@ -347,7 +360,7 @@ export const SpeakRoute = () => {
     hasAttachment && lifecycleState !== "queued" && lifecycleState !== "running"
       ? "optional"
       : "inline";
-  const submitDisabledHelp = !hasAttachment ? translate("speak.submit_disabled_no_audio") : null;
+  const submitDisabledHelp = shortRecording ? translate("speak.recording_too_short") : !hasAttachment ? translate("speak.submit_disabled_no_audio") : null;
   const confidencePhase: SpeakConfidencePhase =
     lifecycleState === "failed" || lifecycleState === "cancelled"
       ? "failed"
@@ -357,7 +370,9 @@ export const SpeakRoute = () => {
           ? "submit"
           : "record";
   const handoffHint =
-    lifecycleState === "cancelled"
+    shortRecording
+      ? translate("speak.recording_too_short")
+      : lifecycleState === "cancelled"
       ? translate("speak.handoff_cancelled")
       : lifecycleState === "failed"
         ? translate("speak.handoff_failed")
@@ -370,12 +385,17 @@ export const SpeakRoute = () => {
               : translate("speak.handoff_idle");
 
   const handleSubmit = async () => {
-    if (!attachedFile) {
+    if (!attachedFile || shortRecording || !sharingQuery.data?.available) {
       return;
     }
 
     try {
       setIsSubmitting(true);
+      const refreshed = await sharingQuery.refetch();
+      if (!refreshed.data?.available || refreshed.data.fingerprint !== sharingQuery.data?.fingerprint) {
+        setRecordingError(translate("sharing.changed"));
+        await Promise.all([runtimeQuery.refetch(), runtimeSettingsQuery.refetch()]); return;
+      }
       updateRecording({
         error: "",
         assessmentState: "idle",
@@ -399,7 +419,9 @@ export const SpeakRoute = () => {
       const openrouterAppTitle = String(
         activeRuntimeConnection?.openrouter_app_title || "",
       ).trim();
-      const created = await apiClient.createAssessment({
+      const request = {
+        sharing_fingerprint: sharingQuery.data.fingerprint,
+        ...(recording.job.assessmentId && ["failed", "cancelled"].includes(recording.job.status) ? {resume_assessment_id: recording.job.assessmentId} : {}),
         audio_id: savedUpload.current.audioId,
         whisper: effectiveWhisperModel,
         provider: runtime?.provider || "",
@@ -423,7 +445,17 @@ export const SpeakRoute = () => {
               openrouter_app_title: openrouterAppTitle || undefined,
             }
           : {}),
-      });
+      };
+      const signature = JSON.stringify(request);
+      if (submission.current?.signature !== signature) submission.current = { signature, requestId: crypto.randomUUID() };
+      const body = { ...request, request_id: submission.current.requestId };
+      let created;
+      try { created = await apiClient.createAssessment(body); }
+      catch (error) {
+        if (!(error instanceof TypeError)) throw error;
+        // The backend deduplicates this ID even if the accepted response was lost.
+        created = await apiClient.createAssessment(body);
+      }
       setRecordingAssessing({
         assessmentId: created.assessment_id,
         status: created.status,
@@ -433,13 +465,16 @@ export const SpeakRoute = () => {
         reportPath: "",
       });
     } catch (error) {
+      if (error instanceof ApiClientError && error.code === "sharing_changed") {
+        await Promise.all([runtimeQuery.refetch(), runtimeSettingsQuery.refetch(), sharingQuery.refetch()]);
+      }
       if (error instanceof ApiClientError && error.responseStatus === 404) savedUpload.current = null;
       setRecordingError(
         error instanceof DOMException && error.name === "AbortError"
           ? translate("speak.upload_cancelled")
           : error instanceof DOMException && error.name === "NetworkError" ? translate("speak.upload_connection_lost")
           : error instanceof DOMException && error.name === "TimeoutError" ? translate("speak.upload_timeout")
-          : error instanceof ApiClientError ? error.detail : error instanceof Error ? error.message : String(error || translate("speak.job_status_unknown")),
+          : error instanceof ApiClientError ? (error.code === "sharing_changed" ? translate("sharing.changed") : error.detail) : error instanceof Error ? error.message : String(error || translate("speak.job_status_unknown")),
       );
     } finally {
       setIsSubmitting(false);
@@ -534,7 +569,13 @@ export const SpeakRoute = () => {
         }}
       >
         <fieldset disabled={isSubmitting || lifecycleState === "queued" || lifecycleState === "running"} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-        <RecorderPanel
+        <p data-testid="speak.minimum_duration">{translate("speak.recording_too_short")}</p>
+        <SharingSummary route={sharingQuery.data} locale={locale} />
+      <RecorderPanel onMicrophoneStatusChange={setMicrophoneStatus}
+          microphoneSetupPassed={microphoneSetupPassed}
+          microphoneDeviceId={microphoneDeviceId}
+          microphoneVoiceProcessing={microphoneVoiceProcessing}
+          onSetupMicrophone={() => navigate("/runtime-setup#runtime-setup-microphone")}
           canRemove={Boolean(attachedFile)}
           downloadName={attachedFile?.name}
           inputMode={inputMode}

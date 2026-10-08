@@ -1,4 +1,5 @@
-import { useEffect, useMemo } from "react";
+import { SharingSummary } from "@/lib/setup/sharing";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -160,14 +161,24 @@ const GuardCard = ({
 );
 
 export const ReviewRoute = () => {
+  const [resumeError, setResumeError] = useState("");
+  const [resuming, setResuming] = useState(false);
+  const resumeSubmission = useRef<{sessionId: string; requestId: string} | null>(null);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const recording = useAppStore((state) => state.recording);
   const review = useAppStore((state) => state.review);
+  const retainedReport = (review.payload.report || {}) as Record<string, unknown>;
+  const warnings = Array.isArray(retainedReport.warnings) ? retainedReport.warnings : [];
+  const unfinishedAnalysis = !retainedReport.rubric || warnings.some(warning =>
+    ["coaching_unavailable", "llm_unavailable", "llm_invalid_schema"].includes(String(warning)));
+  const resumeSessionId = String(retainedReport.session_id || review.reportId);
+  const sharingQuery = useQuery({ queryKey: ["runtime", "resume-sharing", resumeSessionId], queryFn: () => apiClient.getResumeSharingRoute(resumeSessionId), enabled: Boolean(resumeSessionId) && unfinishedAnalysis, retry: false });
   const clearAttempt = useAppStore((state) => state.clearAttempt);
   const setCurrentPage = useAppStore((state) => state.setCurrentPage);
   const setRecordingError = useAppStore((state) => state.setRecordingError);
+  const setRecordingAssessing = useAppStore(state => state.setRecordingAssessing);
   const setRecordingJob = useAppStore((state) => state.setRecordingJob);
   const setReturnTo = useAppStore((state) => state.setReturnTo);
   const updateReview = useAppStore((state) => state.updateReview);
@@ -280,12 +291,39 @@ export const ReviewRoute = () => {
     );
   }
 
+
   return (
     <div
       style={{ display: "grid", gap: "1rem" }}
       data-testid="review-route"
       data-semantic-id="review-route"
     >
+      {unfinishedAnalysis && <section style={cardStyle}>
+        <SharingSummary route={sharingQuery.data} locale={locale} />
+        <button type="button" disabled={resuming || !sharingQuery.data?.available} onClick={() => {
+          setResuming(true); setResumeError("");
+          const report = (review.payload.report || {}) as Record<string, unknown>;
+          const id = String(report.session_id || review.reportId);
+          if (resumeSubmission.current?.sessionId !== id) resumeSubmission.current = {sessionId: id, requestId: crypto.randomUUID()};
+          const requestId = resumeSubmission.current.requestId;
+          const submit = async () => {
+            const refreshed = await sharingQuery.refetch();
+            if (!refreshed.data?.available || refreshed.data.fingerprint !== sharingQuery.data?.fingerprint) throw new Error(translate("sharing.changed"));
+            try { return await apiClient.resumeHistory(id, requestId, refreshed.data.fingerprint); }
+            catch (error) {
+              if (!(error instanceof TypeError)) throw error;
+              return apiClient.resumeHistory(id, requestId, refreshed.data.fingerprint);
+            }
+          };
+          void submit().then(created => {
+            resumeSubmission.current = null;
+            updateReview({payload: {}, reportId: "", summary: "", transcript: "", scoreOverall: null, band: ""});
+            setRecordingAssessing({assessmentId: created.assessment_id, status: created.status, phase: created.status, progress: 0, error: "", reportPath: ""});
+          }).catch(error => setResumeError(error instanceof Error ? error.message : String(error))).finally(() => setResuming(false));
+        }}>{({en: "Resume unfinished analysis", it: "Riprendi l’analisi incompleta", de: "Unvollständige Analyse fortsetzen", es: "Continuar el análisis pendiente", fr: "Reprendre l’analyse inachevée"})[locale]}</button>
+        {resumeError && <p role="alert">{resumeError}</p>}
+      </section>}
+
       <section
         style={nextStepCardStyle}
         data-testid="review-next-step-card"
@@ -409,6 +447,7 @@ export const ReviewRoute = () => {
       </section>
       <ReviewSummary
         hideCoachSummary
+        hideNextStep
         summary={summary}
         translate={translate}
         warningsSlot={

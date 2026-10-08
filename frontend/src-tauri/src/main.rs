@@ -1,10 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod desktop;
+mod support;
 use std::sync::Mutex;
 use tauri::Manager;
 
 fn bridge(runtime: &desktop::Runtime) -> String {
-    format!("window.__VOSTAVO_DESKTOP__ = Object.freeze({});", serde_json::json!({
+    format!("window.__VOSTAVO_DESKTOP__ = Object.freeze(Object.assign({{}}, {}, {{ saveLearnerBackup: (backupId) => window.__TAURI_INTERNALS__.invoke(\"save_learner_backup\", {{ backupId }}), draftSupportEmail: (bundleId, recipient) => window.__TAURI_INTERNALS__.invoke(\"draft_support_email\", {{ bundleId, recipient }}), saveSupportBundle: (bundleId) => window.__TAURI_INTERNALS__.invoke(\"save_support_bundle\", {{ bundleId }}) }}));", serde_json::json!({
         "apiBaseUrl": runtime.api_base_url, "sessionToken": runtime.session_token,
         "mediaToken": runtime.media_token,
         "deploymentMode": "local", "launchMode": runtime.launch_mode,
@@ -30,6 +31,7 @@ fn main() {
     #[cfg(target_os = "macos")]
     context.set_default_window_icon(None);
     let app = tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![support::save_support_bundle, support::save_learner_backup, support::draft_support_email])
         .manage(Mutex::new(None::<desktop::BackendOwner>))
         .setup(|app| {
             tauri::WebviewWindowBuilder::new(app, "loading", tauri::WebviewUrl::App("loading.html".into()))

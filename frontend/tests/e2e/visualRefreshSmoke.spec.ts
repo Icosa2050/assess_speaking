@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Page, type Route } from "../fixtures";
 
 const speakerId = "visual-refresh-smoke";
 const screenshotDir = process.env.VISUAL_REFRESH_SCREENSHOT_DIR ?? "";

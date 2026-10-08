@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Opt-in local generation comparison using six fixed, authored bilingual cases.
+"""Opt-in local generation comparison using explicitly selected authored bilingual cases.
 
 Use --prompt-ref to load prompts from a TRUSTED local Git commit while retaining
 current provider/validation code. This executes that commit's Python prompt
@@ -23,10 +23,27 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from assessment_runtime import assessment_prompts, llm_client
 
-CASE_IDS = {'en_modal_can_clean', 'en_modal_can_seeded',
-            'it_person_agreement_subj_clause_clean', 'it_person_agreement_subj_clause_seeded',
-            'en_optional_style', 'it_optional_style'}
 CORPUS = ROOT / 'tests/fixtures/feedback_quality/bilingual_v2.json'
+
+
+def select_cases(corpus, requested=None, exclusions=None):
+    cases = corpus['cases']
+    ids = [case['case_id'] for case in cases]
+    if len(ids) != len(set(ids)) or not ids:
+        raise ValueError('Corpus case IDs must be unique and nonempty')
+    requested = list(requested) if requested is not None else ids
+    exclusions = exclusions or {}
+    if not requested or len(requested) != len(set(requested)) or not set(requested) <= set(ids):
+        raise ValueError('Requested case IDs are empty, unknown or duplicated')
+    if not set(exclusions) <= set(ids) or any(not str(reason).strip() for reason in exclusions.values()):
+        raise ValueError('Every exclusion requires a known ID and nonempty reason')
+    omitted = set(ids) - set(requested)
+    if omitted - set(exclusions):
+        raise ValueError('Every omitted corpus case requires --exclude CASE_ID=REASON')
+    selected = set(requested) - set(exclusions)
+    if not selected:
+        raise ValueError('No generation cases selected')
+    return [case for case in cases if case['case_id'] in selected]
 
 
 def save(path: Path, value: dict) -> None:
@@ -39,7 +56,9 @@ def main() -> None:
     parser.add_argument('--model', required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--prompt-ref', help='Trusted local Git commit/ref for historical prompt code')
-    parser.add_argument('--case', action='append', dest='case_ids', help='Select fixed case ID (repeatable)')
+    parser.add_argument('--corpus', type=Path, default=CORPUS)
+    parser.add_argument('--case', action='append', dest='case_ids', help='Select corpus case ID (repeatable)')
+    parser.add_argument('--exclude', action='append', default=[], metavar='CASE_ID=REASON')
     parser.add_argument('--ollama-reasoning', choices=['none', 'low'], help='Experimental override; no production setting change')
     parser.add_argument('--completion-token-limit', type=int, choices=[4096,8192], default=4096)
     args = parser.parse_args()
@@ -57,25 +76,26 @@ def main() -> None:
         prompts = types.ModuleType('historical_assessment_prompts')
         exec(compile(prompt_source, 'historical_assessment_prompts', 'exec'), prompts.__dict__)
     (args.output / 'prompts.py').write_text(prompt_source, encoding='utf-8')
-    cases = [c for c in json.loads(CORPUS.read_text(encoding='utf-8'))['cases'] if c['case_id'] in CASE_IDS]
-    if {c['case_id'] for c in cases} != CASE_IDS or len(cases) != len(CASE_IDS):
-        raise ValueError('Fixed generation cases missing or duplicated')
-    if args.case_ids:
-        if not set(args.case_ids) <= CASE_IDS:
-            raise ValueError('Unknown case ID')
-        cases = [c for c in cases if c['case_id'] in args.case_ids]
-    paths = [CORPUS, Path(__file__), *(ROOT / path for path in (
+    corpus = args.corpus.resolve()
+    exclusions = {}
+    for item in args.exclude:
+        key, separator, reason = item.partition('=')
+        if not separator or key in exclusions: parser.error('Exclusions require distinct CASE_ID=REASON entries')
+        exclusions[key] = reason
+    cases = select_cases(json.loads(corpus.read_text(encoding='utf-8')), args.case_ids, exclusions)
+    paths = [corpus, Path(__file__), *(ROOT / path for path in (
         'assessment_runtime/llm_client.py', 'assessment_runtime/output_validation.py',
         'assessment_runtime/style_validation.py', 'assessment_runtime/feedback_claims.py', 'assess_core/schemas.py'))]
     for source in paths:
-        destination = args.output / 'sources' / source.relative_to(ROOT)
+        destination = args.output / 'sources' / (source.relative_to(ROOT) if source.is_relative_to(ROOT) else Path('external-corpus') / source.name)
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(source.read_bytes())
     manifest = dict(started_at=datetime.now(timezone.utc).isoformat(), provider=args.provider, model=args.model,
                     prompt_commit=prompt_commit, prompt_sha256=hashlib.sha256(prompt_source.encode()).hexdigest(),
                     rubric_prompt_version=prompts.RUBRIC_PROMPT_VERSION, coaching_prompt_version=prompts.COACHING_PROMPT_VERSION,
-                    source_hashes={str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths},
-                    planned_case_ids=[c['case_id'] for c in cases], completed_cases=0, timeout_sec=90, validation_retries=1,
+                    source_hashes={str(p.relative_to(ROOT) if p.is_relative_to(ROOT) else Path('external-corpus') / p.name): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths},
+                    corpus_sha256=hashlib.sha256(corpus.read_bytes()).hexdigest(), exclusions=exclusions,
+                    planned_case_ids=[c['case_id'] for c in cases], completed_cases=0, failed_cases=0, timeout_sec=90, validation_retries=1,
                     ollama_reasoning_override=args.ollama_reasoning, completion_token_limit=args.completion_token_limit,
                     limitation='Authored text; schema acceptance is not semantic accuracy. Scores are not level labels.')
     save(args.output / 'manifest.json', manifest)
@@ -88,8 +108,14 @@ def main() -> None:
         if args.ollama_reasoning is not None:
             payload['reasoning_effort'] = args.ollama_reasoning
         kwargs['extra_payload'] = payload
-        raw = original_chat(*params, **kwargs)
-        calls.append(dict(prompt=kwargs.get('prompt', params[2] if len(params)>2 else None), raw=raw))
+        call = dict(prompt=kwargs.get('prompt', params[2] if len(params)>2 else None), status='running')
+        calls.append(call)
+        try:
+            raw = original_chat(*params, **kwargs)
+        except Exception as exc:
+            call.update(status='failed', error_type=type(exc).__name__)
+            raise
+        call.update(status='completed', raw=raw)
         return raw
 
     llm_client._chat_completion = recorded_chat
@@ -123,6 +149,8 @@ def main() -> None:
             row.update(calls=list(calls), elapsed_sec=round(time.monotonic()-started, 3))
             save(args.output / (case['case_id']+'.json'), row)
             manifest['completed_cases'] += 1
+            manifest['failed_cases'] += int(row.get('rubric_contract') != 'accepted' or row.get('coaching_contract') != 'accepted')
+            manifest['success_ratio'] = (manifest['completed_cases'] - manifest['failed_cases']) / len(cases)
             save(args.output / 'manifest.json', manifest)
             print(case['case_id'], row['rubric_contract'], row.get('coaching_contract', 'skipped'), flush=True)
     finally:

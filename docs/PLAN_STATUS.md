@@ -1,6 +1,6 @@
 # Plan Status
 
-Last updated: 2026-10-04
+Last updated: 2026-10-08
 
 This file distinguishes living roadmap documents from completed task plans. The
 rule of thumb is:
@@ -48,7 +48,9 @@ rule of thumb is:
 
 | Plan | Classification | Notes |
 |---|---|---|
-| `docs/superpowers/plans/2026-10-04-cloud-provider-access.md` | Implemented; live authorization pending | ChatGPT browser sign-in and xAI Grok API connection; existing OpenRouter integration retained. Local regression and English/Italian connection journeys pass. |
+| [October 6 app gap action plan](plans/2026-10-06-app-gap-action-plan.md) | Local engineering implemented; external acceptance tracked | Nickname persistence, mandatory mic calibration/metering, decoded 30-second minimum, eligibility/sharing guards, bounded browser lanes, production two-store backup/restore/archive/purge and native support ZIP save/attached Mail draft are implemented. See [current verification](reviews/2026-10-08-app-gap-implementation/storage/README.md) and the revised plan. Actual crackling diagnosis, public signing/live accounts, human evaluation and broader accessibility remain open. |
+| `docs/superpowers/plans/2026-10-06-cloud-gap-remediation.md` | Implemented offline; internal DMG accepted | Three production fixes, account/UI recovery, real process fixtures and corrected ASR CI discovery implemented. 1,103 backend, 14 cloud process, 12 real-ASR, 182 frontend and 26 browser cases pass; fresh internal DMG accepted. Remote/live/native/public-release gates remain separate. |
+| `docs/superpowers/plans/2026-10-04-cloud-provider-access.md` | Implemented baseline; October 6 repair slice accepted | Baseline plus reviewed October 6 repairs are implemented; use the cloud-gap implementation evidence for current acceptance and remaining live/quality/release gates. |
 | `docs/DESKTOP_HOSTED_PRODUCT_PLAN.md` | Approved future roadmap | Local React/Tauri baseline is current; hosted persistence/auth is not implemented yet. |
 | `docs/superpowers/specs/2026-07-22-signed-macos-dmg-design.md` | Approved packaging design, not yet executed | Developer ID-signed, notarized, stapled arm64 DMG with a PyInstaller onedir helper, packaged-PyAV ffmpeg removal, per-launch loopback auth token, and an inside-out signing pipeline. First entry under the new `docs/superpowers/specs/` directory for design specs that precede an execution plan. |
 | `docs/LOCAL_DESKTOP_UX_REFACTORING_PLAN.md` | Supporting UX roadmap | Keep active, but execute only with PAL review for screen changes. |

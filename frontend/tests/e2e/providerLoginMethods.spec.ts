@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures";
 import type { RuntimeSettingsConnection } from "../../src/lib/api/types";
 
 // All credentials here are fixtures. Real keys never enter browser traces.

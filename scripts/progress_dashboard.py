@@ -9,6 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 from statistics import mean
 from typing import Iterable, List, Optional
+from assessment_runtime.eligibility import eligibility
 
 from assessment_runtime.progress_analysis import (
     filter_records,
@@ -48,6 +49,12 @@ class Record:
     grammar_error_categories: tuple[str, ...]
     coherence_issue_categories: tuple[str, ...]
     report_path: str
+    eligibility_state: str = "content_unverified"
+
+    def __post_init__(self) -> None:
+        if self.eligibility_state != "assessable":
+            self.overall = self.final_score = self.band = None
+            self.requires_human_review = True
 
 
 def parse_float(value: str) -> Optional[float]:
@@ -85,6 +92,15 @@ def parse_pipe_list(value: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in value.split("|") if item.strip())
 
 
+def eligibility_label(record: Record) -> str:
+    return {
+        "assessable": "Assessable",
+        "insufficient_speech": "Insufficient speech — grades withheld",
+        "invalid_content": "Invalid content — grades withheld",
+        "content_unverified": "Content unverified — grades withheld",
+    }.get(record.eligibility_state, "Content unverified — grades withheld")
+
+
 @lru_cache(maxsize=512)
 def infer_learning_language(report_path: str) -> str:
     if not report_path:
@@ -111,6 +127,21 @@ def infer_learning_language(report_path: str) -> str:
         if value:
             return value
     return ""
+
+
+def _report_payload(report_path: str) -> dict:
+    if not report_path:
+        return {}
+    try:
+        payload = json.loads(Path(report_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _payload_eligibility(payload: dict) -> dict:
+    report = payload.get("report", payload)
+    return eligibility(report if isinstance(report, dict) else {}, payload.get("metrics"))
 
 
 def load_history(history_path: Path) -> List[Record]:
@@ -162,6 +193,7 @@ def load_history(history_path: Path) -> List[Record]:
                     grammar_error_categories=parse_pipe_list(row.get("grammar_error_categories", "")),
                     coherence_issue_categories=parse_pipe_list(row.get("coherence_issue_categories", "")),
                     report_path=report_path,
+                    eligibility_state=_payload_eligibility(_report_payload(report_path))["state"],
                 )
             )
     return sorted(rows, key=lambda r: r.timestamp)
@@ -186,18 +218,12 @@ def summarise(records: Iterable[Record]) -> dict:
 
 
 def load_progress_delta(report_path: str) -> Optional[dict]:
-    if not report_path:
-        return None
-    path = Path(report_path)
-    if not path.exists():
-        return None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    payload = _report_payload(report_path)
+    if _payload_eligibility(payload)["state"] != "assessable":
         return None
     report = payload.get("report", payload)
     progress_delta = report.get("progress_delta")
-    return progress_delta if isinstance(progress_delta, dict) else None
+    return progress_delta if isinstance(progress_delta, dict) and progress_delta.get("comparison_verified") is True else None
 
 
 def render_terminal(
@@ -238,6 +264,7 @@ def render_terminal(
     table.add_column("WPM", justify="right")
     table.add_column("Overall", justify="right")
     table.add_column("Final", justify="right")
+    table.add_column("Assessment status")
     table.add_column("Whisper", style="dim")
     table.add_column("LLM", style="dim")
 
@@ -251,6 +278,7 @@ def render_terminal(
             f"{rec.wpm:.1f}" if rec.wpm is not None else "–",
             f"{rec.overall:.2f}" if rec.overall is not None else "–",
             f"{rec.final_score:.2f}" if rec.final_score is not None else "–",
+            eligibility_label(rec),
             rec.whisper,
             rec.llm,
         )
@@ -327,6 +355,7 @@ def render_html(
             f"<td>{fmt(rec.wpm)}</td>"
             f"<td>{fmt(rec.overall, 2)}</td>"
             f"<td>{fmt(rec.final_score, 2)}</td>"
+            f"<td>{eligibility_label(rec)}</td>"
             f"<td>{rec.whisper}</td>"
             f"<td>{rec.llm}</td>"
             f"<td><a href='{rec.report_path}'>JSON</a></td>"
@@ -434,7 +463,7 @@ def render_html(
 <div class="meta">{' &nbsp;|&nbsp; '.join(summary_html) if summary_html else 'Keine Daten.'}</div>
 <table>
 <thead>
-<tr><th>#</th><th>Datum</th><th>Label</th><th>Task</th><th>Audio</th><th>WPM</th><th>Overall</th><th>Final</th><th>Whisper</th><th>LLM</th><th>Report</th></tr>
+<tr><th>#</th><th>Datum</th><th>Label</th><th>Task</th><th>Audio</th><th>WPM (observation)</th><th>Overall</th><th>Final</th><th>Assessment status</th><th>Whisper</th><th>LLM</th><th>Report</th></tr>
 </thead>
 <tbody>
 {''.join(rows_html)}

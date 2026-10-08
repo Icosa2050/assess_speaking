@@ -1,16 +1,16 @@
-import { expect, test } from "@playwright/test";
+import { assertCapturedDuration, calibrateMicrophone } from "./microphone";
+import { expect, test } from "../fixtures";
 import { playAndSeek } from "../live/workflowEvidence";
 
-test.use({ launchOptions: { args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--disable-audio-output"] } });
-const backend = "http://127.0.0.1:8814";
+const backend = process.env.VOSTAVO_FIXTURE_BACKEND_URL!;
 for (const language of ["en", "it"] as const) {
   test.describe(`timed rehearsal ${language}`, () => {
     test.use({ locale: language });
     test("preparation → three saved parts → reload → recovered analysis → targeted retry", async ({ page, request, context }, testInfo) => {
       await request.put(`${backend}/v1/runtime/settings`, { data: { ui_locale: language, whisper_model: "small",
         connection: { provider_choice: "ollama_local", label: "Rehearsal fixture inference", model: "journey-fixture", base_url: "http://127.0.0.1:11434/v1" } } });
+      await calibrateMicrophone(page, "/rehearsal", true);
       await page.clock.install();
-      await page.goto("/rehearsal");
       await page.getByTestId("rehearsal-speaker").fill(`oral-${language}`);
       await page.getByTestId("rehearsal-language").selectOption(language);
       await page.getByTestId("rehearsal-goal").selectOption("B2");
@@ -31,12 +31,13 @@ for (const language of ["en", "it"] as const) {
       for (const [index, seconds] of [180, 180, 240].entries()) {
         await page.getByTestId("speak.record_start").click();
         await expect(page.getByTestId("speak.record_stop")).toBeVisible();
-        // Record real media briefly, then advance the UI clock to test bounded stop.
+        // Capture at least 30 seconds of decoded media before testing the UI cap.
         // This is not a fifteen-minute audio or model-quality test.
-        await page.waitForTimeout(2200);
+        await page.waitForTimeout(45_000);
         await page.clock.fastForward(seconds * 1000);
         await expect(page.getByTestId("speak.record_stop")).toHaveCount(0);
         await expect(page.getByTestId("rehearsal-save-part")).toBeEnabled();
+        await assertCapturedDuration(page);
         if (index === 0) {
           await page.evaluate(() => {
             const original = IDBObjectStore.prototype.put;
@@ -70,6 +71,8 @@ for (const language of ["en", "it"] as const) {
         if (index === 2) await expect(page.getByTestId("rehearsal-analyse")).toBeEnabled();
         if (index === 0) {
           await page.reload();
+          await page.getByRole("button", { name: /oral-/ }).click();
+          await calibrateMicrophone(page, "/rehearsal");
           await page.getByRole("button", { name: /oral-/ }).click();
           await expect(page.getByTestId("rehearsal-screen")).toContainText(language === "en" ? "Part 2 of 3" : "Parte 2 di 3");
         }
@@ -117,13 +120,18 @@ for (const language of ["en", "it"] as const) {
       await page.screenshot({ path: testInfo.outputPath(`${language}-whole-rehearsal.png`), fullPage: true });
       await page.setViewportSize({ width: 390, height: 844 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.setViewportSize({ width: 1280, height: 900 });
       await page.getByTestId("rehearsal-retry-2").click();
       await page.getByTestId("rehearsal-prepare").click();
       await page.getByTestId("rehearsal-speak").click();
+      await calibrateMicrophone(page, "/rehearsal");
+      await page.getByRole("button", { name: /oral-/ }).first().click();
       await page.getByTestId("speak.record_start").click();
       await expect(page.getByTestId("speak.record_stop")).toBeVisible();
-      await page.waitForTimeout(2200);
+      await page.waitForTimeout(45_000);
       await page.getByTestId("speak.record_stop").click();
+      await expect(page.getByTestId("rehearsal-save-part")).toBeEnabled();
+      await assertCapturedDuration(page);
       await page.getByTestId("rehearsal-save-part").click();
       await page.getByTestId("rehearsal-analyse").click();
       await expect(page.getByTestId("rehearsal-retry-0")).toBeVisible({ timeout: 45000 });

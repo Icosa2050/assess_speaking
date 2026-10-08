@@ -1,22 +1,20 @@
+import { connectInputMeter, microphoneContext, rememberInputSettings, RecordingSignal } from "@/lib/setup/audioMeter";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 
+import { microphoneConstraints, microphoneErrorStatus, type MicrophoneStatus } from "@/lib/setup/microphone";
+import { capturedAudioSeconds, preferredRecordingMimeType } from "@/lib/setup/audioCapture";
+import { MIN_CAPTURE_SECONDS, MIN_REVIEW_SECONDS } from "@/lib/recordingPolicy";
 import { Icon } from "@/components/ui/Icon";
 import type { RecordingInputMethod } from "@/lib/state/sessionDraft";
 
 import styles from "./RecorderPanel.module.css";
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
-type RecorderPhase = "idle" | "requesting" | "recording" | "error";
+type RecorderPhase = "idle" | "requesting" | "recording" | "finalizing" | "error";
 type VisualizerState = "idle" | "requesting" | "recording" | "ready" | "upload" | "error";
 
 const MAX_RECORDING_SECONDS = 5 * 60;
 const MEDIA_PERMISSION_TIMEOUT_MS = 8_000;
-const RECORDING_MIME_TYPES = [
-  "audio/webm;codecs=opus",
-  "audio/webm",
-  "audio/mp4",
-  "audio/ogg",
-] as const;
 
 const recordingMimeExtension = (mimeType: string): string => {
   if (mimeType.includes("mp4")) {
@@ -28,13 +26,6 @@ const recordingMimeExtension = (mimeType: string): string => {
   return "webm";
 };
 
-const preferredRecordingMimeType = (): string => {
-  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") {
-    return "";
-  }
-
-  return RECORDING_MIME_TYPES.find((mimeType) => MediaRecorder.isTypeSupported(mimeType)) ?? "";
-};
 
 const isLocalRecordingHost = (): boolean => {
   if (typeof window === "undefined") {
@@ -150,13 +141,18 @@ const uploadBoxStyle = {
   cursor: "pointer",
 } as const;
 
-const visualizerBarScales = [0.36, 0.68, 0.46, 0.82, 0.54, 0.74, 0.42, 0.62, 0.36] as const;
+const idleLevels = Array<number>(9).fill(0);
 
 export const RecorderPanel = ({
   canRemove,
   maxSeconds = MAX_RECORDING_SECONDS,
   allowUpload = true,
   onRecordingActiveChange,
+  onMicrophoneStatusChange,
+  microphoneSetupPassed = false,
+  microphoneDeviceId = "",
+  microphoneVoiceProcessing = true,
+  onSetupMicrophone,
   downloadName,
   inputMode,
   onFileSelected,
@@ -169,12 +165,17 @@ export const RecorderPanel = ({
   translate,
 }: {
   canRemove: boolean;
+  onMicrophoneStatusChange?: (status: MicrophoneStatus) => void;
+  microphoneSetupPassed?: boolean;
+  microphoneDeviceId?: string;
+  microphoneVoiceProcessing?: boolean;
+  onSetupMicrophone?: () => void;
   maxSeconds?: number;
   allowUpload?: boolean;
   onRecordingActiveChange?: (active: boolean) => void;
   downloadName?: string;
   inputMode: RecordingInputMethod;
-  onFileSelected: (file: File | null) => void;
+  onFileSelected: (file: File | null, durationSec?: number) => void;
   onInputModeChange: (mode: RecordingInputMethod) => void;
   onRemove: () => void;
   previewUrl: string;
@@ -186,6 +187,11 @@ export const RecorderPanel = ({
   const [recorderPhase, setRecorderPhase] = useState<RecorderPhase>("idle");
   const [recorderMessage, setRecorderMessage] = useState("");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [levels, setLevels] = useState(idleLevels);
+  const [signalWarning, setSignalWarning] = useState("");
+  const meterContext = useRef<AudioContext | null>(null);
+  const meterTimer = useRef<number | null>(null);
+  const signal = useRef<RecordingSignal | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const discardStopRef = useRef(false);
   const recorderFailedRef = useRef(false);
@@ -200,7 +206,7 @@ export const RecorderPanel = ({
   const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    onRecordingActiveChange?.(recorderPhase === "requesting" || recorderPhase === "recording");
+    onRecordingActiveChange?.(recorderPhase === "requesting" || recorderPhase === "recording" || recorderPhase === "finalizing");
   }, [onRecordingActiveChange, recorderPhase]);
 
   const clearTimer = useCallback(() => {
@@ -223,6 +229,10 @@ export const RecorderPanel = ({
   }, []);
 
   const cleanupRecorder = useCallback(() => {
+    if (meterTimer.current !== null) window.clearInterval(meterTimer.current);
+    meterTimer.current = null;
+    void meterContext.current?.close().catch(() => undefined);
+    meterContext.current = null;
     clearTimer();
     clearStopFallback();
     stopStream();
@@ -231,11 +241,12 @@ export const RecorderPanel = ({
   }, [clearStopFallback, clearTimer, stopStream]);
 
   const finalizeRecording = useCallback(
-    (recorder: MediaRecorder) => {
+    async (recorder: MediaRecorder) => {
       if (recorderRef.current !== recorder && chunksRef.current.length === 0) {
         return;
       }
 
+      const finalizationId = requestIdRef.current;
       const chunks = [...chunksRef.current];
       const shouldDiscard = discardStopRef.current;
       const recordedSeconds = startedAtRef.current
@@ -272,14 +283,25 @@ export const RecorderPanel = ({
       const file = new File(chunks, `recording-${timestamp}.${extension}`, {
         type: selectedMimeType,
       });
-      onFileSelected(file);
+      // Saving a file cannot grant setup calibration. Preserve the take even if
+      // the input needs attention, and require a new setup sample next time.
+      if (signal.current) onMicrophoneStatusChange?.(signal.current.result);
+      setRecorderPhase("finalizing");
+      const decodedSeconds = await capturedAudioSeconds(file);
+      if (!mountedRef.current || requestIdRef.current !== finalizationId) return;
+      setRecorderPhase("idle");
+      const duration = decodedSeconds ?? recordedSeconds;
+      setElapsedSeconds(Math.floor(duration));
+      onFileSelected(file, duration);
       setRecorderMessage(
-        recordedSeconds >= maxSeconds
+        duration < (decodedSeconds === undefined ? MIN_CAPTURE_SECONDS : MIN_REVIEW_SECONDS)
+          ? translate("speak.recording_too_short")
+          : recordedSeconds >= maxSeconds
           ? translate("speak.recording_auto_stopped")
           : translate("speak.recording_saved"),
       );
     },
-    [cleanupRecorder, maxSeconds, onFileSelected, translate],
+    [cleanupRecorder, maxSeconds, onFileSelected, onMicrophoneStatusChange, translate],
   );
 
   const stopRecording = useCallback(
@@ -341,7 +363,12 @@ export const RecorderPanel = ({
   };
 
   const handleStartRecording = async () => {
+    if (!microphoneSetupPassed) {
+      setRecorderMessage(translate("speak.microphone_setup_required"));
+      return;
+    }
     if (typeof window !== "undefined" && window.isSecureContext === false && !isLocalRecordingHost()) {
+      onMicrophoneStatusChange?.("unsupported");
       setRecorderPhase("error");
       setRecorderMessage(translate("speak.recording_secure_context_required"));
       return;
@@ -352,6 +379,7 @@ export const RecorderPanel = ({
       !navigator.mediaDevices?.getUserMedia ||
       typeof MediaRecorder === "undefined"
     ) {
+      onMicrophoneStatusChange?.("unsupported");
       setRecorderPhase("error");
       setRecorderMessage(translate("speak.recording_unsupported"));
       return;
@@ -362,12 +390,18 @@ export const RecorderPanel = ({
     elapsedSecondsRef.current = 0;
     setElapsedSeconds(0);
     chunksRef.current = [];
+    setSignalWarning(""); setLevels(idleLevels); signal.current = null;
     onFileSelected(null);
+    // Resume synchronously from the Record gesture, before permission awaits.
+    if (typeof AudioContext !== "undefined") {
+      try { meterContext.current = microphoneContext(); void meterContext.current.resume().catch(() => undefined); }
+      catch { setSignalWarning(translate("speak.meter_unavailable")); }
+    }
 
     let requestTimeoutId: number | null = null;
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
-    const streamPromise = navigator.mediaDevices.getUserMedia({ audio: true });
+    const streamPromise = navigator.mediaDevices.getUserMedia(microphoneConstraints(microphoneDeviceId, microphoneVoiceProcessing));
     streamPromise.then(
       (stream) => {
         if (requestIdRef.current !== requestId) {
@@ -397,6 +431,17 @@ export const RecorderPanel = ({
       }
       const mimeType = preferredRecordingMimeType();
       streamRef.current = stream;
+      rememberInputSettings(stream);
+      if (meterContext.current) {
+        const meter = connectInputMeter(meterContext.current, stream);
+        const monitor = new RecordingSignal(); signal.current = monitor;
+        meterTimer.current = window.setInterval(() => {
+          const { rms, peak } = meter.read();
+          setLevels(previous => [...previous.slice(1), Math.min(1, rms * 5)]);
+          const warning = monitor.update(rms, peak);
+          setSignalWarning(warning ? translate(`speak.recording_${warning}_warning`) : "");
+        }, 100);
+      }
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       recorderRef.current = recorder;
       recordingMimeTypeRef.current = recorder.mimeType || mimeType || "audio/webm";
@@ -416,9 +461,10 @@ export const RecorderPanel = ({
         }
         const error = "error" in event ? event.error : undefined;
         setRecorderPhase("error");
+        onMicrophoneStatusChange?.(microphoneErrorStatus(error));
         setRecorderMessage(recordingErrorMessage(translate, error));
       };
-      recorder.onstop = () => finalizeRecording(recorder);
+      recorder.onstop = () => { void finalizeRecording(recorder); };
 
       recorder.start(1_000);
       startedAtRef.current = Date.now();
@@ -445,6 +491,7 @@ export const RecorderPanel = ({
         return;
       }
       setRecorderPhase("error");
+      onMicrophoneStatusChange?.(error instanceof Error && error.name === "TimeoutError" ? "timeout" : microphoneErrorStatus(error));
       setRecorderMessage(recordingErrorMessage(translate, error));
     }
   };
@@ -452,6 +499,8 @@ export const RecorderPanel = ({
   const visibleStatusMessage =
     inputMode === "upload"
       ? statusMessage
+      : recorderPhase === "finalizing"
+      ? translate("speak.recording_checking")
       : recorderPhase === "requesting"
       ? translate("speak.recording_requesting")
       : recorderPhase === "recording"
@@ -511,21 +560,21 @@ export const RecorderPanel = ({
         data-semantic-id="speak.recording_visualizer"
       >
         <div className={styles.visualizerBars} aria-hidden="true">
-          {visualizerBarScales.map((scale, index) => (
+          {levels.map((scale, index) => (
             <span
-              // The fixed pattern gives the learner a voice-level cue without touching microphone streams.
-              key={`${scale}-${index}`}
+              key={index}
               className={styles.visualizerBar}
               style={
                 {
                   "--bar-delay": `${index * 90}ms`,
-                  "--bar-height": `${1.1 + scale * 3.1}rem`,
+                  "--bar-height": `${0.15 + scale * 4}rem`,
                 } as CSSProperties
               }
             />
           ))}
         </div>
       </div>
+      {signalWarning && <p role="status" data-testid="speak.signal_warning">{signalWarning}</p>}
       <div
         aria-label={translate("speak.input_method")}
         style={{
@@ -564,10 +613,16 @@ export const RecorderPanel = ({
             gap: "0.625rem",
           }}
         >
+          {!microphoneSetupPassed ? <div data-testid="speak.microphone_setup_required">
+            <p>{translate("speak.microphone_setup_required")}</p>
+            {onSetupMicrophone ? <button type="button" data-testid="speak.microphone_setup" onClick={onSetupMicrophone}>
+              {translate("runtime_setup.setup_guide_check_microphone")}
+            </button> : null}
+          </div> : null}
           <button
             type="button"
             onClick={handleStartRecording}
-            disabled={recorderPhase === "requesting" || recorderPhase === "recording"}
+            disabled={!microphoneSetupPassed || recorderPhase === "requesting" || recorderPhase === "recording" || recorderPhase === "finalizing"}
             aria-pressed={recorderPhase === "recording"}
             className={styles.controlButton}
             style={primaryActionButtonStyle}
