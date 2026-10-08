@@ -290,11 +290,11 @@ export const RecorderPanel = ({
       const decodedSeconds = await capturedAudioSeconds(file);
       if (!mountedRef.current || requestIdRef.current !== finalizationId) return;
       setRecorderPhase("idle");
-      const duration = decodedSeconds ?? recordedSeconds;
+      const duration = decodedSeconds ?? Math.max(0, recordedSeconds - (MIN_CAPTURE_SECONDS - MIN_REVIEW_SECONDS));
       setElapsedSeconds(Math.floor(duration));
       onFileSelected(file, duration);
       setRecorderMessage(
-        duration < (decodedSeconds === undefined ? MIN_CAPTURE_SECONDS : MIN_REVIEW_SECONDS)
+        duration < MIN_REVIEW_SECONDS
           ? translate("speak.recording_too_short")
           : recordedSeconds >= maxSeconds
           ? translate("speak.recording_auto_stopped")

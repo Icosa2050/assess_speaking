@@ -126,6 +126,28 @@ mod tests {
         assert_eq!(fs::read(attachment).unwrap(), b"private draft fixture");
         fs::remove_dir_all(root).unwrap();
     }
+    #[test]
+    fn expires_only_old_owned_draft_attachments() {
+        let root = directory();
+        let drafts = root.join("support-email-drafts"); fs::create_dir(&drafts).unwrap();
+        let old = drafts.join("bundle_0123456789ab.zip");
+        let fresh = drafts.join("bundle_0123456789ac.zip");
+        let unrelated = drafts.join("learner.zip");
+        let now = std::time::SystemTime::now();
+        let expired = now - std::time::Duration::from_secs(8 * 24 * 60 * 60);
+        for file in [&old, &fresh, &unrelated] { fs::write(file, b"private fixture").unwrap(); }
+        for file in [&old, &unrelated] {
+            fs::File::options().write(true).open(file).unwrap()
+                .set_times(fs::FileTimes::new().set_modified(expired)).unwrap();
+        }
+        #[cfg(unix)] {
+            std::os::unix::fs::symlink(&unrelated, drafts.join("bundle_0123456789ad.zip")).unwrap();
+        }
+        prune_draft_attachments(&drafts, now).unwrap();
+        assert!(!old.exists()); assert!(fresh.exists()); assert!(unrelated.exists());
+        #[cfg(unix)] { assert!(fs::symlink_metadata(drafts.join("bundle_0123456789ad.zip")).is_ok()); }
+        fs::remove_dir_all(root).unwrap();
+    }
 }
 
 pub fn backup_source(root: &Path, id: &str) -> Result<PathBuf, String> {
@@ -171,6 +193,23 @@ pub fn valid_recipient(recipient: &str) -> bool {
         && parts.next().is_none() && recipient.bytes().all(|b| b.is_ascii_alphanumeric() || b"._+-@".contains(&b))
 }
 
+fn prune_draft_attachments(directory: &Path, now: std::time::SystemTime) -> Result<(), String> {
+    for entry in fs::read_dir(directory).map_err(|_| "Could not check retained email attachments".to_string())? {
+        let entry = entry.map_err(|_| "Could not check retained email attachments".to_string())?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let owned = name.strip_prefix("bundle_").and_then(|n| n.strip_suffix(".zip"))
+            .is_some_and(|id| id.len() == 12 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
+        let metadata = fs::symlink_metadata(entry.path()).map_err(|_| "Could not check retained email attachments".to_string())?;
+        let expired = metadata.modified().ok().and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age > std::time::Duration::from_secs(7 * 24 * 60 * 60));
+        if owned && metadata.is_file() && !metadata.file_type().is_symlink() && expired {
+            fs::remove_file(entry.path()).map_err(|_| "Could not remove an expired email attachment".to_string())?;
+        }
+    }
+    Ok(())
+}
+
 pub fn draft_attachment(root: &Path, source: &Path) -> Result<PathBuf, String> {
     // Mail may read an attachment after its automation reply. Keep a private
     // draft-owned copy independent of the expiring download package.
@@ -184,6 +223,9 @@ pub fn draft_attachment(root: &Path, source: &Path) -> Result<PathBuf, String> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).map_err(|_| "Could not protect email attachments".to_string())?;
     }
+    // Expire app-owned copies on the next draft handoff; keep newer copies so
+    // Mail has time to import attachments independently of download cleanup.
+    prune_draft_attachments(&directory, std::time::SystemTime::now())?;
     let destination = directory.join(source.file_name().ok_or("Missing attachment filename")?);
     atomic_save(source, &destination).map_err(|_| "Could not retain the email attachment. Save the ZIP and attach it manually.".to_string())?;
     Ok(destination)

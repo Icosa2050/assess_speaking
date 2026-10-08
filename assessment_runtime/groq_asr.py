@@ -94,7 +94,13 @@ def transcribe(path: Path, *, api_key: str, model: str, language: str | None = N
                         raise GroqASRError('Reconnect the Groq transcription account.')
                     if response.status_code != 200:
                         raise GroqASRError('Groq transcription failed. Retry the retained recording.')
-                    return normalize(response.json(), lo, start, end)
+                    try:
+                        payload = response.json()
+                    except ValueError:
+                        raise GroqASRError('Groq transcription failed. Retry the retained recording.') from None
+                    if not isinstance(payload, dict):
+                        raise GroqASRError('Groq transcription failed. Retry the retained recording.')
+                    return normalize(payload, lo, start, end)
                 value = cached('chunk-' + index, {'audio_sha256': audio_hash, 'model': model, 'language': 'auto', 'start': start, 'end': end, 'policy': 2}, upload) if cached else upload()
                 results.append(value)
                 target.unlink()

@@ -1085,6 +1085,21 @@ def submit_assessment_request(request: dict[str, Any]) -> tuple[AssessmentJobSta
     if runtime_error:
         return None, runtime_error
     try:
+        if not request.get("sharing_fingerprint"):
+            route = backend_client.get_sharing_route(
+                {key: request.get(key, "") for key in ("provider", "llm_model", "llm_base_url", "whisper")},
+                log_dir=request.get("log_dir"),
+            )
+            # Legacy local clients can accept a route confined to this computer.
+            # External destinations require the caller to display and confirm it.
+            if not (
+                route.get("available") and route.get("fingerprint")
+                and (route.get("audio") or {}).get("local") is True
+                and (route.get("analysis") or {}).get("local") is True
+                and route.get("fallback") is None
+            ):
+                return None, "Review and confirm the sharing route before submitting this recording."
+            request = {**request, "sharing_fingerprint": route["fingerprint"]}
         upload = backend_client.upload_audio_path(
             request["audio_path"],
             filename=Path(str(request["audio_path"])).name,
@@ -1254,15 +1269,17 @@ def history_rows(log_dir: str | Path | None = None) -> list[dict[str, Any]]:
         payload = load_report_payload(getattr(record, "report_path", "")) or {}
         meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
         metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
+        report = payload.get("report") if isinstance(payload.get("report"), dict) else {}
+        checks = report.get("checks") if isinstance(report.get("checks"), dict) else {}
         from assessment_runtime.eligibility import eligibility
-        assessment_eligibility = eligibility(payload.get("report") or {}, metrics)
+        assessment_eligibility = eligibility({**report, "checks": checks}, metrics)
         assessable = assessment_eligibility["state"] == "assessable"
         duration = getattr(record, "duration_sec", None)
         words = getattr(record, "word_count", None)
         rows.append(
             {
                 "eligibility": assessment_eligibility,
-                "content_validity_pass": (payload.get("report", {}).get("checks") or {}).get("content_validity_pass"),
+                "content_validity_pass": checks.get("content_validity_pass"),
                 "practice": meta.get("practice") if isinstance(meta.get("practice"), dict) else None,
                 "duration_sec": duration,
                 "word_count": words,

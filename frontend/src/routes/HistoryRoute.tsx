@@ -464,7 +464,7 @@ export const HistoryRoute = () => {
         />
         <div ref={detailRef} tabIndex={-1} className={historyStyles.detail} role="region" aria-label={translate("history.details_title")}>
           {selectedSessionId && <div>
-            <p>{translate("journal.archive_confirm")}</p>
+            {archiveConfirm && <p>{translate("journal.archive_confirm")}</p>}
             {archiveError && <p role="alert">{archiveError}</p>}
             <button disabled={archiveBusy} onClick={() => {
               if (!archiveConfirm) { setArchiveConfirm(true); return; }

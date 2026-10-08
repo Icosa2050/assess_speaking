@@ -147,6 +147,7 @@ describe("Review route", () => {
 
   it("does not turn a three-word attempt into a scored result", async () => {
     const payload = { ...reviewPayload, report: { ...reviewPayload.report,
+      rubric: undefined,
       checks: { language_pass: true, topic_pass: null, content_validity_pass: null,
         duration_pass: false, min_words_pass: false },
       warnings: ["llm_skipped_low_word_count"],
@@ -159,17 +160,19 @@ describe("Review route", () => {
     expect(screen.getByTestId("review-next-step-score")).not.toHaveTextContent("3.5");
     expect(screen.getByTestId("review-metric-score-overall")).not.toHaveTextContent("3.5");
     expect(screen.getByTestId("review-baseline")).not.toHaveTextContent("Pass");
+    expect(screen.queryByRole("button", {name: "Resume unfinished analysis"})).not.toBeInTheDocument();
   });
 
   it.each(["content_unverified", "invalid_content"])("withholds stale saved grades for %s reports", async state => {
     renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
       ...validDraftState, review: {reportId: "report-1", transcript: "Full transcript text", scoreOverall: 3.5, band: "B2", summary: "Saved report", payload: {
-        ...reviewPayload, report: {...reviewPayload.report, eligibility: {version: 1, state, metrics_reliable: false, reasons: [], task_complete: null}},
+        ...reviewPayload, report: {...reviewPayload.report, rubric: undefined, warnings: [], eligibility: {version: 1, state, metrics_reliable: false, reasons: [], task_complete: null}},
       }},
     }});
     await screen.findByTestId("review-next-step-card");
     expect(screen.getByTestId("review-next-step-score")).not.toHaveTextContent("3.5");
     expect(screen.getByTestId("review-metric-score-overall")).not.toHaveTextContent("3.5");
+    expect(screen.queryByRole("button", {name: "Resume unfinished analysis"})).not.toBeInTheDocument();
   });
 
   it("recovers a lost resume response without creating a different submission", async () => {
@@ -179,7 +182,7 @@ describe("Review route", () => {
     const {store} = renderWithProviders(<AppFrame />, {
       initialEntries: ["/review"], locale: "en", appState: {
         ...validDraftState,
-        review: {reportId:"report-1",transcript:"Full transcript text",scoreOverall:3.5,band:"B2",summary:"Saved partial report",payload:{...reviewPayload,report:{...reviewPayload.report,warnings:["coaching_unavailable"]}}},
+        review: {reportId:"report-1",transcript:"Full transcript text",scoreOverall:3.5,band:"B2",summary:"Saved partial report",payload:{...reviewPayload,report:{...reviewPayload.report,rubric:undefined,eligibility:{state:"content_unverified"},warnings:["llm_unavailable"]}}},
       },
     });
     await waitFor(() => expect(screen.getByRole("button", {name:"Resume unfinished analysis"})).toBeEnabled());

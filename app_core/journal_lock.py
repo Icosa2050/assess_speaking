@@ -22,11 +22,12 @@ def journal_guard(root: Path, *, exclusive=False):
                 import fcntl
                 fcntl.flock(handle.fileno(), (fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH) | fcntl.LOCK_NB)
             acquired = True
+        except (BlockingIOError, PermissionError) as exc:
+            raise JournalMaintenanceError('The journal is in use by another process. Finish its work and retry.') from exc
+        try:
             if not exclusive and (root / 'maintenance/transaction.json').exists():
                 raise JournalMaintenanceError('Storage maintenance is in progress. Finish journal recovery in Settings first.')
             yield
-        except (BlockingIOError, PermissionError) as exc:
-            raise JournalMaintenanceError('The journal is in use by another process. Finish its work and retry.') from exc
         finally:
             if acquired:
                 if os.name == 'nt':

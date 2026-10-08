@@ -12,14 +12,20 @@ def run(seconds, command):
     except subprocess.TimeoutExpired:
         print(f'Check exceeded {seconds:g} seconds; terminating its process group.', file=sys.stderr, flush=True)
         if os.name == 'posix':
-            os.killpg(process.pid, signal.SIGTERM)
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
         else:
             process.terminate()
         try:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             if os.name == 'posix':
-                os.killpg(process.pid, signal.SIGKILL)
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
             else:
                 process.kill()
             process.wait(timeout=5)

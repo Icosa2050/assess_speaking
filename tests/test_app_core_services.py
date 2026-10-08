@@ -1091,6 +1091,7 @@ class AppShellServiceTests(unittest.TestCase):
         payload, error = execute_assessment_request(
             {
                 "audio_path": "sample.wav",
+                "sharing_fingerprint": "explicitly-confirmed-fixture-route",
                 "log_dir": "reports",
                 "whisper": "large-v3",
                 "provider": "openrouter",
@@ -1132,6 +1133,7 @@ class AppShellServiceTests(unittest.TestCase):
         payload, error = execute_assessment_request(
             {
                 "audio_path": "sample.wav",
+                "sharing_fingerprint": "explicitly-confirmed-fixture-route",
                 "log_dir": "reports",
                 "whisper": "large-v3",
                 "provider": "openrouter",
@@ -1163,6 +1165,7 @@ class AppShellServiceTests(unittest.TestCase):
         payload, error = execute_assessment_request(
             {
                 "audio_path": "sample.wav",
+                "sharing_fingerprint": "explicitly-confirmed-fixture-route",
                 "log_dir": "reports",
                 "whisper": "large-v3",
                 "provider": "openrouter",
@@ -1219,13 +1222,19 @@ class AppShellServiceTests(unittest.TestCase):
 
     @mock.patch("app_core.services.backend_client.create_assessment")
     @mock.patch("app_core.services.backend_client.upload_audio_path")
+    @mock.patch("app_core.services.backend_client.get_sharing_route")
     @mock.patch("app_core.services.llm_health_check")
     def test_submit_assessment_request_skips_local_validation_for_dry_run(
         self,
         mock_health_check,
+        mock_route,
         mock_upload,
         mock_create,
     ):
+        mock_route.return_value = {
+            "available": True, "audio": {"local": True}, "analysis": {"local": True},
+            "fallback": None, "fingerprint": "local-fingerprint",
+        }
         mock_upload.return_value = mock.Mock(audio_id="aud_1")
         mock_create.return_value = mock.Mock(
             assessment_id="asmt_1",
@@ -1255,6 +1264,44 @@ class AppShellServiceTests(unittest.TestCase):
         self.assertEqual(job.assessment_id, "asmt_1")
         mock_health_check.assert_not_called()
         self.assertTrue(mock_create.call_args.args[0]["dry_run"])
+        self.assertEqual(mock_create.call_args.args[0]["sharing_fingerprint"], "local-fingerprint")
+        self.assertEqual(mock_route.call_args.args[0]["provider"], "ollama")
+
+    def test_submit_requires_confirmation_before_upload_for_external_routes(self):
+        local_route = {"available": True, "audio": {"local": True}, "analysis": {"local": True},
+                       "fallback": None, "fingerprint": "route-fingerprint"}
+        routes = [
+            {**local_route, "available": False},
+            {**local_route, "audio": {"local": False}},
+            {**local_route, "analysis": {"local": False}},
+            {**local_route, "fallback": {"local": False}},
+        ]
+        for route in routes:
+            with self.subTest(route=route), mock.patch(
+                "app_core.services.backend_client.get_sharing_route", return_value=route
+            ), mock.patch("app_core.services.backend_client.upload_audio_path") as upload:
+                job, error = submit_assessment_request({"audio_path": "sample.wav", "dry_run": True})
+                self.assertIsNone(job)
+                self.assertIn("sharing route", error)
+                upload.assert_not_called()
+
+    def test_submit_preserves_explicit_sharing_confirmation(self):
+        request = {
+            "audio_path": "sample.wav", "dry_run": True, "sharing_fingerprint": "accepted-route",
+            "whisper": "tiny", "provider": "ollama", "llm_model": "model",
+            "expected_language": "it", "speaker_id": "speaker", "task_family": "free_monologue",
+            "theme": "Travel", "target_duration_sec": 90,
+        }
+        with mock.patch("app_core.services.backend_client.get_sharing_route") as route, mock.patch(
+            "app_core.services.backend_client.upload_audio_path", return_value=mock.Mock(audio_id="aud_1")
+        ), mock.patch("app_core.services.backend_client.create_assessment", return_value=mock.Mock(
+            assessment_id="asmt_1", status=mock.Mock(value="queued")
+        )) as create:
+            job, error = submit_assessment_request(request)
+        self.assertIsNone(error)
+        self.assertIsNotNone(job)
+        route.assert_not_called()
+        self.assertEqual(create.call_args.args[0]["sharing_fingerprint"], "accepted-route")
 
     @mock.patch("app_core.services.backend_client.load_history_detail")
     def test_load_history_detail_payload_returns_backend_payload(self, mock_load_history_detail):

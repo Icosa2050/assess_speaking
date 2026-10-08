@@ -486,7 +486,6 @@ class JobManager:
                 StageCache(cache_root).seed_attempt(retained_id, (retained.get("meta") or {}).get("timestamp"))
         worker_request["stage_cache_dir"] = str(cache_root)
         payload["stage_cache_dir"] = str(cache_root)
-        _write_json(job_file, payload)
         parent = child = None
         if cloud_runtime is not None:
             if cloud_runtime.primary is not None:
@@ -505,13 +504,17 @@ class JobManager:
             parent, child = self._ctx.Pipe()
             worker_request["llm_api_key"] = ""
         args = (str(job_file), worker_request, str(audio_path.resolve()))
-        process = self._ctx.Process(target=_job_worker, args=(*args, child) if child is not None else args)
         try:
+            process = self._ctx.Process(target=_job_worker, args=(*args, child) if child is not None else args)
+            _write_json(job_file, payload)
             process.start()
-        except BaseException:  # quality: allow[broad-except] close IPC handles on failed process creation, then re-raise
-            if parent is not None:
-                parent.close()
-                child.close()
+        except BaseException:  # quality: allow[broad-except] discard unaccepted jobs and close IPC on failed spawn, then re-raise
+            try:
+                job_file.unlink(missing_ok=True)
+            finally:
+                if parent is not None:
+                    parent.close()
+                    child.close()
             raise
         self._processes[assessment_id] = process
         if child is not None:

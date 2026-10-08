@@ -66,6 +66,29 @@ class BackendJobsTests(unittest.TestCase):
 
         self.assertEqual(status.status.value, "completed")
 
+    def test_failed_worker_start_allows_retry_with_same_request_id(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8769)
+            manager = JobManager(config)
+            upload = manager.register_upload(data=b"fake-audio", filename="sample.wav")
+            request = AssessmentCreateRequest(
+                audio_id=upload.audio_id, request_id="retry-start", whisper="tiny",
+                provider="ollama", llm_model="demo-model", expected_language="it",
+                feedback_language="en", speaker_id="speaker", task_family="free_monologue",
+                theme="Travel", target_duration_sec=90,
+            )
+            failed = mock.Mock()
+            failed.start.side_effect = OSError("spawn failed")
+            retried = mock.Mock()
+            with mock.patch.object(manager._ctx, "Process", side_effect=[failed, retried]):
+                with self.assertRaisesRegex(OSError, "spawn failed"):
+                    manager.submit(request)
+                self.assertEqual(list(config.jobs_dir.glob("*.json")), [])
+                created = manager.submit(request)
+            retried.start.assert_called_once_with()
+            self.assertIs(manager._processes[created.assessment_id], retried)
+            self.assertTrue(manager._resolve_audio_path(upload.audio_id).exists())
+
     def test_submit_does_not_persist_llm_api_key_in_job_metadata(self):
         with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
             config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8769)

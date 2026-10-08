@@ -445,16 +445,17 @@ describe("Speak route", () => {
     expect(mockedUploadAudio).not.toHaveBeenCalled();
   });
 
-  it.each([29, 30, 31])("only enables a recorded review after 30 decoded seconds (recorded: %s)", async (duration) => {
+  it.each([29, 30, 31])("requires the encoder margin when recorded audio cannot be decoded (recorded: %s)", async (duration) => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(100_000);
     try {
-      renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+      const {store} = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
       fireEvent.click(await screen.findByRole("button", { name: "Start recording" }));
       await screen.findByRole("button", { name: "Stop recording" });
       clock.mockReturnValue(100_000 + duration * 1000);
       fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+      await waitFor(() => expect(store.getState().recording.status).toBe("ready"));
       const submit = screen.getByTestId("speak.submit");
-      if (duration < 30) expect(submit).toBeDisabled();
+      if (duration < 31) expect(submit).toBeDisabled();
       else await waitFor(() => expect(submit).toBeEnabled());
       expect(mockedCreateAssessment).not.toHaveBeenCalled();
     } finally {

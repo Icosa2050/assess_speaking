@@ -15,7 +15,8 @@ def test_cleanup_refuses_non_owned_paths_and_symlinks(tmp_path):
 
 
 def test_launcher_retains_guard_evidence_and_waits_for_backend_shutdown(tmp_path):
-    root = Path(tempfile.mkdtemp(prefix='vostavo-default-'))
+    # Python's generated suffix can contain underscores, unlike shell mktemp.
+    root = Path(tempfile.mkdtemp(prefix='vostavo-default-under_score_'))
     child = tmp_path / 'backend_fixture.py'
     child.write_text("from pathlib import Path\nimport sys\nroot=Path(sys.argv[1])\n(root/'guards.jsonl').write_text('fixture evidence')\n(root/'backend_state.json').write_text('running')\n(root/'backend_state.json').unlink()\n")
     output = tmp_path / 'evidence'

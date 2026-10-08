@@ -10,7 +10,7 @@ import tempfile
 
 
 def owned_root(root):
-    if root.is_symlink() or root.resolve().parent != Path(tempfile.gettempdir()).resolve() or not re.fullmatch(r'vostavo-(default|connections|journeys)-[A-Za-z0-9]+', root.name):
+    if root.is_symlink() or root.resolve().parent != Path(tempfile.gettempdir()).resolve() or not re.fullmatch(r'vostavo-(default|connections|journeys)-[A-Za-z0-9_]+', root.name):
         raise ValueError('Refusing cleanup of an unowned fixture root')
     return root
 

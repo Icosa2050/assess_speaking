@@ -171,8 +171,15 @@ export const ReviewRoute = () => {
   const review = useAppStore((state) => state.review);
   const retainedReport = (review.payload.report || {}) as Record<string, unknown>;
   const warnings = Array.isArray(retainedReport.warnings) ? retainedReport.warnings : [];
-  const unfinishedAnalysis = !retainedReport.rubric || warnings.some(warning =>
+  const interruptedAnalysis = warnings.some(warning =>
     ["coaching_unavailable", "llm_unavailable", "llm_invalid_schema"].includes(String(warning)));
+  const eligibilityState = String((retainedReport.eligibility as {state?: unknown} | undefined)?.state || "");
+  // An unavailable rubric can itself make content unverified. Keep recovery for
+  // that interruption, while excluding deliberate skips and invalid speech.
+  const intentionallySkipped = warnings.some(warning => String(warning).startsWith("llm_skipped_")) ||
+    ["insufficient_speech", "invalid_content"].includes(eligibilityState) ||
+    (eligibilityState === "content_unverified" && !interruptedAnalysis);
+  const unfinishedAnalysis = !intentionallySkipped && (!retainedReport.rubric || interruptedAnalysis);
   const resumeSessionId = String(retainedReport.session_id || review.reportId);
   const sharingQuery = useQuery({ queryKey: ["runtime", "resume-sharing", resumeSessionId], queryFn: () => apiClient.getResumeSharingRoute(resumeSessionId), enabled: Boolean(resumeSessionId) && unfinishedAnalysis, retry: false });
   const clearAttempt = useAppStore((state) => state.clearAttempt);

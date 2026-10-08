@@ -16,8 +16,14 @@ def install_journal_routes(app, config):
     async def journal_error(request, exc):
         return JSONResponse(status_code=409, content={'detail': {'code': 'storage_error', 'detail': str(exc)}})
 
+    previous_disk_handler = app.exception_handlers.get(OSError)
+
     @app.exception_handler(OSError)
     async def journal_disk_error(request, exc):
+        if not request.url.path.startswith('/v1/journal/'):
+            if previous_disk_handler is not None:
+                return await previous_disk_handler(request, exc)
+            raise exc
         return JSONResponse(status_code=507, content={'detail': {'code': 'storage_error', 'detail': 'Storage operation failed. Check disk space and permissions, then finish recovery in Settings.'}})
 
     @app.middleware('http')

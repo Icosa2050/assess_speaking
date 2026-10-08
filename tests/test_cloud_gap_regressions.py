@@ -91,6 +91,17 @@ def test_actual_asr_http_failure_retains_input(tmp_path,monkeypatch,status):
     with pytest.raises(GroqASRError): transcribe(audio,api_key='fixture',model='whisper-large-v3')
     assert hashlib.file_digest(audio.open('rb'),'sha256').hexdigest()==digest
 
+@pytest.mark.parametrize('body', [b'<html>gateway response</html>', b'[]', b'null'])
+def test_actual_asr_malformed_success_retains_input(tmp_path, monkeypatch, body):
+    from assessment_runtime.groq_asr import transcribe, GroqASRError
+    audio = make_audio(tmp_path / 'audio.wav', 2)
+    original = audio.read_bytes()
+    mock_transport(monkeypatch, lambda _: httpx.Response(200, content=body))
+    with pytest.raises(GroqASRError, match='Retry the retained recording'):
+        transcribe(audio, api_key='fixture', model='whisper-large-v3')
+    assert audio.read_bytes() == original
+
+
 def test_recursive_split_resumes_only_unfinished_chunk(tmp_path,monkeypatch):
     import assessment_runtime.groq_asr as groq
     audio=make_audio(tmp_path/'audio.wav')

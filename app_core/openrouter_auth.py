@@ -99,7 +99,8 @@ class OpenRouterAuth:
             item = self.pending.get(attempt_id)
             if not item or self.status(attempt_id)['status'] != 'waiting':
                 return False
-            return webbrowser.open(item['authorization_url'])
+            url = item['authorization_url']
+        return webbrowser.open(url)
 
     def _expire(self, attempt_id, server):
         with self.lock:
