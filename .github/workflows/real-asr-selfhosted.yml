@@ -80,10 +80,20 @@ jobs:
           python scripts/check_integration_junit.py sample "$ARTIFACT_DIR/sample-audio.xml"
 
       - name: Generate sample assessment report
+        timeout-minutes: 5
         run: |
           set -o pipefail
+          # Repeat authored TTS into a separate 31-second functional fixture.
+          # This checks real ASR/report generation, not CEFR assessment quality.
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.prepare_journey_audio import prepare
+
+          prepare(Path(os.environ["ARTIFACT_DIR"]) / "report-audio")
+          PY
           python assess_speaking.py \
-            samples/cefr/it/B1/travel_story.wav \
+            "$ARTIFACT_DIR/report-audio/it/B1/travel_story.wav" \
             --whisper "$WHISPER_MODEL" \
             --theme "parla della tua giornata in italiano" \
             --target-duration-sec 60 \
