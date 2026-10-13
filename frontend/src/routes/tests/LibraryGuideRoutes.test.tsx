@@ -120,6 +120,22 @@ describe("Library and Guide routes", () => {
     });
   });
 
+  it("only allows themes to be added for profiled practice languages", async () => {
+    renderWithProviders(<AppFrame />, { initialEntries: ["/library"], locale: "en" });
+    await screen.findByRole("heading", { name: "Pick your next exercise" });
+
+    expect(screen.getByTestId("library.language_filter")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Practice language")).toHaveLength(2);
+    const languageSelects = screen.getAllByRole("combobox") as HTMLSelectElement[];
+    expect(languageSelects.map((select) => Array.from(select.options).map((option) => option.value))).toEqual([
+      ["en", "it"], ["en", "it"], ["B1", "B2", "C1"],
+      ["travel_narrative", "personal_experience", "opinion_monologue", "picture_description", "free_monologue"],
+    ]);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "A new English topic" } });
+    fireEvent.click(screen.getByTestId("library.save_theme"));
+    expect(await screen.findByText("A new English topic")).toBeVisible();
+  });
+
   it("shows a loading state while shipped samples are loading", async () => {
     mockedGetSamples.mockImplementationOnce(() => new Promise(() => undefined));
 

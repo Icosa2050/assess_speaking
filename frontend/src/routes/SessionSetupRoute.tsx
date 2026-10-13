@@ -173,7 +173,7 @@ export const SessionSetupRoute = () => {
     draftThemeHydratedRef.current = true;
 
     const themeMatch = availableThemes.find((theme) => theme.title === draft.themeLabel);
-    if (!draft.themeLabel) {
+    if (!draft.themeLabel || !availableLanguages.includes(draft.learningLanguage)) {
       setSelectedThemeTitle(availableThemes[0]?.title ?? "");
       return;
     }
@@ -188,7 +188,7 @@ export const SessionSetupRoute = () => {
     setSelectedThemeMode("custom");
     setCustomTheme(draft.themeLabel);
     setAdvancedTopicOpen(true);
-  }, [availableThemes, draft.themeLabel]);
+  }, [availableLanguages, availableThemes, draft.learningLanguage, draft.themeLabel]);
 
   useEffect(() => {
     if (

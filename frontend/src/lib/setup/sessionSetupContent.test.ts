@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isValidTaskFamily, normalizeThemeLibrary, parseSessionSetupContent } from "./sessionSetupContent";
+import { createThemeLibraryRepository, isValidTaskFamily, languageCodes, normalizeThemeLibrary, parseSessionSetupContent } from "./sessionSetupContent";
 
 describe("session setup content", () => {
   const validEnglishTemplates = {
@@ -63,5 +63,16 @@ describe("session setup content", () => {
     expect(library.en.themes.find((theme) => theme.title === "A made up prompt")?.task_family).toBe(
       "free_monologue",
     );
+  });
+
+  it("keeps stored German themes out of practice and rejects new themes for disabled languages", () => {
+    const library = normalizeThemeLibrary({
+      de: { label: "Deutsch", practice_enabled: true, themes: [{ title: "Mein Thema", level: "B1", task_family: "free_monologue" }] },
+    });
+    expect(library.de.themes.some((theme) => theme.title === "Mein Thema")).toBe(true);
+    expect(languageCodes(library)).toEqual(["en", "it"]);
+    expect(() => createThemeLibraryRepository().addCustomTheme({
+      languageCode: "de", languageLabel: "Deutsch", title: "Noch ein Thema", level: "B1", taskFamily: "free_monologue",
+    })).toThrow(/not enabled for practice/);
   });
 });
