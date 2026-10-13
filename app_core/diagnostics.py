@@ -19,7 +19,7 @@ from app_backend.contracts import ReadinessCheck, ReadinessResponse
 from assessment_runtime.asr import describe_model_availability
 from assessment_runtime.llm_client import health_check as llm_health_check
 from app_core.bootstrap import PROJECT_ROOT, bootstrap_app_environment, is_within_project_checkout
-from app_core.services import build_client_snapshot
+from app_core.services import build_client_snapshot, _health_payload_models, provider_choice_for_connection
 from app_core.runtime_providers import requires_api_key
 from app_core.runtime_resolver import active_connection, resolve_connection_runtime
 from app_core.app_data import AppDataPaths
@@ -174,38 +174,40 @@ def _runtime_diagnostics(state, *, include_runtime_health: bool) -> list[Startup
         )
 
     if include_runtime_health and connection.provider_kind in {"ollama", "lmstudio"}:
-        try:
-            result = llm_health_check(
-                provider=runtime.provider,
-                base_url=runtime.base_url,
-                api_key=runtime.api_key,
-                timeout_sec=1.5,
-                openrouter_http_referer=runtime.extra_headers.get("HTTP-Referer", ""),
-                openrouter_app_title=runtime.extra_headers.get("X-Title", ""),
-            )
-            diagnostics.append(
-                StartupDiagnostic(
-                    key="runtime_local_health",
-                    status="ok",
-                    title_key="diagnostics.runtime_local_health_title",
-                    detail_key="diagnostics.runtime_local_health_ok_detail",
-                    detail_args={
-                        "provider": runtime.provider,
-                        "endpoint": str(result.get("endpoint") or runtime.base_url),
-                    },
-                )
-            )
-        except Exception as exc:  # quality: allow[broad-except] provider health errors should stay learner-facing
-            diagnostics.append(
-                StartupDiagnostic(
-                    key="runtime_local_health",
-                    status="error",
-                    title_key="diagnostics.runtime_local_health_title",
-                    detail_key="diagnostics.runtime_local_health_error_detail",
-                    detail_args={"provider": runtime.provider, "detail": str(exc)},
-                )
-            )
+        diagnostic, _models = _runtime_health_diagnostic(runtime)
+        diagnostics.append(diagnostic)
     return diagnostics
+
+
+def _runtime_health_diagnostic(runtime) -> tuple[StartupDiagnostic, list[str]]:
+    """Share the bounded probe and catalog while preserving diagnostic output."""
+    try:
+        result = llm_health_check(
+            provider=runtime.provider,
+            base_url=runtime.base_url,
+            api_key=runtime.api_key,
+            timeout_sec=1.5,
+            openrouter_http_referer=runtime.extra_headers.get("HTTP-Referer", ""),
+            openrouter_app_title=runtime.extra_headers.get("X-Title", ""),
+        )
+        return StartupDiagnostic(
+            key="runtime_local_health",
+            status="ok",
+            title_key="diagnostics.runtime_local_health_title",
+            detail_key="diagnostics.runtime_local_health_ok_detail",
+            detail_args={
+                "provider": runtime.provider,
+                "endpoint": str(result.get("endpoint") or runtime.base_url),
+            },
+        ), _health_payload_models(result.get("payload"))
+    except Exception as exc:  # quality: allow[broad-except] provider health errors should stay learner-facing
+        return StartupDiagnostic(
+            key="runtime_local_health",
+            status="error",
+            title_key="diagnostics.runtime_local_health_title",
+            detail_key="diagnostics.runtime_local_health_error_detail",
+            detail_args={"provider": runtime.provider, "detail": str(exc)},
+        ), []
 
 
 def _microphone_diagnostic() -> StartupDiagnostic:
@@ -218,7 +220,7 @@ def _microphone_diagnostic() -> StartupDiagnostic:
 
 
 def _ai_tutor_readiness(state) -> ReadinessCheck:
-    diagnostics = {item.key: item for item in _runtime_diagnostics(state, include_runtime_health=True)}
+    diagnostics = {item.key: item for item in _runtime_diagnostics(state, include_runtime_health=False)}
     runtime = diagnostics["runtime"]
     check = ReadinessCheck(key="ai_tutor", state="available", blocking=True, reason="available")
     # Allowlist display values: never forward health errors, endpoints, or secrets.
@@ -227,8 +229,18 @@ def _ai_tutor_readiness(state) -> ReadinessCheck:
         check.state, check.reason = "needs_setup", "not_configured"
     elif "runtime_api_key" in diagnostics and diagnostics["runtime_api_key"].status != "ok":
         check.state, check.reason = "needs_setup", "credential_missing"
-    elif "runtime_local_health" in diagnostics and diagnostics["runtime_local_health"].status != "ok":
-        check.state, check.reason = "unavailable", "local_service_unreachable"
+    else:
+        connection = active_connection(state.prefs)
+        resolved = resolve_connection_runtime(connection)
+        choice = provider_choice_for_connection(connection)
+        if (choice == "ollama_cloud" or connection.auth_mode == "bearer") and not resolved.api_key:
+            check.state, check.reason = "needs_setup", "credential_missing"
+        elif connection.is_local and choice in {"ollama_local", "lmstudio_local"}:
+            health, models = _runtime_health_diagnostic(resolved)
+            if health.status != "ok":
+                check.state, check.reason = "unavailable", "local_service_unreachable"
+            elif resolved.model not in models:
+                check.state, check.reason = "needs_setup", "model_unavailable"
     return check
 
 

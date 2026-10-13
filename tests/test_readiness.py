@@ -21,7 +21,7 @@ def readiness_env(tmp_path, monkeypatch):
     monkeypatch.setattr("app_core.runtime_resolver.get_secret", lambda ref: secrets.get(ref, ""))
     monkeypatch.setattr("app_core.runtime_resolver.SessionSecretStore", lambda: Mock(get_secret=Mock(return_value="")))
     monkeypatch.setattr("app_core.services.secret_store_status", lambda **kwargs: Mock(persistent=True))
-    health = Mock(return_value={"endpoint": "http://private-ai-key@localhost:11434/api/tags"})
+    health = Mock(return_value={"endpoint": "http://private-ai-key@localhost:11434/api/tags", "payload": {"models": [{"name": "tutor-model"}]}})
     monkeypatch.setattr("app_core.diagnostics.llm_health_check", health)
     cached = Mock(return_value={"cached": True, "cached_path": "/private/cache"})
     monkeypatch.setattr("app_core.diagnostics.describe_model_availability", cached)
@@ -137,7 +137,7 @@ def test_readiness_is_typed_and_advertised(readiness_env):
     check = schema["components"]["schemas"]["ReadinessCheck"]["properties"]
     assert set(check["state"]["enum"]) == {"available", "needs_setup", "unavailable"}
     assert set(check["key"]["enum"]) == {"ai_tutor", "speech_recognition", "media_decoder", "storage"}
-    assert set(check["reason"]["enum"]) == {"available", "not_configured", "credential_missing", "local_service_unreachable", "model_not_cached", "media_decoder_missing", "storage_not_writable"}
+    assert set(check["reason"]["enum"]) == {"available", "not_configured", "credential_missing", "local_service_unreachable", "model_not_cached", "model_unavailable", "media_decoder_missing", "storage_not_writable"}
     assert "/v1/readiness" in client.get("/v1/contract").json()["product_routes"]
 
 
@@ -153,4 +153,45 @@ def test_diagnostics_contract_is_unchanged(readiness_env):
     assert by_key["microphone"]["status"] == "info"
     for item in by_key.values():
         assert set(item) == {"key", "status", "title_key", "detail_key", "detail_args"}
+    health.assert_not_called()
+
+
+@pytest.mark.parametrize("provider,models", [
+    ("ollama", {"models": [{"name": "other-model"}]}),
+    ("lmstudio", {"data": [{"id": "other-model"}]}),
+    ("ollama", {"models": []}),
+])
+def test_reachable_local_service_requires_saved_model(readiness_env, provider, models):
+    config, client, _, health, _ = readiness_env
+    save_selection(config, provider=provider)
+    health.return_value["payload"] = models
+    response = client.get("/v1/readiness")
+    assert response.status_code == 200
+    check = response.json()["checks"][0]
+    assert (check["state"], check["reason"], check["blocking"]) == ("needs_setup", "model_unavailable", True)
+    assert response.json()["ready"] is False
+    health.assert_called_once()
+
+
+@pytest.mark.parametrize("has_key", [True, False])
+def test_ollama_cloud_checks_credential_without_network(readiness_env, has_key):
+    config, client, secrets, health, _ = readiness_env
+    connection = ProviderConnection(
+        connection_id="tutor", provider_kind="ollama", default_model="cloud-model",
+        base_url="https://ollama.com/v1", is_local=False, secret_ref="ai-secret",
+        provider_metadata={"deployment": "cloud"},
+    )
+    save_workspace_prefs(config.app_data.reports_dir, {
+        "connections": serialize_connections([connection]), "active_connection_id": "tutor", "whisper_model": "medium",
+    })
+    if not has_key:
+        secrets.pop("ai-secret")
+    health.side_effect = AssertionError("Cloud services must not be probed")
+    response = client.get("/v1/readiness")
+    assert response.status_code == 200
+    check = response.json()["checks"][0]
+    expected = ("available", "available") if has_key else ("needs_setup", "credential_missing")
+    assert (check["state"], check["reason"]) == expected
+    assert check["blocking"] is True
+    assert response.json()["ready"] is has_key
     health.assert_not_called()

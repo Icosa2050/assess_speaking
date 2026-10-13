@@ -124,7 +124,7 @@ class ReadinessCheck(BaseModel):
     blocking: bool
     reason: Literal[
         "available", "not_configured", "credential_missing", "local_service_unreachable",
-        "model_not_cached", "media_decoder_missing", "storage_not_writable",
+        "model_not_cached", "model_unavailable", "media_decoder_missing", "storage_not_writable",
     ]
     detail_args: dict[str, str] = Field(default_factory=dict)
 
