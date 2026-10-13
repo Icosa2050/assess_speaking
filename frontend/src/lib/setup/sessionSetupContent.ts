@@ -11,6 +11,7 @@ export interface ThemeEntry {
 export interface ThemeLibraryLanguage {
   label: string;
   themes: ThemeEntry[];
+  practice_enabled?: boolean;
 }
 
 export type ThemeLibrary = Record<string, ThemeLibraryLanguage>;
@@ -106,6 +107,11 @@ export const parseSessionSetupContent = (raw: unknown): SessionSetupContent => {
 };
 
 const content = parseSessionSetupContent(sharedContent);
+const enabledPracticeLanguages = new Set(
+  Object.entries(content.default_theme_library)
+    .filter(([, language]) => language.practice_enabled === true)
+    .map(([code]) => code),
+);
 
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
@@ -189,7 +195,8 @@ const writeStoredThemeLibrary = (library: ThemeLibrary): void => {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeThemeLibrary(library)));
 };
 
-export const languageCodes = (library: ThemeLibrary): string[] => Object.keys(library).sort();
+export const languageCodes = (library: ThemeLibrary): string[] =>
+  Object.keys(library).filter((code) => enabledPracticeLanguages.has(code)).sort();
 
 export const languageLabel = (library: ThemeLibrary, languageCode: string): string =>
   String(library[languageCode]?.label || languageCode);
@@ -243,6 +250,9 @@ export const createThemeLibraryRepository = (): ThemeLibraryRepository => ({
     const resolvedTitle = title.trim();
     if (!code || !resolvedTitle) {
       throw new Error("Language code and theme title are required.");
+    }
+    if (!enabledPracticeLanguages.has(code)) {
+      throw new Error(`Language '${code}' is not enabled for practice.`);
     }
 
     const entry: ThemeEntry = {

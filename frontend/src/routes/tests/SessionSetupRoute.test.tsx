@@ -74,6 +74,37 @@ describe("Session Setup route", () => {
     mockedGetHistory.mockResolvedValue({ items: [] });
   });
 
+  it("offers only profiled languages with a stored German theme and draft", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true, provider: "ollama_local", model: "test", base_url: "http://localhost:11434",
+      requires_api_key: false, has_api_key: false,
+    });
+
+    const { rerender, store } = renderWithProviders(<></>, {
+      initialEntries: ["/session-setup"], locale: "en",
+      appState: { draft: { speakerId: "maria", learningLanguage: "de", learningLanguageLabel: "Deutsch",
+        themeId: "german-theme", themeLabel: "Meine letzte Reise ins Ausland" } },
+    });
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      de: { label: "Deutsch", themes: [{ title: "Gespeichertes Thema", level: "B1", task_family: "free_monologue" }] },
+    }));
+    rerender(<AppFrame />);
+    const language = await screen.findByLabelText("Learning language") as HTMLSelectElement;
+    expect(within(language).getAllByRole("option").map((option) => option.textContent)).toEqual(["English", "Italiano"]);
+    expect(language).toHaveValue("en");
+    expect(screen.getByLabelText("Theme")).toHaveValue("My last trip abroad");
+    expect(screen.queryAllByText("Meine letzte Reise ins Ausland")).toHaveLength(0);
+    expect(screen.queryByText("Gespeichertes Thema")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Learner name or nickname")).toHaveValue("maria");
+    await waitFor(() => expect(screen.getByTestId("setup.layout")).toHaveTextContent(
+      "Speak about 'My last trip abroad' in a clear sequence",
+    ));
+    fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await waitFor(() => expect(store.getState().draft.learningLanguage).toBe("en"));
+    expect(store.getState().draft.themeLabel).toBe("My last trip abroad");
+  });
+
   it.each([
     { initial: "", edited: "maria", description: "an unsubmitted nickname" },
     { initial: "maria", edited: "alex", description: "an edited nickname" },

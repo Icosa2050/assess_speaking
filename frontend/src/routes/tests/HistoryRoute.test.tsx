@@ -270,6 +270,18 @@ describe("History route", () => {
     expect(screen.getByTestId("history-attempt-card-s2")).toHaveTextContent("Spring trip");
   });
 
+  it("opens a saved German attempt after German is hidden from practice choices", async () => {
+    mockedGetHistory.mockResolvedValueOnce({ items: [
+      { ...historyRows[0], session_id: "german-1", learning_language: "de", theme: "Meine letzte Reise ins Ausland", report_path: "/tmp/german-1.json" },
+    ] });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/history"], locale: "en", appState: validDraftState });
+
+    expect(await screen.findByTestId("history-attempt-card-german-1")).toHaveTextContent("German");
+    expect(screen.getByTestId("history-language-filter")).toHaveTextContent("German");
+    await waitFor(() => expect(mockedGetHistoryDetail).toHaveBeenCalledWith("german-1"));
+    expect(await screen.findByTestId("history-detail-caption")).toHaveTextContent("Showing saved report german-1");
+  });
+
   it("keeps filters available when nothing matches and can restore the complete list", async () => {
     renderWithProviders(<AppFrame />, { initialEntries: ["/history"], locale: "en", appState: validDraftState });
     await screen.findByTestId("history-attempts-list");

@@ -4,9 +4,23 @@ import inspect
 from pathlib import Path
 
 from assessment_runtime import theme_library
+from assess_core.language_profiles import LANGUAGE_PROFILE_DEFAULTS
 
 
 class ThemeLibraryTests(unittest.TestCase):
+    def test_practice_enabled_languages_have_default_profiles(self):
+        payload = theme_library._load_session_setup_content()
+        enabled = {
+            code
+            for code, language in payload["default_theme_library"].items()
+            if language.get("practice_enabled", True)
+        }
+
+        self.assertEqual(enabled, {"en", "it"})
+        self.assertLessEqual(enabled, set(LANGUAGE_PROFILE_DEFAULTS))
+        self.assertEqual(len(payload["default_theme_library"]["de"]["themes"]), 9)
+        self.assertIn("de", payload["practice_brief_templates"])
+
     def test_load_session_setup_content_falls_back_when_file_is_missing(self):
         missing = Path("/tmp/does-not-exist/session_setup_content.json")
 

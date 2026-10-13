@@ -23,7 +23,6 @@ import {
   type TaskFamily,
 } from "@/lib/state/sessionDraft";
 
-const NEW_LANGUAGE_OPTION = "__new_language__";
 const SAMPLE_TASK_FAMILY_BY_SLUG: Record<string, TaskFamily> = {
   travel_story: "travel_narrative",
   remote_work: "opinion_monologue",
@@ -113,9 +112,7 @@ export const LibraryRoute = () => {
   const [selectedLanguage, setSelectedLanguage] = useState(
     codes.includes(draft.learningLanguage) ? draft.learningLanguage : codes[0] ?? "",
   );
-  const [manageLanguage, setManageLanguage] = useState(selectedLanguage || NEW_LANGUAGE_OPTION);
-  const [languageCode, setLanguageCode] = useState("");
-  const [languageLabelInput, setLanguageLabelInput] = useState("");
+  const [manageLanguage, setManageLanguage] = useState(selectedLanguage);
   const [themeTitle, setThemeTitle] = useState("");
   const [themeLevel, setThemeLevel] = useState<CefrLevel>(draft.cefrLevel || "B1");
   const [themeFamily, setThemeFamily] = useState<TaskFamily>("free_monologue");
@@ -192,8 +189,6 @@ export const LibraryRoute = () => {
 
   const handleSaveTheme = () => {
     const nextErrors = {
-      language_code: manageLanguage === NEW_LANGUAGE_OPTION && !languageCode.trim(),
-      language_label: manageLanguage === NEW_LANGUAGE_OPTION && !languageLabelInput.trim(),
       theme_title: !themeTitle.trim(),
     };
     setErrors(nextErrors);
@@ -201,11 +196,8 @@ export const LibraryRoute = () => {
       return;
     }
 
-    const resolvedLanguageCode = manageLanguage === NEW_LANGUAGE_OPTION ? languageCode : manageLanguage;
-    const resolvedLanguageLabel =
-      manageLanguage === NEW_LANGUAGE_OPTION
-        ? languageLabelInput
-        : languageLabel(library, resolvedLanguageCode);
+    const resolvedLanguageCode = manageLanguage;
+    const resolvedLanguageLabel = languageLabel(library, resolvedLanguageCode);
     const nextLibrary = themeLibraryRepository.addCustomTheme({
       languageCode: resolvedLanguageCode,
       languageLabel: resolvedLanguageLabel,
@@ -217,8 +209,6 @@ export const LibraryRoute = () => {
     setSelectedLanguage(resolvedLanguageCode.trim().toLowerCase());
     setManageLanguage(resolvedLanguageCode.trim().toLowerCase());
     setThemeTitle("");
-    setLanguageCode("");
-    setLanguageLabelInput("");
     setErrors({});
     setSuccessMessage(translate("library.saved_success", { theme: themeTitle.trim() }));
   };
@@ -246,7 +236,7 @@ export const LibraryRoute = () => {
             value={selectedLanguage}
             onChange={(event) => {
               setSelectedLanguage(event.target.value);
-              setManageLanguage(event.target.value || NEW_LANGUAGE_OPTION);
+              setManageLanguage(event.target.value);
             }}
             style={inputStyle}
             {...semanticAttributes(SEMANTIC_IDS.library.languageFilter)}
@@ -324,7 +314,7 @@ export const LibraryRoute = () => {
         {successMessage ? <p style={{ margin: 0, color: "#166534" }}>{successMessage}</p> : null}
         <label style={fieldStyle}>
           <span style={{ fontWeight: 600, color: "#33514b" }}>
-            {translate("library.manage_language")}
+            {translate("setup.learning_language")}
           </span>
           <select
             value={manageLanguage}
@@ -337,34 +327,14 @@ export const LibraryRoute = () => {
                 {languageLabel(library, code)}
               </option>
             ))}
-            <option value={NEW_LANGUAGE_OPTION}>{translate("library.new_language")}</option>
           </select>
         </label>
-        {manageLanguage === NEW_LANGUAGE_OPTION ? (
-          <>
-            <label style={fieldStyle}>
-              <span style={{ fontWeight: 600, color: "#33514b" }}>
-                {translate("library.language_code")}
-              </span>
-              <input value={languageCode} onChange={(event) => setLanguageCode(event.target.value)} style={inputStyle} />
-              {errors.language_code ? <span style={{ color: "#b42318" }}>{translate("library.error_language_code")}</span> : null}
-            </label>
-            <label style={fieldStyle}>
-              <span style={{ fontWeight: 600, color: "#33514b" }}>
-                {translate("library.language_label")}
-              </span>
-              <input value={languageLabelInput} onChange={(event) => setLanguageLabelInput(event.target.value)} style={inputStyle} />
-              {errors.language_label ? <span style={{ color: "#b42318" }}>{translate("library.error_language_label")}</span> : null}
-            </label>
-          </>
-        ) : (
-          <p style={{ margin: 0, color: "#33514b" }}>
-            {translate("library.saving_under", {
-              code: manageLanguage,
-              label: languageLabel(library, manageLanguage),
-            })}
-          </p>
-        )}
+        <p style={{ margin: 0, color: "#33514b" }}>
+          {translate("library.saving_under", {
+            code: manageLanguage,
+            label: languageLabel(library, manageLanguage),
+          })}
+        </p>
         <label style={fieldStyle}>
           <span style={{ fontWeight: 600, color: "#33514b" }}>
             {translate("library.theme_title")}
