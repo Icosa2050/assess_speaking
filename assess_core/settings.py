@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 
@@ -17,9 +18,10 @@ def practice_llm_timeout_sec() -> float:
     if configured is None:
         return PRACTICE_LLM_TIMEOUT_SEC
     try:
-        return float(configured)
+        timeout = float(configured)
     except ValueError:
         return PRACTICE_LLM_TIMEOUT_SEC
+    return timeout if math.isfinite(timeout) and timeout > 0 else PRACTICE_LLM_TIMEOUT_SEC
 
 
 @dataclass(frozen=True)
