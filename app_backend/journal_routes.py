@@ -52,7 +52,7 @@ def install_journal_routes(app, config):
             completed = []  # Keep the exits reachable; the error is in status.
         if state and journal.recovery_error and not journal.recovery_retryable and not state.get('recovery_restore'):
             state = {**state, 'phase': 'recovery_error'}
-        return {'transaction': state, 'archived': list(read_json(journal.directory / 'trash.json', {})), 'completed': completed, 'recovery_error': journal.recovery_error}
+        return {'transaction': state, 'archived': list(read_json(journal.directory / 'trash.json', {})), 'completed': completed, 'recovery_error': journal.recovery_error, 'recovery_retryable': journal.recovery_retryable}
 
     @app.post('/v1/journal/begin', tags=['local-support'])
     def begin():

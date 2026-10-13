@@ -194,10 +194,10 @@ class Journal:
             prior = self.state()
             if self.recovery_marker.exists() and not (prior or {}).get('recovery_restore'):
                 return  # A partial quarantine must never replay the damaged files.
-            self.completed()  # Validate receipts before attempting startup recovery.
-            # Preserve an intact transaction and its rollback snapshots when
-            # recovery hits a disk error. Only damaged metadata may be set aside.
+            # An intact identity keeps retry available, even when the recovery
+            # files are unusable. Retry must coexist with the recovery exits.
             retryable = bool(prior and prior['id'] != 'damaged')
+            self.completed()  # Validate receipts before attempting startup recovery.
             self.recover_purge()
             edit = read_json(self.directory / 'edit.json')
             if edit:
@@ -301,7 +301,7 @@ class Journal:
                 state = self.state()
                 if self.mutations or any(p.is_alive() for p in self.jobs._processes.values()):
                     raise JournalError('Finish or cancel active work first.')
-                if state and (not self.recovery_error or self.recovery_retryable or state.get('recovery_restore')):
+                if state and (not self.recovery_error or (state.get('recovery_restore') and not self.recovery_retryable)):
                     raise JournalError('Another maintenance transaction is in progress. Finish it first.')
                 yield
         except JournalMaintenanceError as exc:
@@ -321,6 +321,7 @@ class Journal:
             self.completed()
         except JournalError:
             os.replace(self.directory / 'completed.json', quarantine / 'completed.json')
+        self.recovery_retryable = False
         # Retain valid completion receipts, trash.json and backup ZIPs. Never
         # move paths listed inside damaged metadata (they may be untrusted).
 
@@ -621,9 +622,20 @@ class Journal:
             self._finish(transaction)
             return {'phase': 'complete'}
 
+    @contextmanager
+    def recovery_attempt(self, transaction):
+        with self.lock:
+            self.check(transaction)  # An expired/wrong identity is not damage.
+            try:
+                yield
+            except (OSError, JournalError, ValueError, KeyError, TypeError) as exc:
+                self.recovery_error = RECOVERY_MESSAGE
+                self.recovery_retryable = True
+                raise JournalError(self.recovery_error) from exc
+
     @history_transaction
     def abort(self, transaction):
-        with self.lock:
+        with self.recovery_attempt(transaction):
             state = self.check(transaction)
             if transaction in self.completed():
                 self._finish(transaction)

@@ -452,8 +452,9 @@ def test_optional_empty_cache_cleanup_failure_does_not_block_committed_purge(tmp
     assert journal(tmp_path).recovery_error is None
 
 
+@pytest.mark.parametrize('damage', ['transaction.json', 'purge.json', 'edit.json'])
 @pytest.mark.parametrize('exit_action', ['restore', 'diagnostics', 'fresh'])
-def test_damaged_journal_three_api_exits(tmp_path, exit_action):
+def test_damaged_journal_three_api_exits(tmp_path, exit_action, damage):
     import io
     from fastapi.testclient import TestClient
     from app_backend.app import create_app
@@ -467,7 +468,8 @@ def test_damaged_journal_three_api_exits(tmp_path, exit_action):
     recording.write_bytes(b'PRIVATE RECORDING')
     private_json(config.jobs_dir / 'asmt_private.json', {'status': 'completed', 'payload': {'report': 'PRIVATE JOB REPORT'}})
     config.log_file.write_text('INFO diagnostic fixture api_key=private-key\nERROR PRIVATE LOG REPORT Synthetic fixture.\n')
-    j.state_path.write_text('{damaged')
+    damaged_path = j.directory / damage
+    damaged_path.write_text('{damaged')
     before = {p: p.read_bytes() for p in config.app_data.root.rglob('*') if p.is_file()}
     with TestClient(create_app(config)) as client:
         assert client.get('/v1/health').status_code == 200
@@ -475,7 +477,8 @@ def test_damaged_journal_three_api_exits(tmp_path, exit_action):
         assert client.get('/v1/history/session1').status_code == 200
         assert client.get('/v1/journal/status').json()['recovery_error']
         blocked = client.post('/v1/maintenance/cleanup', json={'target': 'all_safe', 'dry_run': True})
-        assert blocked.status_code == 409 and 'damaged' in blocked.text.lower()
+        assert blocked.status_code == 409
+        assert blocked.json()['detail']['detail'] == client.get('/v1/journal/status').json()['recovery_error']
         if exit_action == 'restore':
             response = client.post('/v1/journal/begin-restore', json={})
             assert response.status_code == 200, response.text
@@ -487,9 +490,9 @@ def test_damaged_journal_three_api_exits(tmp_path, exit_action):
             assert client.post('/v1/journal/start-fresh', json={}).status_code == 409
             response = client.post('/v1/journal/start-fresh', json={'confirmed': True})
             assert response.status_code == 200, response.text
-            assert any(p.read_bytes() == b'{damaged' for p in j.directory.glob('quarantine-*/transaction.json'))
+            assert any(p.read_bytes() == b'{damaged' for p in j.directory.glob('quarantine-*/' + damage))
             for path, content in before.items():
-                if path != j.state_path:
+                if path != damaged_path:
                     assert path.read_bytes() == content
         else:
             # A dedicated endpoint never honors private-content opt-ins or client payloads.
@@ -659,8 +662,7 @@ def test_intact_startup_rollback_can_be_retried_after_transient_disk_failure(tmp
         assert status['transaction']['phase'] == 'rolling_back'
         assert snapshot.read_bytes() == original_history
         assert client.post('/v1/maintenance/cleanup', json={'target': 'all_safe', 'dry_run': True}).status_code == 409
-        for endpoint in ('begin-restore', 'start-fresh', 'diagnostics'):
-            assert client.post('/v1/journal/' + endpoint, json={'confirmed': True}).status_code == 409
+        assert client.post('/v1/journal/diagnostics').status_code == 200
         assert snapshot.exists() and not list(target.directory.glob('quarantine-*'))
         monkeypatch.setattr(module.shutil, 'copyfile', original_copy)
         assert client.post(f'/v1/journal/{tx}/abort').status_code == 200
@@ -702,3 +704,83 @@ def test_recovery_exits_drain_finished_workers_before_checking_activity(tmp_path
         with pytest.raises(JournalError, match='active work'):
             run_exit()
     assert calls
+
+
+@pytest.mark.parametrize('startup_failure', [False, True])
+@pytest.mark.parametrize('damage', ['purge.json', 'edit.json', 'manifest.json', 'history-before.csv'])
+@pytest.mark.parametrize('repair', [False, True])
+@pytest.mark.parametrize('exit_action', ['restore', 'diagnostics', 'fresh'])
+def test_failed_intact_recovery_keeps_all_exits(tmp_path, damage, repair, exit_action, startup_failure):
+    from fastapi.testclient import TestClient
+    from app_backend.app import create_app
+    from app_backend.config import build_backend_runtime_config
+    config = build_backend_runtime_config(app_data_dir=tmp_path / 'app', cache_dir=tmp_path / 'cache', port=8871)
+    app = None if startup_failure else create_app(config)
+    j = Journal(config, SimpleNamespace(_processes={}))
+    seed(j)
+    archive = backup(j)
+    archive_bytes = archive.read_bytes()
+    tx = j.begin()['id']
+    if damage in {'purge.json', 'edit.json'}:
+        # Archive/purge holds a prepared transaction while writing this metadata.
+        (j.directory / damage).write_text('{broken')
+    else:
+        j.stage(tx, archive); j.commit(tx)
+        j.save({**j.state(), 'phase': 'rolling_back'})
+        (j.directory / tx / damage).unlink()
+    if repair:
+        j.save({**j.state(), 'recovery_restore': True})
+        private_json(j.recovery_marker, {'recovery_required': True})
+    private_files = {p: p.read_bytes() for p in config.app_data.reports_dir.rglob('*') if p.is_file()}
+    with TestClient(app or create_app(config), raise_server_exceptions=False) as client:
+        status = client.get('/v1/journal/status').json()
+        assert bool(status['recovery_error']) is startup_failure
+        assert status['transaction']['id'] == tx
+        assert client.get('/v1/history').status_code == 200
+        assert client.post('/v1/maintenance/cleanup', json={'target': 'all_safe', 'dry_run': True}).status_code == 409
+        # The retry is reachable but cannot repair missing/corrupt snapshots.
+        assert client.post(f'/v1/journal/{tx}/abort').status_code == 409
+        assert client.get('/v1/journal/status').json()['recovery_retryable']
+        if exit_action == 'restore':
+            response = client.post('/v1/journal/begin-restore', json={})
+            assert response.status_code == 200, response.text
+            new_tx = response.json()['id']
+            assert client.post(f'/v1/journal/{new_tx}/restore', content=archive_bytes).status_code == 200
+            for other in ('begin-restore', 'start-fresh', 'diagnostics'):
+                assert client.post('/v1/journal/' + other, json={'confirmed': True}).status_code == 409
+            assert client.post(f'/v1/journal/{new_tx}/commit').status_code == 200
+            assert client.post(f'/v1/journal/{new_tx}/complete').status_code == 200
+        elif exit_action == 'fresh':
+            response = client.post('/v1/journal/start-fresh', json={'confirmed': True})
+            assert response.status_code == 200, response.text
+        else:
+            before = {p: p.read_bytes() for p in j.directory.rglob('*') if p.is_file()}
+            response = client.post('/v1/journal/diagnostics')
+            assert response.status_code == 200, response.text
+            assert client.get('/v1/support-bundles/' + response.json()['bundle_id']).status_code == 200
+            assert all(p.read_bytes() == content for p, content in before.items())
+            assert client.get('/v1/journal/status').json()['recovery_error']
+        assert all(p.read_bytes() == content for p, content in private_files.items())
+        if exit_action != 'diagnostics':
+            status = client.get('/v1/journal/status').json()
+            assert not status['recovery_error'] and status['transaction'] is None
+            assert client.post('/v1/maintenance/cleanup', json={'target': 'all_safe', 'dry_run': True}).status_code == 200
+
+
+def test_healthy_idle_api_controls_and_pending_preview_exclusion(tmp_path):
+    from fastapi.testclient import TestClient
+    from app_backend.app import create_app
+    from app_backend.config import build_backend_runtime_config
+    config = build_backend_runtime_config(app_data_dir=tmp_path / 'app', cache_dir=tmp_path / 'cache', port=8871)
+    with TestClient(create_app(config)) as client:
+        status = client.get('/v1/journal/status').json()
+        assert not status['recovery_error'] and not status['recovery_retryable'] and status['transaction'] is None
+        assert client.post('/v1/journal/start-fresh', json={'confirmed': True}).status_code == 409
+        assert client.post('/v1/journal/diagnostics').status_code == 200
+        response = client.post('/v1/journal/begin-restore')
+        assert response.status_code == 200
+        tx = response.json()['id']
+        for endpoint in ('begin', 'begin-restore', 'diagnostics', 'start-fresh'):
+            assert client.post('/v1/journal/' + endpoint, json={'confirmed': True}).status_code == 409
+        assert client.post(f'/v1/journal/{tx}/abort').status_code == 200
+        assert client.post('/v1/maintenance/cleanup', json={'target': 'all_safe', 'dry_run': True}).status_code == 200

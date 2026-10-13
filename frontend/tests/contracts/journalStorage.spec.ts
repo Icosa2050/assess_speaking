@@ -127,6 +127,9 @@ test("browser quota rollback compensates backend publication; a lost completion 
     await route.fulfill({ status: 503, json: { detail: { detail: "Synthetic lost completion reply" } } }); });
   await second.getByRole("button", { name: "Restore these new items", exact: true }).click();
   await expect(second.getByTestId("journal-panel").getByRole("alert")).toContainText("lost completion reply");
+  await expect(second.getByRole("button", { name: "Finish recovery", exact: true })).toBeVisible();
+  await expect(second.getByTestId("journal-recovery-notice")).toBeVisible();
+  await expect(second.getByRole("button", { name: "Restore these new items", exact: true })).toHaveCount(0);
   await second.unroute("**/v1/journal/*/complete"); await second.reload();
   await expect(second.getByRole("button", { name: "Finish recovery", exact: true })).toBeVisible();
   await second.getByRole("button", { name: "Finish recovery", exact: true }).click();
