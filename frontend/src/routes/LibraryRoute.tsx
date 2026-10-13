@@ -314,7 +314,7 @@ export const LibraryRoute = () => {
         {successMessage ? <p style={{ margin: 0, color: "#166534" }}>{successMessage}</p> : null}
         <label style={fieldStyle}>
           <span style={{ fontWeight: 600, color: "#33514b" }}>
-            {translate("library.language_filter")}
+            {translate("setup.learning_language")}
           </span>
           <select
             value={manageLanguage}

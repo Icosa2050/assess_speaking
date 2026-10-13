@@ -125,7 +125,8 @@ describe("Library and Guide routes", () => {
     await screen.findByRole("heading", { name: "Pick your next exercise" });
 
     expect(screen.getByTestId("library.language_filter")).toBeInTheDocument();
-    expect(screen.getAllByLabelText("Practice language")).toHaveLength(2);
+    expect(screen.getByLabelText("Practice language")).toBeInTheDocument();
+    expect(screen.getByLabelText("Learning language")).toBeInTheDocument();
     const languageSelects = screen.getAllByRole("combobox") as HTMLSelectElement[];
     expect(languageSelects.map((select) => Array.from(select.options).map((option) => option.value))).toEqual([
       ["en", "it"], ["en", "it"], ["B1", "B2", "C1"],
