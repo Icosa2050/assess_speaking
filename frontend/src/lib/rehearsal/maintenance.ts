@@ -160,7 +160,8 @@ export async function journalRecoveryStatus(): Promise<JournalStatus> {
 
 export async function startFreshJournal(): Promise<void> {
   await withJournalLock(async access => {
-    await journalRequest("start-fresh", { confirmed: true });
+    const local = await rehearsalMaintenance();
+    await journalRequest("start-fresh", { confirmed: true, browser_transaction: local?.id });
     await clearRehearsalMaintenance(access);
   }, true);
 }

@@ -46,9 +46,13 @@ def install_journal_routes(app, config):
     @app.get('/v1/journal/status', tags=['local-support'])
     def status():
         state = journal.state()
+        try:
+            completed = journal.completed()
+        except JournalError:
+            completed = []  # Keep the exits reachable; the error is in status.
         if state and journal.recovery_error and not state.get('recovery_restore'):
             state = {**state, 'phase': 'recovery_error'}
-        return {'transaction': state, 'archived': list(read_json(journal.directory / 'trash.json', {})), 'completed': read_json(journal.directory / 'completed.json', []), 'recovery_error': journal.recovery_error}
+        return {'transaction': state, 'archived': list(read_json(journal.directory / 'trash.json', {})), 'completed': completed, 'recovery_error': journal.recovery_error}
 
     @app.post('/v1/journal/begin', tags=['local-support'])
     def begin():
@@ -60,7 +64,7 @@ def install_journal_routes(app, config):
 
     @app.post('/v1/journal/start-fresh', tags=['local-support'])
     def start_fresh(body: dict):
-        return journal.start_fresh(body.get('confirmed'))
+        return journal.start_fresh(body.get('confirmed'), body.get('browser_transaction'))
 
     @app.post('/v1/journal/diagnostics', tags=['local-support'])
     def diagnostics():

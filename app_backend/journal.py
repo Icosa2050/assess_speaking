@@ -192,13 +192,14 @@ class Journal:
             prior = self.state()
             if self.recovery_marker.exists() and not (prior or {}).get('recovery_restore'):
                 return  # A partial quarantine must never replay the damaged files.
+            self.completed()  # Validate receipts before attempting startup recovery.
             self.recover_purge()
             edit = read_json(self.directory / 'edit.json')
             if edit:
                 self._rollback_edit(edit)
             if prior and prior['phase'] in {'backend_committing', 'rolling_back'}:
                 self.abort(prior['id'])
-            elif prior and (prior['phase'] == 'complete' or prior['id'] in read_json(self.directory / 'completed.json', [])):
+            elif prior and (prior['phase'] == 'complete' or prior['id'] in self.completed()):
                 self._finish(prior['id'])
         except (OSError, JournalError, json.JSONDecodeError, KeyError, TypeError):
             # Keep health/history readable while refusing further writes. A
@@ -214,6 +215,16 @@ class Journal:
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, JournalError):
             self.recovery_error = RECOVERY_MESSAGE
             return {'id': 'damaged', 'phase': 'recovery_error'}
+
+    def completed(self):
+        try:
+            completed = read_json(self.directory / 'completed.json', [])
+            if not isinstance(completed, list) or any(not isinstance(item, str) or not re.fullmatch('[0-9a-f]{32}', item) for item in completed):
+                raise JournalError('Invalid completion receipts.')
+            return completed
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, JournalError) as exc:
+            self.recovery_error = RECOVERY_MESSAGE
+            raise JournalError('Completion receipts are damaged. Use a recovery exit in Settings.') from exc
 
     def save(self, state):
         private_json(self.state_path, state)
@@ -297,8 +308,12 @@ class Journal:
         for path in self.directory.iterdir():
             if path.name in {'transaction.json', 'edit.json', 'purge.json'} or re.fullmatch('[0-9a-f]{32}', path.name):
                 os.replace(path, quarantine / path.name)
-        # trash.json, completed.json and backup ZIPs remain usable. Never inspect
-        # or move paths listed inside damaged metadata (they may be untrusted).
+        try:
+            self.completed()
+        except JournalError:
+            os.replace(self.directory / 'completed.json', quarantine / 'completed.json')
+        # Retain valid completion receipts, trash.json and backup ZIPs. Never
+        # move paths listed inside damaged metadata (they may be untrusted).
 
     def begin_restore(self):
         with self.recovery_exit():
@@ -311,13 +326,19 @@ class Journal:
             self.save(state)
             return state
 
-    def start_fresh(self, confirmed):
+    def start_fresh(self, confirmed, browser_transaction=None):
+        if browser_transaction is not None and (not isinstance(browser_transaction, str) or not re.fullmatch("[0-9a-f]{32}", browser_transaction)):
+            raise JournalError("Invalid browser recovery identity.")
         if confirmed is not True:
             raise JournalError('Confirm starting a fresh journal. Saved history and media will be retained.')
         with self.recovery_exit():
             if not self.recovery_error:
                 raise JournalError('The journal is not damaged.')
             self._quarantine_recovery()
+            if browser_transaction:
+                # Publish before declaring the backend healthy. A lost response
+                # or failed IDB cleanup must never turn into a browser rollback.
+                private_json(self.directory / 'completed.json', list(dict.fromkeys([*self.completed(), browser_transaction])))
             self.recovery_marker.unlink()
             self.recovery_error = None
             return {'phase': 'fresh'}
@@ -575,7 +596,7 @@ class Journal:
 
     def complete(self, transaction):
         with self.lock:
-            if transaction in read_json(self.directory / 'completed.json', []):
+            if transaction in self.completed():
                 state = self.state()
                 if state and state['id'] == transaction:
                     self._finish(transaction)
@@ -584,7 +605,7 @@ class Journal:
             if state['phase'] != 'backend_committed':
                 raise JournalError('Both stores must commit before completion.')
             # The client keeps its committed journal until it sees this acknowledgement.
-            completed = read_json(self.directory / 'completed.json', [])
+            completed = self.completed()
             private_json(self.directory / 'completed.json', list(dict.fromkeys([*completed, transaction])))
             state['phase'] = 'complete'
             self.save(state)
@@ -595,7 +616,7 @@ class Journal:
     def abort(self, transaction):
         with self.lock:
             state = self.check(transaction)
-            if transaction in read_json(self.directory / 'completed.json', []):
+            if transaction in self.completed():
                 self._finish(transaction)
                 return {'phase': 'complete'}
             work = self.directory / transaction
@@ -636,7 +657,7 @@ class Journal:
     def _finish(self, transaction):
         if (self.directory / 'purge.json').exists() or (self.directory / 'edit.json').exists():
             raise JournalError('Finish file recovery before releasing journal maintenance.')
-        if transaction in read_json(self.directory / 'completed.json', []):
+        if transaction in self.completed():
             self.recovery_marker.unlink(missing_ok=True)
         self.recovery_error = RECOVERY_MESSAGE if self.recovery_marker.exists() else None
         self.state_path.unlink(missing_ok=True)

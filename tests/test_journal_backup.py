@@ -583,3 +583,45 @@ def test_interrupted_quarantine_never_replays_damaged_metadata(tmp_path, monkeyp
     monkeypatch.setattr(module.os, 'replace', original)
     restarted.start_fresh(True)
     assert len(read_history(restarted.config.app_data.reports_dir / 'history.csv')[1]) == 2
+
+
+@pytest.mark.parametrize('receipt', ['{broken', '{}', '["invalid-id"]'])
+def test_fresh_start_quarantines_invalid_completion_receipts(tmp_path, receipt):
+    from fastapi.testclient import TestClient
+    from app_backend.app import create_app
+    from app_backend.config import build_backend_runtime_config
+    config = build_backend_runtime_config(app_data_dir=tmp_path / 'app', cache_dir=tmp_path / 'cache', port=8871)
+    j = Journal(config, SimpleNamespace(_processes={}))
+    seed(j)
+    tx = j.begin()['id']
+    j.save({'id': tx, 'phase': 'complete'})
+    (j.directory / 'completed.json').write_text(receipt)
+    with TestClient(create_app(config)) as client:
+        status = client.get('/v1/journal/status')
+        assert status.status_code == 200
+        assert status.json()['recovery_error']
+        assert client.post('/v1/journal/start-fresh', json={'confirmed': True}).status_code == 200
+        assert any(p.read_text() == receipt for p in j.directory.glob('quarantine-*/completed.json'))
+        # A complete ordinary backup transaction must work, including release.
+        new = client.post('/v1/journal/begin').json()['id']
+        assert client.post(f'/v1/journal/{new}/export', json={'browser': EMPTY}).status_code == 200
+        assert client.post(f'/v1/journal/{new}/abort').status_code == 200
+        assert client.post('/v1/maintenance/cleanup', json={'target': 'all_safe', 'dry_run': True}).status_code == 200
+
+
+def test_fresh_start_retains_browser_acknowledgement_across_restart(tmp_path):
+    from fastapi.testclient import TestClient
+    from app_backend.app import create_app
+    from app_backend.config import build_backend_runtime_config
+    config = build_backend_runtime_config(app_data_dir=tmp_path / 'app', cache_dir=tmp_path / 'cache', port=8871)
+    j = Journal(config, SimpleNamespace(_processes={}))
+    j.state_path.write_text('{broken')
+    browser_id = 'a' * 32
+    with TestClient(create_app(config)) as client:
+        assert client.post('/v1/journal/start-fresh', json={'confirmed': True, 'browser_transaction': browser_id}).status_code == 200
+    # A renderer crash or lost response must still leave evidence that browser
+    # cleanup can be retried without rolling back committed sessions/audio.
+    with TestClient(create_app(config)) as client:
+        status = client.get('/v1/journal/status').json()
+        assert browser_id in status['completed']
+        assert status['transaction'] is None and status['recovery_error'] is None

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { exportJournalDiagnostics, journalRecoveryStatus, previewLearnerRestore, startFreshJournal } from "./maintenance";
+import { exportJournalDiagnostics, journalRecoveryStatus, recoverLearnerJournal, previewLearnerRestore, startFreshJournal } from "./maintenance";
 import { clearRehearsalMaintenance, rehearsalMaintenance, stageRehearsals } from "./storage";
 
 vi.mock("./storage", () => ({
@@ -16,7 +16,7 @@ const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body)
 
 describe("damaged journal browser coordination", () => {
   afterEach(() => vi.unstubAllGlobals());
-  beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal("fetch", fetchMock); });
+  beforeEach(() => { vi.clearAllMocks(); vi.mocked(rehearsalMaintenance).mockResolvedValue(undefined); vi.stubGlobal("fetch", fetchMock); });
 
   it("forgets only the pending browser journal after confirmed fresh start", async () => {
     fetchMock.mockResolvedValueOnce(reply({phase: "fresh"}));
@@ -24,6 +24,19 @@ describe("damaged journal browser coordination", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({confirmed: true});
     // No rollback flag: already committed sessions and audio must be retained.
     expect(clearRehearsalMaintenance).toHaveBeenCalledExactlyOnceWith({});
+  });
+
+  it("retries interrupted fresh-start cleanup without rolling back saved sessions", async () => {
+    const id = "a".repeat(32);
+    vi.mocked(rehearsalMaintenance).mockResolvedValue({id, phase: "committed", sessions: [], recordings: []});
+    vi.mocked(clearRehearsalMaintenance).mockRejectedValueOnce(new Error("IndexedDB unavailable"));
+    fetchMock.mockResolvedValueOnce(reply({phase: "fresh"}));
+    await expect(startFreshJournal()).rejects.toThrow("IndexedDB unavailable");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({confirmed: true, browser_transaction: id});
+    fetchMock.mockResolvedValueOnce(reply({transaction: null, completed: [id], recovery_error: null}));
+    await recoverLearnerJournal();
+    expect(clearRehearsalMaintenance).toHaveBeenNthCalledWith(1, {});
+    expect(clearRehearsalMaintenance).toHaveBeenNthCalledWith(2, {});
   });
 
   it("retains browser recovery data when another backend transaction excludes fresh start", async () => {
