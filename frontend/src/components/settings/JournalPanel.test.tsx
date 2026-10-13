@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "@/lib/i18n";
-import { journalRecoveryStatus } from "@/lib/rehearsal/maintenance";
+import { journalRecoveryStatus, startFreshJournal } from "@/lib/rehearsal/maintenance";
 import { createRehearsal } from "@/lib/rehearsal/session";
 import { listArchivedRehearsals } from "@/lib/rehearsal/storage";
 import { renderWithProviders } from "@/test/renderWithProviders";
@@ -12,6 +12,7 @@ import { JournalPanel } from "./JournalPanel";
 vi.mock("@/lib/rehearsal/maintenance", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/rehearsal/maintenance")>(),
   journalRecoveryStatus: vi.fn(),
+  startFreshJournal: vi.fn(),
 }));
 vi.mock("@/lib/rehearsal/storage", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/rehearsal/storage")>(),
@@ -35,7 +36,7 @@ describe("journal recovery visibility", () => {
     status.mockResolvedValue(damaged);
     renderWithProviders(<JournalRecoveryNotice locale="en" />);
     expect(await screen.findByTestId("journal-recovery-notice")).toBeVisible();
-    expect(screen.getByRole("link")).toHaveAttribute("href", "/settings");
+    expect(screen.getAllByRole("link").every(link => link.getAttribute("href")?.startsWith("/settings"))).toBe(true);
     status.mockResolvedValue(clean);
     fireEvent(window, new Event("focus"));
     await waitFor(() => expect(screen.queryByTestId("journal-recovery-notice")).not.toBeInTheDocument());
@@ -47,6 +48,40 @@ describe("journal recovery visibility", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(damaged.recovery_error);
     expect(screen.queryByRole("button", {name: t("journal.recover")})).not.toBeInTheDocument();
     expect(screen.getByRole("button", {name: t("journal.backup")})).toBeDisabled();
+  });
+
+  it("enables and names all three damaged-journal exits", async () => {
+    status.mockResolvedValue({...damaged, transaction: {id: "damaged", phase: "recovery_error"}});
+    renderWithProviders(<><JournalRecoveryNotice locale="en" /><JournalPanel locale="en" /></>);
+    await screen.findByRole("alert");
+    expect(screen.getByLabelText("Restore from a backup")).toBeEnabled();
+    expect(screen.getByRole("button", {name: "Export diagnostics only"})).toBeEnabled();
+    expect(screen.getByRole("button", {name: "Start a fresh journal"})).toBeEnabled();
+    for (const name of ["Restore from a backup", "Export diagnostics only", "Start a fresh journal"]) {
+      expect(screen.getByRole("link", {name})).toBeVisible();
+    }
+    expect(screen.queryByRole("button", {name: t("journal.recover")})).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", {name: "Start a fresh journal"}));
+    expect(screen.getByRole("button", {name: "Confirm: start fresh"})).toBeEnabled();
+    expect(screen.getByText(/Saved reports, history, recordings and uploads stay in place/)).toBeVisible();
+    expect(startFreshJournal).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", {name: t("journal.cancel")}));
+    expect(startFreshJournal).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", {name: "Start a fresh journal"}));
+    status.mockResolvedValue(clean);
+    fireEvent.click(screen.getByRole("button", {name: "Confirm: start fresh"}));
+    await waitFor(() => expect(startFreshJournal).toHaveBeenCalledOnce());
+    expect(await screen.findByText(t("journal.fresh_done"))).toBeVisible();
+  });
+
+  it("disables the exits while a repair transaction is pending", async () => {
+    status.mockResolvedValue({...damaged, transaction: {id: "repair", phase: "backend_staged"}});
+    renderWithProviders(<JournalPanel locale="en" />);
+    await screen.findByRole("alert");
+    expect(screen.getByLabelText(t("journal.restore_backup"))).toBeDisabled();
+    expect(screen.getByRole("button", {name: t("journal.diagnostics")})).toBeDisabled();
+    expect(screen.getByRole("button", {name: t("journal.fresh")})).toBeDisabled();
+    expect(screen.getByRole("button", {name: t("journal.rollback")})).toBeEnabled();
   });
 
   it("loads archived rehearsals immediately without requiring Refresh", async () => {

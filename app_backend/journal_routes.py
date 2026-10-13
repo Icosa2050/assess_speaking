@@ -46,11 +46,28 @@ def install_journal_routes(app, config):
     @app.get('/v1/journal/status', tags=['local-support'])
     def status():
         state = journal.state()
+        if state and journal.recovery_error and not state.get('recovery_restore'):
+            state = {**state, 'phase': 'recovery_error'}
         return {'transaction': state, 'archived': list(read_json(journal.directory / 'trash.json', {})), 'completed': read_json(journal.directory / 'completed.json', []), 'recovery_error': journal.recovery_error}
 
     @app.post('/v1/journal/begin', tags=['local-support'])
     def begin():
         return journal.begin()
+
+    @app.post('/v1/journal/begin-restore', tags=['local-support'])
+    def begin_restore():
+        return journal.begin_restore()
+
+    @app.post('/v1/journal/start-fresh', tags=['local-support'])
+    def start_fresh(body: dict):
+        return journal.start_fresh(body.get('confirmed'))
+
+    @app.post('/v1/journal/diagnostics', tags=['local-support'])
+    def diagnostics():
+        from app_backend.contracts import SupportBundleCreateRequest
+        from app_backend.support_bundle import create_support_bundle
+        with journal.recovery_exit():
+            return create_support_bundle(config, SupportBundleCreateRequest(), diagnostics_only=True)
 
     @app.post('/v1/journal/{transaction}/abort', tags=['local-support'])
     def abort(transaction: str):

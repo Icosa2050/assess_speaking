@@ -1075,6 +1075,14 @@
     "removal_note": "Cette action est irréversible. Les ZIP sauvegardés restent intacts. Supprimer une répétition conserve ses essais analysés dans l’historique.",
     "confirm_remove": "Confirmer la suppression définitive",
     "removed": "Élément archivé supprimé définitivement.",
-    "skipped": "{count} éléments existants resteront inchangés et seront ignorés."
+    "skipped": "{count} éléments existants resteront inchangés et seront ignorés.",
+    "restore_backup": "Restaurer depuis une sauvegarde",
+    "diagnostics": "Exporter uniquement les diagnostics",
+    "fresh": "Créer un nouveau journal de récupération",
+    "damaged_guidance": "Le journal de récupération est endommagé. L’historique reste lisible. Choisissez l’une de ces trois options dans les paramètres.",
+    "diagnostics_note": "Exporte les diagnostics, l’état opérationnel nettoyé et le nombre d’entrées de log par gravité. Les textes des logs, rapports, enregistrements et fichiers importés ne sont jamais inclus.",
+    "confirm_fresh": "Confirmer : repartir à neuf",
+    "fresh_note": "Les rapports, l’historique, les enregistrements et les fichiers importés sont conservés. Les fichiers de transaction endommagés et les copies de restauration sont mis de côté ; les données de restauration en attente du navigateur sont abandonnées. Les modifications inachevées ne seront plus annulées automatiquement.",
+    "fresh_done": "Un nouveau journal de récupération est prêt. Vous pouvez reprendre la pratique."
   }
 }

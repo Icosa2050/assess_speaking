@@ -6,6 +6,7 @@ restored. Browser recordings are transferred as bounded binary bodies, not JSON.
 from __future__ import annotations
 
 import csv
+from contextlib import contextmanager
 from functools import wraps
 import hashlib
 import io
@@ -25,6 +26,7 @@ from app_core.journal_lock import journal_guard, JournalMaintenanceError
 LIMIT = 512 * 1024 * 1024
 MANIFEST_LIMIT = 16 * 1024 * 1024
 MEDIA = re.compile(r"media/[0-9a-f]{64}\.(wav|mp3|webm|ogg|opus|m4a|mp4|aac|flac|aiff|aif|bin)$")
+RECOVERY_MESSAGE = 'The recovery journal is damaged. In Settings, restore a backup, export diagnostics only, or confirm starting a fresh journal. Saved history and media are retained.'
 ID = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
 
 
@@ -184,9 +186,12 @@ class Journal:
         self.lock = threading.RLock()
         self.history_local = threading.local()
         self.mutations = 0
-        self.recovery_error = None
+        self.recovery_marker = self.directory / 'recovery-required.json'
+        self.recovery_error = RECOVERY_MESSAGE if self.recovery_marker.exists() else None
         try:
             prior = self.state()
+            if self.recovery_marker.exists() and not (prior or {}).get('recovery_restore'):
+                return  # A partial quarantine must never replay the damaged files.
             self.recover_purge()
             edit = read_json(self.directory / 'edit.json')
             if edit:
@@ -203,11 +208,11 @@ class Journal:
     def state(self):
         try:
             state = read_json(self.state_path)
-            if state and (not isinstance(state, dict) or not re.fullmatch('[0-9a-f]{32}', str(state.get('id', ''))) or state.get('phase') not in {'prepared', 'backend_staged', 'backend_committing', 'backend_committed', 'complete', 'rolling_back'}):
+            if state is not None and (not isinstance(state, dict) or not re.fullmatch('[0-9a-f]{32}', str(state.get('id', ''))) or state.get('phase') not in {'prepared', 'backend_staged', 'backend_committing', 'backend_committed', 'complete', 'rolling_back'}):
                 raise JournalError('Invalid recovery journal.')
             return state
-        except (json.JSONDecodeError, JournalError):
-            self.recovery_error = 'The recovery journal is damaged. Original data has been retained; use a known backup for repair.'
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, JournalError):
+            self.recovery_error = RECOVERY_MESSAGE
             return {'id': 'damaged', 'phase': 'recovery_error'}
 
     def save(self, state):
@@ -267,6 +272,55 @@ class Journal:
             state = {'id': transaction, 'phase': 'prepared', 'expires': time.time() + 300}
             self.save(state)
             return state
+
+    @contextmanager
+    def recovery_exit(self):
+        # Hold both leases for the entire exit, including diagnostic ZIP creation.
+        try:
+            with journal_guard(self.config.app_data.root, exclusive=True), self.lock:
+                state = self.state()
+                if self.mutations or any(p.is_alive() for p in self.jobs._processes.values()):
+                    raise JournalError('Finish or cancel active work first.')
+                if state and (not self.recovery_error or state.get('recovery_restore')):
+                    raise JournalError('Another maintenance transaction is in progress. Finish it first.')
+                yield
+        except JournalMaintenanceError as exc:
+            raise JournalError(str(exc)) from exc
+
+    def _quarantine_recovery(self):
+        # The marker is written first and removed last: disk failures and restarts
+        # cannot silently admit writes or replay a partially quarantined journal.
+        private_json(self.recovery_marker, {'recovery_required': True})
+        self.recovery_error = RECOVERY_MESSAGE
+        quarantine = self.directory / f'quarantine-{uuid4().hex}'
+        quarantine.mkdir(mode=0o700)
+        for path in self.directory.iterdir():
+            if path.name in {'transaction.json', 'edit.json', 'purge.json'} or re.fullmatch('[0-9a-f]{32}', path.name):
+                os.replace(path, quarantine / path.name)
+        # trash.json, completed.json and backup ZIPs remain usable. Never inspect
+        # or move paths listed inside damaged metadata (they may be untrusted).
+
+    def begin_restore(self):
+        with self.recovery_exit():
+            if not self.recovery_error:
+                return self._begin()
+            self._quarantine_recovery()
+            transaction = uuid4().hex
+            (self.directory / transaction).mkdir(mode=0o700)
+            state = {'id': transaction, 'phase': 'prepared', 'recovery_restore': True}
+            self.save(state)
+            return state
+
+    def start_fresh(self, confirmed):
+        if confirmed is not True:
+            raise JournalError('Confirm starting a fresh journal. Saved history and media will be retained.')
+        with self.recovery_exit():
+            if not self.recovery_error:
+                raise JournalError('The journal is not damaged.')
+            self._quarantine_recovery()
+            self.recovery_marker.unlink()
+            self.recovery_error = None
+            return {'phase': 'fresh'}
 
     def work(self, transaction):
         self.check(transaction)
@@ -582,7 +636,9 @@ class Journal:
     def _finish(self, transaction):
         if (self.directory / 'purge.json').exists() or (self.directory / 'edit.json').exists():
             raise JournalError('Finish file recovery before releasing journal maintenance.')
-        self.recovery_error = None
+        if transaction in read_json(self.directory / 'completed.json', []):
+            self.recovery_marker.unlink(missing_ok=True)
+        self.recovery_error = RECOVERY_MESSAGE if self.recovery_marker.exists() else None
         self.state_path.unlink(missing_ok=True)
         shutil.rmtree(self.directory / transaction, ignore_errors=True)
 

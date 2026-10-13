@@ -1075,6 +1075,14 @@
     "removal_note": "Dies kann nicht rückgängig gemacht werden. Gespeicherte ZIP-Sicherungen bleiben erhalten. Beim Entfernen einer Probe bleiben analysierte Versuche im Verlauf.",
     "confirm_remove": "Endgültiges Entfernen bestätigen",
     "removed": "Archivierter Eintrag endgültig entfernt.",
-    "skipped": "{count} vorhandene Einträge bleiben unverändert und werden übersprungen."
+    "skipped": "{count} vorhandene Einträge bleiben unverändert und werden übersprungen.",
+    "restore_backup": "Aus einer Sicherung wiederherstellen",
+    "diagnostics": "Nur Diagnosedaten exportieren",
+    "fresh": "Neues Wiederherstellungsjournal starten",
+    "damaged_guidance": "Das Wiederherstellungsjournal ist beschädigt. Der Verlauf bleibt lesbar. Wähle in den Einstellungen eine dieser drei Möglichkeiten.",
+    "diagnostics_note": "Exportiert Diagnosedaten, bereinigte Betriebsdaten und die Anzahl der Logeinträge je Schweregrad. Logtexte, Berichte, Aufnahmen und Uploads sind nie enthalten.",
+    "confirm_fresh": "Bestätigen: neu starten",
+    "fresh_note": "Gespeicherte Berichte, Verlauf, Aufnahmen und Uploads bleiben erhalten. Beschädigte Transaktionsdateien und Rücksetzungskopien werden beiseitegelegt; ausstehende Wiederherstellungsdaten im Browser werden verworfen. Unvollständige Änderungen werden nicht mehr automatisch rückgängig gemacht.",
+    "fresh_done": "Ein neues Wiederherstellungsjournal ist bereit. Du kannst wieder üben."
   }
 }

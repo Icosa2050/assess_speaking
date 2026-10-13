@@ -1075,6 +1075,14 @@
     "removal_note": "No se puede deshacer. Los ZIP guardados permanecen intactos. Eliminar un ensayo conserva sus intentos analizados en el historial.",
     "confirm_remove": "Confirmar eliminación definitiva",
     "removed": "Elemento archivado eliminado definitivamente.",
-    "skipped": "Se conservarán sin cambios {count} elementos existentes y se omitirán."
+    "skipped": "Se conservarán sin cambios {count} elementos existentes y se omitirán.",
+    "restore_backup": "Restaurar desde una copia de seguridad",
+    "diagnostics": "Exportar solo diagnósticos",
+    "fresh": "Iniciar un diario de recuperación nuevo",
+    "damaged_guidance": "El diario de recuperación está dañado. El historial sigue disponible. Elige una de estas tres opciones en Ajustes.",
+    "diagnostics_note": "Exporta diagnósticos, estado operativo depurado y recuentos de registros por gravedad. Nunca incluye textos de registros, informes, grabaciones ni archivos subidos.",
+    "confirm_fresh": "Confirmar: empezar de nuevo",
+    "fresh_note": "Los informes, el historial, las grabaciones y los archivos subidos se conservan. Los archivos de transacciones dañados y las copias de reversión se apartan; se descartan los datos pendientes de restauración del navegador. Los cambios incompletos ya no se revertirán automáticamente.",
+    "fresh_done": "El nuevo diario de recuperación está listo. Ya puedes practicar."
   }
 }

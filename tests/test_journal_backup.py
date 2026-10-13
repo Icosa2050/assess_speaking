@@ -450,3 +450,136 @@ def test_optional_empty_cache_cleanup_failure_does_not_block_committed_purge(tmp
     lease = j.begin()['id']; j.purge_attempt('session0'); j.abort(lease)
     assert j.state() is None and not (j.directory / 'purge.json').exists()
     assert journal(tmp_path).recovery_error is None
+
+
+@pytest.mark.parametrize('exit_action', ['restore', 'diagnostics', 'fresh'])
+def test_damaged_journal_three_api_exits(tmp_path, exit_action):
+    import io
+    from fastapi.testclient import TestClient
+    from app_backend.app import create_app
+    from app_backend.config import build_backend_runtime_config
+    config = build_backend_runtime_config(app_data_dir=tmp_path / 'app', cache_dir=tmp_path / 'cache', port=8871)
+    j = Journal(config, SimpleNamespace(_processes={}))
+    seed(j)
+    j.archive_attempt('session1')
+    archive = backup(j).read_bytes()
+    recording = config.app_data.recordings_dir / 'private.wav'
+    recording.write_bytes(b'PRIVATE RECORDING')
+    private_json(config.jobs_dir / 'asmt_private.json', {'status': 'completed', 'payload': {'report': 'PRIVATE JOB REPORT'}})
+    config.log_file.write_text('INFO diagnostic fixture api_key=private-key\nERROR PRIVATE LOG REPORT Synthetic fixture.\n')
+    j.state_path.write_text('{damaged')
+    before = {p: p.read_bytes() for p in config.app_data.root.rglob('*') if p.is_file()}
+    with TestClient(create_app(config)) as client:
+        assert client.get('/v1/health').status_code == 200
+        assert len(client.get('/v1/history').json()['items']) == 1
+        assert client.get('/v1/history/session1').status_code == 200
+        assert client.get('/v1/journal/status').json()['recovery_error']
+        blocked = client.post('/v1/maintenance/cleanup', json={'target': 'all_safe', 'dry_run': True})
+        assert blocked.status_code == 409 and 'damaged' in blocked.text.lower()
+        if exit_action == 'restore':
+            response = client.post('/v1/journal/begin-restore', json={})
+            assert response.status_code == 200, response.text
+            tx = response.json()['id']
+            assert client.post(f'/v1/journal/{tx}/restore', content=archive).status_code == 200
+            assert client.post(f'/v1/journal/{tx}/commit', json={}).status_code == 200
+            assert client.post(f'/v1/journal/{tx}/complete', json={}).status_code == 200
+        elif exit_action == 'fresh':
+            assert client.post('/v1/journal/start-fresh', json={}).status_code == 409
+            response = client.post('/v1/journal/start-fresh', json={'confirmed': True})
+            assert response.status_code == 200, response.text
+            assert any(p.read_bytes() == b'{damaged' for p in j.directory.glob('quarantine-*/transaction.json'))
+            for path, content in before.items():
+                if path != j.state_path:
+                    assert path.read_bytes() == content
+        else:
+            # A dedicated endpoint never honors private-content opt-ins or client payloads.
+            response = client.post('/v1/journal/diagnostics', json={'include_reports': True, 'include_recordings': True,
+                'include_uploads': True, 'client_snapshot': {'report': 'PRIVATE CLIENT REPORT'}})
+            assert response.status_code == 200, response.text
+            downloaded = client.get('/v1/support-bundles/' + response.json()['bundle_id'])
+            assert downloaded.status_code == 200
+            with zipfile.ZipFile(io.BytesIO(downloaded.content)) as bundle:
+                assert {'backend_diagnostics.json', 'backend_state.json', 'logs/backend.log'} <= set(bundle.namelist())
+                assert not any(name.startswith(('reports/', 'recordings/', 'uploads/')) for name in bundle.namelist())
+                content = b'\n'.join(bundle.read(name) for name in bundle.namelist())
+                for secret in (b'PRIVATE', b'Synthetic fixture.', b'synthetic waveform', b'do-not-export', b'private-key'):
+                    assert secret not in content
+            for path, content in before.items():
+                assert path.read_bytes() == content
+            assert client.get('/v1/journal/status').json()['recovery_error']
+            assert client.post('/v1/journal/begin').status_code == 409
+            return
+        assert client.get('/v1/history/session1').status_code == 200
+        assert not client.get('/v1/journal/status').json()['recovery_error']
+        assert client.post('/v1/maintenance/cleanup', json={'target': 'all_safe', 'dry_run': False}).status_code == 200
+    assert Journal(config, SimpleNamespace(_processes={})).recovery_error is None
+
+
+@pytest.mark.parametrize('endpoint', ['begin-restore', 'diagnostics', 'start-fresh'])
+def test_recovery_exits_refuse_other_maintenance(tmp_path, endpoint):
+    from fastapi.testclient import TestClient
+    from app_backend.app import create_app
+    from app_backend.config import build_backend_runtime_config
+    from app_core.journal_lock import journal_guard
+    config = build_backend_runtime_config(app_data_dir=tmp_path / 'app', cache_dir=tmp_path / 'cache', port=8871)
+    with TestClient(create_app(config)) as client:
+        tx = client.post('/v1/journal/begin').json()['id']
+        assert client.post('/v1/journal/' + endpoint, json={'confirmed': True}).status_code == 409
+        client.post(f'/v1/journal/{tx}/abort')
+        app_journal = client.app.state.journal
+        app_journal.state_path.write_text('{damaged')
+        with journal_guard(config.app_data.root, exclusive=True):
+            assert client.post('/v1/journal/' + endpoint, json={'confirmed': True}).status_code == 409
+
+
+@pytest.mark.parametrize('damage', ['transaction.json', 'purge.json', 'edit.json'])
+def test_failed_or_cancelled_repair_stays_damaged_across_restart(tmp_path, damage):
+    j = journal(tmp_path); seed(j)
+    (j.directory / damage).write_text('{damaged')
+    j = journal(tmp_path)
+    tx = j.begin_restore()['id']
+    with pytest.raises(JournalError):
+        j.stage(tx, j.config.app_data.reports_dir / 'report-0.json')
+    j.abort(tx)
+    j = journal(tmp_path)
+    with pytest.raises(JournalError):
+        j.begin_mutation()
+    j.start_fresh(True)
+    guard = j.begin_mutation(); j.end_mutation(guard)
+    assert len(read_history(j.config.app_data.reports_dir / 'history.csv')[1]) == 2
+
+
+def test_repair_transaction_blocks_all_exits_across_restart(tmp_path):
+    j = journal(tmp_path); seed(j)
+    j.state_path.write_text('{damaged')
+    tx = j.begin_restore()['id']
+    j = journal(tmp_path)
+    for action in (j.begin_restore, lambda: j.start_fresh(True)):
+        with pytest.raises(JournalError, match='in progress'):
+            action()
+    with pytest.raises(JournalError, match='in progress'):
+        with j.recovery_exit():
+            pytest.fail('Diagnostics must not enter during restore')
+    j.abort(tx)
+    assert j.recovery_error
+
+
+def test_interrupted_quarantine_never_replays_damaged_metadata(tmp_path, monkeypatch):
+    import app_backend.journal as module
+    j = journal(tmp_path); seed(j)
+    j.state_path.write_text('{damaged')
+    original = module.os.replace
+    def refuse(source, target):
+        if 'quarantine-' in str(target):
+            raise OSError('Injected disk failure')
+        return original(source, target)
+    monkeypatch.setattr(module.os, 'replace', refuse)
+    with pytest.raises(OSError):
+        j.start_fresh(True)
+    restarted = journal(tmp_path)
+    assert restarted.recovery_error
+    with pytest.raises(JournalError):
+        restarted.begin_mutation()
+    monkeypatch.setattr(module.os, 'replace', original)
+    restarted.start_fresh(True)
+    assert len(read_history(restarted.config.app_data.reports_dir / 'history.csv')[1]) == 2

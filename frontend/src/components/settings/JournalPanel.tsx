@@ -1,9 +1,11 @@
+import { apiClient } from "@/lib/api/client";
+import type { SupportBundleCreateResponse } from "@/lib/api/types";
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { createTranslator } from "@/lib/i18n";
 import type { UiLocale } from "@/lib/state/sessionDraft";
 import { isDesktopRuntime, readDesktopRuntimeBridge } from "@/lib/runtime/desktopBridge";
-import { attemptRemoval, rehearsalRemoval, createLearnerBackup, previewLearnerRestore, commitLearnerRestore, recoverLearnerJournal, journalRecoveryStatus, journalStatus, journalRequest, journalBlob, type BackupResult, type RestorePreview, type JournalStatus } from "@/lib/rehearsal/maintenance";
+import { startFreshJournal, exportJournalDiagnostics, attemptRemoval, rehearsalRemoval, createLearnerBackup, previewLearnerRestore, commitLearnerRestore, recoverLearnerJournal, journalRecoveryStatus, journalStatus, journalRequest, journalBlob, type BackupResult, type RestorePreview, type JournalStatus } from "@/lib/rehearsal/maintenance";
 import { listArchivedRehearsals, undoRehearsalArchive } from "@/lib/rehearsal/storage";
 import type { Rehearsal } from "@/lib/rehearsal/session";
 
@@ -11,6 +13,8 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
   const t = createTranslator(locale);
   const cache = useQueryClient();
   const controller = useRef<AbortController | null>(null);
+  const [confirmFresh, setConfirmFresh] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<SupportBundleCreateResponse | null>(null);
   const [committing, setCommitting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -26,7 +30,7 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
     const abort = new AbortController(); controller.current = abort;
     try { await action(abort.signal); await cache.invalidateQueries(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
-    finally { controller.current = null; setBusy(false); setCommitting(false); }
+    finally { controller.current = null; setBusy(false); setCommitting(false); window.dispatchEvent(new Event("journal-recovery-changed")); }
   };
   const progress = (done: number, total: number) => setMessage(t("journal.progress", { done, total }));
   const save = async (item: BackupResult) => {
@@ -43,6 +47,21 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
       setMessage(t("journal.download_started"));
     }
   };
+  const saveDiagnostics = async (item: SupportBundleCreateResponse) => {
+    if (isDesktopRuntime()) {
+      const native = readDesktopRuntimeBridge().saveSupportBundle;
+      if (!native) throw new Error(t("settings.support_native_unavailable"));
+      const result = await native(item.bundle_id);
+      setMessage(t(result.status === "saved" ? "settings.support_bundle_saved" : "settings.support_bundle_cancelled"));
+    } else {
+      const blob = await apiClient.downloadSupportBundle(item.bundle_id);
+      const url = URL.createObjectURL(blob); const anchor = document.createElement("a");
+      anchor.href = url; anchor.download = item.filename; anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      setMessage(t("settings.support_bundle_download_started"));
+    }
+  };
+  const activeTransaction = !!status?.transaction && status.transaction.phase !== "recovery_error";
   const refresh = async () => { setStatus(await journalRecoveryStatus()); setArchived(await listArchivedRehearsals()); };
   useEffect(() => {
     let active = true;
@@ -54,21 +73,36 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
   return <section style={{ padding: "1.25rem", border: "1px solid #c4d4cd", borderRadius: 8, display: "grid", gap: "0.8rem" }} data-testid="journal-panel">
     <h2>{t("journal.title")}</h2><p>{t("journal.body")}</p><p>{t("journal.limit")}</p>
     {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}
-    {status?.recovery_error && <p role="alert">{status.recovery_error}</p>}
+    {status?.recovery_error && <div>
+      <p role="alert">{status.recovery_error}</p><p>{t("journal.damaged_guidance")}</p>
+      <p>{t("journal.diagnostics_note")}</p>
+      <button id="journal-diagnostics" disabled={busy || activeTransaction} onClick={() => void run(async () => {
+        const result = await exportJournalDiagnostics(); setDiagnostics(result); await saveDiagnostics(result);
+      })}>{t("journal.diagnostics")}</button>
+      <button id="journal-fresh" disabled={busy || activeTransaction} onClick={() => setConfirmFresh(true)}>{t("journal.fresh")}</button>
+      {confirmFresh && <div role="group" aria-label={t("journal.confirm_fresh")}>
+        <p>{t("journal.fresh_note")}</p>
+        <button disabled={busy || activeTransaction} onClick={() => void run(async () => {
+          await startFreshJournal(); setConfirmFresh(false); await refresh(); setMessage(t("journal.fresh_done"));
+        })}>{t("journal.confirm_fresh")}</button>
+        <button disabled={busy} onClick={() => setConfirmFresh(false)}>{t("journal.cancel")}</button>
+      </div>}
+    </div>}
+    {diagnostics && <button disabled={busy} onClick={() => void run(() => saveDiagnostics(diagnostics))}>{t("settings.support_bundle_save_again")}</button>}
     <label><input type="checkbox" checked={allowMissing} onChange={e => setAllowMissing(e.target.checked)} disabled={busy} /> {t("journal.allow_missing")}</label>
     <button disabled={busy || !!preview || !!status?.recovery_error} onClick={() => void run(async signal => { const result = await createLearnerBackup(allowMissing, progress, signal); setBackup(result); await save(result); })}>{t("journal.backup")}</button>
     {backup && <button disabled={busy} onClick={() => void run(() => save(backup))}>{t("journal.save_again")}</button>}
     {!!backup?.missing.length && <p>{t("journal.missing", { count: backup.missing.length })}</p>}
-    <label>{t("journal.open")} <input type="file" accept=".zip,application/zip" disabled={busy || !!preview || !!status?.recovery_error} onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void run(async signal => { setPreview(await previewLearnerRestore(file, signal)); }); }} /></label>
+    <label>{t(status?.recovery_error ? "journal.restore_backup" : "journal.open")} <input id="journal-restore" type="file" accept=".zip,application/zip" disabled={busy || !!preview || activeTransaction} onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void run(async signal => { try { setPreview(await previewLearnerRestore(file, signal)); } finally { await refresh(); } }); }} /></label>
     {preview && <div><p>{t("journal.preview", { attempts: preview.attempts, rehearsals: preview.browser.sessions.length })}</p><p>{t("journal.restore_note")}</p>
       {!!(preview.skipped_attempts.length + preview.skipped_rehearsals.length) && <p>{t("journal.skipped", { count: preview.skipped_attempts.length + preview.skipped_rehearsals.length })}</p>}
       {!!preview.missing.length && <p>{t("journal.missing", { count: preview.missing.length })}</p>}
       <button disabled={busy} onClick={() => void run(async signal => { try { await commitLearnerRestore(preview, signal, progress, () => setCommitting(true)); } finally { const current = await journalRecoveryStatus(); setStatus(current); if (!current.transaction) setPreview(null); } setPreview(null); setMessage(t("journal.restored")); await refresh(); })}>{t("journal.confirm_restore")}</button>
-      <button disabled={busy} onClick={() => void run(async () => { await recoverLearnerJournal(true); setPreview(null); setMessage(t("journal.cancelled")); })}>{t("journal.cancel")}</button>
+      <button disabled={busy} onClick={() => void run(async () => { await recoverLearnerJournal(true); setPreview(null); await refresh(); setMessage(t("journal.cancelled")); })}>{t("journal.cancel")}</button>
     </div>}
     {busy && !committing && <button onClick={() => controller.current?.abort()}>{t("journal.cancel")}</button>}
     <button disabled={busy} onClick={() => void run(refresh)}>{t("journal.check_recovery")}</button>
-    {status?.transaction && <div><p>{t("journal.recovery_needed")}</p>
+    {activeTransaction && <div><p>{t("journal.recovery_needed")}</p>
       <button disabled={busy} onClick={() => void run(async () => { await recoverLearnerJournal(); setPreview(null); await refresh(); setMessage(t("journal.recovered")); })}>{t("journal.recover")}</button>
       <button disabled={busy} onClick={() => void run(async () => { await recoverLearnerJournal(true); setPreview(null); await refresh(); setMessage(t("journal.rolled_back")); })}>{t("journal.rollback")}</button>
     </div>}
