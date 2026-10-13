@@ -8,6 +8,20 @@ from dataclasses import dataclass
 from app_core.runtime_providers import DEFAULT_PROVIDER, default_base_url
 
 
+PRACTICE_LLM_TIMEOUT_SEC = 180.0
+
+
+def practice_llm_timeout_sec() -> float:
+    """Resolve the practice app timeout without changing the CLI default."""
+    configured = os.getenv("LLM_TIMEOUT_SEC")
+    if configured is None:
+        return PRACTICE_LLM_TIMEOUT_SEC
+    try:
+        return float(configured)
+    except ValueError:
+        return PRACTICE_LLM_TIMEOUT_SEC
+
+
 @dataclass(frozen=True)
 class Settings:
     provider: str = DEFAULT_PROVIDER

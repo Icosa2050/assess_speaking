@@ -18,6 +18,14 @@ import webbrowser
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from assess_core.settings import PRACTICE_LLM_TIMEOUT_SEC
+
+
+def backend_environment(backend_port: int) -> dict[str, str]:
+    env = {**os.environ, "NODE_ENV": "production", "VITE_LOCAL_API_BASE_URL": f"http://127.0.0.1:{backend_port}"}
+    env.setdefault("LLM_TIMEOUT_SEC", str(PRACTICE_LLM_TIMEOUT_SEC))
+    return env
+
 
 def wait_ready(url: str, process: subprocess.Popen, timeout: float = 30) -> None:
     deadline = time.monotonic() + timeout
@@ -60,8 +68,7 @@ def main() -> int:
             except OSError as exc:
                 raise RuntimeError(f"Port {port} is already in use. If Vostavo is open, return to its window. Otherwise stop the other server or choose different --port / --backend-port values.") from exc
     backend_port = args.backend_port
-    env = {**os.environ, "NODE_ENV": "production", "VITE_LOCAL_API_BASE_URL": f"http://127.0.0.1:{backend_port}"}
-    env.setdefault("LLM_TIMEOUT_SEC", "180")
+    env = backend_environment(backend_port)
     command = [sys.executable, str(ROOT / "scripts/run_backend.py"), "--port", str(backend_port)]
     if args.app_data_dir:
         command.extend(["--app-data-dir", str(Path(args.app_data_dir).resolve())])
