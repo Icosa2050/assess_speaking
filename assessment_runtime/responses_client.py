@@ -10,7 +10,9 @@ from app_core.runtime_providers import default_base_url
 
 
 class ResponsesError(RuntimeError):
-    pass
+    def __init__(self, detail, status=None):
+        super().__init__(detail)
+        self.status = status
 
 
 def _cloud_url(provider: str) -> str:
@@ -72,9 +74,9 @@ def complete(*, provider: str, model: str, prompt: str, api_key: str,
         if status == 413 and provider == 'groq':
             raise ResponsesError('Groq rejected the feedback request as too large. Try a shorter practice attempt or a provider with higher limits. Your recording is retained.') from None
         if status == 429 and provider == 'groq':
-            raise ResponsesError('Groq usage limit reached. Wait and retry; for long attempts, check your account token limits. Your recording is retained.') from None
+            raise ResponsesError('Groq usage limit reached. Wait and retry; for long attempts, check your account token limits. Your recording is retained.', status=429) from None
         if status in (402, 429):
-            raise ResponsesError('Provider allowance or credits are exhausted. Check your provider account.') from None
+            raise ResponsesError('Provider allowance or credits are exhausted. Check your provider account.', status=status) from None
         raise ResponsesError('The provider request failed. Check the connection and selected model.') from None
     raise ResponsesError('The connection ended before feedback completed. Please retry.')
 

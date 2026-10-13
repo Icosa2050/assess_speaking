@@ -3,6 +3,36 @@ import { describe, expect, it } from "vitest";
 import { createAppStore, selectCanSubmitAssessment } from "./appStore";
 
 describe("app store recording jobs", () => {
+  it.each([true, false])("starts a clean practice with preservePreferences=%s", (preservePreferences) => {
+    const store = createAppStore({
+      preferences: { activeConnectionId: "conn-primary", setupComplete: true },
+      draft: {
+        speakerId: "maria",
+        themeId: "travel",
+        promptText: "Describe a trip",
+        retryOfSessionId: "prior-attempt",
+      },
+      recording: { audioPath: "/tmp/take.wav", inputMethod: "upload" },
+      review: { reportId: "/tmp/report.json" },
+    });
+    const oldSessionId = store.getState().draft.sessionId;
+
+    if (preservePreferences) {
+      store.getState().beginNewSession();
+    } else {
+      store.getState().beginNewSession({ preservePreferences: false });
+    }
+
+    const state = store.getState();
+    expect(state.draft.speakerId).toBe(preservePreferences ? "maria" : "");
+    expect(state.preferences.activeConnectionId).toBe(preservePreferences ? "conn-primary" : "");
+    expect(state.draft.sessionId).not.toBe(oldSessionId);
+    expect(state.draft.promptText).toBe("");
+    expect(state.draft.retryOfSessionId).toBe("");
+    expect(state.recording.audioPath).toBe("");
+    expect(state.review.reportId).toBe("");
+  });
+
   it("links each retry to the saved report session, and clears the link for a new task", () => {
     const store = createAppStore({
       draft: { promptText: "Explain your choice", cefrLevel: "C1" },
@@ -82,5 +112,24 @@ describe("app store recording jobs", () => {
     store.getState().setRecordingJob({ status: "cancelled", error: undefined });
 
     expect(store.getState().recording.error).toBe("Cancelled while offline");
+  });
+});
+
+describe("microphone calibration", () => {
+  it("requires explicit calibration and preserves it across new practices", () => {
+    const store = createAppStore();
+    store.getState().setMicrophoneStatus("ready");
+    expect(store.getState().microphoneSetupPassed).toBe(false);
+    store.getState().setMicrophoneSetupPassed(true);
+    store.getState().beginNewSession();
+    expect(store.getState().microphoneSetupPassed).toBe(true);
+  });
+  it.each(["device", "processing", "permission", "capture error"])("invalidates calibration after %s changes", change => {
+    const store = createAppStore({ microphoneStatus: "ready", microphoneSetupPassed: true });
+    if (change === "device") store.getState().setMicrophoneDeviceId("another-mic");
+    if (change === "processing") store.getState().setMicrophoneVoiceProcessing(false);
+    if (change === "permission") store.getState().invalidateMicrophoneSetup();
+    if (change === "capture error") store.getState().setMicrophoneStatus("missing");
+    expect(store.getState().microphoneSetupPassed).toBe(false);
   });
 });

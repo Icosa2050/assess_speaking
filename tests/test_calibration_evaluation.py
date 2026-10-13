@@ -160,3 +160,30 @@ class CalibrationEvaluationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_held_out_labels_never_reach_the_assessment_runner():
+    from dataclasses import replace
+    from benchmarking.calibration_evaluation import evaluate_calibration_case
+    manifest=load_calibration_manifest(FIXTURE_PATH)
+    case=manifest.cases[0]
+    config=CalibrationRunConfig('tiny','ollama','fixture',None,False,False,False,task_goal='B2')
+    calls=[]
+    def runner(**kwargs):
+        calls.append(kwargs)
+        return {'report':{'input':{},'scores':{'final':3.5,'cefr_estimate':{'level':'B2','continuous':3.5}},'checks':{},'warnings':[],'errors':[]}}
+    first=evaluate_calibration_case(manifest,case,config=config,runner=runner)
+    second=evaluate_calibration_case(manifest,replace(case,expected_cefr='C1'),config=config,runner=runner)
+    assert calls[0]==calls[1] and calls[0]['target_cefr']=='B2'
+    assert first.final_score==second.final_score and first.estimated_cefr==second.estimated_cefr
+
+
+def test_ineligible_observations_do_not_become_proficiency_labels_or_pair_successes():
+    manifest = load_calibration_manifest(FIXTURE_PATH)
+    def runner(**kwargs):
+        return {'report': {'eligibility': {'version': 1, 'state': 'content_unverified'},
+            'scores': {'final': 4.5, 'band': 5, 'cefr_estimate': {'level': 'C1', 'continuous': 4.5}}, 'checks': {}}}
+    result = evaluate_calibration_manifest(manifest, config=CalibrationRunConfig('tiny', 'ollama', 'fixture', None, False, False, False), runner=runner)
+    assert result.run_status == 'withheld' and result.success_ratio == 0
+    assert all(case.status == 'withheld' and case.estimated_cefr is None and case.final_score is None and case.band is None for case in result.cases)
+    assert all(pair.passed is None for pair in result.pair_expectations)

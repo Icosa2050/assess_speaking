@@ -127,11 +127,16 @@ class SupportBundleTests(unittest.TestCase):
                 names = set(archive.namelist())
                 self.assertIn("backend_state.json", names)
                 self.assertIn("logs/backend.log", names)
-                self.assertIn("reports/session.json", names)
-                self.assertIn("reports/notes.txt", names)
-                self.assertIn("recordings/sample.wav", names)
-                self.assertIn("uploads/metadata.csv", names)
-                self.assertIn("jobs/old.json", names)
+                report_name = next(name for name in names if name.startswith("reports/") and name.endswith(".json"))
+                notes_name = next(name for name in names if name.startswith("reports/") and name.endswith(".txt"))
+                recording_name = next(name for name in names if name.startswith("recordings/") and name.endswith(".wav"))
+                upload_name = next(name for name in names if name.startswith("uploads/") and name.endswith(".csv"))
+                self.assertNotIn("session.json", report_name)
+                self.assertNotIn("notes.txt", notes_name)
+                self.assertTrue(any(name.startswith("recordings/") and name.endswith(".wav") for name in names))
+                self.assertNotIn("metadata.csv", upload_name)
+                self.assertEqual(sum(name.startswith("jobs/") for name in names), 1)
+                self.assertFalse(any("old.json" in name or "recent.json" in name for name in names))
                 self.assertNotIn("jobs/recent.json", names)
 
                 backend_state = json.loads(archive.read("backend_state.json"))
@@ -148,18 +153,18 @@ class SupportBundleTests(unittest.TestCase):
                 )
                 self.assertNotIn("secret_ref", client_diagnostics[0]["detail_args"])
 
-                report_payload = json.loads(archive.read("reports/session.json"))
+                report_payload = json.loads(archive.read(report_name))
                 self.assertEqual(report_payload["api_token"], REDACTED_VALUE)
                 self.assertNotIn("secret_ref", report_payload["connection"])
 
-                notes = archive.read("reports/notes.txt").decode("utf-8")
+                notes = archive.read(notes_name).decode("utf-8")
                 self.assertNotIn("text-secret", notes)
                 self.assertNotIn("connection:primary", notes)
 
-                upload_metadata = archive.read("uploads/metadata.csv").decode("utf-8")
+                upload_metadata = archive.read(upload_name).decode("utf-8")
                 self.assertIn(REDACTED_VALUE, upload_metadata)
                 self.assertNotIn("upload-secret", upload_metadata)
-                self.assertEqual(archive.read("recordings/sample.wav"), b"fake-recording")
+                self.assertEqual(archive.read(recording_name), b"fake-recording")
 
                 manifest = json.loads(archive.read("manifest.json"))
                 self.assertTrue(manifest["include_reports"])
@@ -226,7 +231,7 @@ class SupportBundleTests(unittest.TestCase):
 
             with zipfile.ZipFile(support_bundle_path(config, response.bundle_id)) as archive:
                 names = set(archive.namelist())
-                self.assertIn("recordings/sample.wav", names)
+                self.assertTrue(any(name.startswith("recordings/") and name.endswith(".wav") for name in names))
                 self.assertNotIn("recordings/debug.bin", names)
                 manifest = json.loads(archive.read("manifest.json"))
                 self.assertEqual(manifest["redaction"]["skipped_unsupported_binaries"], 1)

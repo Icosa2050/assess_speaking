@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures";
 
 // Deterministic UI contracts run in normal CI. Real discovery/inference lives in tests/live.
 test.use({ viewport: { width: 390, height: 844 } });

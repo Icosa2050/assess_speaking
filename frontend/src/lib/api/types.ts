@@ -1,6 +1,8 @@
 export type JsonRecord = Record<string, unknown>;
 
 export type ErrorCode =
+  | "recording_too_short"
+  | "sharing_changed"
   | "backend_unavailable"
   | "local_provider_not_installed"
   | "local_provider_not_running"
@@ -18,6 +20,7 @@ export type CleanupTarget = "tmp" | "jobs" | "logs" | "all_safe";
 export type ConnectionSecretState = "absent" | "present" | "missing";
 
 export type FrozenApiRoute =
+  | `/v1/journal/${string}`
   | "/v1/uploads/limits"
   | "/v1/health"
   | "/v1/diagnostics"
@@ -33,11 +36,15 @@ export type FrozenApiRoute =
   | "/v1/support-bundles"
   | `/v1/support-bundles/${string}`
   | "/v1/uploads"
+  | "/v1/assessment-route"
+  | "/v1/runtime/sharing"
   | "/v1/assessments"
   | `/v1/assessments/${string}`
   | `/v1/assessments/${string}/cancel`
+  | `/v1/assessments/${string}/resume`
   | "/v1/history"
   | `/v1/history/${string}`
+  | `/v1/history/${string}/resume`
   | "/v1/samples";
 
 export interface HealthResponse {
@@ -89,6 +96,8 @@ export interface RuntimeSettingsConnection {
 }
 
 export interface RuntimeSettingsResponse {
+  asr_provider?: string;
+  asr_model?: string;
   ui_locale: string;
   whisper_model: string;
   active_connection_id: string;
@@ -190,6 +199,9 @@ export interface UploadResponse {
 }
 
 export interface AssessmentCreateRequest {
+  sharing_fingerprint?: string;
+  request_id?: string;
+  resume_assessment_id?: string;
   audio_id: string;
   whisper: string;
   provider: string;
@@ -254,6 +266,8 @@ export interface PracticeContext {
 }
 
 export interface HistoryRow {
+  eligibility?: { version: number; state: "insufficient_speech" | "content_unverified" | "invalid_content" | "assessable"; reasons: string[]; metrics_reliable: boolean; task_complete: boolean | null };
+  content_validity_pass?: boolean | null;
   practice?: PracticeContext | null;
   duration_sec?: number | null;
   word_count?: number | null;
@@ -300,3 +314,12 @@ export interface SampleItem {
 export interface SamplesResponse {
   items: SampleItem[];
 }
+
+export interface SharingDestination {
+  provider: string; model: string; connection_id: string; host: string; local: boolean; mode: string;
+}
+export interface SharingRoute {
+  version: 1; available: boolean; fingerprint: string;
+  audio: SharingDestination; analysis: SharingDestination; fallback: SharingDestination | null;
+}
+export interface SharingSelection { provider: string; llm_model: string; llm_base_url?: string; whisper: string; }

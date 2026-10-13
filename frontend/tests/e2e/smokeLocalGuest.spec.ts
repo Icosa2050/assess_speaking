@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures";
 
 test.describe("local guest smoke", () => {
   test("home routes to runtime setup on a clean backend", async ({ page }) => {

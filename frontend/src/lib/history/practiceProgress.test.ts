@@ -16,6 +16,13 @@ export const attempt = (id: string, overrides: Partial<HistoryRow> = {}): Histor
 });
 
 describe("practice progress", () => {
+  it.each(["insufficient_speech", "invalid_content", "content_unverified"] as const)("excludes %s attempts from score progress while retaining retry context", state => {
+    const first = attempt("first", { eligibility: { version: 1, state, reasons: [], metrics_reliable: false, task_complete: false } });
+    const next = attempt("next");
+    expect(comparableAttempts([first, next], next)).toEqual([next]);
+    expect(comparisonAttempt([first, next], next)).toBeNull();
+    expect(retryDraft(first)).not.toBeNull();
+  });
   it("keeps missing and invalid measurements distinct from a real zero", () => {
     for (const input of [null, undefined, "", "  ", false, NaN, Infinity]) expect(measurement(input)).toBeNull();
     expect(measurement(0)).toBe(0);

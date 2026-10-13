@@ -1,0 +1,57 @@
+# App gap plan: Claude feasibility review and amendments
+
+Date: October 6, 2026
+Verdict: **Feasible with amendments**
+Final roadmap: [app gap action plan](../plans/2026-10-06-app-gap-action-plan.md)
+
+The logged-in Claude CLI reviewed the exact [draft snapshot](2026-10-06-app-gap-plan-reviewed-draft.md) and 29 selected source/documentation files. The command ran successfully in 247.23 seconds with exit code 0; CLI version 2.1.291, configured default model with no override. Tools, MCP servers, customization sources and session persistence were disabled. Review input consisted of repository source, test fixtures and documentation, without learner recordings/reports or account state. The first restricted attempt could not access the login; the subsequent approved execution succeeded.
+
+Evidence: [raw review](2026-10-06-app-gap-plan-claude-raw.md), [successful run metadata](2026-10-06-app-gap-plan-claude-run.json), [input/source manifest](2026-10-06-app-gap-plan-review-manifest.json). The manifest binds the reviewed draft, selected file versions and exact input hash. The CLI did not run tests, inspect the application/DMG or independently verify the assessment logs. The host amended the plan using this review and checked conditional findings against current source. The final amended roadmap was not sent for a second Claude review.
+
+## Disposition of every finding
+
+| Finding | Disposition and final-plan change |
+|---|---|
+| F1: sharing route race | Accepted. B specifies a backend fingerprint, locked acceptance and runtime snapshot, HTTP 409 mismatch, both resume contracts, idempotency identity and per-part rehearsal validation. Added backend files/tests and revised B to 3–5 days. Host verified that CloudRuntime already snapshots settings and connections at construction; acceptance must bind that existing snapshot, not introduce settings re-reads during a job. |
+| F2: opposite unconditional sharing message | Accepted. B replaces both ChatGPT's local-audio statement and CloudSettingsPanel's Groq statement with one derived summary using five locale files. |
+| F3: journey CI prerequisites | Accepted with a source correction. A2 adds interpreter selection, media dependencies, fresh empty HF roots, memory keyring and external-network refusal. A3 is a bounded Ubuntu WebKit probe. The actual WebKit specs already set `browserName: "webkit", permissions: [], launchOptions: {}`; their Chromium flags are not a confirmed defect. No Linux compatibility failure has been observed. |
+| F4: time-budget margin | Accepted. Initial journey budget becomes eight minutes with a fifteen-minute job and separately bounded setup/teardown. Retained logs show nine cases in a 3.5-minute timed-out run, then five in 1.2 minutes; individual cases total about 4.4 minutes. Remote performance remains unverified. |
+| F5: calibration-label independence | Accepted with qualification. Host inspected all `target_cefr` references and the complete real/dry-run final scoring calls: rubric and score/profile computation do not receive the label; baseline comparison does. D specifies an explicit fixed protocol goal or `None`, a held-out-label score equivalence test and captured inference arguments. It describes an evaluation-contract risk rather than a confirmed prompt/scoring leak. |
+| F6: outcome gates | Accepted. Internal DMG, remote merge evidence, public local DMG, cloud-support claims, stronger assessment claims and backup/deletion now have separate requirements. Learner recruitment does not gate the DMG. Full packaged cloud evidence is required for advertised cloud routes. |
+| F7: retries and verification reuse | Accepted with a format choice. Set retries to zero and reject flaky/skipped/missing/duplicate outcomes. Reuse mandatory-case accounting, but browser JSON retains retry/status metadata that the current pytest XML verifier does not inspect. Keep pytest JUnit support. |
+| F8: collection conservation | Accepted. Record identities before/after, preserve their union while explicitly mapping moved identities, separate opt-in live cases, and remove the fixed backend URL from the moved test. |
+| F9: missing baseline artifacts | Resolved by retaining [assessment evidence](2026-10-06-app-gap-assessment-evidence/README.md), raw result logs and separate line/branch coverage calculations. The newer log reports 1,105, whereas the prior cloud record reports 1,103 before two sample-workflow tests. Original invocation strings were not embedded in logs; reproduction commands are labelled accordingly. No older report was rewritten. |
+| F10: corpus/provider selection | Accepted. D adds explicit corpus/version/ID selection, exclusions and full outcome accounting. Current runner supports only Ollama/LM Studio; a cloud extension is separate. Request-construction assertions target withheld label fields without treating ordinary transcript overlap as leakage. |
+| F11: pilot cells and labels | Accepted with correction. The initial plan already targeted B1/B2/C1; these are now explicit. Assign cells after human ratings, reject authored/sample-folder labels as proficiency evidence, use opaque IDs, disclose the B1 floor and pre-register agreement/uncertainty methods with specialists. |
+| F12: blinding and study retention | Accepted. Added anonymized/randomized feedback, a separate unblinding key, pseudonymous speakers, dedicated study roots, consent/provider compatibility and retention dates. No study material is source-review input. |
+| F13: frozen harness feasibility | Accepted. C has a 1–2 day probe with isolation criteria and an explicit open-gate outcome. It does not promise that source test injection works in the frozen helper. Complete capped live artifact evidence may establish a live cloud route; it does not turn a missing offline harness into a passing offline result. |
+| F14: signed native rerun | Accepted. Ad-hoc native results are provisional; repeat on the exact Developer ID candidate, and test the declared macOS minimum on an actual 14.x machine. The review's general TCC/Keychain claims were not independently observed and are not presented as demonstrated platform behavior. |
+| F15: build dependency prerequisites | Accepted. Check availability of pinned/hashed build artifacts before the rebuild, and report download resolution separately. No dependency updates are proposed. |
+| F16: two stores, paths and migration | Accepted with privacy correction. E0 adds installed-webview save/open and cross-root restore probes, relative/sanitized payload paths, explicit restored provenance, exclusion of jobs/stage caches and populated-v1 IndexedDB migration. Host verified an existing `rfd` Rust dependency. Retain identity/source checksum provenance without exporting the original private absolute path suggested by the review. |
+| F17: workers and cross-tab maintenance | Accepted. E0 adds a backend maintenance lease and a global lock honored by all IndexedDB writers, with fixed acquisition order and recovery. A wildcard-like lock name alone cannot coordinate existing session locks. Test alive workers, direct API callers and stale tabs. |
+| F18: privacy detail | Accepted. Display sanitized hostnames, explain OpenRouter onward routing and show the summary at analysis/resume time and before each part. |
+| F19: design/accessibility/performance | Accepted with scope qualification. Use synthetic states for Stitch, include installed WKWebView VoiceOver/zoom, and measure the known lookup/comparison paths before optimizing. Tool capability and applicable permissions are checked when design execution begins; this plan invokes no external design work. |
+| F20: corrected-text provenance | Accepted. G depends on the E0 manifest and excludes edited-text coaching from both frontend/backend comparisons, with parity fixtures. |
+| F21: environment instruction | Accepted. Any correction of the stale sibling-venv instruction is a standalone documentation change after checking user-owned state; the plan uses the validated current environment. |
+
+## Effort and prerequisites
+
+Adopted Claude's revised engineering ranges: A 2.5–4.5 days including WebKit probe, B 3–5, C 5–9, D 6–10, E 15–25, F 6–10, G 4–7. These are planning ranges, not measured execution times or delivery promises. A1+A2+B are approximately 5–8.5 engineering days for one familiar engineer. Re-estimate the frozen harness and storage work after their probes.
+
+External prerequisites remain named: Developer ID/notarization setup, clean/native test hardware or user, dedicated provider accounts with a spending cap, specialists, consenting speakers and UX participants. The user requested a plan and review; no implementation, cloud inference, release, learner-data deletion or workflow dispatch was performed for this task.
+
+## Host verification of conditional claims
+
+Checked [CloudRuntime](../../app_backend/cloud_runtime.py), [preferences lock](../../app_core/preference_lock.py), [cloud settings writes](../../app_backend/cloud_routes.py), [assessment/resume routes](../../app_backend/app.py), [submission identity](../../app_backend/jobs.py), [assessment scoring](../../assess_speaking.py), [WebKit specs](../../frontend/tests/journeys/webkitPractice.spec.ts), [IndexedDB storage](../../frontend/src/lib/rehearsal/storage.ts), [native dependencies](../../frontend/src-tauri/Cargo.toml) and assessment logs. Source hashes for these additional checks are recorded in the review manifest. Existing codebase-memory coverage for queried paths was checked before graph/source exploration.
+
+Documentation verification checks link targets, review/draft/output hashes, unchanged review-input sources, checklist state and this task's diff. App suites were not rerun solely for Markdown changes; the baseline outputs are retained with their scope limitations.
+
+## October 8 support package addition
+
+At the user's request, the roadmap now includes H0 for installed-DMG support ZIP download verification and H1 for an explicit send flow. H0 covers native save/cancellation, archive contents, redaction, default exclusions and failure recovery. H1 requires a real support recipient and a probed native email-draft attachment or support upload mechanism, with preview, explicit submission, accurate handoff/receipt and retry behavior. Destination and mechanism remain implementation prerequisites.
+
+H0 joins the first implementation batch and native/public artifact acceptance; H1 has its own feature gate and can follow after the delivery decision. Provisional effort is 1–2 engineering days for H0 and 3–5 for H1 after the mechanism probe, with re-estimation if a receiving service must be built. The new tasks were not part of Claude's October 6 review. Its snapshot and raw output remain unchanged; the manifest records the subsequent plan revision.
+
+## October 8 Ubuntu execution environment
+
+The user supplied `ssh p50` for the Ubuntu checks and GitHub as an alternative. SSH and Docker were verified; generic Chromium/WebKit launch and synthetic file input passed in an isolated Ubuntu container with Node 24 and locked Playwright 1.59.1. [Probe evidence](2026-10-08-ubuntu-browser-probe.md) distinguishes browser capability from app acceptance. The full app journey remains pending approval of the selected source/synthetic-fixture upload after automatic review rejected that transfer. No repository payload was uploaded. This environment addition was outside the October 6 Claude review.

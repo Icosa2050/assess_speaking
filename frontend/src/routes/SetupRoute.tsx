@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { CloudSettingsPanel } from "@/components/setup/CloudSettingsPanel";
 import { RuntimeConnectionForm } from "@/components/setup/RuntimeConnectionForm";
 import { ConnectionStatusPanel } from "@/components/setup/ConnectionStatusPanel";
+import { MicrophoneTestPanel, useMicrophoneTest } from "@/components/setup/MicrophoneTestPanel";
 import { SetupReadinessPanel } from "@/components/setup/SetupReadinessPanel";
 import { apiClient, ApiClientError } from "@/lib/api/client";
 import type {
@@ -151,6 +153,12 @@ const formStateColor = (tone: "success" | "warning" | "error"): string => {
 
 export const SetupRoute = () => {
   const navigate = useNavigate();
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (hash === "#runtime-setup-microphone") {
+      document.getElementById("runtime-setup-microphone")?.scrollIntoView?.({ block: "start" });
+    }
+  }, [hash]);
   const queryClient = useQueryClient();
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const draft = useAppStore((state) => state.draft);
@@ -159,6 +167,7 @@ export const SetupRoute = () => {
   const setSetupComplete = useAppStore((state) => state.setSetupComplete);
 
   const translate = createTranslator(locale);
+  const microphoneTest = useMicrophoneTest();
 
   const [selectedWhisperModel, setSelectedWhisperModel] = useState("small");
   const [whisperMessage, setWhisperMessage] = useState("");
@@ -188,7 +197,7 @@ export const SetupRoute = () => {
   const whisperStatusQuery = useQuery({
     queryKey: ["runtime", "whisper", selectedWhisperModel],
     queryFn: () => apiClient.getWhisperModelStatus(selectedWhisperModel),
-    enabled: Boolean(selectedWhisperModel),
+    enabled: Boolean(selectedWhisperModel) && runtimeSettingsQuery.data?.asr_provider !== "groq",
   });
 
   useEffect(() => {
@@ -236,14 +245,29 @@ export const SetupRoute = () => {
     : whisperMessage || whisperMessageFromDiagnostics;
   const setupReadinessRows = buildSetupReadinessRows({
     diagnostics: diagnosticsItems,
+    microphoneStatus: microphoneTest.status,
+    microphoneSetupPassed: microphoneTest.passed,
     diagnosticsError: diagnosticsQuery.isError,
     diagnosticsPending: diagnosticsQuery.isPending,
     runtime,
     runtimeError: runtimeQuery.isError,
     runtimePending: runtimeQuery.isPending,
-    whisperCached: Boolean(whisperStatusQuery.data?.cached),
-    whisperPending: whisperStatusQuery.isPending,
+    whisperCached: runtimeSettingsQuery.data?.asr_provider === "groq" || Boolean(whisperStatusQuery.data?.cached),
+    whisperPending: runtimeSettingsQuery.data?.asr_provider !== "groq" && whisperStatusQuery.isPending,
   });
+
+  const cloudAsr = runtimeSettings?.asr_provider === "groq";
+  const cloudCopy = {
+    en: ["Groq cloud transcription selected", "Configure cloud transcription"],
+    it: ["Trascrizione cloud Groq selezionata", "Configura trascrizione cloud"],
+    de: ["Groq Cloud-Transkription ausgewählt", "Cloud-Transkription einrichten"],
+    es: ["Transcripción Groq en la nube seleccionada", "Configurar transcripción en la nube"],
+    fr: ["Transcription cloud Groq sélectionnée", "Configurer la transcription cloud"],
+  }[locale];
+  const readinessRows = cloudAsr ? setupReadinessRows.map(row => row.key === "speech_recognition"
+    ? {...row, detailKey: "cloud.speech", actionKey: "cloud.configure"} : row) : setupReadinessRows;
+  const readinessTranslate = (key: string, vars?: Record<string, string | number>) =>
+    key === "cloud.speech" ? cloudCopy[0] : key === "cloud.configure" ? cloudCopy[1] : translate(key, vars);
 
   const initialDraft = buildDraftFromConnection(activeConnection, translate);
   const formResetToken = JSON.stringify({
@@ -338,6 +362,12 @@ export const SetupRoute = () => {
   };
 
   const handleSetupReadinessAction = (key: SetupReadinessKey) => {
+    if (key === "microphone") {
+      scrollToSetupSection("runtime-setup-microphone");
+      if (microphoneTest.phase === "idle") void microphoneTest.start();
+      return;
+    }
+    if (key === "speech_recognition" && cloudAsr) { scrollToSetupSection("runtime-setup-cloud"); return; }
     const target = resolveSetupReadinessAction(key);
     if (target.kind === "section") {
       scrollToSetupSection(target.value);
@@ -452,12 +482,16 @@ export const SetupRoute = () => {
       </section>
 
       <SetupReadinessPanel
-        rows={setupReadinessRows}
-        translate={translate}
+        rows={readinessRows}
+        translate={readinessTranslate}
         onAction={handleSetupReadinessAction}
       />
 
-      <section
+      <MicrophoneTestPanel test={microphoneTest} translate={translate} />
+
+      <div id="runtime-setup-cloud"><CloudSettingsPanel locale={locale} connections={runtimeSettings?.connections ?? []}/></div>
+
+      {!cloudAsr && <section
         id="runtime-setup-whisper"
         style={cardStyle}
       >
@@ -525,7 +559,7 @@ export const SetupRoute = () => {
         >
           {translate("runtime_setup.download_model")}
         </button>
-      </section>
+      </section>}
 
       <div id="runtime-setup-connection">
         <RuntimeConnectionForm

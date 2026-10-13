@@ -294,6 +294,7 @@ class AssessmentReport:
     progress_delta: dict[str, Any] | None = None
     suggested_training: list[dict[str, Any]] | None = None
     timings_ms: dict[str, Any] | None = None
+    eligibility: dict[str, Any] | None = None
 
     @classmethod
     def now_timestamp(cls) -> str:
@@ -389,6 +390,7 @@ class AssessmentReport:
             progress_delta=progress_delta,
             suggested_training=suggestions,
             timings_ms=timings_ms,
+            eligibility=data.get("eligibility"),
         )
 
     def to_dict(self) -> dict[str, Any]:

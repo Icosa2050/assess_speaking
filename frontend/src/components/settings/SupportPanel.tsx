@@ -1,3 +1,5 @@
+import { isDesktopRuntime, readDesktopRuntimeBridge } from "@/lib/runtime/desktopBridge";
+import { readInputSettings } from "@/lib/setup/audioMeter";
 import { useMemo, useState } from "react";
 
 import { apiClient } from "@/lib/api/client";
@@ -5,6 +7,7 @@ import { createTranslator, semanticAttributes, SEMANTIC_IDS } from "@/lib/i18n";
 import type {
   MaintenanceStorageResponse,
   SupportBundleCreateRequest,
+  SupportBundleCreateResponse,
 } from "@/lib/api/types";
 import type { UiLocale } from "@/lib/state/sessionDraft";
 
@@ -75,7 +78,7 @@ const triggerBundleDownload = async (bundleId: string, filename: string): Promis
   anchor.remove();
   window.setTimeout(() => {
     window.URL.revokeObjectURL(objectUrl);
-  }, 0);
+  }, 60_000);
 };
 
 export const SupportPanel = ({
@@ -86,12 +89,14 @@ export const SupportPanel = ({
   locale: UiLocale;
 }) => {
   const translate = createTranslator(locale);
+  const [bundle, setBundle] = useState<SupportBundleCreateResponse | null>(null);
   const [storage, setStorage] = useState<MaintenanceStorageResponse | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [warnings, setWarnings] = useState<string[]>([]);
   const [isBusy, setIsBusy] = useState(false);
   const [confirmCleanupRun, setConfirmCleanupRun] = useState(false);
+  const [recipient, setRecipient] = useState("info@frommherz-it.ch");
   const [includeReports, setIncludeReports] = useState(false);
   const [includeRecordings, setIncludeRecordings] = useState(false);
   const [includeUploads, setIncludeUploads] = useState(false);
@@ -156,36 +161,44 @@ export const SupportPanel = ({
     }
   };
 
-  const handleCreateBundle = async () => {
-    resetFeedback();
-    setIsBusy(true);
+  const saveBundle = async (created: SupportBundleCreateResponse) => {
+    if (isDesktopRuntime()) {
+      const save = readDesktopRuntimeBridge().saveSupportBundle;
+      if (!save) throw new Error(translate("settings.support_native_unavailable"));
+      const result = await save(created.bundle_id);
+      setMessage(translate(result.status === "saved" ? "settings.support_bundle_saved" : "settings.support_bundle_cancelled"));
+    } else {
+      await triggerBundleDownload(created.bundle_id, created.filename);
+      setMessage(translate("settings.support_bundle_download_started"));
+    }
+  };
+  const handleCreateBundle = async (reuse = false) => {
+    resetFeedback(); setIsBusy(true);
     try {
       const request: SupportBundleCreateRequest = {
-        include_reports: includeReports,
-        include_recordings: includeRecordings,
-        include_runtime_health: includeRuntimeHealth,
-        include_uploads: includeUploads,
-        client_snapshot: {
-          active_connection_id: activeConnectionId,
-          route: "settings",
-          ui_locale: locale,
-        },
+        include_reports: includeReports, include_recordings: includeRecordings,
+        include_runtime_health: includeRuntimeHealth, include_uploads: includeUploads,
+        client_snapshot: { active_connection_id: activeConnectionId, route: "settings", ui_locale: locale,
+          microphone_settings: readInputSettings() },
       };
-      const created = await apiClient.createSupportBundle(request);
-      await triggerBundleDownload(created.bundle_id, created.filename);
-      setMessage(
-        translate("settings.support_bundle_success", {
-          filename: created.filename,
-          size: formatByteCount(created.size_bytes),
-          expires_at: formatExpiresAt(created.expires_at, locale),
-        }),
-      );
+      const created = reuse && bundle ? bundle : await apiClient.createSupportBundle(request);
+      setBundle(created);
+      await saveBundle(created);
     } catch (caught) {
-      const detail = caught instanceof Error ? caught.message : String(caught);
-      setError(translate("settings.support_bundle_error", { detail }));
-    } finally {
-      setIsBusy(false);
-    }
+      setError(translate("settings.support_bundle_error", { detail: caught instanceof Error ? caught.message : String(caught) }));
+    } finally { setIsBusy(false); }
+  };
+
+  const draftEmail = async () => {
+    resetFeedback(); setIsBusy(true);
+    try {
+      if (!bundle) throw new Error(translate("settings.support_email_create_first"));
+      const draft = readDesktopRuntimeBridge().draftSupportEmail;
+      if (!draft) throw new Error(translate("settings.support_native_unavailable"));
+      await draft(bundle.bundle_id, recipient.trim());
+      setMessage(translate("settings.support_email_drafted"));
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setIsBusy(false); }
   };
 
   return (
@@ -202,8 +215,8 @@ export const SupportPanel = ({
         </p>
       </div>
 
-      {message ? <p style={{ margin: 0, color: "#166534" }}>{message}</p> : null}
-      {error ? <p style={{ margin: 0, color: "#b42318" }}>{error}</p> : null}
+      {message ? <p role="status" style={{ margin: 0, color: "#166534" }}>{message}</p> : null}
+      {error ? <p role="alert" style={{ margin: 0, color: "#b42318" }}>{error}</p> : null}
       {warnings.map((warning) => (
         <p
           key={warning}
@@ -307,7 +320,7 @@ export const SupportPanel = ({
         <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", color: "#33514b" }}>
           <input
             checked={includeReports}
-            onChange={(event) => setIncludeReports(event.target.checked)}
+            onChange={(event) => { setIncludeReports(event.target.checked); setBundle(null); }}
             type="checkbox"
           />
           <span>{translate("settings.support_bundle_include_reports")}</span>
@@ -315,7 +328,7 @@ export const SupportPanel = ({
         <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", color: "#33514b" }}>
           <input
             checked={includeRecordings}
-            onChange={(event) => setIncludeRecordings(event.target.checked)}
+            onChange={(event) => { setIncludeRecordings(event.target.checked); setBundle(null); }}
             type="checkbox"
           />
           <span>{translate("settings.support_bundle_include_recordings")}</span>
@@ -323,7 +336,7 @@ export const SupportPanel = ({
         <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", color: "#33514b" }}>
           <input
             checked={includeUploads}
-            onChange={(event) => setIncludeUploads(event.target.checked)}
+            onChange={(event) => { setIncludeUploads(event.target.checked); setBundle(null); }}
             type="checkbox"
           />
           <span>{translate("settings.support_bundle_include_uploads")}</span>
@@ -331,7 +344,7 @@ export const SupportPanel = ({
         <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", color: "#33514b" }}>
           <input
             checked={includeRuntimeHealth}
-            onChange={(event) => setIncludeRuntimeHealth(event.target.checked)}
+            onChange={(event) => { setIncludeRuntimeHealth(event.target.checked); setBundle(null); }}
             type="checkbox"
             {...semanticAttributes(SEMANTIC_IDS.settings.supportIncludeRuntimeHealth)}
           />
@@ -348,6 +361,12 @@ export const SupportPanel = ({
         >
           {translate("settings.support_bundle_create")}
         </button>
+        {bundle && <div><p>{translate("settings.support_bundle_available", { filename: bundle.filename, size: formatByteCount(bundle.size_bytes), expires_at: formatExpiresAt(bundle.expires_at, locale) })}</p><button type="button" disabled={isBusy} onClick={() => void handleCreateBundle(true)} style={actionButtonStyle}>{translate("settings.support_bundle_save_again")}</button></div>}
+        {isDesktopRuntime() && <div style={{ display: "grid", gap: "0.6rem" }}>
+          <label>{translate("settings.support_email_recipient")} <input type="email" value={recipient} onChange={event => setRecipient(event.target.value)} disabled={isBusy} /></label>
+          <p>{translate("settings.support_email_note")}</p>
+          <button type="button" disabled={isBusy || !bundle || !/^[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(recipient.trim())} onClick={() => void draftEmail()} style={actionButtonStyle}>{translate("settings.support_email_draft")}</button>
+        </div>}
       </div>
     </section>
   );

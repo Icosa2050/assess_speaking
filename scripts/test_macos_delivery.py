@@ -18,6 +18,9 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+import io
+import zipfile
+import sys
 
 
 def run(args, **kwargs):
@@ -30,6 +33,8 @@ def main():
     parser.add_argument('--report', type=Path, required=True)
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
     evidence = {'artifact': str(args.dmg.resolve()), 'sha256': hashlib.sha256(args.dmg.read_bytes()).hexdigest(), 'checks': [], 'native_microphone': 'requires interactive acceptance', 'public_gatekeeper': 'requires Developer ID release'}
     with tempfile.TemporaryDirectory(prefix='vostavo-delivery-') as directory:
         work = Path(directory)
@@ -45,6 +50,7 @@ def main():
             env.update(PATH='/usr/bin:/bin:/usr/sbin:/sbin', HF_HUB_OFFLINE='1', XDG_CACHE_HOME=str(work / 'cache'), VOSTAVO_HOME=str(work / 'state'), VOSTAVO_CACHE_HOME=str(work / 'cache'))
             mounted = run([mounted_helper, '--self-test'], cwd='/', env=env, capture_output=True, text=True, timeout=90)
             assert json.loads(mounted.stdout)['ok']
+            assert json.loads(mounted.stdout)['cloud_broker_fixture']
             evidence['checks'].append('read-only mounted helper self-test')
         finally:
             run(['hdiutil', 'detach', mount], capture_output=True)
@@ -57,6 +63,7 @@ def main():
         command = ['/usr/bin/sandbox-exec', '-f', str(profile), str(helper)]
         isolated = run([*command, '--self-test'], cwd='/', env=env, capture_output=True, text=True, timeout=90)
         assert json.loads(isolated.stdout)['ok']
+        assert json.loads(isolated.stdout)['cloud_broker_fixture']
         evidence['checks'].append('copied helper self-test with repository/Homebrew/global cache reads denied')
         source = Path.home() / '.cache/huggingface/hub/models--Systran--faster-whisper-tiny'
         if not source.is_dir():
@@ -70,8 +77,8 @@ def main():
         log = (work / 'helper.log').open('wb')
         process = None
 
-        def launch():
-            child = subprocess.Popen([*command, '--desktop-owned', '--port', '0', '--ready-file', str(ready), '--app-data-dir', str(work / 'state'), '--cache-dir', str(work / 'cache')], cwd='/', env=env, stdin=subprocess.PIPE, stdout=log, stderr=log, start_new_session=True)
+        def launch(state_directory='state'):
+            child = subprocess.Popen([*command, '--desktop-owned', '--port', '0', '--ready-file', str(ready), '--app-data-dir', str(work / state_directory), '--cache-dir', str(work / 'cache')], cwd='/', env=env, stdin=subprocess.PIPE, stdout=log, stderr=log, start_new_session=True)
             child.stdin.write((token + '\n' + 'b' * 64 + '\n').encode())
             child.stdin.flush()
             deadline = time.monotonic() + 90
@@ -122,16 +129,42 @@ def main():
             assert request('/v1/samples')['items']
             assert request('/v1/history')['items'] == []
             evidence['checks'].append('fresh state, protected health, wrong token/host rejection, docs disabled, packaged samples')
+            reject('/v1/runtime/cloud', 403)
+            cloud_headers = {'X-Vostavo-Client': 'desktop'}
+            cloud = request('/v1/runtime/cloud', extra=cloud_headers)
+            assert cloud['settings']['asr_provider'] == 'local'
+            assert cloud['settings']['paid_fallback_enabled'] is False
+            assert cloud['spending']['reserved_usd'] == 0
+            settings = {**cloud['settings'], 'monthly_budget_usd': 3}
+            saved = request('/v1/runtime/cloud', method='PUT', data=settings, extra=cloud_headers)
+            assert saved['settings']['monthly_budget_usd'] == 3
+            reject('/v1/runtime/cloud', 422, method='PUT', data={**settings, 'monthly_budget_usd': 0}, extra=cloud_headers)
+            evidence['checks'].append('packaged cloud settings, local-client guard, disabled paid fallback and budget validation')
             attempts = []
+            from scripts.prepare_journey_audio import prepare
+            packaged_samples = installed / 'Contents/Helpers/VostavoBackend.app/Contents/Resources/samples/cefr'
+            prepare(work / 'functional-audio', source_root=packaged_samples)
+            evidence['audio_fixture'] = '31-second repeated packaged TTS; functional ASR/codec evidence only, not learner-quality evidence'
             for language in ('en', 'it'):
-                audio = installed / f'Contents/Helpers/VostavoBackend.app/Contents/Resources/samples/cefr/{language}/B1/travel_story.wav'
+                audio = work / f'functional-audio/{language}/B1/travel_story.wav'
                 if not audio.exists():
                     candidates = list((installed / f'Contents/Helpers/VostavoBackend.app/Contents/Resources/samples/cefr/{language}/B1').glob('*.wav'))
                     audio = candidates[0]
                 boundary = 'Vostavo' + uuid.uuid4().hex
                 multipart = (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="sample.wav"\r\nContent-Type: audio/wav\r\n\r\n'.encode() + audio.read_bytes() + f'\r\n--{boundary}--\r\n'.encode())
                 upload = request('/v1/uploads', method='POST', data=multipart, content_type=f'multipart/form-data; boundary={boundary}')
-                created = request('/v1/assessments', method='POST', data=dict(audio_id=upload['audio_id'], whisper='tiny', provider='ollama', llm_model='delivery-no-llm', llm_base_url='http://127.0.0.1:1', expected_language=language, feedback_language=language, speaker_id='delivery-test', task_family='free_monologue', theme='travel', target_duration_sec=90, target_cefr='B1', dry_run=False))
+                selection = dict(whisper='tiny', provider='ollama', llm_model='delivery-no-llm', llm_base_url='http://127.0.0.1:1')
+                route = request('/v1/assessment-route', method='POST', data=selection)
+                assert route['available'] and route['audio']['local'] and route['analysis']['local']
+                try:
+                    created = request('/v1/assessments', method='POST', data=dict(**selection, sharing_fingerprint=route['fingerprint'], audio_id=upload['audio_id'], expected_language=language, feedback_language=language, speaker_id='delivery-test', task_family='free_monologue', theme='travel', target_duration_sec=90, target_cefr='B1', dry_run=False))
+                except urllib.error.HTTPError as exc:
+                    # Retain a failure against this artifact, never leave an old
+                    # candidate's success report looking like current acceptance.
+                    failure = json.loads(exc.read())
+                    evidence.update(ok=False, failure={'phase': 'assessment-submit', 'language': language, 'http_status': exc.code, 'response': failure, 'preview': route})
+                    args.report.write_text(json.dumps(evidence, indent=2) + '\n')
+                    raise RuntimeError('Frozen assessment submission failed: ' + json.dumps(failure)) from exc
                 deadline = time.monotonic() + 240
                 while time.monotonic() < deadline:
                     status = request('/v1/assessments/' + created['assessment_id'])
@@ -156,6 +189,13 @@ def main():
                 attempts.append({'language': language, 'word_count': row['word_count'], 'duration_sec': row['duration_sec']})
             evidence['attempts'] = attempts
             evidence['checks'].append('English and Italian real frozen ASR/spawned workers, uploads, reports, history, ranged audio')
+            bundle = request('/v1/support-bundles', method='POST', data={})
+            code, content = request('/v1/support-bundles/' + bundle['bundle_id'], raw=True)
+            assert code == 200
+            with zipfile.ZipFile(io.BytesIO(content)) as archive:
+                assert not any(name.startswith(('reports/', 'recordings/', 'uploads/')) for name in archive.namelist())
+                assert all(token.encode() not in archive.read(name) for name in archive.namelist())
+            evidence['checks'].append('frozen support ZIP generation/download; default learner attachments excluded')
             process.stdin.close()
             process.wait(timeout=15)
             # The macOS PyInstaller bootloader can exit before the Python
@@ -166,6 +206,40 @@ def main():
             assert not ready.exists()
             process, active_port = launch()
             assert len(request('/v1/history')['items']) == 2
+            maintenance = request('/v1/journal/begin', method='POST', data={})['id']
+            exported = request(f'/v1/journal/{maintenance}/export', method='POST', data={'browser': {'sessions': [], 'recordings': []}})
+            _, learner_zip = request('/v1/journal/backups/' + exported['id'], raw=True)
+            request(f'/v1/journal/{maintenance}/abort', method='POST', data={})
+            original_ids = {item['session_id'] for item in request('/v1/history')['items']}
+            process.stdin.close(); process.wait(timeout=15)
+            deadline = time.monotonic() + 5
+            while ready.exists() and time.monotonic() < deadline: time.sleep(.1)
+            assert not ready.exists()
+            process, active_port = launch('restored-state')
+            assert request('/v1/history')['items'] == []
+            maintenance = request('/v1/journal/begin', method='POST', data={})['id']
+            preview = request(f'/v1/journal/{maintenance}/restore', method='POST', data=learner_zip, content_type='application/zip')
+            assert preview['attempts'] == 2 and preview['skipped_attempts'] == []
+            request(f'/v1/journal/{maintenance}/commit', method='POST', data={})
+            request(f'/v1/journal/{maintenance}/complete', method='POST', data={})
+            assert {item['session_id'] for item in request('/v1/history')['items']} == original_ids
+            for session_id in original_ids:
+                payload = request('/v1/history/' + session_id)['payload']
+                assert payload['restored_from']['jobs_resumable'] is False
+                code, body = request('/v1/history/' + session_id + '/audio', extra={'Range': 'bytes=0-15'}, raw=True)
+                assert code == 206 and len(body) == 16
+            assert request('/v1/journal/status')['transaction'] is None
+            evidence['checks'].append('frozen learner ZIP export, checksummed restore into second disposable root, stable IDs and restored ranged audio')
+            removed = sorted(original_ids)[0]
+            request('/v1/journal/attempts/' + removed + '/archive', method='POST', data={})
+            preview = request('/v1/journal/attempts/' + removed + '/preview-purge', method='POST', data={'browser_references': []})
+            request('/v1/journal/attempts/' + removed + '/purge', method='POST', data={'browser_references': [], 'fingerprint': preview['fingerprint']})
+            assert len(request('/v1/history')['items']) == 1
+            assert request('/v1/journal/status')['transaction'] is None
+            reject('/v1/history/' + removed, 404)
+            with zipfile.ZipFile(io.BytesIO(learner_zip)) as archive:
+                assert len(json.loads(archive.read('manifest.json'))['attempts']) == 2
+            evidence['checks'].append('frozen archive/confirmed purge, readback refusal and independent exported ZIP preservation')
             process.stdin.close()
             process.wait(timeout=15)
             evidence['checks'].append('owner EOF shutdown, readiness cleanup, persisted history after restart')

@@ -12,6 +12,7 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -27,12 +28,13 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
 
       - name: Run backend rollout quality checks
         run: python scripts/check_quality.py
 
       - name: Run duplication checks
+        timeout-minutes: 3
         run: |
           npm --prefix frontend ci --ignore-scripts
           npm --prefix frontend run check:duplication
@@ -40,54 +42,86 @@ jobs:
   frontend-smoke:
     needs: quality
     runs-on: ubuntu-latest
-
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: default
+            config: playwright.config.ts
+            browser: chromium
+            filter: ''
+          - lane: connections
+            config: playwright.connections.config.ts
+            browser: chromium
+            filter: ''
+          - lane: journeys-chromium
+            config: playwright.journeys.config.ts
+            browser: chromium
+            filter: '--grep-invert WebKit'
+          - lane: journeys-webkit
+            config: playwright.journeys.config.ts
+            browser: webkit
+            filter: '--grep WebKit'
+          - lane: contracts
+            config: playwright.contract.config.ts
+            browser: chromium
+            filter: ''
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           persist-credentials: false
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
-
-      - name: Install smoke-lane dependencies
+          node-version: '24'
+      - name: Install isolated fixture dependencies
+        timeout-minutes: 5
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-          npm --prefix frontend ci --ignore-scripts
-
+          python scripts/run_bounded_check.py 240 python -m pip install -r requirements.txt
+          python scripts/run_bounded_check.py 120 npm --prefix frontend ci --ignore-scripts
       - name: Check and build frontend
+        if: matrix.lane == 'default'
+        timeout-minutes: 4
         run: |
-          npm --prefix frontend run typecheck
-          npm --prefix frontend test
-          npm --prefix frontend run build
-
-      - name: Install Playwright browser
+          python scripts/run_bounded_check.py 90 npm --prefix frontend run typecheck
+          python scripts/run_bounded_check.py 90 npm --prefix frontend test
+          python scripts/run_bounded_check.py 90 npm --prefix frontend run build
+      - name: Install fixture browser and media dependencies
+        timeout-minutes: 5
         working-directory: frontend
-        run: npm exec --no -- playwright install --with-deps chromium
-
-      - name: Run shared-frontend browser flows
-        run: npm --prefix frontend run test:e2e
-
-      - name: Upload Playwright report
+        run: python ../scripts/run_bounded_check.py 240 npm exec --no -- playwright install --with-deps ${{ matrix.browser }}
+      - name: Install audio decoding tools
+        timeout-minutes: 3
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Run mandatory browser identities
+        timeout-minutes: 32
+        env:
+          VOSTAVO_TEST_PYTHON: python
+          PYTHON_KEYRING_BACKEND: scripts.journey_keyring.MemoryKeyring
+        run: python scripts/run_bounded_check.py 1830 npm --prefix frontend run test:e2e -- --config=${{ matrix.config }} ${{ matrix.filter }}
+      - name: Reject missing, skipped, retried or failed cases
+        if: always()
+        run: |
+          LANE='${{ matrix.lane }}'
+          FOLDER="$LANE"
+          if [[ "$LANE" == journeys-* ]]; then FOLDER=journeys; fi
+          python scripts/check_browser_results.py "$LANE" "frontend/output/playwright/$FOLDER/results.json"
+      - name: Retain browser execution and guard evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-artifacts
-          path: |
-            frontend/playwright-report
-            frontend/test-results
-          if-no-files-found: ignore
+          name: playwright-${{ matrix.lane }}
+          path: frontend/output/playwright
+          if-no-files-found: error
 
   tests:
-    needs: [quality, frontend-smoke]
+    needs: quality
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -113,7 +147,41 @@ jobs:
 
       - name: Run unit tests
         timeout-minutes: 5
-        run: python -m pytest -vv --durations=20 -o faulthandler_timeout=60
+        run: python -m pytest -vv --durations=20 -o faulthandler_timeout=60 --ignore=tests/test_cloud_pipeline_integration.py --ignore=tests/test_cloud_codec_integration.py --ignore=tests/test_cloud_recovery_integration.py
+
+      - name: Run cloud process fixtures
+        timeout-minutes: 5
+        env:
+          PYTHON_KEYRING_BACKEND: scripts.journey_keyring.MemoryKeyring
+          VOSTAVO_HOME: /tmp/vostavo-cloud-ci
+        run: |
+          python -m pytest tests/test_cloud_pipeline_integration.py -vv -o faulthandler_timeout=60 --junitxml=cloud-process.xml
+          python scripts/check_integration_junit.py cloud cloud-process.xml
+
+      - name: Run cloud process recovery fixtures
+        timeout-minutes: 5
+        env:
+          PYTHON_KEYRING_BACKEND: scripts.journey_keyring.MemoryKeyring
+          VOSTAVO_HOME: /tmp/vostavo-cloud-recovery-ci
+        run: |
+          python -m pytest tests/test_cloud_recovery_integration.py -vv -o faulthandler_timeout=60 --junitxml=cloud-recovery.xml
+          python scripts/check_integration_junit.py recovery cloud-recovery.xml
+
+      - name: Upload cloud fixture diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-fixture-results
+          path: |
+            cloud-process.xml
+            cloud-recovery.xml
+          if-no-files-found: ignore
+
+      - name: Run real upload-cap codec fixture
+        timeout-minutes: 2
+        run: |
+          python scripts/run_bounded_check.py 90 python -m pytest tests/test_cloud_codec_integration.py -vv -o faulthandler_timeout=60 --junitxml=cloud-codec.xml
+          python scripts/check_integration_junit.py codec cloud-codec.xml
 
       - name: Run LIPS corpus pipeline smoke tests
         run: python -m unittest tests.test_lips_dataset tests.test_lips_manifest_pipeline -v

@@ -91,7 +91,7 @@ def _persist_connection_secret(connection: ProviderConnection, api_key: str) -> 
     if not str(api_key or "").strip():
         return delete_secret(connection.secret_ref, env_var_names=_secret_env_var_names(connection.provider_kind))
     status = set_secret(connection.secret_ref, str(api_key).strip(), env_var_names=_secret_env_var_names(connection.provider_kind))
-    if connection.provider_kind in {"xai", "groq"}:
+    if connection.provider_kind in {"xai", "groq", "openrouter"}:
         persistent = status.persistent and get_secret(connection.secret_ref) == str(api_key).strip()
         connection.provider_metadata["persistent"] = persistent
         if persistent:
@@ -140,7 +140,7 @@ def build_provider_connection(
 ) -> ProviderConnection:
     if provider_kind_from_choice(provider_choice) == "chatgpt":
         raise ValueError("Use Sign in with ChatGPT to connect this account.")
-    if provider_kind_from_choice(provider_choice) in {"xai", "groq"}:
+    if provider_kind_from_choice(provider_choice) in {"xai", "groq", "openrouter"}:
         runtime_base_url(provider_kind_from_choice(provider_choice), base_url)
         if not str(model or "").strip():
             raise ValueError("Choose a provider model before saving.")
@@ -281,7 +281,7 @@ def delete_provider_connection(
 
     next_active_id = state.prefs.active_connection_id
     if next_active_id == connection_id:
-        next_active_id = ""
+        next_active_id = "__missing__"
 
     state.prefs.connections, state.prefs.active_connection_id = ensure_single_default_connection(
         remaining,
@@ -289,10 +289,10 @@ def delete_provider_connection(
     )
     state.prefs.setup_complete = bool(state.prefs.connections)
 
-    if state.prefs.connections:
+    if state.prefs.connections and active_connection(state.prefs) is not None:
         sync_runtime_fields(state.prefs)
     else:
-        state.prefs.active_connection_id = ""
+        state.prefs.active_connection_id = "__missing__" if remaining else ""
         state.prefs.llm_api_key = ""
 
     save_state_preferences(state, persist_draft=persist_draft)
@@ -644,7 +644,7 @@ def hydrate_state_from_storage(state) -> Any:
     state.prefs.setup_complete = bool(prefs.get("setup_complete")) or bool(state.prefs.connections)
     state.prefs.log_dir = str(resolve_log_dir(prefs.get("log_dir") or state.prefs.log_dir or DEFAULT_LOG_DIR))
     bootstrap_app_environment(log_dir=state.prefs.log_dir, whisper_cache_dir=state.prefs.whisper_cache_dir)
-    if state.prefs.connections:
+    if state.prefs.connections and active_connection(state.prefs) is not None:
         sync_runtime_fields(state.prefs)
 
     explicit_last_setup = _explicit_last_setup(prefs)
@@ -697,7 +697,8 @@ def save_state_preferences(state, *, persist_draft: bool = True) -> SecretStoreS
             list(state.prefs.connections or []),
             active_connection_id=state.prefs.active_connection_id,
         )
-        sync_runtime_fields(state.prefs)
+        if active_connection(state.prefs) is not None:
+            sync_runtime_fields(state.prefs)
     active = active_connection(state.prefs)
     if active is not None and current_api_key and active.provider_kind != "chatgpt":
         secret_status = _persist_connection_secret(active, current_api_key)
@@ -740,7 +741,7 @@ def save_state_preferences(state, *, persist_draft: bool = True) -> SecretStoreS
             profiles[draft_prefs["speaker_id"]] = draft_prefs
         prefs["speaker_profiles"] = profiles
     save_workspace_prefs(state.prefs.log_dir or DEFAULT_LOG_DIR, prefs)
-    if state.prefs.connections:
+    if state.prefs.connections and active_connection(state.prefs) is not None:
         sync_runtime_fields(state.prefs)
     state.prefs.setup_complete = bool(state.prefs.setup_complete or state.prefs.connections)
     return secret_status
@@ -977,7 +978,8 @@ def load_report_payload(report_path: str | Path | None) -> dict | None:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    return payload if isinstance(payload, dict) else None
+    from assessment_runtime.eligibility import annotate_payload
+    return annotate_payload(payload) if isinstance(payload, dict) else None
 
 
 def create_assessment_request(
@@ -1002,9 +1004,11 @@ def create_assessment_request(
     openrouter_http_referer: str = "",
     openrouter_app_title: str = "",
     dry_run: bool | None = None,
+    sharing_fingerprint: str = "",
 ) -> dict[str, Any]:
     return {
         "audio_path": str(audio_path),
+        "sharing_fingerprint": sharing_fingerprint,
         "log_dir": str(resolve_log_dir(log_dir)),
         "whisper": whisper,
         "provider": normalize_provider(provider),
@@ -1030,6 +1034,7 @@ def create_assessment_request(
 def _backend_assessment_payload(request: dict[str, Any], *, audio_id: str) -> dict[str, Any]:
     return {
         "audio_id": audio_id,
+        "sharing_fingerprint": request.get("sharing_fingerprint", ""),
         "whisper": request["whisper"],
         "provider": request["provider"],
         "llm_model": request["llm_model"],
@@ -1080,6 +1085,21 @@ def submit_assessment_request(request: dict[str, Any]) -> tuple[AssessmentJobSta
     if runtime_error:
         return None, runtime_error
     try:
+        if not request.get("sharing_fingerprint"):
+            route = backend_client.get_sharing_route(
+                {key: request.get(key, "") for key in ("provider", "llm_model", "llm_base_url", "whisper")},
+                log_dir=request.get("log_dir"),
+            )
+            # Legacy local clients can accept a route confined to this computer.
+            # External destinations require the caller to display and confirm it.
+            if not (
+                route.get("available") and route.get("fingerprint")
+                and (route.get("audio") or {}).get("local") is True
+                and (route.get("analysis") or {}).get("local") is True
+                and route.get("fallback") is None
+            ):
+                return None, "Review and confirm the sharing route before submitting this recording."
+            request = {**request, "sharing_fingerprint": route["fingerprint"]}
         upload = backend_client.upload_audio_path(
             request["audio_path"],
             filename=Path(str(request["audio_path"])).name,
@@ -1249,10 +1269,17 @@ def history_rows(log_dir: str | Path | None = None) -> list[dict[str, Any]]:
         payload = load_report_payload(getattr(record, "report_path", "")) or {}
         meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
         metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
+        report = payload.get("report") if isinstance(payload.get("report"), dict) else {}
+        checks = report.get("checks") if isinstance(report.get("checks"), dict) else {}
+        from assessment_runtime.eligibility import eligibility
+        assessment_eligibility = eligibility({**report, "checks": checks}, metrics)
+        assessable = assessment_eligibility["state"] == "assessable"
         duration = getattr(record, "duration_sec", None)
         words = getattr(record, "word_count", None)
         rows.append(
             {
+                "eligibility": assessment_eligibility,
+                "content_validity_pass": checks.get("content_validity_pass"),
                 "practice": meta.get("practice") if isinstance(meta.get("practice"), dict) else None,
                 "duration_sec": duration,
                 "word_count": words,
@@ -1265,7 +1292,7 @@ def history_rows(log_dir: str | Path | None = None) -> list[dict[str, Any]]:
                 "learning_language": _history_str(getattr(record, "learning_language", "")),
                 "theme": _history_str(getattr(record, "theme", "")),
                 "task_family": _history_str(getattr(record, "task_family", "")),
-                "overall": getattr(record, "overall", ""),
+                "overall": getattr(record, "overall", "") if assessable else None,
                 "wpm": getattr(record, "wpm", ""),
                 "report_path": _history_str(getattr(record, "report_path", "")),
                 "requires_human_review": getattr(record, "requires_human_review", ""),
@@ -1276,8 +1303,8 @@ def history_rows(log_dir: str | Path | None = None) -> list[dict[str, Any]]:
                 "top_priorities": list(getattr(record, "top_priorities", ()) or ()),
                 "grammar_error_categories": list(getattr(record, "grammar_error_categories", ()) or ()),
                 "coherence_issue_categories": list(getattr(record, "coherence_issue_categories", ()) or ()),
-                "final_score": getattr(record, "final_score", ""),
-                "band": getattr(record, "band", ""),
+                "final_score": getattr(record, "final_score", "") if assessable else None,
+                "band": getattr(record, "band", "") if assessable else None,
             }
         )
     return rows
@@ -1358,7 +1385,12 @@ def review_summary(payload: dict | None) -> dict[str, Any]:
     checks = report.get("checks") if isinstance(report.get("checks"), dict) else {}
     coaching = report.get("coaching") if isinstance(report.get("coaching"), dict) else {}
     rubric = report.get("rubric") if isinstance(report.get("rubric"), dict) else {}
+    from assessment_runtime.eligibility import eligibility
+    assessment_eligibility = eligibility(report, payload.get("metrics"))
+    assessable = assessment_eligibility["state"] == "assessable"
     progress_delta = report.get("progress_delta") if isinstance(report.get("progress_delta"), dict) else {}
+    if not assessable:
+        progress_delta = {}
     failed_gates = [
         gate
         for gate in ("language_pass", "topic_pass", "content_validity_pass", "duration_pass", "min_words_pass")
@@ -1376,18 +1408,19 @@ def review_summary(payload: dict | None) -> dict[str, Any]:
             or payload.get("learning_language")
             or ""
         ).strip().lower(),
-        "score_overall": scores.get("final"),
-        "band": scores.get("band") or "",
+        "eligibility": assessment_eligibility,
+        "score_overall": scores.get("final") if assessable else None,
+        "band": (scores.get("band") or "") if assessable else "",
         "mode": str(scores.get("mode") or ""),
-        "llm_score": scores.get("llm"),
-        "deterministic_score": scores.get("deterministic"),
+        "llm_score": scores.get("llm") if assessable else None,
+        "deterministic_score": scores.get("deterministic") if assessable else None,
         "coach_summary": str(coaching.get("coach_summary") or ""),
         "strengths": [str(item) for item in coaching.get("strengths", []) if str(item).strip()],
         "priorities": [str(item) for item in coaching.get("top_3_priorities", []) if str(item).strip()],
         "next_focus": str(coaching.get("next_focus") or ""),
         "next_exercise": str(coaching.get("next_exercise") or ""),
         "warnings": [str(item) for item in report.get("warnings", []) if str(item).strip()],
-        "requires_human_review": bool(report.get("requires_human_review")),
+        "requires_human_review": not assessable or bool(report.get("requires_human_review")),
         "failed_gates": failed_gates,
         "gates": {
             "language_pass": _gate_value(checks, "language_pass"),
@@ -1407,7 +1440,7 @@ def review_summary(payload: dict | None) -> dict[str, Any]:
             if isinstance(item, dict) and str(item.get("type") or item.get("category") or "").strip()
         ],
         "progress_items": _build_progress_delta_items(progress_delta),
-        "baseline": payload.get("baseline_comparison") if isinstance(payload.get("baseline_comparison"), dict) else None,
+        "baseline": payload.get("baseline_comparison") if assessable and isinstance(payload.get("baseline_comparison"), dict) else None,
         "report": report,
         "payload": payload,
     }

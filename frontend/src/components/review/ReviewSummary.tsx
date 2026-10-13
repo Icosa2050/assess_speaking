@@ -13,6 +13,7 @@ type ProgressItem = {
 
 export type ReviewDisplaySummary = {
   band: string;
+  eligibilityState?: string;
   baseline: Record<string, unknown> | null;
   coachSummary: string;
   deterministicScore: number | null;
@@ -213,12 +214,15 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
   );
 
   const scoreOverall = review.scoreOverall ?? asNumberOrNull(scores.final);
+  const eligibility = toRecord(report.eligibility);
+  const insufficientSpeech = (Boolean(eligibility.state) && eligibility.state !== "assessable") || checks.min_words_pass === false || asTextList(report.warnings).includes("llm_skipped_low_word_count");
 
   return {
-    band: review.band || String(scores.band || ""),
+    eligibilityState: String(eligibility.state || ""),
+    band: insufficientSpeech ? "" : review.band || String(scores.band || ""),
     baseline: Object.keys(baseline).length > 0 ? baseline : null,
-    coachSummary: String(coaching.coach_summary || review.summary || ""),
-    deterministicScore: asNumberOrNull(scores.deterministic),
+    coachSummary: insufficientSpeech ? "" : String(coaching.coach_summary || review.summary || ""),
+    deterministicScore: insufficientSpeech ? null : asNumberOrNull(scores.deterministic),
     failedGates,
     generalPracticeTips: asTextList(report.warnings).some((warning) =>
       ["coaching_unavailable", "llm_unavailable", "llm_invalid_schema", "llm_skipped_low_word_count", "llm_skipped_transcript_uncertain", "llm_skipped_language_mismatch"].includes(warning)),
@@ -240,7 +244,7 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
     )
       .trim()
       .toLowerCase(),
-    llmScore: asNumberOrNull(scores.llm),
+    llmScore: insufficientSpeech ? null : asNumberOrNull(scores.llm),
     mode: String(scores.mode || ""),
     nextExercise: String(coaching.next_exercise || ""),
     nextAttemptInstruction: String(coaching.next_attempt_instruction || ""),
@@ -248,13 +252,13 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
     notes: String(payload.notes || ""),
     payload,
     priorities: asTextList(coaching.top_3_priorities),
-    progressItems: progressDelta.comparison_verified === true ? buildProgressItems(progressDelta) : [],
+    progressItems: !insufficientSpeech && progressDelta.comparison_verified === true ? buildProgressItems(progressDelta) : [],
     recurringCoherence,
     recurringGrammar,
     reportId: String(report.session_id || review.reportId || payload.report_path || ""),
     requiresHumanReview: Boolean(report.requires_human_review),
-    scoreOverall,
-    strengths: asTextList(coaching.strengths),
+    scoreOverall: insufficientSpeech ? null : scoreOverall,
+    strengths: insufficientSpeech ? [] : asTextList(coaching.strengths),
     styleSuggestions: Array.isArray(rubric.style_suggestions) ? rubric.style_suggestions
       .map(toRecord)
       .map((item) => ({ original: String(item.original || ""), suggestion: String(item.suggestion || ""), explanation: String(item.explanation || "") }))
@@ -271,6 +275,11 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
 };
 
 const statusMessage = (summary: ReviewDisplaySummary, translate: Translate): string => {
+  if (summary.eligibilityState === "content_unverified") return translate("review.eligibility_unverified");
+  if (summary.eligibilityState === "invalid_content") return translate("review.eligibility_invalid");
+  if (summary.eligibilityState === "insufficient_speech" || summary.gates.min_words_pass === false || summary.warnings.includes("llm_skipped_low_word_count")) {
+    return translate("review.insufficient_speech");
+  }
   if (summary.requiresHumanReview) {
     return translate("review.status_review");
   }
@@ -339,7 +348,17 @@ const qualitySummary = (summary: ReviewDisplaySummary, translate: Translate): st
   });
 };
 
-const baselineStatus = (entry: Record<string, unknown>, translate: Translate): string => {
+const baselineNotAssessed = (summary: ReviewDisplaySummary): boolean =>
+  summary.baseline?.valid === false || summary.failedGates.length > 0 ||
+  summary.gates.content_validity_pass !== true || summary.gates.language_pass !== true ||
+  summary.warnings.includes("llm_skipped_low_word_count");
+
+const baselineStatus = (entry: Record<string, unknown>, summary: ReviewDisplaySummary, translate: Translate): string => {
+  // Saved reports can predate the backend eligibility guard. Their numeric
+  // observations remain visible, but cannot override failed/unknown checks.
+  if (baselineNotAssessed(summary)) {
+    return translate("review.baseline_status_not_assessed");
+  }
   const status = String(entry.status || "").trim();
   if (status === "observed") {
     return translate("review.baseline_status_observed");
@@ -446,11 +465,13 @@ const progressText = (item: ProgressItem, translate: Translate): string => {
 
 export const ReviewSummary = ({
   hideCoachSummary = false,
+  hideNextStep = false,
   summary,
   translate,
   warningsSlot,
 }: {
   hideCoachSummary?: boolean;
+  hideNextStep?: boolean;
   summary: ReviewDisplaySummary;
   translate: Translate;
   warningsSlot?: ReactNode;
@@ -582,12 +603,12 @@ export const ReviewSummary = ({
           )}
         </div>
       </div>
-      {summary.nextFocus ? (
+      {!hideNextStep && summary.nextFocus ? (
         <p style={{ margin: 0, color: "#10201c" }} data-testid="review-next-focus" data-semantic-id="review-next-focus">
           {translate("review.next_focus", { value: summary.nextFocus })}
         </p>
       ) : null}
-      {summary.nextExercise ? (
+      {!hideNextStep && summary.nextExercise ? (
         <p style={{ margin: 0, color: "#10201c" }} data-testid="review-next-exercise" data-semantic-id="review-next-exercise">
           {translate("review.next_exercise", { value: summary.nextExercise })}
         </p>
@@ -646,8 +667,18 @@ export const ReviewSummary = ({
         <div data-testid="review-baseline" data-semantic-id="review-baseline" style={{ display: "grid", gap: "0.625rem" }}>
           <strong style={{ color: "#33514b" }}>{translate("review.baseline_title")}</strong>
           <p style={{ margin: 0, color: "#33514b" }}>{baselineCaption(summary, translate)}</p>
+          {baselineNotAssessed(summary) ? (
+            <p data-testid="review-baseline-unassessed" style={{ margin: 0, color: "#33514b" }}>
+              {translate("review.baseline_unassessed")}
+            </p>
+          ) : null}
           {typeof summary.baseline.targets === "object" && summary.baseline.targets !== null ? (
             <div style={{ display: "grid", gap: "0.5rem" }}>
+              <div style={{ display: "grid", gap: "0.5rem", gridTemplateColumns: "minmax(140px, 1.4fr) repeat(3, minmax(0, 1fr))", padding: "0.75rem" }}>
+                {["baseline_metric", "baseline_expected", "baseline_actual", "baseline_ok"].map((key) => (
+                  <strong key={key}>{translate(`review.${key}`)}</strong>
+                ))}
+              </div>
               {Object.entries(summary.baseline.targets as Record<string, Record<string, unknown>>).map(([metric, entry]) => (
                 <div
                   key={metric}
@@ -664,7 +695,7 @@ export const ReviewSummary = ({
                   <span style={{ color: "#33514b" }}>{String(entry.expected ?? "-")}</span>
                   <span style={{ color: "#33514b" }}>{String(entry.actual ?? "-")}</span>
                   <span style={{ color: "#33514b" }}>
-                    {baselineStatus(entry, translate)}
+                    {baselineStatus(entry, summary, translate)}
                   </span>
                 </div>
               ))}

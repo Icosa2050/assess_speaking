@@ -39,6 +39,7 @@ class CalibrationRunConfig:
     response_parser: str = RESPONSE_PARSER_NAME
     rubric_schema: str = RUBRIC_SCHEMA_NAME
     language_profile_key: str | None = None
+    task_goal: str | None = None
 
 
 @dataclass(frozen=True)
@@ -194,7 +195,7 @@ def evaluate_calibration_case(
             llm_model=config.llm_model,
             provider=config.provider,
             feedback_enabled=False,
-            target_cefr=case.expected_cefr,
+            target_cefr=config.task_goal,
             theme=case.theme,
             task_family=manifest.task_family,
             speaker_id=case.speaker_id,
@@ -252,6 +253,11 @@ def evaluate_calibration_case(
         deterministic_score=deterministic_score,
         llm_score=llm_score,
     )
+    withheld = bool(report.get('eligibility')) and report['eligibility'].get('state') != 'assessable'
+    if withheld:
+        estimated_cefr = continuous_score = final_score = llm_score = deterministic_score = None
+        comparison_score = comparison_metric = None
+        checks = {**checks, 'eligibility': report['eligibility']}
     raw_llm = result.get("llm_rubric")
     if not config.include_raw_llm:
         raw_llm = None
@@ -259,7 +265,7 @@ def evaluate_calibration_case(
     cefr_delta = compare_cefr_levels(case.expected_cefr, estimated_cefr)
     return EvaluatedCalibrationCase(
         case_id=case.case_id,
-        status="ok",
+        status="withheld" if withheld else "ok",
         audio_path=case.audio_path,
         expected_language=case.expected_language,
         feedback_language=resolved_feedback_language,
@@ -275,7 +281,7 @@ def evaluate_calibration_case(
         llm_score=llm_score,
         deterministic_score=deterministic_score,
         continuous_score=continuous_score,
-        band=_safe_int(scores.get("band")),
+        band=None if withheld else _safe_int(scores.get("band")),
         mode=str(scores.get("mode")) if scores.get("mode") is not None else None,
         warnings=tuple(str(item) for item in report.get("warnings") or ()),
         errors=tuple(str(item) for item in report.get("errors") or ()),
@@ -364,7 +370,7 @@ def evaluate_calibration_manifest(
     if total_cases == 0:
         run_status = "empty"
     elif ok_cases == 0:
-        run_status = "failed"
+        run_status = "withheld" if all(case.status == "withheld" for case in cases) else "failed"
     elif ok_cases < total_cases:
         run_status = "degraded"
     else:
@@ -538,6 +544,7 @@ def write_calibration_evaluation_manifest(
             "response_parser": evaluation.config.response_parser,
             "rubric_schema": evaluation.config.rubric_schema,
             "language_profile_key": evaluation.config.language_profile_key,
+            "task_goal": evaluation.config.task_goal,
         },
         "summary": {
             "total_cases": len(evaluation.cases),
@@ -602,6 +609,7 @@ def load_calibration_evaluation_manifest(path: str | Path) -> EvaluatedCalibrati
             ),
             response_parser=str(config_payload.get("response_parser") or RESPONSE_PARSER_NAME),
             rubric_schema=str(config_payload.get("rubric_schema") or RUBRIC_SCHEMA_NAME),
+            task_goal=config_payload.get("task_goal"),
             language_profile_key=(
                 str(config_payload["language_profile_key"])
                 if config_payload.get("language_profile_key") is not None

@@ -13,7 +13,7 @@ process.env.OMLX_E2E_APP_DATA ??= mkdtempSync(path.join(os.tmpdir(), "vostavo-om
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 export default defineConfig({
-  testDir: "./tests/e2e",
+  testDir: "./tests/live",
   testMatch: "omlxAssessmentLive.spec.ts",
   outputDir: "./test-results/omlx-assessment",
   timeout: 900_000,

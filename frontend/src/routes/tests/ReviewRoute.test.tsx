@@ -20,7 +20,10 @@ vi.mock("@/lib/api/client", () => ({
     }
   },
   apiClient: {
+    getSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
+    getResumeSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
     getAssessmentStatus: vi.fn(),
+    resumeHistory: vi.fn(),
     getDiagnostics: vi.fn(),
     getRuntime: vi.fn(),
   },
@@ -28,6 +31,7 @@ vi.mock("@/lib/api/client", () => ({
 
 import { apiClient } from "@/lib/api/client";
 
+const mockedResumeHistory = vi.mocked(apiClient.resumeHistory);
 const mockedGetAssessmentStatus = vi.mocked(apiClient.getAssessmentStatus);
 const mockedGetDiagnostics = vi.mocked(apiClient.getDiagnostics);
 const mockedGetRuntime = vi.mocked(apiClient.getRuntime);
@@ -82,7 +86,7 @@ const reviewPayload = {
       next_focus: "Connect your examples more clearly.",
       next_exercise: "Repeat the task with explicit transitions.",
     },
-    warnings: ["llm_skipped_low_word_count"],
+    warnings: ["coaching_unavailable"],
     requires_human_review: true,
     rubric: {
       recurring_grammar_errors: [{ type: "verb_tense" }],
@@ -139,6 +143,64 @@ describe("Review route", () => {
       report_path: null,
       summary: null,
     });
+  });
+
+  it("does not turn a three-word attempt into a scored result", async () => {
+    const payload = { ...reviewPayload, report: { ...reviewPayload.report,
+      rubric: undefined,
+      checks: { language_pass: true, topic_pass: null, content_validity_pass: null,
+        duration_pass: false, min_words_pass: false },
+      warnings: ["llm_skipped_low_word_count"],
+    } };
+    renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
+      ...validDraftState, review: { reportId: "short", transcript: "bla bla bla", scoreOverall: 3.5,
+        band: "B2", summary: "Try again", payload },
+    } });
+    expect(await screen.findByText(/Not enough speech to assess/)).toBeVisible();
+    expect(screen.getByTestId("review-next-step-score")).not.toHaveTextContent("3.5");
+    expect(screen.getByTestId("review-metric-score-overall")).not.toHaveTextContent("3.5");
+    expect(screen.getByTestId("review-baseline")).not.toHaveTextContent("Pass");
+    expect(screen.queryByRole("button", {name: "Resume unfinished analysis"})).not.toBeInTheDocument();
+  });
+
+  it.each(["content_unverified", "invalid_content"])("withholds stale saved grades for %s reports", async state => {
+    renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
+      ...validDraftState, review: {reportId: "report-1", transcript: "Full transcript text", scoreOverall: 3.5, band: "B2", summary: "Saved report", payload: {
+        ...reviewPayload, report: {...reviewPayload.report, rubric: undefined, warnings: [], eligibility: {version: 1, state, metrics_reliable: false, reasons: [], task_complete: null}},
+      }},
+    }});
+    await screen.findByTestId("review-next-step-card");
+    expect(screen.getByTestId("review-next-step-score")).not.toHaveTextContent("3.5");
+    expect(screen.getByTestId("review-metric-score-overall")).not.toHaveTextContent("3.5");
+    expect(screen.queryByRole("button", {name: "Resume unfinished analysis"})).not.toBeInTheDocument();
+  });
+
+  it("recovers a lost resume response without creating a different submission", async () => {
+    mockedResumeHistory.mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValue({assessment_id: "asmt-resume", status: "queued"});
+    mockedGetAssessmentStatus.mockResolvedValue({assessment_id:"asmt-resume",status:"running",phase:"scoring_rubric",progress:.5,error:null,payload:null,report_path:null,summary:null});
+    const {store} = renderWithProviders(<AppFrame />, {
+      initialEntries: ["/review"], locale: "en", appState: {
+        ...validDraftState,
+        review: {reportId:"report-1",transcript:"Full transcript text",scoreOverall:3.5,band:"B2",summary:"Saved partial report",payload:{...reviewPayload,report:{...reviewPayload.report,rubric:undefined,eligibility:{state:"content_unverified"},warnings:["llm_unavailable"]}}},
+      },
+    });
+    await waitFor(() => expect(screen.getByRole("button", {name:"Resume unfinished analysis"})).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", {name:"Resume unfinished analysis"}));
+    await waitFor(() => expect(mockedResumeHistory).toHaveBeenCalledTimes(2));
+    expect(mockedResumeHistory.mock.calls[0][0]).toBe("report-1");
+    expect(mockedResumeHistory.mock.calls[0][1]).toBeTruthy();
+    expect(mockedResumeHistory.mock.calls[1]).toEqual(mockedResumeHistory.mock.calls[0]);
+    await waitFor(() => expect(store.getState().recording.job.assessmentId).toBe("asmt-resume"));
+  });
+
+  it("does not offer unfinished-analysis recovery for a fully successful report", async () => {
+    renderWithProviders(<AppFrame />, {initialEntries:["/review"],locale:"en",appState:{...validDraftState,
+      review:{reportId:"report-1",transcript:"Full transcript text",scoreOverall:3.5,band:"B2",summary:"Ready",
+        payload:{...reviewPayload,report:{...reviewPayload.report,rubric:{overall:4},warnings:[]}}},
+    }});
+    await screen.findByTestId("review-next-step-card");
+    expect(screen.queryByRole("button",{name:"Resume unfinished analysis"})).not.toBeInTheDocument();
   });
 
   it("renders an existing review summary with warnings and evidence", async () => {
@@ -202,7 +264,7 @@ describe("Review route", () => {
     expect(screen.queryByTestId("review-coach-summary")).not.toBeInTheDocument();
     expect(screen.getByTestId("review-requires-human-review")).toBeVisible();
     expect(screen.getByTestId("review-warning-item-0")).toHaveTextContent(
-      "AI scoring was skipped because the response was too short.",
+      "AI feedback was unavailable or took too long. General practice tips are shown instead.",
     );
     expect(screen.getByText("Warnings")).toBeVisible();
     expect(screen.getByTestId("review-failed-gates")).toHaveTextContent("Failed quality checks");
@@ -215,7 +277,7 @@ describe("Review route", () => {
     expect(screen.getByTestId("review-validation-toggle")).toHaveTextContent("Show quality check details");
     expect(screen.getByTestId("review-gate-content-validity")).toHaveTextContent("Content validity");
     expect(screen.getByTestId("review-gate-content-validity")).toHaveTextContent("Failed");
-    expect(screen.getByText("Observed")).toBeVisible();
+    expect(screen.getAllByText("Not assessed")).toHaveLength(2);
     expect(screen.getByRole("heading", { name: "Transcript and reference" })).toBeVisible();
     expect(screen.getByTestId("review-evidence-disclosure")).not.toHaveAttribute("open");
     expect(screen.getByTestId("review-evidence-toggle")).toHaveTextContent(

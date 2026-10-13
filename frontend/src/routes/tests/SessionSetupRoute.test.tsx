@@ -19,6 +19,8 @@ vi.mock("@/lib/api/client", () => ({
     }
   },
   apiClient: {
+    getSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
+    getResumeSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
     getDiagnostics: vi.fn(),
     getHistory: vi.fn(),
     getRuntime: vi.fn(),
@@ -70,6 +72,36 @@ describe("Session Setup route", () => {
       ],
     });
     mockedGetHistory.mockResolvedValue({ items: [] });
+  });
+
+  it.each([
+    { initial: "", edited: "maria", description: "an unsubmitted nickname" },
+    { initial: "maria", edited: "alex", description: "an edited nickname" },
+    { initial: "maria", edited: "", description: "an explicitly cleared nickname" },
+  ])("keeps $description when leaving setup and returning", async ({ initial, edited }) => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true,
+      provider: "ollama_local",
+      model: "llama3.2:3b",
+      base_url: "http://localhost:11434",
+      requires_api_key: false,
+      has_api_key: false,
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/session-setup"],
+      locale: "en",
+      appState: { draft: { speakerId: initial } },
+    });
+
+    fireEvent.change(await screen.findByLabelText("Learner name or nickname"), {
+      target: { value: edited },
+    });
+    fireEvent.click(screen.getByRole("link", { name: "Practice Home" }));
+    await screen.findByRole("button", { name: "Start new session" });
+    fireEvent.click(screen.getByRole("link", { name: "Session Setup" }));
+
+    expect(await screen.findByLabelText("Learner name or nickname")).toHaveValue(edited);
   });
 
   it("guides a beginner from learner name to a recommended practice", async () => {

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 import time
 import wave
 
@@ -44,12 +45,14 @@ def pcm_blocks(path: Path, *, max_seconds: float = 1201, timeout: float = 90):
         raise MediaDecodeError("This file could not be decoded as audio. Choose a playable recording and retry.")
 
 
-def write_wav(path: Path, destination: Path) -> None:
+def write_wav(path: Path, destination: Path, *, reserve_bytes: int = 0) -> None:
     with wave.open(str(destination), "wb") as output:
         output.setnchannels(1)
         output.setsampwidth(2)
         output.setframerate(RATE)
         for block in pcm_blocks(path):
+            if reserve_bytes and shutil.disk_usage(destination.parent).free < reserve_bytes + len(block):
+                raise MediaDecodeError("Not enough free disk space to prepare cloud audio. Your recording is retained.")
             output.writeframesraw(block)
 
 
@@ -89,3 +92,33 @@ def validate_duration(path: Path, max_seconds: float) -> None:
     size = sum(len(block) for block in pcm_blocks(path, max_seconds=max_seconds + 1))
     if size > max_seconds * RATE * 2:
         raise MediaDecodeError("Recordings can be at most 20 minutes. Split this recording into oral practice parts and retry.")
+
+
+def write_flac_range(source: Path, destination: Path, start: float, end: float, *, reserve_bytes: int = 0) -> None:
+    """Encode a range of our mono PCM derivative using packaged libraries."""
+    import av
+    import numpy as np
+
+    with wave.open(str(source), "rb") as audio, av.open(str(destination), "w", format="flac") as output:
+        stream = output.add_stream("flac", rate=RATE)
+        stream.layout = "mono"
+        first = int(start * RATE)
+        remaining = min(audio.getnframes(), int(end * RATE)) - first
+        audio.setpos(first)
+        position = 0
+        while remaining > 0:
+            if reserve_bytes and shutil.disk_usage(destination.parent).free < reserve_bytes + RATE * 2:
+                raise MediaDecodeError("Not enough free disk space to prepare cloud audio. Your recording is retained.")
+            samples = min(remaining, RATE)
+            block = audio.readframes(samples)
+            if not block:
+                raise MediaDecodeError("Audio range ended unexpectedly.")
+            frame = av.AudioFrame.from_ndarray(np.frombuffer(block, dtype="<i2").reshape(1, -1), format="s16", layout="mono")
+            frame.sample_rate = RATE
+            frame.pts = position
+            for packet in stream.encode(frame):
+                output.mux(packet)
+            position += frame.samples
+            remaining -= frame.samples
+        for packet in stream.encode(None):
+            output.mux(packet)

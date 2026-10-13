@@ -179,6 +179,7 @@ def set_secret(account: str, value: str, *, service: str = SERVICE_NAME, env_var
 
 
 def delete_secret(account: str, *, service: str = SERVICE_NAME, env_var_names: tuple[str, ...] = ()) -> SecretStoreStatus:
+    SessionSecretStore().delete_secret(service, account)
     keyring_store = KeyringSecretStore()
     status = keyring_store.status
     try:

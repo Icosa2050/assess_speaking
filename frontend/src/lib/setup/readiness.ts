@@ -1,3 +1,4 @@
+import type { MicrophoneStatus } from "./microphone";
 import type {
   DiagnosticItem,
   RuntimeResponse,
@@ -22,6 +23,8 @@ export type SetupReadinessRow = {
 
 export type SetupReadinessInput = {
   diagnostics: DiagnosticItem[];
+  microphoneStatus?: MicrophoneStatus;
+  microphoneSetupPassed?: boolean;
   diagnosticsError?: boolean;
   diagnosticsPending?: boolean;
   runtime?: RuntimeResponse;
@@ -33,10 +36,10 @@ export type SetupReadinessInput = {
 
 export type SetupReadinessActionTarget =
   | { kind: "route"; value: "/session-setup" }
-  | { kind: "section"; value: "runtime-setup-connection" | "runtime-setup-whisper" };
+  | { kind: "section"; value: "runtime-setup-connection" | "runtime-setup-whisper" | "runtime-setup-microphone" };
 
 export const isCoreSetupReadinessKey = (key: SetupReadinessKey): boolean =>
-  key === "speech_recognition" || key === "ai_tutor";
+  key === "speech_recognition" || key === "ai_tutor" || key === "microphone";
 
 export const resolveSetupReadinessAction = (
   key: SetupReadinessKey,
@@ -47,6 +50,7 @@ export const resolveSetupReadinessAction = (
   if (key === "ai_tutor") {
     return { kind: "section", value: "runtime-setup-connection" };
   }
+  if (key === "microphone") return { kind: "section", value: "runtime-setup-microphone" };
   return { kind: "route", value: "/session-setup" };
 };
 
@@ -68,6 +72,8 @@ const statusFromDiagnostic = (item: DiagnosticItem | undefined): SetupReadinessS
 
 export const buildSetupReadinessRows = ({
   diagnostics,
+  microphoneStatus = "unknown",
+  microphoneSetupPassed = false,
   diagnosticsError = false,
   diagnosticsPending = false,
   runtime,
@@ -116,7 +122,6 @@ export const buildSetupReadinessRows = ({
 
   const whisperItem = findDiagnostic(diagnostics, "whisper");
   const runtimeItem = findDiagnostic(diagnostics, "runtime");
-  const microphoneItem = findDiagnostic(diagnostics, "microphone");
 
   const speechStatus =
     diagnosticsError ? "unavailable" : whisperCached || whisperItem?.status === "ok" ? "ready" : statusFromDiagnostic(whisperItem);
@@ -126,8 +131,9 @@ export const buildSetupReadinessRows = ({
       : runtime?.configured || runtimeItem?.status === "ok"
         ? "ready"
         : statusFromDiagnostic(runtimeItem);
-  const microphoneStatus = diagnosticsError ? "unavailable" : statusFromDiagnostic(microphoneItem);
-  const coreReady = speechStatus === "ready" && aiStatus === "ready";
+  const microphoneReadiness = microphoneSetupPassed && microphoneStatus === "ready" ? "ready"
+    : ["unknown", "needs_review", "ready"].includes(microphoneStatus) ? "setup" : "unavailable";
+  const coreReady = speechStatus === "ready" && aiStatus === "ready" && microphoneReadiness === "ready";
 
   return [
     {
@@ -154,10 +160,10 @@ export const buildSetupReadinessRows = ({
     },
     {
       key: "microphone",
-      status: microphoneStatus,
+      status: microphoneReadiness,
       titleKey: "runtime_setup.setup_guide_microphone_title",
       detailKey:
-        microphoneStatus === "ready"
+        microphoneReadiness === "ready"
           ? "runtime_setup.setup_guide_microphone_ready"
           : "runtime_setup.setup_guide_microphone_setup",
       actionKey: "runtime_setup.setup_guide_check_microphone",

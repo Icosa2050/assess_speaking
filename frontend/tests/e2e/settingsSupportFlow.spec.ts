@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures";
 
 test.describe("settings support flow", () => {
   test("settings runs support actions against the local guest backend", async ({ page }) => {

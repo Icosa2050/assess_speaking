@@ -69,5 +69,9 @@ def fixture_assessment(audio, whisper_model, llm_model, **kwargs):
 assess_speaking.run_assessment = fixture_assessment
 
 if __name__ == "__main__":
+    import os
+    from scripts.prepare_journey_audio import prepare
+    if os.environ.get("VOSTAVO_JOURNEY_AUDIO_DIR"):
+        prepare(Path(os.environ["VOSTAVO_JOURNEY_AUDIO_DIR"]))
     from scripts.run_backend import main
     raise SystemExit(main())

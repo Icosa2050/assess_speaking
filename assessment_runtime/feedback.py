@@ -225,7 +225,9 @@ def build_fallback_coaching(
         },
     }[locale]
 
-    if checks.get("language_pass"):
+    if (checks.get("language_pass") is True
+            and checks.get("content_validity_pass") is True
+            and checks.get("language_detection_confident") is not False):
         strengths.append(text["strength_language"])
     if topic_gate is True:
         strengths.append(text["strength_theme"])
@@ -247,7 +249,7 @@ def build_fallback_coaching(
         )
     elif very_short_response:
         priorities.append(text["priority_short_response"])
-    if not checks.get("language_pass"):
+    if checks.get("language_pass") is False:
         priorities.append(text["priority_language"])
     if not checks.get("duration_pass"):
         priorities.append(text["priority_duration"])
@@ -280,7 +282,7 @@ def build_fallback_coaching(
             priorities=priorities,
             transcript_excerpt=transcript_excerpt,
             very_short_response=very_short_response,
-            language_pass=checks.get("language_pass") is True,
+            language_pass=checks.get("language_pass"),
             learning_language_name=learning_language_name,
             detected_language_name=detected_language_name,
         ),
@@ -302,11 +304,11 @@ def _coach_summary_text(
     priorities: List[str],
     transcript_excerpt: str,
     very_short_response: bool,
-    language_pass: bool,
+    language_pass: bool | None,
     learning_language_name: str,
     detected_language_name: str,
 ) -> str:
-    if very_short_response and not language_pass:
+    if very_short_response and language_pass is False:
         return text["coach_summary_short_wrong_language"].format(
             excerpt=transcript_excerpt,
             learning_language=learning_language_name,

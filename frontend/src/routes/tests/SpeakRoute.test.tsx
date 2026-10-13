@@ -19,6 +19,8 @@ vi.mock("@/lib/api/client", () => ({
     }
   },
   apiClient: {
+    getSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
+    getResumeSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
     cancelAssessment: vi.fn(),
     createAssessment: vi.fn(),
     getAssessmentStatus: vi.fn(),
@@ -74,6 +76,7 @@ class FakeMediaRecorder {
 }
 
 const validDraftState = {
+  microphoneSetupPassed: true,
   draft: {
     speakerId: "bern",
     learningLanguage: "en",
@@ -101,12 +104,22 @@ const expectDecorativeIcon = (element: HTMLElement) => {
 };
 
 describe("Speak route", () => {
+  it("keeps recording blocked without calibration while upload remains usable", async () => {
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
+      appState: { ...validDraftState, microphoneSetupPassed: false } });
+    expect(await screen.findByTestId("speak.record_start")).toBeDisabled();
+    expect(screen.getByTestId("speak.microphone_setup")).toBeEnabled();
+    expect(getUserMedia).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("speak.input_mode_upload"));
+    expect(screen.getByTestId("speak.upload_input")).toBeEnabled();
+  });
   const stopTrack = vi.fn();
   const getUserMedia = vi.fn();
 
   beforeEach(() => {
     vi.mocked(apiClient.getUploadLimits).mockResolvedValue({ max_bytes: 104857600, available_bytes: 104857600 });
     vi.clearAllMocks();
+    vi.mocked(apiClient.getSharingRoute).mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null });
     stopTrack.mockClear();
     FakeMediaRecorder.instances = [];
     FakeMediaRecorder.isTypeSupported.mockClear();
@@ -166,18 +179,50 @@ describe("Speak route", () => {
     });
   });
 
+  it("stops before uploading if the displayed sharing route changes", async () => {
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+    fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    const displayed = await apiClient.getSharingRoute();
+    vi.mocked(apiClient.getSharingRoute).mockResolvedValue({ ...displayed, fingerprint: "b".repeat(64), analysis: { ...displayed.analysis, host: "other.example", local: false } });
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await screen.findByText(/Sharing destinations changed/i);
+    expect(mockedUploadAudio).not.toHaveBeenCalled();
+    expect(mockedCreateAssessment).not.toHaveBeenCalled();
+    expect(screen.getByTestId("speak.download_recording")).toHaveAttribute("download", "attempt.wav");
+  });
+
   it("reuses a saved upload after a busy assessment response", async () => {
     mockedCreateAssessment.mockRejectedValueOnce(new ApiClientError(409, { code: "runtime_error", detail: "Another attempt is still being analysed." }));
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
     fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
     fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [new File(["audio"], "retry.wav", { type: "audio/wav" })] } });
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
     fireEvent.click(screen.getByTestId("speak.submit"));
     await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
     expect(screen.getByTestId("speak.download_recording")).toHaveAttribute("download", "retry.wav");
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
     fireEvent.click(screen.getByTestId("speak.submit"));
     await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(2));
     expect(mockedUploadAudio).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers a lost accepted response with the same submission ID", async () => {
+    mockedCreateAssessment.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+    fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(2));
+    const first = mockedCreateAssessment.mock.calls[0][0];
+    const recovered = mockedCreateAssessment.mock.calls[1][0];
+    expect(first.request_id).toBeTruthy();
+    expect(recovered).toEqual(first);
+    expect(mockedUploadAudio).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Your assessment is running"));
   });
 
   it("rejects a file when current disk space is insufficient, retaining a backup link", async () => {
@@ -185,6 +230,7 @@ describe("Speak route", () => {
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
     fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
     fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [new File(["audio"], "saved.wav", { type: "audio/wav" })] } });
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
     fireEvent.click(screen.getByTestId("speak.submit"));
     await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("not enough free disk space"));
     expect(mockedUploadAudio).not.toHaveBeenCalled();
@@ -306,9 +352,8 @@ describe("Speak route", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Stop recording" }));
 
     const statusPanel = await screen.findByTestId("speak.status_panel");
-    expect(
-      await within(statusPanel).findByText("A recording is attached and ready for assessment."),
-    ).toBeVisible();
+    expect(statusPanel).toHaveTextContent("Record at least 30 seconds before requesting a review.");
+    expect(statusPanel).not.toHaveTextContent("A recording is attached and ready for assessment.");
     expect(screen.getByRole("button", { name: "Remove recording" })).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Upload" }));
@@ -400,7 +445,25 @@ describe("Speak route", () => {
     expect(mockedUploadAudio).not.toHaveBeenCalled();
   });
 
-  it("records browser audio and attaches it for assessment", async () => {
+  it.each([29, 30, 31])("requires the encoder margin when recorded audio cannot be decoded (recorded: %s)", async (duration) => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(100_000);
+    try {
+      const {store} = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+      fireEvent.click(await screen.findByRole("button", { name: "Start recording" }));
+      await screen.findByRole("button", { name: "Stop recording" });
+      clock.mockReturnValue(100_000 + duration * 1000);
+      fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+      await waitFor(() => expect(store.getState().recording.status).toBe("ready"));
+      const submit = screen.getByTestId("speak.submit");
+      if (duration < 31) expect(submit).toBeDisabled();
+      else await waitFor(() => expect(submit).toBeEnabled());
+      expect(mockedCreateAssessment).not.toHaveBeenCalled();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("keeps short browser audio for playback while blocking assessment", async () => {
     renderWithProviders(<AppFrame />, {
       initialEntries: ["/speak"],
       locale: "en",
@@ -409,7 +472,7 @@ describe("Speak route", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Start recording" }));
 
-    expect(getUserMedia).toHaveBeenCalledWith({ audio: true });
+    expect(getUserMedia).toHaveBeenCalledWith({ audio: { autoGainControl: false, echoCancellation: true, noiseSuppression: true } });
     expect(await screen.findByRole("button", { name: "Stop recording" })).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
@@ -417,12 +480,14 @@ describe("Speak route", () => {
     expect(stopTrack).toHaveBeenCalled();
     expect(FakeMediaRecorder.instances[0]?.mimeType).toBe("audio/webm;codecs=opus");
     const statusPanel = await screen.findByTestId("speak.status_panel");
-    expect(
-      await within(statusPanel).findByText("A recording is attached and ready for assessment."),
-    ).toBeVisible();
+    expect(statusPanel).toHaveTextContent("Record at least 30 seconds before requesting a review.");
+    expect(statusPanel).not.toHaveTextContent("A recording is attached and ready for assessment.");
     expect(within(statusPanel).getByTestId("speak.handoff_hint")).toHaveTextContent(
-      "Submit when you are ready for feedback.",
+      "Record at least 30 seconds before requesting a review.",
     );
+    expect(within(statusPanel).getByTestId("speak.submit")).toBeDisabled();
+    expect(mockedUploadAudio).not.toHaveBeenCalled();
+    expect(mockedCreateAssessment).not.toHaveBeenCalled();
     expect(screen.getByTestId("speak.recording_ready_checkpoint")).toHaveTextContent(
       "Saved take",
     );
@@ -559,6 +624,7 @@ describe("Speak route", () => {
       ),
     ).toBeVisible();
 
+    await waitFor(() => expect(screen.getByRole("button", { name: "Submit for review" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
 
     expect(
@@ -673,6 +739,7 @@ describe("Speak route", () => {
     fireEvent.change(screen.getByLabelText("Or upload an audio file"), {
       target: { files: [uploadFile] },
     });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Submit for review" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
 
     const statusPanel = await screen.findByTestId("speak.status_panel");
@@ -685,6 +752,7 @@ describe("Speak route", () => {
     fireEvent.change(screen.getByLabelText("Or upload an audio file"), {
       target: { files: [uploadFile] },
     });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Submit for review" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
 
     rerender(<AppFrame />);

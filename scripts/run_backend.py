@@ -44,8 +44,8 @@ def _utility_mode() -> None:
         import certifi
         import onnxruntime
         import faster_whisper
-        from assessment_runtime.media import pcm_blocks
-        for module in ("app_backend.app", "assessment_runtime.responses_client", "assessment_runtime.asr", "keyring.backends.macOS", "uvicorn.protocols.http.h11_impl"):
+        from assessment_runtime.media import pcm_blocks, write_wav, write_flac_range
+        for module in ("app_backend.app", "assessment_runtime.responses_client", "assessment_runtime.asr", "assessment_runtime.groq_asr", "app_core.openrouter_cloud", "assessment_runtime.checkpoints", "keyring.backends.macOS", "uvicorn.protocols.http.h11_impl"):
             importlib.import_module(module)
         sample = PROJECT_ROOT / "samples/cefr/en/B1/travel_story.wav"
         vad = Path(faster_whisper.__file__).parent / "assets/silero_vad_v6.onnx"
@@ -53,7 +53,55 @@ def _utility_mode() -> None:
             vad = next((Path(faster_whisper.__file__).parent / "assets").glob("*.onnx"))
         onnxruntime.InferenceSession(str(vad), providers=["CPUExecutionProvider"])
         assert Path(certifi.where()).is_file()
-        result = json.dumps({"ok": True, "frozen": bool(getattr(sys, "frozen", False)), "sample_bytes": sum(map(len, pcm_blocks(sample))), "vad": True, "certificates": True})
+        import tempfile
+        import av
+        with tempfile.TemporaryDirectory(prefix="vostavo-self-test-") as folder:
+            source = Path(folder) / "sample.wav"
+            encoded = Path(folder) / "sample.flac"
+            write_wav(sample, source)
+            write_flac_range(source, encoded, 0, 1)
+            with av.open(str(encoded)) as audio:
+                assert sum(frame.samples for frame in audio.decode(audio=0)) == 16000
+        # Fixed, offline self-test only: no account store, listener or endpoint override.
+        # Exercise the compiled broker/adapters with the same provider URLs as production.
+        from types import SimpleNamespace
+        import httpx
+        from app_backend.cloud_runtime import CloudRuntime
+        from app_core.cloud_policy import CloudSettings, write_settings
+        from app_core.state import AppPreferences, ProviderConnection
+        original_client = httpx.Client
+        def fixture(request):
+            if request.url == "https://api.groq.com/openai/v1/audio/transcriptions":
+                assert b"fLaC" in request.content
+                return httpx.Response(200, json={"text": "I I think", "language": "english", "words": [
+                    {"word": "I", "start": .1, "end": .3}, {"word": "I", "start": .4, "end": .6},
+                    {"word": "think", "start": .7, "end": .9}]})
+            if request.url == "https://openrouter.ai/api/v1/models":
+                return httpx.Response(200, json={"data": [{"id": "fixture/model:free", "pricing": {"prompt": "0", "completion": "0"}, "supported_parameters": ["response_format"]}]})
+            assert request.url == "https://openrouter.ai/api/v1/chat/completions"
+            body = json.loads(request.content)
+            assert body["provider"]["max_price"]["prompt"] == 0
+            assert body["provider"]["allow_fallbacks"] is False
+            return httpx.Response(200, json={"choices": [{"message": {"content": '{"ok":true}'}}]})
+        class FixtureClient(original_client):
+            def __init__(self, **kwargs):
+                super().__init__(transport=httpx.MockTransport(fixture), trust_env=False, **kwargs)
+        with tempfile.TemporaryDirectory(prefix="vostavo-cloud-self-test-") as folder:
+            root = Path(folder)
+            speech = ProviderConnection(connection_id="speech", provider_kind="groq", secret_ref="fixture")
+            analysis = ProviderConnection(connection_id="analysis", provider_kind="openrouter", default_model="fixture/model:free", secret_ref="fixture")
+            state = SimpleNamespace(prefs=AppPreferences(connections=[speech, analysis], active_connection_id="analysis"))
+            write_settings(root, CloudSettings(asr_provider="groq", asr_connection_id="speech", openrouter_modes={"analysis": "free"}))
+            runtime = CloudRuntime(root, state, lambda _: "fixture-only", audio_path=sample, cache_root=root / "stages")
+            httpx.Client = FixtureClient
+            try:
+                transcript = runtime.handle({"operation": "asr"})
+                assert transcript["text"] == "I I think" and len(transcript["words"]) == 3
+                reply = runtime.handle({"operation": "completion", "provider": "openrouter", "model": "fixture/model:free", "prompt": "fixed self-test", "timeout": 2, "schema": {"name": "selftest", "schema": {"type": "object"}}})
+                assert json.loads(reply["text"])["ok"] is True
+            finally:
+                httpx.Client = original_client
+        result = json.dumps({"ok": True, "frozen": bool(getattr(sys, "frozen", False)), "sample_bytes": sum(map(len, pcm_blocks(sample))), "vad": True, "certificates": True, "cloud_flac": True, "cloud_modules": True, "cloud_broker_fixture": True})
         # PyInstaller windowed mode sets sys.stdout=None; preserve redirected fd.
         with os.fdopen(os.dup(1), "w") as output:
             output.write(result + "\n")

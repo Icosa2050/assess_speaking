@@ -9,6 +9,9 @@ from typing import Any
 def comparison_key(report: dict, practice: dict | None) -> tuple | None:
     if not isinstance(report, dict) or not isinstance(practice, dict):
         return None
+    from assessment_runtime.eligibility import eligibility
+    if eligibility(report)["state"] != "assessable":
+        return None
     context = practice
     inputs = report.get("input") or {}
     if not isinstance(inputs, dict):
@@ -47,6 +50,8 @@ def comparable_history_rows(history_path: Path, report: dict, practice: dict | N
             if not isinstance(payload, dict) or not isinstance(payload.get("report"), dict) or not isinstance(payload.get("meta"), dict):
                 continue
             prior_report = payload["report"]
+            if prior_report.get("session_id") == report.get("session_id"):
+                continue
             prior_practice = payload["meta"]["practice"]
             if prior_report.get("session_id") != row.get("session_id"):
                 continue

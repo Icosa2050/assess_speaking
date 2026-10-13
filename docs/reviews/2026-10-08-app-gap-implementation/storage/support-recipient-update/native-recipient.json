@@ -1,0 +1,13 @@
+{
+  "root": "/var/folders/tb/gb1t8vy10896m7pjh_987gjh0000gn/T/vostavo-storage-native-urz2rvs6",
+  "app": "/var/folders/tb/gb1t8vy10896m7pjh_987gjh0000gn/T/vostavo-storage-native-urz2rvs6/Applications/Vostavo.app",
+  "pid": 77930,
+  "artifact": "/Users/bernhard/Development/assess_speaking/.build-macos/Vostavo-0.1.0-arm64-internal-adhoc.dmg",
+  "artifact_sha256": "c4c2c2c9938e630586a9e8ca5369511801b4702eb25f3a3ab24561fb171f1f14",
+  "default_recipient": "info@frommherz-it.ch",
+  "editable": true,
+  "native_observation": "Settings Support email address field showed info@frommherz-it.ch; draft action disabled before generating a package.",
+  "email_sent": false,
+  "previous_verified_artifact_sha256": "c527c38109589f468acccd04dd8a8af25613338813a2c8651b7a069b5e774ac5",
+  "build_mode": "internal --reuse-helper; unchanged previously verified backend"
+}

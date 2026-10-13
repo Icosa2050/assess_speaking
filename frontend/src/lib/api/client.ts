@@ -2,6 +2,7 @@ import { buildApiUrl, desktopSessionHeaders } from "@/lib/runtime/environment";
 
 import type {
   AssessmentCreateRequest,
+  SharingRoute, SharingSelection,
   AssessmentCreateResponse,
   AssessmentStatusResponse,
   DiagnosticsResponse,
@@ -45,6 +46,8 @@ const pathSegment = (value: string): string => encodeURIComponent(value);
 const isErrorCode = (value: string): value is ErrorCode =>
   [
     "backend_unavailable",
+    "sharing_changed",
+    "recording_too_short",
     "local_provider_not_installed",
     "local_provider_not_running",
     "media_decode_error",
@@ -326,6 +329,19 @@ export const createApiClient = (baseUrl?: string) => ({
       { ...options, baseUrl },
     ),
 
+  getSharingRoute: (selection?: SharingSelection): Promise<SharingRoute> => requestJson<SharingRoute>(
+    selection ? "/v1/assessment-route" : "/v1/runtime/sharing", { method: selection ? "POST" : "GET", ...(selection ? {body: JSON.stringify(selection)} : {}) }, {baseUrl, headers: {"Content-Type": "application/json"}},
+  ),
+  getResumeSharingRoute: (sessionId: string): Promise<SharingRoute> => requestJson<SharingRoute>(`/v1/history/${pathSegment(sessionId)}/resume-route`, {method: "GET"}, {baseUrl}),
+
+  resumeHistory: (id: string, requestId: string, sharingFingerprint: string): Promise<AssessmentCreateResponse> => requestJson<AssessmentCreateResponse>(
+    `/v1/history/${pathSegment(id)}/resume`, {method: "POST", body: JSON.stringify({request_id: requestId, sharing_fingerprint: sharingFingerprint})},
+    {baseUrl, headers: {"Content-Type": "application/json"}},
+  ),
+  resumeAssessment: (id: string, requestId: string, sharingFingerprint: string): Promise<AssessmentCreateResponse> => requestJson<AssessmentCreateResponse>(
+    `/v1/assessments/${pathSegment(id)}/resume`, {method: "POST", body: JSON.stringify({request_id: requestId, sharing_fingerprint: sharingFingerprint})},
+    {baseUrl, headers: {"Content-Type": "application/json"}},
+  ),
   cancelAssessment: (assessmentId: string, options?: ClientOptions) =>
     requestJson<AssessmentStatusResponse>(
       `/v1/assessments/${pathSegment(assessmentId)}/cancel`,

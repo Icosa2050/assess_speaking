@@ -1,7 +1,21 @@
 # Support, Cleanup, And Packaging-Safe Maintenance Plan
 
-Last updated: 2026-04-21
-Status: Proposed
+Last updated: 2026-10-08
+Status: Backend maintenance, native support save and explicit attached Mail draft implemented
+
+The current implementation uses `app_backend/support_bundle.py`, the support
+endpoints in `app_backend/app.py`, Settings' `SupportPanel.tsx`, and the native
+bundle-ID save command in `frontend/src-tauri/src/support.rs`. The internal
+macOS DMG has passed native save, cancellation, retry and ZIP inspection with
+synthetic state. Reports/audio/uploads remain excluded by default. The browser
+fallback reports a download started; the desktop reports saved only after a
+successful native copy. No support package is sent automatically. The default recipient is `info@frommherz-it.ch` (owner-selected, editable). The learner explicitly opens a native Mail draft with the ZIP attached, then reviews and sends it in Mail. Native synthetic handoff was verified and its unsent draft discarded. Private draft attachment copies have separate retention from expiring generated bundles; see the [current verification](reviews/2026-10-08-app-gap-implementation/storage/README.md).
+
+See the [current action plan](plans/2026-10-06-app-gap-action-plan.md) and
+[artifact evidence](reviews/2026-10-08-app-gap-implementation/README.md) for
+completed work and remaining failure/accessibility/public-release rows. The
+original proposal below is retained as design context. Learner backup/restore
+and recoverable deletion have a separate [two-store contract](plans/2026-10-08-storage-contract.md).
 
 ## Summary
 
@@ -206,8 +220,9 @@ Diagnostics may add maintenance warnings when:
 Those diagnostics should point to Settings instead of creating a separate
 support workflow.
 
-Any Settings implementation work must be reviewed with PAL before changes are
-made to the screen.
+The current execution plan was checked with the user-authorized Claude CLI.
+Its text-only feasibility review is distinct from source tests and installed
+WKWebView acceptance, which are recorded separately in the implementation evidence.
 
 ## Packaging Notes
 
@@ -222,4 +237,5 @@ Requirements for later delivery:
 3. runtime mode should remain explicit enough to distinguish repo launch from
    packaged launch
 
-The actual packager decision remains out of scope for this document.
+Current delivery focuses on the Tauri macOS DMG. Windows and future hosted
+delivery remain separate acceptance work; valuable server methods/tests are retained.

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { readOmlxConfig } from "./helpers/omlx";
+import { readOmlxConfig } from "../e2e/helpers/omlx";
 
 // Run with RUN_VOSTAVO_OMLX_E2E=1 and OMLX_MODEL set to an installed chat model ID.
 // OMLX_BASE_URL (including /v1) and OMLX_API_KEY override ~/.omlx/settings.json.

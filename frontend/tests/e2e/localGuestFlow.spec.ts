@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures";
 
 test.describe("local guest shared frontend", () => {
   test("Home keeps History and Settings reachable before runtime setup is complete", async ({

@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import type { AssessmentStatusResponse } from "../../src/lib/api/types";
-import { readOmlxConfig } from "./helpers/omlx";
+import { readOmlxConfig } from "../e2e/helpers/omlx";
 
 test.skip(
   process.env.RUN_VOSTAVO_OMLX_ASSESSMENT_E2E !== "1",

@@ -1,0 +1,32 @@
+{
+  "artifact": "/Users/bernhard/Development/assess_speaking/.build-macos/Vostavo-0.1.0-arm64-internal-adhoc.dmg",
+  "sha256": "c527c38109589f468acccd04dd8a8af25613338813a2c8651b7a069b5e774ac5",
+  "checks": [
+    "read-only mounted helper self-test",
+    "copied helper self-test with repository/Homebrew/global cache reads denied",
+    "fresh state, protected health, wrong token/host rejection, docs disabled, packaged samples",
+    "packaged cloud settings, local-client guard, disabled paid fallback and budget validation",
+    "English and Italian real frozen ASR/spawned workers, uploads, reports, history, ranged audio",
+    "frozen support ZIP generation/download; default learner attachments excluded",
+    "frozen learner ZIP export, checksummed restore into second disposable root, stable IDs and restored ranged audio",
+    "frozen archive/confirmed purge, readback refusal and independent exported ZIP preservation",
+    "owner EOF shutdown, readiness cleanup, persisted history after restart",
+    "signature remains valid after use"
+  ],
+  "native_microphone": "requires interactive acceptance",
+  "public_gatekeeper": "requires Developer ID release",
+  "audio_fixture": "31-second repeated packaged TTS; functional ASR/codec evidence only, not learner-quality evidence",
+  "attempts": [
+    {
+      "language": "en",
+      "word_count": 102,
+      "duration_sec": 31.0
+    },
+    {
+      "language": "it",
+      "word_count": 95,
+      "duration_sec": 31.0
+    }
+  ],
+  "ok": true
+}

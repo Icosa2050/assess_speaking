@@ -37,7 +37,8 @@ class DashboardTests(unittest.TestCase):
             summary = progress_dashboard.summarise(records)
             self.assertEqual(summary["count"], 2)
             self.assertAlmostEqual(summary["avg_wpm"], (95.9 + 110.2) / 2, places=1)
-            self.assertEqual(summary["best_overall"], 3.8)
+            self.assertIsNone(summary["best_overall"])
+            self.assertIsNone(summary["avg_final"])
 
     def test_render_html_contains_rows(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -57,7 +58,8 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(records[0].task_family, "travel_narrative")
             self.assertEqual(records[1].speaker_id, "bern")
             self.assertEqual(records[1].learning_language, "it")
-            self.assertAlmostEqual(records[1].final_score, 4.1)
+            self.assertIsNone(records[1].final_score)
+            self.assertEqual(records[1].eligibility_state, "content_unverified")
             self.assertIs(records[1].duration_pass, True)
             self.assertIs(records[1].topic_pass, True)
             self.assertIs(records[1].language_pass, True)
@@ -94,8 +96,8 @@ class DashboardTests(unittest.TestCase):
             history.write_text(RICH_CSV, encoding="utf-8")
             records = progress_dashboard.load_history(history)
             summary = progress_dashboard.summarise(records)
-            self.assertAlmostEqual(summary["avg_final"], (3.6 + 4.1) / 2, places=2)
-            self.assertAlmostEqual(summary["best_final"], 4.1, places=2)
+            self.assertIsNone(summary["avg_final"])
+            self.assertIsNone(summary["best_final"])
 
     def test_render_html_contains_task_family_analysis(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -125,7 +127,10 @@ class DashboardTests(unittest.TestCase):
                 json.dumps(
                     {
                         "report": {
+                            "metrics": {"duration_sec": 31},
+                            "checks": {"language_pass": True, "content_validity_pass": True, "min_words_pass": True},
                             "progress_delta": {
+                                "comparison_verified": True,
                                 "previous_session_id": "sess-1",
                                 "score_delta": {"final": 0.5, "overall": 1.0, "wpm": 4.2},
                                 "new_priorities": ["Più dettagli"],

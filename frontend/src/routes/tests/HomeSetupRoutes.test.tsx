@@ -1,12 +1,14 @@
 import "@testing-library/jest-dom/vitest";
 
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/renderWithProviders";
 
 vi.mock("@/lib/api/client", () => ({
   apiClient: {
+    getSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
+    getResumeSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
     getDiagnostics: vi.fn(),
     getRuntime: vi.fn(),
     getRuntimeSettings: vi.fn(),
@@ -108,7 +110,7 @@ describe("Home and Runtime Setup routes", () => {
     expect(screen.queryByTestId("home.runtime_setup_button")).not.toBeInTheDocument();
   });
 
-  it("treats ok and informational diagnostics as healthy", async () => {
+  it("treats ok and informational diagnostics as healthy after actual microphone capture", async () => {
     mockedGetRuntime.mockResolvedValue({
       configured: true,
       provider: "ollama",
@@ -147,6 +149,8 @@ describe("Home and Runtime Setup routes", () => {
       initialEntries: ["/"],
       locale: "en",
       appState: {
+        microphoneStatus: "ready",
+        microphoneSetupPassed: true,
         preferences: {
           setupComplete: true,
         },
@@ -159,6 +163,25 @@ describe("Home and Runtime Setup routes", () => {
       "aria-valuenow",
       "100",
     );
+  });
+
+  it("updates readiness only after confirming calibration while retaining unrelated notices", async () => {
+    mockedGetRuntime.mockResolvedValue({ configured: true, provider: "ollama", model: "test", base_url: "", requires_api_key: false, has_api_key: false });
+    mockedGetDiagnostics.mockResolvedValue({ items: [
+      { key: "whisper", status: "ok", title_key: "", detail_key: "", detail_args: {} },
+      { key: "maintenance", status: "warning", title_key: "", detail_key: "", detail_args: {} },
+    ] });
+    const { store } = renderWithProviders(<AppFrame />, { locale: "en" });
+    await screen.findByText("Please review these notices");
+    const meter = screen.getByRole("progressbar", { name: "Practice readiness" });
+    expect(meter).toHaveAttribute("aria-valuenow", "67");
+    act(() => store.getState().setMicrophoneStatus("ready"));
+    expect(meter).toHaveAttribute("aria-valuenow", "67");
+    act(() => store.getState().setMicrophoneSetupPassed(true));
+    expect(meter).toHaveAttribute("aria-valuenow", "100");
+    expect(screen.getByText("Please review these notices")).toBeVisible();
+    act(() => store.getState().setMicrophoneStatus("denied"));
+    expect(meter).toHaveAttribute("aria-valuenow", "67");
   });
 
   it("counts only actionable diagnostics in the attention summary", async () => {
@@ -553,7 +576,7 @@ describe("Home and Runtime Setup routes", () => {
     expect(screen.getByText("Local models found via http://localhost:11434/api/tags: 2.")).toBeVisible();
 
     const detectedModelField = screen.getByLabelText("Detected local models");
-    expect(screen.getByTestId("runtime_connection.model")).toHaveValue("llama3.2:3b");
+    await waitFor(() => expect(screen.getByTestId("runtime_connection.model")).toHaveValue("llama3.2:3b"));
     expect(
       within(detectedModelField).queryByText("Local model discovery can populate this field from the running service."),
     ).not.toBeInTheDocument();

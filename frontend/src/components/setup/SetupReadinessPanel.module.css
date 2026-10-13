@@ -207,3 +207,24 @@
     width: fit-content;
   }
 }
+
+.microphoneControls {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.microphoneControls .rowAction {
+  grid-column: 1 / -1;
+}
+
+.microphoneControls select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.microphoneControls .rowAction {
+  max-width: 100%;
+  white-space: normal;
+}

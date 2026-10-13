@@ -44,7 +44,7 @@
   display: block;
   width: 100%;
   height: var(--bar-height);
-  min-height: 1.15rem;
+  min-height: 0.15rem;
   border-radius: var(--radius-full);
   background: linear-gradient(180deg, rgba(39, 106, 115, 0.76), rgba(31, 89, 97, 0.92));
   box-shadow: 0 0.45rem 1rem rgba(39, 106, 115, 0.16);
@@ -72,7 +72,7 @@
 }
 
 .visualizer[data-recording-state="recording"] .visualizerBar {
-  animation: recordingWave 0.95s ease-in-out infinite alternate;
+  transition: height 100ms linear;
   animation-delay: var(--bar-delay);
   background: linear-gradient(180deg, var(--color-accent), var(--color-caution));
   box-shadow: 0 0.5rem 1.15rem rgba(148, 71, 43, 0.18);

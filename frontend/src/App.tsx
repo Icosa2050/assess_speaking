@@ -124,7 +124,7 @@ export const AppFrame = () => {
     <Routes>
       <Route
         element={
-          <AppShell
+          <AppShell locale={locale}
             reloadLabel={translate("nav.reload_page")}
             appName={translate("home.title")}
             navAriaLabel={translate("nav.main_navigation")}

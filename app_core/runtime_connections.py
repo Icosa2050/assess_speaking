@@ -4,7 +4,7 @@ from typing import Any
 from uuid import uuid4
 
 from app_core.state import DEFAULT_MODEL, ProviderConnection
-from app_core.runtime_providers import connection_secret_ref, default_base_url, default_connection_label, normalize_provider
+from app_core.runtime_providers import connection_secret_ref, default_base_url, default_connection_label, normalize_provider, SUPPORTED_PROVIDERS
 
 
 def _is_local_url(url: str) -> bool:
@@ -20,14 +20,15 @@ def deserialize_connections(raw_connections: object) -> list[ProviderConnection]
         if not isinstance(raw, dict):
             continue
         connection_id = str(raw.get("connection_id") or "").strip() or uuid4().hex
-        provider_kind = normalize_provider(raw.get("provider_kind") or raw.get("provider"))
+        raw_kind = str(raw.get("provider_kind") or raw.get("provider") or "").strip().lower()
+        provider_kind = raw_kind if raw_kind and raw_kind not in SUPPORTED_PROVIDERS else normalize_provider(raw_kind)
         provider_metadata = raw.get("provider_metadata") if isinstance(raw.get("provider_metadata"), dict) else {}
         connection = ProviderConnection(
             connection_id=connection_id,
             provider_kind=provider_kind,
             label=str(raw.get("label") or default_connection_label(provider_kind)).strip() or default_connection_label(provider_kind),
             base_url=str(raw.get("base_url") or default_base_url(provider_kind)).strip(),
-            default_model=str(raw.get("default_model") or raw.get("model") or DEFAULT_MODEL).strip() or DEFAULT_MODEL,
+            default_model=str(raw.get("default_model") or raw.get("model") or ("" if provider_kind in {"chatgpt", "xai", "groq", "openrouter"} else DEFAULT_MODEL)).strip(),
             auth_mode="bearer" if str(raw.get("auth_mode") or "").strip().lower() == "bearer" else "none",
             secret_ref=str(raw.get("secret_ref") or connection_secret_ref(connection_id)).strip() or connection_secret_ref(connection_id),
             is_default=bool(raw.get("is_default")),
@@ -36,6 +37,10 @@ def deserialize_connections(raw_connections: object) -> list[ProviderConnection]
             last_tested_at=str(raw.get("last_tested_at") or "").strip(),
             provider_metadata=dict(provider_metadata),
         )
+        if provider_kind not in SUPPORTED_PROVIDERS:
+            connection.provider_metadata = {"disabled": True, "_unsupported_record": raw}
+            connection.default_model = ""
+            connection.secret_ref = ""
         connections.append(connection)
     return connections
 
@@ -43,10 +48,13 @@ def deserialize_connections(raw_connections: object) -> list[ProviderConnection]
 def serialize_connections(connections: list[ProviderConnection]) -> list[dict[str, Any]]:
     payload: list[dict[str, Any]] = []
     for connection in connections:
+        if (connection.provider_metadata or {}).get("_unsupported_record") is not None:
+            payload.append(dict(connection.provider_metadata["_unsupported_record"]))
+            continue
         payload.append(
             {
                 "connection_id": connection.connection_id,
-                "provider_kind": normalize_provider(connection.provider_kind),
+                "provider_kind": connection.provider_kind,
                 "label": connection.label,
                 "base_url": connection.base_url,
                 "default_model": connection.default_model,
@@ -70,6 +78,10 @@ def ensure_single_default_connection(
     if not normalized:
         return [], ""
     chosen_active = str(active_connection_id or "").strip()
+    if chosen_active == "__missing__":
+        for item in normalized:
+            item.is_default = False
+        return normalized, chosen_active
     if not chosen_active or not any(item.connection_id == chosen_active for item in normalized):
         chosen_default = next((item.connection_id for item in normalized if item.is_default), "")
         chosen_active = chosen_default or normalized[0].connection_id

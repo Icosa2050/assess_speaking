@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { SEMANTIC_IDS, semanticAttributes } from "@/lib/i18n";
 
+import { JournalRecoveryNotice } from "./JournalRecoveryNotice";
 import styles from "./AppShell.module.css";
 
 type RouteItem = {
@@ -17,6 +18,7 @@ type NavGroup = {
 };
 
 type AppShellProps = {
+  locale?: import("@/lib/state/sessionDraft").UiLocale;
   reloadLabel?: string;
   appName: string;
   navGroups: NavGroup[];
@@ -50,6 +52,7 @@ const routeSemanticAttributes = (href: string): Record<string, string> => {
 };
 
 export const AppShell = ({
+  locale = "en",
   reloadLabel = "Reload page",
   appName,
   navGroups,
@@ -85,6 +88,7 @@ export const AppShell = ({
           </div>
         </header>
 
+        <JournalRecoveryNotice locale={locale} />
         <div className={styles.layout}>
           <aside className={styles.sidebar}>
             <nav

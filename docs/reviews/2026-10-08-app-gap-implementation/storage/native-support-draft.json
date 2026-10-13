@@ -1,0 +1,14 @@
+{
+  "artifact_sha256": "bcd2ed954055558b0d37dc8883bb69ef34084fea4c26ca86e97859f9c5e9b3a1",
+  "synthetic_package": "bundle_d9abf7d8335d.zip",
+  "recipient": "support@example.invalid",
+  "observed": [
+    "default inclusion categories off",
+    "native Save cancel retained generated package",
+    "macOS Mail draft showed test recipient and ZIP attachment",
+    "app reported draft prepared and instructed review/send in Mail",
+    "unsent draft closed and discarded through Mail Don\u2019t Save"
+  ],
+  "message_sent": false,
+  "note": "Later artifact changes touched backend storage and copy text; native Mail handoff implementation unchanged. No inbox content retained."
+}

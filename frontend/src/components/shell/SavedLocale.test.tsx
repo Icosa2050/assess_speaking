@@ -5,7 +5,8 @@ import { renderWithProviders } from "@/test/renderWithProviders";
 import { useAppStore } from "@/lib/state/appStore";
 import { SavedLocale } from "./SavedLocale";
 
-vi.mock("@/lib/api/client", () => ({ apiClient: { getRuntimeSettings: vi.fn() } }));
+vi.mock("@/lib/api/client", () => ({ apiClient: {
+    getSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }), getRuntimeSettings: vi.fn() } }));
 import { apiClient } from "@/lib/api/client";
 import type { RuntimeSettingsResponse } from "@/lib/api/types";
 const mockedSettings = vi.mocked(apiClient.getRuntimeSettings);

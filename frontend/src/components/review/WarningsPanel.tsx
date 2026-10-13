@@ -27,6 +27,7 @@ const warningMessage = (value: string, translate: Translate): string => {
 
   const mapping: Record<string, string> = {
     transcript_uncertain: "review.transcript_uncertain",
+    cloud_asr_preview: "review.warning_codes.cloud_asr_preview",
     llm_skipped_transcript_uncertain: "review.transcript_uncertain",
     coaching_unavailable: "review.warning_codes.coaching_unavailable",
     llm_unavailable: "review.warning_codes.llm_unavailable",

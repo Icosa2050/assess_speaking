@@ -1,17 +1,15 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 // WebKit uses upload journeys: Chromium-only fake microphone flags do not
 // exercise the macOS microphone permission dialog in Safari.
 test.use({ browserName: "webkit", permissions: [], launchOptions: {} });
-const root = fileURLToPath(new URL("../../..", import.meta.url));
 for (const language of ["en", "it"]) {
   test(`WebKit ${language}: upload, saved feedback, replay and retry`, async ({ page, request }) => {
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
-    const saved = await request.put("http://127.0.0.1:8814/v1/runtime/settings", { data: {
+    const saved = await request.put(`${process.env.VOSTAVO_FIXTURE_BACKEND_URL}/v1/runtime/settings`, { data: {
       ui_locale: language, whisper_model: "small",
       connection: { provider_choice: "ollama_local", model: "journey-fixture", base_url: "http://127.0.0.1:11434/v1" },
     } });
@@ -23,7 +21,7 @@ for (const language of ["en", "it"]) {
     await page.getByTestId("setup.cefr").selectOption("B2");
     await page.getByTestId("setup.continue").click();
     await page.getByTestId("speak.input_mode_upload").click();
-    await page.getByTestId("speak.upload_input").setInputFiles(path.join(root, "samples/cefr", language, "B2/remote_work.wav"));
+    await page.getByTestId("speak.upload_input").setInputFiles(path.join(process.env.VOSTAVO_JOURNEY_AUDIO_DIR!, language, "B2/remote_work.wav"));
     await expect(page.getByTestId("speak.download_recording")).toBeVisible();
     await page.getByTestId("speak.submit").click();
     await expect(page).toHaveURL(/\/review$/, { timeout: 45000 });

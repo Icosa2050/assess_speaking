@@ -1,9 +1,11 @@
+import { CloudSettingsPanel } from "@/components/setup/CloudSettingsPanel";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { RuntimeConnectionForm } from "@/components/setup/RuntimeConnectionForm";
 import { SavedConnectionsPanel } from "@/components/settings/SavedConnectionsPanel";
+import { JournalPanel } from "@/components/settings/JournalPanel";
 import { SupportPanel } from "@/components/settings/SupportPanel";
 import { apiClient } from "@/lib/api/client";
 import type {
@@ -468,6 +470,7 @@ export const SettingsRoute = () => {
         selectedConnectionId={selectedConnectionId ?? "__new__"}
       />
 
+      <CloudSettingsPanel locale={locale} connections={runtimeSettingsQuery.data?.connections ?? []} />
       <section
         style={cardStyle}
         {...semanticAttributes(SEMANTIC_IDS.settings.sectionRuntimeDefaults)}
@@ -589,6 +592,7 @@ export const SettingsRoute = () => {
       />
       </fieldset>
 
+      <JournalPanel locale={locale} />
       <SupportPanel
         activeConnectionId={runtimeSettingsQuery.data?.active_connection_id || preferences.activeConnectionId}
         locale={locale}

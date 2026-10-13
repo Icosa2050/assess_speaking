@@ -1,0 +1,40 @@
+import { expect, test } from "../fixtures";
+
+test("real backend persists cloud settings and a usable PKCE account after reload",async({page,request})=>{
+  const base=process.env.VOSTAVO_FIXTURE_BACKEND_URL!;
+  const headers={"X-Vostavo-Client":"desktop"};
+  await page.route("**/*",route=>{
+    const url=new URL(route.request().url());
+    if(["127.0.0.1","localhost"].includes(url.hostname))return route.fallback();
+    return route.abort("blockedbyclient");
+  });
+  await page.goto("/settings");
+  const panel=page.getByRole("region",{name:"Cloud services"});
+  await panel.getByLabel("Monthly OpenRouter app budget (USD)").fill("7");
+  await panel.getByRole("button",{name:"Save cloud settings",exact:true}).click();
+  await expect(panel.getByRole("status").filter({ hasText: /^Saved$/ })).toHaveText("Saved");
+  await page.reload();
+  await expect(panel.getByLabel("Monthly OpenRouter app budget (USD)")).toHaveValue("7");
+  await panel.getByRole("button",{name:"Connect OpenRouter",exact:true}).click();
+  const link=panel.getByRole("link",{name:"Continue in your browser"});
+  await expect(link).toBeVisible();
+  const authorization=new URL((await link.getAttribute("href"))!);
+  expect(authorization.origin).toBe("https://openrouter.ai");
+  const callback=new URL(authorization.searchParams.get("callback_url")!);
+  expect(callback.hostname).toBe("127.0.0.1");
+  callback.searchParams.set("state",authorization.searchParams.get("state")!);
+  callback.searchParams.set("code","fixture-code");
+  const connected=await request.get(callback.toString());
+  expect(connected.status()).toBe(200);
+  await expect(panel.getByRole("status").filter({ hasText: "Choose an OpenRouter model" })).toContainText("Choose an OpenRouter model");
+  const stored=await (await request.get(base+"/v1/runtime/settings",{headers})).json();
+  const account=stored.connections.find((c:any)=>c.provider_metadata.auth==="openrouter-pkce");
+  expect(account).toMatchObject({has_api_key:true,model:""});
+  expect(JSON.stringify(stored)).not.toContain("fixture-pkce-key");
+  await page.reload();
+  const loaded=await (await request.get(base+"/v1/runtime/settings",{headers})).json();
+  expect(loaded.connections.find((c:any)=>c.connection_id===account.connection_id).has_api_key).toBe(true);
+  const save=await request.put(base+"/v1/runtime/settings",{headers,data:{connection:{connection_id:account.connection_id,provider_choice:"openrouter",base_url:account.base_url,model:"vendor/free:free",api_key:""}}});
+  expect(save.status()).toBe(200);
+  expect((await save.json()).connections.find((c:any)=>c.connection_id===account.connection_id)).toMatchObject({model:"vendor/free:free",has_api_key:true});
+});

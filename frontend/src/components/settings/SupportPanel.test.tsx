@@ -1,0 +1,64 @@
+import "@testing-library/jest-dom/vitest";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { SupportPanel } from "./SupportPanel";
+import { renderWithProviders } from "@/test/renderWithProviders";
+vi.mock("@/lib/api/client", () => ({ apiClient: { createSupportBundle: vi.fn(), downloadSupportBundle: vi.fn() } }));
+import { apiClient } from "@/lib/api/client";
+const create = vi.mocked(apiClient.createSupportBundle);
+const download = vi.mocked(apiClient.downloadSupportBundle);
+const bundle = { bundle_id: "bundle_0123456789ab", filename: "support.zip", size_bytes: 128, expires_at: new Date(Date.now()+86400000).toISOString() };
+beforeEach(() => { vi.clearAllMocks(); create.mockResolvedValue(bundle); download.mockResolvedValue(new Blob(["synthetic ZIP"])); });
+afterEach(() => { cleanup(); Reflect.deleteProperty(window, "__VOSTAVO_DESKTOP__"); vi.unstubAllGlobals(); });
+const render = () => renderWithProviders(<SupportPanel activeConnectionId="fixture" locale="en" />);
+const click = () => fireEvent.click(screen.getByTestId("settings.support_create_bundle"));
+it("uses the native save dialog, preserves a cancelled package, and retries without regenerating", async () => {
+  const save = vi.fn().mockResolvedValueOnce({ status: "cancelled" }).mockResolvedValueOnce({ status: "saved" });
+  Object.assign(window, { __VOSTAVO_DESKTOP__: { saveSupportBundle: save } });
+  render(); click();
+  await screen.findByText("Saving cancelled. The package is still available to save again.");
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({ include_reports: false, include_recordings: false, include_uploads: false }));
+  expect(save).toHaveBeenCalledWith(bundle.bundle_id);
+  expect(download).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Save package again" }));
+  await screen.findByText("Support package saved.");
+  expect(create).toHaveBeenCalledOnce(); expect(save).toHaveBeenCalledTimes(2);
+});
+it("keeps a generated package available after a native save failure", async () => {
+  const save=vi.fn().mockRejectedValueOnce(new Error("Check disk space")).mockResolvedValueOnce({status:"saved"});
+  Object.assign(window,{__VOSTAVO_DESKTOP__:{saveSupportBundle:save}});
+  render();click();
+  await screen.findByRole("alert");expect(screen.queryByText("Support package saved.")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button",{name:"Save package again"}));
+  await screen.findByText("Support package saved.");expect(create).toHaveBeenCalledOnce();
+});
+it("reports a browser download as started rather than saved", async () => {
+  vi.spyOn(HTMLAnchorElement.prototype,"click").mockImplementation(()=>undefined);
+  Object.defineProperty(URL,"createObjectURL",{configurable:true,value:vi.fn(()=>"blob:fixture")});
+  Object.defineProperty(URL,"revokeObjectURL",{configurable:true,value:vi.fn()});
+  render();click();
+  await screen.findByText("Support package download started. Check your browser’s downloads.");
+  expect(download).toHaveBeenCalledWith(bundle.bundle_id);
+  expect(screen.queryByText("Support package saved.")).not.toBeInTheDocument();
+});
+it("does not claim a native save on an older desktop bridge", async () => {
+  Object.assign(window,{__VOSTAVO_DESKTOP__:{apiBaseUrl:"http://127.0.0.1"}});
+  render();click();await waitFor(()=>expect(screen.getByRole("alert")).toHaveTextContent("Update the desktop app"));
+  expect(download).not.toHaveBeenCalled();
+});
+it("prepares only the selected package as an editable email draft and preserves it after Mail failure", async () => {
+  const draft = vi.fn().mockRejectedValueOnce(new Error("Mail permission denied")).mockResolvedValueOnce({ status: "drafted" });
+  Object.assign(window, { __VOSTAVO_DESKTOP__: { saveSupportBundle: vi.fn().mockResolvedValue({ status: "cancelled" }), draftSupportEmail: draft } });
+  render();
+  const button = screen.getByRole("button", { name: "Prepare email with ZIP attached" });
+  expect(button).toBeDisabled();
+  expect(screen.getByLabelText("Support email address")).toHaveValue("info@frommherz-it.ch");
+  click(); await screen.findByText("Saving cancelled. The package is still available to save again.");
+  fireEvent.click(button); await screen.findByText("Mail permission denied");
+  expect(draft).toHaveBeenLastCalledWith(bundle.bundle_id, "info@frommherz-it.ch");
+  expect(screen.queryByText("Email draft prepared in Mail. Review and send it there.")).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Support email address"), { target: { value: "support@example.org" } });
+  fireEvent.click(button); await screen.findByText("Email draft prepared in Mail. Review and send it there.");
+  expect(draft).toHaveBeenLastCalledWith(bundle.bundle_id, "support@example.org");
+  expect(create).toHaveBeenCalledOnce();
+});

@@ -31,6 +31,11 @@ const unconfiguredRuntime: RuntimeResponse = {
 };
 
 describe("buildSetupReadinessRows", () => {
+  it("uses browser microphone results even when backend diagnostics cannot run", () => {
+    expect(buildSetupReadinessRows({ diagnostics: [], diagnosticsError: true, microphoneStatus: "ready", microphoneSetupPassed: true })[2].status).toBe("ready");
+    expect(buildSetupReadinessRows({ diagnostics: [diagnostic("microphone", "ok")] })[2].status).toBe("setup");
+    expect(buildSetupReadinessRows({ diagnostics: [], microphoneStatus: "denied" })[2].status).toBe("unavailable");
+  });
   it("maps missing runtime dependencies to setup actions and blocks the sample check", () => {
     const rows = buildSetupReadinessRows({
       diagnostics: [diagnostic("whisper", "warning"), diagnostic("runtime", "warning")],
@@ -49,7 +54,7 @@ describe("buildSetupReadinessRows", () => {
     expect(rows[3].detailKey).toBe("runtime_setup.setup_guide_sample_blocked");
   });
 
-  it("enables practice once speech and AI are ready without claiming a browser microphone check", () => {
+  it("requires a confirmed microphone sample even when speech and AI are ready", () => {
     const rows = buildSetupReadinessRows({
       diagnostics: [
         diagnostic("whisper", "ok"),
@@ -64,9 +69,19 @@ describe("buildSetupReadinessRows", () => {
       ["speech_recognition", "ready", false],
       ["ai_tutor", "ready", false],
       ["microphone", "setup", false],
-      ["sample_check", "setup", false],
+      ["sample_check", "setup", true],
     ]);
     expect(rows[3].actionKey).toBe("runtime_setup.setup_guide_run_sample");
+  });
+
+  it("enables practice only after all three required checks are ready", () => {
+    const rows = buildSetupReadinessRows({
+      diagnostics: [diagnostic("whisper", "ok"), diagnostic("runtime", "ok")],
+      runtime: configuredRuntime, whisperCached: true,
+      microphoneStatus: "ready", microphoneSetupPassed: true,
+    });
+    expect(rows[2].status).toBe("ready");
+    expect(rows[3].disabled).toBe(false);
   });
 
   it("shows loading rows while runtime or diagnostics are still pending", () => {
@@ -98,8 +113,8 @@ describe("resolveSetupReadinessAction", () => {
       value: "runtime-setup-connection",
     });
     expect(resolveSetupReadinessAction("microphone")).toEqual({
-      kind: "route",
-      value: "/session-setup",
+      kind: "section",
+      value: "runtime-setup-microphone",
     });
     expect(resolveSetupReadinessAction("sample_check")).toEqual({
       kind: "route",

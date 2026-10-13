@@ -1,6 +1,8 @@
-import { createContext, createElement, useContext, useRef, type ReactNode } from "react";
+import { createContext, createElement, useContext, useEffect, useRef, type ReactNode } from "react";
 import { useStore } from "zustand";
 import { createStore, type StoreApi } from "zustand/vanilla";
+
+import type { MicrophoneStatus } from "@/lib/setup/microphone";
 
 import { detectPreferredUiLocale, resolveUiLocale } from "@/lib/i18n";
 
@@ -22,6 +24,10 @@ import {
 } from "./sessionDraft";
 
 export interface AppStoreState {
+  microphoneStatus: MicrophoneStatus;
+  microphoneSetupPassed: boolean;
+  microphoneDeviceId: string;
+  microphoneVoiceProcessing: boolean;
   preferences: AppPreferencesState;
   draft: SessionDraft;
   recording: RecordingState;
@@ -30,6 +36,10 @@ export interface AppStoreState {
 }
 
 export type AppStoreSeed = Partial<{
+  microphoneStatus: MicrophoneStatus;
+  microphoneSetupPassed: boolean;
+  microphoneDeviceId: string;
+  microphoneVoiceProcessing: boolean;
   preferences: Partial<AppPreferencesState>;
   draft: Partial<SessionDraft>;
   recording: Partial<RecordingState>;
@@ -38,6 +48,11 @@ export type AppStoreSeed = Partial<{
 }>;
 
 export interface AppStoreActions {
+  setMicrophoneStatus: (status: MicrophoneStatus) => void;
+  setMicrophoneSetupPassed: (passed: boolean) => void;
+  setMicrophoneDeviceId: (deviceId: string) => void;
+  setMicrophoneVoiceProcessing: (enabled: boolean) => void;
+  invalidateMicrophoneSetup: () => void;
   setUiLocale: (locale: string) => void;
   setActiveConnectionId: (connectionId: string) => void;
   setSetupComplete: (setupComplete: boolean) => void;
@@ -72,6 +87,10 @@ const buildAppStoreState = (seed: AppStoreSeed = {}): AppStoreState => {
   );
 
   return {
+    microphoneStatus: seed.microphoneStatus ?? "unknown",
+    microphoneSetupPassed: seed.microphoneSetupPassed ?? false,
+    microphoneDeviceId: seed.microphoneDeviceId ?? "",
+    microphoneVoiceProcessing: seed.microphoneVoiceProcessing ?? true,
     preferences: buildAppPreferences({
       ...seed.preferences,
       uiLocale: preferredLocale,
@@ -88,6 +107,14 @@ export const createAppStore = (seed: AppStoreSeed = {}): AppStoreApi => {
 
   return createStore<AppStore>()((set) => ({
     ...initialState,
+    setMicrophoneStatus: (microphoneStatus) => set(state => ({
+      microphoneStatus,
+      microphoneSetupPassed: ["unknown", "ready", "needs_review"].includes(microphoneStatus) ? state.microphoneSetupPassed : false,
+    })),
+    setMicrophoneSetupPassed: (microphoneSetupPassed) => set({ microphoneSetupPassed }),
+    setMicrophoneDeviceId: (microphoneDeviceId) => set({ microphoneDeviceId, microphoneSetupPassed: false, microphoneStatus: "unknown" }),
+    setMicrophoneVoiceProcessing: (microphoneVoiceProcessing) => set({ microphoneVoiceProcessing, microphoneSetupPassed: false, microphoneStatus: "unknown" }),
+    invalidateMicrophoneSetup: () => set({ microphoneSetupPassed: false, microphoneStatus: "unknown" }),
     setUiLocale: (locale) =>
       set((state) => ({
         preferences: {
@@ -130,7 +157,9 @@ export const createAppStore = (seed: AppStoreSeed = {}): AppStoreApi => {
           : buildAppPreferences({
               uiLocale: resolveUiLocale(state.preferences.uiLocale),
             }),
-        draft: buildSessionDraft(),
+        draft: buildSessionDraft({
+          speakerId: preservePreferences ? state.draft.speakerId : "",
+        }),
         recording: buildRecordingState(),
         review: buildReviewState(),
         navigation: buildNavigationState(),
@@ -291,6 +320,31 @@ export const AppStoreProvider = ({
   if (storeRef.current === null) {
     storeRef.current = createAppStore();
   }
+
+  useEffect(() => {
+    const activeStore = storeRef.current!;
+    let disposed = false;
+    let permission: PermissionStatus | undefined;
+    const changed = () => {
+      if (permission?.state !== "granted") activeStore.getState().invalidateMicrophoneSetup();
+    };
+    const deviceChanged = () => activeStore.getState().invalidateMicrophoneSetup();
+    navigator.mediaDevices?.addEventListener?.("devicechange", deviceChanged);
+    // Reading permission does not prompt; revocation invalidates the required sample check.
+    if (navigator.permissions?.query) {
+      void navigator.permissions.query({ name: "microphone" as PermissionName }).then(result => {
+        if (disposed) return;
+        permission = result;
+        permission.addEventListener("change", changed);
+        changed();
+      }).catch(() => undefined);
+    }
+    return () => {
+      disposed = true;
+      permission?.removeEventListener("change", changed);
+      navigator.mediaDevices?.removeEventListener?.("devicechange", deviceChanged);
+    };
+  }, []);
 
   return createElement(
     AppStoreContext.Provider,

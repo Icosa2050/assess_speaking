@@ -1,5 +1,6 @@
+import { useSharingRoute, SharingSummary } from "@/lib/setup/sharing";
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { RecorderPanel } from "@/components/speak/RecorderPanel";
 import { RehearsalAudio } from "@/components/speak/RehearsalAudio";
@@ -9,7 +10,7 @@ import { createTranslator } from "@/lib/i18n";
 import { useAppStore } from "@/lib/state/appStore";
 import type { CefrLevel } from "@/lib/state/sessionDraft";
 import { clockText, createRehearsal, retryPart, secondsRemaining, type Rehearsal, type RehearsalLanguage } from "@/lib/rehearsal/session";
-import { deleteRehearsal, getRehearsal, listRehearsals, loadPartRecording, savePartRecording, saveRehearsal } from "@/lib/rehearsal/storage";
+import { type JournalAccess, withJournalLock, deleteRehearsal, getRehearsal, listRehearsals, loadPartRecording, savePartRecording, saveRehearsal } from "@/lib/rehearsal/storage";
 import styles from "./RehearsalRoute.module.css";
 
 const record = (value: unknown): JsonRecord => value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
@@ -21,13 +22,19 @@ const waitForPoll = (signal: AbortSignal) => new Promise<void>((resolve, reject)
 });
 
 export const RehearsalRoute = () => {
+  const navigate = useNavigate();
+  const setMicrophoneStatus = useAppStore(state => state.setMicrophoneStatus);
+  const microphoneSetupPassed = useAppStore(state => state.microphoneSetupPassed);
+  const microphoneDeviceId = useAppStore(state => state.microphoneDeviceId);
+  const microphoneVoiceProcessing = useAppStore(state => state.microphoneVoiceProcessing);
   const locale = useAppStore(state => state.preferences.uiLocale);
   const draft = useAppStore(state => state.draft);
   const translate = createTranslator(locale);
   const t = (key: string, vars?: Record<string, string | number>) => translate(`rehearsal.${key}`, vars);
   const [language, setLanguage] = useState<RehearsalLanguage>(draft.learningLanguage === "it" ? "it" : "en");
   const [goal, setGoal] = useState<CefrLevel>(draft.cefrLevel);
-  const [speaker, setSpeaker] = useState(draft.speakerId);
+  const speaker = draft.speakerId;
+  const updateDraft = useAppStore(state => state.updateDraft);
   const [saved, setSaved] = useState<Rehearsal[]>([]);
   const [session, setSession] = useState<Rehearsal | null>(null);
   const [, setRemaining] = useState(0);
@@ -43,6 +50,8 @@ export const RehearsalRoute = () => {
   const controller = useRef<AbortController | null>(null);
   const runtime = useQuery({ queryKey: ["runtime"], queryFn: () => apiClient.getRuntime() });
   const settings = useQuery({ queryKey: ["runtime", "settings"], queryFn: () => apiClient.getRuntimeSettings() });
+
+  const sharingQuery = useSharingRoute();
 
   useEffect(() => {
     mounted.current = true;
@@ -64,8 +73,8 @@ export const RehearsalRoute = () => {
     return () => clearInterval(timer);
   }, [session?.phase, session?.preparationEndsAt]);
 
-  const persist = async (next: Rehearsal) => {
-    const stored = await saveRehearsal(next);
+  const persist = async (next: Rehearsal, maintenanceHeld?: JournalAccess) => {
+    const stored = await saveRehearsal(next, maintenanceHeld);
     next.revision = stored.revision;
     if (mounted.current) {
       setSession(structuredClone(next));
@@ -112,7 +121,7 @@ export const RehearsalRoute = () => {
     if (!session) return;
     const abort = new AbortController(); controller.current = abort;
     if (!navigator.locks) throw new Error(t("locking_unavailable"));
-    await navigator.locks.request(`rehearsal:${session.id}`, { ifAvailable: true }, async lock => {
+    await withJournalLock(access => navigator.locks.request(`rehearsal:${session.id}`, { ifAvailable: true }, async lock => {
     if (!lock) throw new Error(t("locked"));
     let current = await getRehearsal(session.id);
     if (!current) throw new Error(t("recording_missing"));
@@ -122,30 +131,33 @@ export const RehearsalRoute = () => {
       if (part.reportId) continue;
       setStatus(t("analysing", { part: i + 1, total: current.parts.length }));
       if (!part.jobId) {
+        const refreshed = await sharingQuery.refetch();
+        if (!refreshed.data?.available || !sharingQuery.data?.available || refreshed.data.fingerprint !== sharingQuery.data.fingerprint) throw new Error(translate("sharing.changed"));
+        current.runtime = { ...current.runtime, provider: refreshed.data.analysis.provider, model: refreshed.data.analysis.model, baseUrl: "", whisper: refreshed.data.audio.local ? refreshed.data.audio.model : current.runtime.whisper };
         if (!part.audioId) {
           const blob = await loadPartRecording(current, i);
           if (!blob) throw new Error(t("recording_missing"));
           const limits = await apiClient.getUploadLimits({ signal: abort.signal });
           if (blob.size > limits.available_bytes) throw new Error(translate("speak.upload_disk_error"));
           const upload = await apiClient.uploadAudio(new File([blob], `rehearsal-${i + 1}.${blob.type.includes("mp4") ? "m4a" : blob.type.includes("ogg") ? "ogg" : "webm"}`, { type: blob.type }), { signal: abort.signal });
-          part.audioId = upload.audio_id; await persist(current);
+          part.audioId = upload.audio_id; await persist(current, access);
         }
         abort.signal.throwIfAborted();
         let job;
-        try { job = await apiClient.createAssessment({ audio_id: part.audioId, whisper: current.runtime.whisper,
-          provider: current.runtime.provider, llm_model: current.runtime.model, llm_base_url: current.runtime.baseUrl,
+        try { job = await apiClient.createAssessment({ sharing_fingerprint: refreshed.data.fingerprint, audio_id: part.audioId, whisper: refreshed.data.audio.local ? refreshed.data.audio.model : current.runtime.whisper,
+          provider: refreshed.data.analysis.provider, llm_model: refreshed.data.analysis.model,
           expected_language: current.language, feedback_language: current.runtime.feedbackLanguage, speaker_id: current.speaker,
           task_family: part.taskFamily || "free_monologue", theme: part.prompt, target_duration_sec: part.durationSec, target_cefr: current.goal,
           prompt_id: part.id, prompt_text: part.prompt, retry_of_session_id: part.retryOf || "",
           label: `rehearsal-${current.id}-part-${i + 1}`, notes: "App-authored solo rehearsal; no partner interaction assessed." }); }
         catch (cause) {
           if (cause instanceof ApiClientError && [400, 404, 410, 422].includes(cause.responseStatus)) {
-            part.audioId = undefined; await persist(current);
+            part.audioId = undefined; await persist(current, access);
           }
           throw cause;
         }
         // Persist the accepted job even if navigation happened during creation.
-        part.jobId = job.assessment_id; await persist(current);
+        part.jobId = job.assessment_id; await persist(current, access);
       }
       let result: AssessmentStatusResponse;
       do {
@@ -153,38 +165,39 @@ export const RehearsalRoute = () => {
         try { result = await apiClient.getAssessmentStatus(part.jobId, { signal: abort.signal }); }
         catch (cause) {
           if (cause instanceof ApiClientError && cause.responseStatus === 404) {
-            part.jobId = undefined; part.audioId = undefined; await persist(current);
+            part.jobId = undefined; part.audioId = undefined; await persist(current, access);
           }
           throw cause;
         }
         if (result.status === "queued" || result.status === "running") await waitForPoll(abort.signal);
       } while (result.status === "queued" || result.status === "running");
       if (result.status !== "completed" || !result.payload) {
-        part.jobId = undefined; part.audioId = undefined; await persist(current);
+        part.jobId = undefined; part.audioId = undefined; await persist(current, access);
         throw new Error(result.error?.detail || t("analysis_failed"));
       }
       const report = record(result.payload.report);
       if (typeof report.session_id !== "string" || !report.session_id) {
-        part.jobId = undefined; part.audioId = undefined; await persist(current);
+        part.jobId = undefined; part.audioId = undefined; await persist(current, access);
         throw new Error(t("analysis_failed"));
       }
-      part.reportId = report.session_id; await persist(current);
+      part.reportId = report.session_id; await persist(current, access);
       if (mounted.current) setReports(items => ({ ...items, [part.reportId!]: result.payload! }));
       current = structuredClone(current);
     }
-    });
+    }));
   });
 
   if (!session) return <section className={styles.page} data-testid="rehearsal-screen">
     <header><p className={styles.eyebrow}>{t("eyebrow")}</p><h1>{t("title")}</h1><p>{t("body")}</p></header>
     {error && <p role="alert">{error}</p>}
     <div className={styles.card}>
-      <label>{t("learner")}<input data-testid="rehearsal-speaker" value={speaker} onChange={event => setSpeaker(event.target.value)} /></label>
-      <label>{t("language")}<select data-testid="rehearsal-language" value={language} onChange={event => setLanguage(event.target.value as RehearsalLanguage)}><option value="en">English</option><option value="it">Italiano</option></select></label>
-      <label>{t("goal")}<select data-testid="rehearsal-goal" value={goal} onChange={event => setGoal(event.target.value as CefrLevel)}>{["B1", "B2", "C1"].map(level => <option key={level}>{level}</option>)}</select></label>
+      <label>{t("learner")}<input data-testid="rehearsal-speaker" value={speaker} onChange={event => updateDraft({ speakerId: event.target.value })} /></label>
+      <label>{t("language")}<select data-testid="rehearsal-language" value={language} onChange={event => { setLanguage(event.target.value as RehearsalLanguage); updateDraft({ learningLanguage: event.target.value, learningLanguageLabel: event.target.value === "it" ? "Italiano" : "English" }); }}><option value="en">English</option><option value="it">Italiano</option></select></label>
+      <label>{t("goal")}<select data-testid="rehearsal-goal" value={goal} onChange={event => { setGoal(event.target.value as CefrLevel); updateDraft({ cefrLevel: event.target.value as CefrLevel }); }}>{["B1", "B2", "C1"].map(level => <option key={level}>{level}</option>)}</select></label>
       <p>{t("outline")}</p><p>{t("scope")}</p>
       {!runtime.data?.configured && <Link to="/runtime-setup">{t("configure")}</Link>}
-      <button data-testid="rehearsal-create" disabled={busy || !speaker.trim() || !runtime.data?.configured || !settings.data} onClick={start}>{t("create")}</button>
+      {!microphoneSetupPassed && <p>{translate("speak.microphone_setup_required")} <Link to="/runtime-setup#runtime-setup-microphone">{translate("runtime_setup.setup_guide_check_microphone")}</Link></p>}
+      <button data-testid="rehearsal-create" disabled={busy || !speaker.trim() || !runtime.data?.configured || !settings.data || !microphoneSetupPassed} onClick={start}>{t("create")}</button>
     </div>
     <h2>{t("saved")}</h2>
     {saved.length === 0 && <p>{t("empty")}</p>}
@@ -210,14 +223,17 @@ export const RehearsalRoute = () => {
     </div>}
     {session.phase === "speaking" && currentPart && <div className={styles.card}>
       <h2>{t("part", { number: index + 1, total: session.parts.length })} · {clockText(currentPart.durationSec)}</h2><p className={styles.prompt}>{currentPart.prompt}</p><p>{t("record_help")}</p>
-      <fieldset disabled={busy}><RecorderPanel key={`${session.id}-${index}`} canRemove={false} inputMode="record" onRecordingActiveChange={setRecordingActive} allowUpload={false} maxSeconds={currentPart.durationSec}
+      <fieldset disabled={busy}><RecorderPanel onMicrophoneStatusChange={setMicrophoneStatus} key={`${session.id}-${index}`} canRemove={false} inputMode="record" onRecordingActiveChange={setRecordingActive} allowUpload={false} maxSeconds={currentPart.durationSec}
+        microphoneSetupPassed={microphoneSetupPassed} microphoneDeviceId={microphoneDeviceId} microphoneVoiceProcessing={microphoneVoiceProcessing}
+        onSetupMicrophone={() => navigate("/runtime-setup#runtime-setup-microphone")}
         onInputModeChange={() => undefined} onFileSelected={setFile} onRemove={() => setFile(null)} previewUrl={preview}
         showReadyCheckpoint={Boolean(file)} statusMessage={t("record_help")} statusTone="info" translate={translate} /></fieldset>
       <button data-testid="rehearsal-save-part" disabled={busy || !file} onClick={saveRecording}>{t("save_part")}</button>
     </div>}
     {session.phase === "review" && <>
+      <SharingSummary route={sharingQuery.data} locale={locale} />
       <div className={styles.card}><h2>{t("review")}</h2><p>{t("review_body")}</p>
-        {session.parts.some(part => !part.reportId) && <button data-testid="rehearsal-analyse" disabled={busy} onClick={analyse}>{t("analyse")}</button>}
+        {session.parts.some(part => !part.reportId) && <button data-testid="rehearsal-analyse" disabled={busy || (!sharingQuery.data?.available && session.parts.some(part => !part.reportId && !part.jobId))} onClick={analyse}>{t("analyse")}</button>}
       </div>
       {session.parts.map((part, i) => {
         const report = record(reports[part.reportId || ""]?.report);
@@ -227,7 +243,7 @@ export const RehearsalRoute = () => {
           <h3>{t("part", { number: i + 1, total: session.parts.length })} · {clockText(part.durationSec)}</h3><p>{part.prompt}</p>
           <RehearsalAudio session={session} index={i} label={t("playback")} unavailable={t("audio_missing")} downloadLabel={translate("speak.download_recording")} />
           {part.reportId ? <>
-            <dl className={styles.metrics}>{[["duration", metrics.duration_sec], ["wpm", metrics.wpm], ["score", scores.final]].map(([label, value]) => <div key={String(label)}><dt>{t(String(label))}</dt><dd>{typeof value === "number" && Number.isFinite(value) ? value.toFixed(1) : "—"}</dd></div>)}</dl>
+            <dl className={styles.metrics}>{[["duration", metrics.duration_sec], ["wpm", metrics.wpm], ["score", record(report.eligibility).state && record(report.eligibility).state !== "assessable" ? null : scores.final]].map(([label, value]) => <div key={String(label)}><dt>{t(String(label))}</dt><dd>{typeof value === "number" && Number.isFinite(value) ? value.toFixed(1) : "—"}</dd></div>)}</dl>
             {(!report.rubric || warnings.includes("coaching_unavailable")) && <p>{translate("review.general_practice_tips")}</p>}
             {warnings.includes("transcript_uncertain") && <p>{translate("review.transcript_uncertain")}</p>}
             <p>{String(coaching.coach_summary || t("report_missing"))}</p><strong>{String(coaching.next_focus || "")}</strong>

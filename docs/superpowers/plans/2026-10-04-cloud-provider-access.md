@@ -1,6 +1,53 @@
-# Connect ChatGPT, xAI Grok and Groq
+# Connect cloud transcription and feedback
 
-**Date:** 2026-10-04. **Status:** Implemented and tested locally; live user authorization and provider inference remain to be verified.
+October 6 repair update: the offline cloud-gap slice and new internal DMG are accepted. See [implementation evidence](../../reviews/2026-10-06-cloud-gap-implementation.md) for current status and remaining gates.
+
+**Date:** 2026-10-04. **Status:** Implemented baseline with confirmed October 6 defects; remediation reviewed and pending. Live user authorization and provider inference remain to be verified.
+
+The [cloud-gap remediation plan](2026-10-06-cloud-gap-remediation.md) is the current execution plan. It repairs failures missed by the local passing suites before cloud-ready delivery can be claimed.
+
+
+## October 6 implementation extension
+
+The user requested implementation after the speaking-journey fixes. This section supersedes the October 4 exclusions below for cloud transcription, OpenRouter browser login, free-only routing, recovery and managed paid OpenRouter fallback. The earlier sections retain the connection milestone and its evidence.
+
+| Option | Current implementation | Setup |
+| --- | --- | --- |
+| Groq cloud transcription | Independent saved Groq connection; packaged PyAV prepares mono 16 kHz lossless FLAC; actual-byte upload cap; overlapping chunk timestamps; completed-chunk recovery. | Save a Groq connection, then choose Groq under Cloud services → Transcription and select the speech model. |
+| OpenRouter free-only | Browser PKCE login or saved key; explicit `:free` model; live zero-price verification; zero price caps; no automatic router or provider fallback. | Connect OpenRouter, explicitly select/test/save a structured-output model, then set that connection to Free models only. |
+| ChatGPT plan login | Existing browser authorization, plan model selection, backend renewal and Responses inference. | Continue with ChatGPT, authorize available plan access, choose an available model and test. Availability depends on the account and app preview. |
+| Paid OpenRouter | Explicit Paid mode, finite provider key limit, output cap, monthly app reservations and reported-cost reconciliation. Optional fallback is disabled until enabled with a distinct saved connection. | Fund the account, set a key limit at OpenRouter, save a model, choose Paid with spending controls and save the monthly app budget. Enable fallback separately if desired. |
+| xAI Grok | Existing paid API connection remains available. | Use an xAI API key and credits. This does not connect a free Grok consumer login. |
+
+Cloud services is available in guided setup and Settings. Cloud transcription does not require downloading local Whisper weights. Existing manual OpenRouter connections retain their prior billing behavior until Free or Paid mode is chosen; the OpenRouter app budget does not cover Groq, xAI or other providers.
+
+### Recovery and speaking fixes
+
+- Lost accepted submission responses recover through a stable request ID; the backend creates one job for repeated identical submissions.
+- Checkpoints bind acoustic, transcription and validated feedback stages to the recording hash and relevant analysis inputs. Failed coaching can be retried while reusing a successful rubric.
+- Backend provider replies are persisted before returning over correlated IPC. A dead or mismatched pipe stops further dispatch. Matching requests serialize against an older in-flight reply rather than issuing another concurrent paid request.
+- Unknown remote outcomes remain reserved. Settings can reconcile a reservation only after the user confirms the provider's actual charge; that decision is recorded. Exactly-once remote execution is not promised after an unknown HTTP outcome.
+- Analysis revisions keep one history take and its original practice date while retaining previous report files. Older retained jobs without checkpoints keep their existing take identifier.
+- Progress compares raw rubric overall values against prior raw values. Reworded priorities no longer imply that a weakness was resolved. The existing saved-locale restoration is preserved.
+- Missing cloud models, deleted selections and unsupported saved provider kinds cannot silently select another account or a paid default. Managed cloud keys stay in the backend rather than worker payloads or environment variables.
+
+### Quality and release boundaries
+
+Groq transcription remains a preview: confidence is unknown, human review is required, and the report asks the learner to check the transcript against the recording. Language detection is automatic; supplied language labels are retained without inventing a probability. Real learner-error retention and comparative English/Italian coaching quality have not been calibrated. No model is newly promoted as the quality winner.
+
+This implementation reuses the installed HTTPX, PyAV and credential store. It adds no npm or Python dependencies. The earlier proposed SDK/Authlib expansion is unnecessary for these bounded adapters; the existing verified ChatGPT OAuth foundation is preserved. This is provider access inside the local app, not a hosted multi-user deployment.
+
+See [implementation, review and verification record](../../reviews/2026-10-06-cloud-plan-implementation.md) for final tests, the internal DMG and remaining live checks.
+
+### Sources rechecked October 6
+
+- [Groq speech-to-text contract](https://console.groq.com/docs/speech-to-text): supported speech models, free-plan upload limits and timestamp output.
+- [OpenRouter PKCE authorization](https://openrouter.ai/docs/guides/overview/auth/oauth): authorization/key exchange, state echo and loopback callbacks.
+- [OpenRouter provider routing](https://openrouter.ai/docs/guides/routing/provider-selection): price caps, output parameter requirements and endpoint fallback control.
+- [OpenRouter key limits](https://openrouter.ai/docs/api_reference/limits): current key limits and remaining allowance.
+- [ChatGPT local-app preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations): text plan inference does not provide audio transcription.
+
+## October 4 connection milestone (historical scope)
 
 ## Scope
 

@@ -203,6 +203,8 @@ def test_retry_comparison_preserves_decrease_flat_and_increase(tmp_path, score, 
     save_prior(tmp_path, report, practice)
     report["scores"]["final"] = score
     report["scores"]["llm"] = score
+    # Overall compares raw rubric values, separately from weighted scores.
+    report["rubric"]["overall"] = score
     report["metrics"]["wpm"] = 80
     delta = assess_speaking.build_progress_delta(tmp_path / "history.csv", report,
         practice={**practice, "retry_of_session_id": "parent"})

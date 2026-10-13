@@ -7,6 +7,7 @@ import { ProgressRing } from "@/components/ui/ProgressRing";
 import { apiClient } from "@/lib/api/client";
 import { createTranslator, semanticAttributes, SEMANTIC_IDS } from "@/lib/i18n";
 import { queryKeys } from "@/lib/query/queryClient";
+import { buildSetupReadinessRows } from "@/lib/setup/readiness";
 import { selectRuntimeReadiness, useAppStore } from "@/lib/state/appStore";
 import { hasReviewState, hasSetupDraft } from "@/lib/state/sessionDraft";
 
@@ -53,24 +54,6 @@ const diagnosticsCopy = (
   }
 };
 
-const readinessScore = (
-  state: DiagnosticsCardState,
-  runtimeReady: boolean,
-): number => {
-  switch (state) {
-    case "ready":
-      return 100;
-    case "checks":
-      return runtimeReady ? 72 : 42;
-    case "setup":
-      return 28;
-    case "unavailable":
-      return runtimeReady ? 64 : 18;
-    case "loading":
-      return 0;
-  }
-};
-
 const diagnosticsIcon = (state: DiagnosticsCardState): IconName => {
   if (state === "ready") {
     return "check";
@@ -86,6 +69,8 @@ export const HomeRoute = () => {
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const preferences = useAppStore((state) => state.preferences);
   const draft = useAppStore((state) => state.draft);
+  const microphoneStatus = useAppStore(state => state.microphoneStatus);
+  const microphoneSetupPassed = useAppStore(state => state.microphoneSetupPassed);
   const review = useAppStore((state) => state.review);
   const beginNewSession = useAppStore((state) => state.beginNewSession);
   const setCurrentPage = useAppStore((state) => state.setCurrentPage);
@@ -100,6 +85,11 @@ export const HomeRoute = () => {
   const diagnosticsQuery = useQuery({
     queryKey: queryKeys.diagnostics,
     queryFn: () => apiClient.getDiagnostics(),
+  });
+
+  const settingsQuery = useQuery({
+    queryKey: ["runtime", "settings"],
+    queryFn: () => apiClient.getRuntimeSettings(),
   });
 
   useEffect(() => {
@@ -138,7 +128,20 @@ export const HomeRoute = () => {
     actionableDiagnostics.length,
     translate,
   );
-  const practiceReadinessScore = readinessScore(diagnosticsCardState, runtimeReadiness.ready);
+  const practiceChecks = buildSetupReadinessRows({
+    diagnostics: diagnosticsItems,
+    diagnosticsError: diagnosticsQuery.isError,
+    diagnosticsPending: diagnosticsQuery.isPending,
+    runtime: runtimeQuery.data,
+    runtimeError: runtimeQuery.isError,
+    runtimePending: runtimeQuery.isPending,
+    whisperCached: settingsQuery.data?.asr_provider === "groq",
+    microphoneStatus,
+    microphoneSetupPassed,
+  }).filter(row => row.key !== "sample_check");
+  const readyChecks = practiceChecks.filter(row => row.status === "ready").length;
+  const practiceReadinessScore = Math.round(100 * readyChecks / practiceChecks.length);
+  const practiceReadinessLabel = translate("home.practice_checks", { ready: readyChecks, total: practiceChecks.length });
   const resumeDisabled = !hasSetupDraft(draft);
 
   const handleStartNew = () => {
@@ -166,9 +169,10 @@ export const HomeRoute = () => {
             <ProgressRing
               className={styles.readinessMeter}
               label={translate("home.practice_meter_label")}
-              showStatus={false}
-              status={diagnosticsMessage.title}
+              showStatus
+              status={practiceReadinessLabel}
               value={practiceReadinessScore}
+              valueLabel={`${readyChecks}/${practiceChecks.length}`}
             />
           </div>
           <div className={styles.actionRow}>
@@ -197,9 +201,10 @@ export const HomeRoute = () => {
             <ProgressRing
               className={styles.readinessMeter}
               label={translate("home.practice_meter_label")}
-              showStatus={false}
-              status={diagnosticsMessage.title}
+              showStatus
+              status={practiceReadinessLabel}
               value={practiceReadinessScore}
+              valueLabel={`${readyChecks}/${practiceChecks.length}`}
             />
           </div>
           <div className={`${styles.actionRow} ${styles.primaryActionRow}`}>

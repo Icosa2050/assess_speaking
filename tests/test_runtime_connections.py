@@ -54,15 +54,16 @@ class RuntimeConnectionTests(unittest.TestCase):
         self.assertEqual(primary.provider_metadata, {"deployment": "local"})
 
         self.assertEqual(fallback.connection_id, "generated-id")
-        self.assertEqual(fallback.provider_kind, "openrouter")
+        self.assertEqual(fallback.provider_kind, "unsupported-provider")
         self.assertEqual(fallback.label, "OpenRouter")
         self.assertEqual(fallback.base_url, "https://openrouter.ai/api/v1")
-        self.assertEqual(fallback.default_model, DEFAULT_MODEL)
+        self.assertEqual(fallback.default_model, "")
         self.assertEqual(fallback.auth_mode, "none")
-        self.assertEqual(fallback.secret_ref, "connection:generated-id")
+        self.assertEqual(fallback.secret_ref, "")
         self.assertFalse(fallback.is_default)
         self.assertFalse(fallback.is_local)
-        self.assertEqual(fallback.provider_metadata, {})
+        self.assertTrue(fallback.provider_metadata["disabled"])
+        self.assertEqual(serialize_connections([fallback])[0], raw_connections[2])
 
     def test_serialize_connections_preserves_payload_shape(self):
         payload = serialize_connections(
@@ -93,7 +94,7 @@ class RuntimeConnectionTests(unittest.TestCase):
         self.assertEqual(payload[0]["provider_kind"], "ollama")
         self.assertEqual(payload[0]["provider_metadata"], {"deployment": "local"})
         self.assertTrue(payload[0]["is_local"])
-        self.assertEqual(payload[1]["provider_kind"], "openrouter")
+        self.assertEqual(payload[1]["provider_kind"], "unexpected")
         self.assertEqual(payload[1]["provider_metadata"], {})
 
     def test_ensure_single_default_connection_promotes_active_connection(self):
