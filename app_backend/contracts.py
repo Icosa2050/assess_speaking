@@ -48,6 +48,7 @@ PHASE_2_LOCAL_API_VERSION = "phase2-local-v1"
 CANONICAL_PRODUCT_API_ROUTES: tuple[str, ...] = (
     "/v1/health",
     "/v1/diagnostics",
+    "/v1/readiness",
     "/v1/runtime",
     "/v1/uploads",
     "/v1/uploads/limits",
@@ -113,6 +114,26 @@ class DiagnosticItem(BaseModel):
 
 class DiagnosticsResponse(BaseModel):
     items: list[DiagnosticItem]
+
+
+class ReadinessCheck(BaseModel):
+    """Stable display contract; detail arguments contain no credentials or errors."""
+
+    key: Literal["ai_tutor", "speech_recognition", "media_decoder", "storage"]
+    state: Literal["available", "needs_setup", "unavailable"]
+    blocking: bool
+    reason: Literal[
+        "available", "not_configured", "credential_missing", "local_service_unreachable",
+        "model_not_cached", "media_decoder_missing", "storage_not_writable",
+    ]
+    detail_args: dict[str, str] = Field(default_factory=dict)
+
+
+class ReadinessResponse(BaseModel):
+    """Saved backend prerequisites only; microphone permission stays client-side."""
+
+    checks: list[ReadinessCheck]
+    ready: bool
 
 
 class RuntimeResponse(BaseModel):

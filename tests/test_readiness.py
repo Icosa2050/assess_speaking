@@ -41,6 +41,8 @@ def save_selection(config, *, provider="ollama", model="tutor-model", asr="local
     connections.append(ProviderConnection(
         connection_id="speech", provider_kind="groq", default_model="unused-chat-model", secret_ref="asr-secret",
     ))
+    if not provider:
+        connections = []
     save_workspace_prefs(config.app_data.reports_dir, {
         "connections": serialize_connections(connections), "active_connection_id": "tutor",
         "whisper_model": "medium", "setup_complete": True,
