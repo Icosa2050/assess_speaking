@@ -101,16 +101,24 @@ class Backend:
         return first['assessment_id']
 
     def wait(self, identity):
+        last_read_error = None
         while time.monotonic() < self.deadline:
             value = self.request('GET', f'/v1/assessments/{identity}')
             if value['status'] in ('completed', 'failed', 'cancelled'):
-                job = json.loads((self.root / 'app/jobs' / (identity + '.json')).read_text())
                 try:
-                    os.kill(job['worker_pid'], 0)
-                except (ProcessLookupError, KeyError):
-                    return value
+                    job = json.loads((self.root / 'app/jobs' / (identity + '.json')).read_text())
+                except (FileNotFoundError, json.JSONDecodeError) as exc:
+                    # The API can publish a terminal status before the worker's
+                    # final job rewrite. Keep polling within the same deadline.
+                    last_read_error = type(exc).__name__
+                else:
+                    last_read_error = None
+                    try:
+                        os.kill(job['worker_pid'], 0)
+                    except (ProcessLookupError, KeyError):
+                        return value
             time.sleep(.05)
-        raise AssertionError('60-second fixture deadline; dispatch phases: ' + repr(self.dispatches()))
+        raise AssertionError(f'60-second fixture deadline; job {identity} read error: {last_read_error}; dispatch phases: ' + repr(self.dispatches()))
 
     def dispatches(self):
         path = self.root / 'dispatch.jsonl'

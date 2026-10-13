@@ -41,9 +41,16 @@ test("populated v1 migrates without losing audio; global maintenance excludes an
   }}));
   await other.goto("/");
   await expect(other.getByTestId("journal-recovery-notice")).toBeVisible();
-  await other.getByTestId("journal-recovery-notice").getByRole("link").click();
+  const notice = other.getByTestId("journal-recovery-notice");
+  for (const name of ["Restore from a backup", "Export diagnostics only", "Start a fresh journal"]) {
+    await expect(notice.getByRole("link", {name, exact: true})).toBeVisible();
+  }
+  await notice.getByRole("link", {name: "Restore from a backup", exact: true}).click();
   await expect(other.getByTestId("journal-panel").getByRole("alert")).toHaveText(recoveryError);
   await expect(other.getByRole("button", {name: "Create and save backup", exact: true})).toBeDisabled();
+  await expect(other.getByLabel("Restore from a backup", {exact: true})).toBeEnabled();
+  await expect(other.getByRole("button", {name: "Export diagnostics only", exact: true})).toBeEnabled();
+  await expect(other.getByRole("button", {name: "Start a fresh journal", exact: true})).toBeEnabled();
   await other.unroute("**/v1/journal/status");
   await other.reload();
   await expect(other.getByTestId("journal-recovery-notice")).toHaveCount(0);
