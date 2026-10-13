@@ -237,9 +237,12 @@ def _ai_tutor_readiness(state) -> ReadinessCheck:
             check.state, check.reason = "needs_setup", "credential_missing"
         elif connection.is_local and choice in {"ollama_local", "lmstudio_local"}:
             health, models = _runtime_health_diagnostic(resolved)
+            model_names = {resolved.model}
+            if resolved.provider == "ollama" and ":" not in resolved.model.rsplit("/", 1)[-1]:
+                model_names.add(f"{resolved.model}:latest")
             if health.status != "ok":
                 check.state, check.reason = "unavailable", "local_service_unreachable"
-            elif resolved.model not in models:
+            elif model_names.isdisjoint(models):
                 check.state, check.reason = "needs_setup", "model_unavailable"
     return check
 

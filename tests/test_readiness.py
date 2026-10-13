@@ -27,7 +27,12 @@ def readiness_env(tmp_path, monkeypatch):
     monkeypatch.setattr("app_core.diagnostics.describe_model_availability", cached)
     monkeypatch.setattr("app_core.diagnostics._media_available", lambda: True)
     # Fail loudly if an implementation adds a network call outside the diagnostic probe.
-    monkeypatch.setattr("requests.sessions.Session.request", Mock(side_effect=AssertionError("No network in readiness tests")))
+    def reject_network(*args, **kwargs):
+        pytest.fail("No network in readiness tests")
+
+    monkeypatch.setattr("urllib.request.urlopen", reject_network)
+    # TestClient uses its own in-process transport, so native HTTP is safe to block.
+    monkeypatch.setattr("httpx.HTTPTransport.handle_request", reject_network)
     with TestClient(create_app(config)) as client:
         yield config, client, secrets, health, cached
 
@@ -195,3 +200,39 @@ def test_ollama_cloud_checks_credential_without_network(readiness_env, has_key):
     assert check["blocking"] is True
     assert response.json()["ready"] is has_key
     health.assert_not_called()
+
+
+@pytest.mark.parametrize("provider,saved_model,catalog_model,available", [
+    ("ollama", "tutor-model", "tutor-model:latest", True),
+    ("ollama", "tutor-model", "tutor-model:7b", False),
+    ("ollama", "registry.local:5000/team/tutor-model", "registry.local:5000/team/tutor-model:latest", True),
+    ("ollama", "tutor-model:7b", "tutor-model:latest", False),
+    ("lmstudio", "tutor-model", "tutor-model:latest", False),
+])
+def test_local_model_aliases(readiness_env, provider, saved_model, catalog_model, available):
+    config, client, _, health, _ = readiness_env
+    save_selection(config, provider=provider, model=saved_model)
+    health.return_value["payload"] = {"models": [{"name": catalog_model}]}
+    response = client.get("/v1/readiness")
+    assert response.status_code == 200
+    check = response.json()["checks"][0]
+    expected = ("available", "available") if available else ("needs_setup", "model_unavailable")
+    assert (check["state"], check["reason"]) == expected
+    assert check["blocking"] is True
+    assert check["detail_args"]["model"] == saved_model
+    assert response.json()["ready"] is available
+    health.assert_called_once()
+
+
+@pytest.mark.parametrize("transport", ["urllib", "httpx"])
+def test_readiness_network_guard_covers_product_transports(readiness_env, transport):
+    # Neither URI can reach a socket, even when the guard is absent during the red run.
+    # Exercise the product's actual urllib helper, and httpx's native HTTP transport.
+    with pytest.raises(pytest.fail.Exception, match="No network in readiness tests"):
+        if transport == "urllib":
+            from assessment_runtime.llm_client import _get_json
+            _get_json("data:application/json,%7B%7D", {}, 0.1)
+        else:
+            import httpx
+            with httpx.Client() as client:
+                client.get("offline://readiness-test", timeout=0.1)
