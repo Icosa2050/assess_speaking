@@ -188,11 +188,16 @@ class Journal:
         self.mutations = 0
         self.recovery_marker = self.directory / 'recovery-required.json'
         self.recovery_error = RECOVERY_MESSAGE if self.recovery_marker.exists() else None
+        self.recovery_retryable = False
+        retryable = False
         try:
             prior = self.state()
             if self.recovery_marker.exists() and not (prior or {}).get('recovery_restore'):
                 return  # A partial quarantine must never replay the damaged files.
             self.completed()  # Validate receipts before attempting startup recovery.
+            # Preserve an intact transaction and its rollback snapshots when
+            # recovery hits a disk error. Only damaged metadata may be set aside.
+            retryable = bool(prior and prior['id'] != 'damaged')
             self.recover_purge()
             edit = read_json(self.directory / 'edit.json')
             if edit:
@@ -202,6 +207,7 @@ class Journal:
             elif prior and (prior['phase'] == 'complete' or prior['id'] in self.completed()):
                 self._finish(prior['id'])
         except (OSError, JournalError, json.JSONDecodeError, KeyError, TypeError):
+            self.recovery_retryable = retryable
             # Keep health/history readable while refusing further writes. A
             # missing rollback snapshot must never trigger an empty replacement.
             self.recovery_error = 'Recovery files are unavailable. Check disk space and retained backup files before retrying recovery.'
@@ -289,10 +295,13 @@ class Journal:
         # Hold both leases for the entire exit, including diagnostic ZIP creation.
         try:
             with journal_guard(self.config.app_data.root, exclusive=True), self.lock:
+                drain = getattr(self.jobs, 'wait_for_finished_workers', None)
+                if callable(drain):
+                    drain()
                 state = self.state()
                 if self.mutations or any(p.is_alive() for p in self.jobs._processes.values()):
                     raise JournalError('Finish or cancel active work first.')
-                if state and (not self.recovery_error or state.get('recovery_restore')):
+                if state and (not self.recovery_error or self.recovery_retryable or state.get('recovery_restore')):
                     raise JournalError('Another maintenance transaction is in progress. Finish it first.')
                 yield
         except JournalMaintenanceError as exc:
@@ -661,6 +670,7 @@ class Journal:
             self.recovery_marker.unlink(missing_ok=True)
         self.recovery_error = RECOVERY_MESSAGE if self.recovery_marker.exists() else None
         self.state_path.unlink(missing_ok=True)
+        self.recovery_retryable = False
         shutil.rmtree(self.directory / transaction, ignore_errors=True)
 
     @history_transaction

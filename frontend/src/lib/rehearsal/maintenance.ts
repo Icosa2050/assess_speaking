@@ -9,6 +9,18 @@ import {
 export type JournalStatus = { transaction: { id: string; phase: string } | null; archived: string[]; completed: string[]; recovery_error?: string | null };
 export type BackupResult = { id: string; filename: string; size_bytes: number; missing: string[] };
 export type RestorePreview = { id: string; attempts: number; skipped_attempts: string[]; skipped_rehearsals: string[]; missing: string[]; browser: BrowserSnapshot };
+// Only this renderer's mounted preview owns the transaction. Reloading or
+// leaving Settings exposes it as interrupted recovery again.
+let openPreview: string | undefined;
+export const isOpenJournalPreview = (id: string) => openPreview === id;
+export function ownJournalPreview(id: string) {
+  openPreview = id;
+  window.dispatchEvent(new Event("journal-recovery-changed"));
+  return () => {
+    if (openPreview === id) openPreview = undefined;
+    window.dispatchEvent(new Event("journal-recovery-changed"));
+  };
+}
 const route = (path: string) => `/v1/journal/${path}` as FrozenApiRoute;
 export async function journalRequest<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const binary = body instanceof Blob;

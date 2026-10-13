@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createTranslator } from "@/lib/i18n";
 import type { UiLocale } from "@/lib/state/sessionDraft";
 import { isDesktopRuntime, readDesktopRuntimeBridge } from "@/lib/runtime/desktopBridge";
-import { startFreshJournal, exportJournalDiagnostics, attemptRemoval, rehearsalRemoval, createLearnerBackup, previewLearnerRestore, commitLearnerRestore, recoverLearnerJournal, journalRecoveryStatus, journalStatus, journalRequest, journalBlob, type BackupResult, type RestorePreview, type JournalStatus } from "@/lib/rehearsal/maintenance";
+import { ownJournalPreview, startFreshJournal, exportJournalDiagnostics, attemptRemoval, rehearsalRemoval, createLearnerBackup, previewLearnerRestore, commitLearnerRestore, recoverLearnerJournal, journalRecoveryStatus, journalStatus, journalRequest, journalBlob, type BackupResult, type RestorePreview, type JournalStatus } from "@/lib/rehearsal/maintenance";
 import { listArchivedRehearsals, undoRehearsalArchive } from "@/lib/rehearsal/storage";
 import type { Rehearsal } from "@/lib/rehearsal/session";
 
@@ -61,6 +61,7 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
       setMessage(t("settings.support_bundle_download_started"));
     }
   };
+  useEffect(() => preview ? ownJournalPreview(preview.id) : undefined, [preview?.id]);
   const activeTransaction = !!status?.transaction && status.transaction.phase !== "recovery_error";
   const refresh = async () => { setStatus(await journalRecoveryStatus()); setArchived(await listArchivedRehearsals()); };
   useEffect(() => {
@@ -102,7 +103,7 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
     </div>}
     {busy && !committing && <button onClick={() => controller.current?.abort()}>{t("journal.cancel")}</button>}
     <button disabled={busy} onClick={() => void run(refresh)}>{t("journal.check_recovery")}</button>
-    {activeTransaction && <div><p>{t("journal.recovery_needed")}</p>
+    {activeTransaction && status?.transaction?.id !== preview?.id && <div><p>{t("journal.recovery_needed")}</p>
       <button disabled={busy} onClick={() => void run(async () => { await recoverLearnerJournal(); setPreview(null); await refresh(); setMessage(t("journal.recovered")); })}>{t("journal.recover")}</button>
       <button disabled={busy} onClick={() => void run(async () => { await recoverLearnerJournal(true); setPreview(null); await refresh(); setMessage(t("journal.rolled_back")); })}>{t("journal.rollback")}</button>
     </div>}

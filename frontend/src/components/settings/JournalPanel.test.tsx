@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "@/lib/i18n";
-import { journalRecoveryStatus, startFreshJournal } from "@/lib/rehearsal/maintenance";
+import { journalRecoveryStatus, previewLearnerRestore, recoverLearnerJournal, startFreshJournal } from "@/lib/rehearsal/maintenance";
 import { createRehearsal } from "@/lib/rehearsal/session";
 import { listArchivedRehearsals } from "@/lib/rehearsal/storage";
 import { renderWithProviders } from "@/test/renderWithProviders";
@@ -13,6 +13,8 @@ vi.mock("@/lib/rehearsal/maintenance", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/rehearsal/maintenance")>(),
   journalRecoveryStatus: vi.fn(),
   startFreshJournal: vi.fn(),
+  recoverLearnerJournal: vi.fn(),
+  previewLearnerRestore: vi.fn(),
 }));
 vi.mock("@/lib/rehearsal/storage", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/rehearsal/storage")>(),
@@ -82,6 +84,44 @@ describe("journal recovery visibility", () => {
     expect(screen.getByRole("button", {name: t("journal.diagnostics")})).toBeDisabled();
     expect(screen.getByRole("button", {name: t("journal.fresh")})).toBeDisabled();
     expect(screen.getByRole("button", {name: t("journal.rollback")})).toBeEnabled();
+  });
+
+  it("keeps rollback retry reachable after an intact transaction hits a disk error", async () => {
+    const retryable = {...damaged, transaction: {id: "a".repeat(32), phase: "rolling_back"}};
+    status.mockResolvedValue(retryable);
+    renderWithProviders(<JournalPanel locale="en" />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(retryable.recovery_error);
+    expect(screen.getByRole("button", {name: t("journal.recover")})).toBeEnabled();
+    expect(screen.getByRole("button", {name: t("journal.rollback")})).toBeEnabled();
+    expect(screen.getByLabelText(t("journal.restore_backup"))).toBeDisabled();
+    expect(screen.getByRole("button", {name: t("journal.fresh")})).toBeDisabled();
+    status.mockResolvedValue(clean);
+    fireEvent.click(screen.getByRole("button", {name: t("journal.rollback")}));
+    await waitFor(() => expect(recoverLearnerJournal).toHaveBeenCalledWith(true));
+    expect(await screen.findByText(t("journal.rolled_back"))).toBeVisible();
+    expect(screen.getByRole("button", {name: t("journal.backup")})).toBeEnabled();
+  });
+
+  it.each([false, true])("keeps an owned restore preview out of recovery prompts (damaged=%s)", async wasDamaged => {
+    status.mockResolvedValue(wasDamaged ? damaged : clean);
+    const view = renderWithProviders(<><JournalRecoveryNotice locale="en" /><JournalPanel locale="en" /></>);
+    const input = await screen.findByLabelText(t(wasDamaged ? "journal.restore_backup" : "journal.open"));
+    await waitFor(() => expect(status).toHaveBeenCalled());
+    const staged = {...(wasDamaged ? damaged : clean), transaction: {id: "b".repeat(32), phase: "backend_staged"}};
+    vi.mocked(previewLearnerRestore).mockImplementation(async () => {
+      status.mockResolvedValue(staged);
+      return {id: staged.transaction.id, attempts: 0, skipped_attempts: [], skipped_rehearsals: [], missing: [], browser: {sessions: [], recordings: []}};
+    });
+    fireEvent.change(input, {target: {files: [new File(["zip"], "backup.zip")]}});
+    await waitFor(() => expect(screen.getByRole("button", {name: t("journal.confirm_restore")})).toBeEnabled());
+    expect(screen.queryByRole("button", {name: t("journal.recover")})).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", {name: t("journal.rollback")})).not.toBeInTheDocument();
+    expect(input).toBeDisabled();
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => expect(screen.queryByTestId("journal-recovery-notice")).not.toBeInTheDocument());
+    // Leaving the preview makes the still-pending transaction recoverable again.
+    view.rerender(<JournalRecoveryNotice locale="en" />);
+    expect(await screen.findByTestId("journal-recovery-notice")).toBeVisible();
   });
 
   it("loads archived rehearsals immediately without requiring Refresh", async () => {

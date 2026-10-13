@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { journalRecoveryStatus } from "@/lib/rehearsal/maintenance";
+import { isOpenJournalPreview, journalRecoveryStatus } from "@/lib/rehearsal/maintenance";
 import { createTranslator } from "@/lib/i18n";
 import type { UiLocale } from "@/lib/state/sessionDraft";
 
@@ -10,7 +10,7 @@ export function JournalRecoveryNotice({ locale }: { locale: UiLocale }) {
   const [pending, setPending] = useState(false);
   useEffect(() => {
     let active = true;
-    const refresh = () => { void journalRecoveryStatus().then(status => { if (active) { setPending(!!status.transaction || !!status.recovery_error); setDamaged(!!status.recovery_error); } }).catch(() => {}); };
+    const refresh = () => { void journalRecoveryStatus().then(status => { if (active) { setPending(!(status.transaction && isOpenJournalPreview(status.transaction.id)) && (!!status.transaction || !!status.recovery_error)); setDamaged(!!status.recovery_error); } }).catch(() => {}); };
     refresh(); window.addEventListener("focus", refresh); window.addEventListener("journal-recovery-changed", refresh);
     return () => { active = false; window.removeEventListener("focus", refresh); window.removeEventListener("journal-recovery-changed", refresh); };
   }, [pathname]);

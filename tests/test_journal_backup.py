@@ -625,3 +625,80 @@ def test_fresh_start_retains_browser_acknowledgement_across_restart(tmp_path):
         status = client.get('/v1/journal/status').json()
         assert browser_id in status['completed']
         assert status['transaction'] is None and status['recovery_error'] is None
+
+
+def test_intact_startup_rollback_can_be_retried_after_transient_disk_failure(tmp_path, monkeypatch):
+    import app_backend.journal as module
+    from fastapi.testclient import TestClient
+    from app_backend.app import create_app
+    from app_backend.config import build_backend_runtime_config
+    from assess_speaking import HISTORY_FIELDNAMES
+
+    source = journal(tmp_path / 'source'); seed(source)
+    config = build_backend_runtime_config(app_data_dir=tmp_path / 'app', cache_dir=tmp_path / 'cache', port=8871)
+    target = Journal(config, SimpleNamespace(_processes={}))
+    history = config.app_data.reports_dir / 'history.csv'
+    write_history(history, HISTORY_FIELDNAMES, [{field: {'session_id': 'original'}.get(field, '') for field in HISTORY_FIELDNAMES}])
+    original_history = history.read_bytes()
+    tx = target.begin()['id']
+    target.stage(tx, backup(source)); target.commit(tx)
+    target.save({**target.state(), 'phase': 'backend_committing'})
+    snapshot = target.directory / tx / 'history-before.csv'
+    original_copy = module.shutil.copyfile
+
+    def disk_full(source, destination, *args, **kwargs):
+        if Path(source) == snapshot:
+            raise OSError('Injected full disk during startup rollback')
+        return original_copy(source, destination, *args, **kwargs)
+
+    monkeypatch.setattr(module.shutil, 'copyfile', disk_full)
+    with TestClient(create_app(config)) as client:
+        status = client.get('/v1/journal/status').json()
+        assert status['recovery_error']
+        assert status['transaction']['id'] == tx
+        assert status['transaction']['phase'] == 'rolling_back'
+        assert snapshot.read_bytes() == original_history
+        assert client.post('/v1/maintenance/cleanup', json={'target': 'all_safe', 'dry_run': True}).status_code == 409
+        for endpoint in ('begin-restore', 'start-fresh', 'diagnostics'):
+            assert client.post('/v1/journal/' + endpoint, json={'confirmed': True}).status_code == 409
+        assert snapshot.exists() and not list(target.directory.glob('quarantine-*'))
+        monkeypatch.setattr(module.shutil, 'copyfile', original_copy)
+        assert client.post(f'/v1/journal/{tx}/abort').status_code == 200
+        assert history.read_bytes() == original_history
+        status = client.get('/v1/journal/status').json()
+        assert status['transaction'] is None and status['recovery_error'] is None
+        assert client.post('/v1/maintenance/cleanup', json={'target': 'all_safe', 'dry_run': True}).status_code == 200
+
+
+@pytest.mark.parametrize('exit_name', ['restore', 'diagnostics', 'fresh'])
+@pytest.mark.parametrize('finished', [True, False])
+def test_recovery_exits_drain_finished_workers_before_checking_activity(tmp_path, exit_name, finished):
+    j = journal(tmp_path)
+    if exit_name != 'restore':
+        j.state_path.write_text('{broken')
+        j.state()
+    calls = []
+    j.jobs._processes['analysis'] = SimpleNamespace(is_alive=lambda: True)
+
+    def drain():
+        calls.append('drained')
+        if finished:
+            j.jobs._processes.clear()
+
+    j.jobs.wait_for_finished_workers = drain
+
+    def run_exit():
+        if exit_name == 'restore':
+            assert j.begin_restore()['phase'] == 'prepared'
+        elif exit_name == 'fresh':
+            assert j.start_fresh(True)['phase'] == 'fresh'
+        else:
+            with j.recovery_exit():
+                pass
+
+    if finished:
+        run_exit()
+    else:
+        with pytest.raises(JournalError, match='active work'):
+            run_exit()
+    assert calls

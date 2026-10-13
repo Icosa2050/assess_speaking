@@ -73,6 +73,9 @@ test("full learner ZIP transfers rehearsal audio to a fresh browser profile and 
   const target = await browser.newContext(); const verifyGuard = await guardBrowserContext(target); const second = await target.newPage(); await second.goto("/settings");
   await second.getByLabel("Open backup ZIP").setInputFiles({ name: "backup.zip", mimeType: "application/zip", buffer: bytes });
   await expect(second.getByText("Restore 0 attempts and 1 rehearsals?")).toBeVisible();
+  await expect(second.getByRole("button", { name: "Finish recovery", exact: true })).toHaveCount(0);
+  await expect(second.getByRole("button", { name: "Roll back restore", exact: true })).toHaveCount(0);
+  await expect(second.getByTestId("journal-recovery-notice")).toHaveCount(0);
   await second.getByRole("button", { name: "Restore these new items", exact: true }).click();
   await expect(second.getByTestId("journal-panel").getByRole("status")).toContainText("Backup restored");
   expect(await second.evaluate(async id => { const path = "/src/lib/rehearsal/storage.ts"; const store = await import(path); const value = await store.getRehearsal(id);
