@@ -101,8 +101,10 @@ Uploads use multipart HTTP with progress and cancellation. Maximum: **100 MiB
 and 20 minutes** per file; available disk space can lower the byte limit. The
 recorder stops after five minutes. Failed uploads retain the selected recording;
 **Save a copy** keeps a local backup before leaving or reloading the page.
-Only one assessment runs at a time. The launcher allows up to 180 seconds per
-model request; transcription and feedback are separate stages.
+Only one assessment runs at a time. The practice backend allows up to 180 seconds
+per model request by default, whether started by the launcher or the packaged app.
+`LLM_TIMEOUT_SEC` overrides this when present in the backend's environment.
+Transcription and feedback are separate stages.
 
 User recordings, settings and history persist under the app-data root, outside
 the checkout. This release supports individual oral practice parts. A complete

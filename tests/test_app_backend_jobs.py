@@ -166,6 +166,7 @@ class BackendJobsTests(unittest.TestCase):
                 self.assertEqual(run_request.audio, audio_path)
                 self.assertEqual(run_request.whisper_model, "small")
                 self.assertEqual(run_request.provider, "openrouter")
+                self.assertEqual(run_request.llm_timeout_sec, 180.0)
                 self.assertTrue(run_request.dry_run)
                 status_callback("transcribing")
                 return AssessmentRunResult(
@@ -197,6 +198,27 @@ class BackendJobsTests(unittest.TestCase):
             self.assertEqual(payload["summary"]["band"], "B2")
             self.assertEqual(payload["summary"]["next_focus"], "Use clearer connectors.")
             self.assertEqual(payload["report_path"], str(report_path.resolve()))
+
+    def test_worker_environment_llm_timeout_overrides_practice_default(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8770)
+            job_file = config.jobs_dir / "asmt_timeout_override.json"
+            job_file.write_text(json.dumps({"status": "queued"}), encoding="utf-8")
+            request_payload = {
+                "whisper": "small",
+                "provider": "ollama",
+                "theme": "travel",
+                "task_family": "free_monologue",
+                "speaker_id": "speaker",
+                "target_duration_sec": 90,
+                "log_dir": str(config.app_data.reports_dir),
+            }
+            with mock.patch.dict("app_backend.jobs.os.environ", {"LLM_TIMEOUT_SEC": "42.5"}, clear=True), mock.patch(
+                "app_backend.jobs.validate_audio_duration"
+            ), mock.patch("app_backend.jobs.execute_assessment_run", side_effect=RuntimeError("stop after capture")) as execute:
+                _job_worker(str(job_file), request_payload, str(config.app_data.uploads_dir / "sample.wav"))
+
+            self.assertEqual(execute.call_args.args[0].llm_timeout_sec, 42.5)
 
     def test_worker_persists_local_provider_failure_code(self):
         with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
