@@ -15,12 +15,15 @@ from app_backend.config import (
     SUPPORT_BUNDLE_DIRNAME,
 )
 from app_backend.jobs import prunable_job_metadata_files
+from app_backend.contracts import ReadinessCheck, ReadinessResponse
 from assessment_runtime.asr import describe_model_availability
 from assessment_runtime.llm_client import health_check as llm_health_check
 from app_core.bootstrap import PROJECT_ROOT, bootstrap_app_environment, is_within_project_checkout
-from app_core.services import build_client_snapshot
+from app_core.services import build_client_snapshot, _health_payload_models, provider_choice_for_connection
 from app_core.runtime_providers import requires_api_key
 from app_core.runtime_resolver import active_connection, resolve_connection_runtime
+from app_core.app_data import AppDataPaths
+from app_core.cloud_policy import read_settings
 
 DiagnosticStatus = Literal["ok", "warning", "error", "info"]
 REDACTED_DETAIL_VALUE = "[redacted]"
@@ -171,38 +174,40 @@ def _runtime_diagnostics(state, *, include_runtime_health: bool) -> list[Startup
         )
 
     if include_runtime_health and connection.provider_kind in {"ollama", "lmstudio"}:
-        try:
-            result = llm_health_check(
-                provider=runtime.provider,
-                base_url=runtime.base_url,
-                api_key=runtime.api_key,
-                timeout_sec=1.5,
-                openrouter_http_referer=runtime.extra_headers.get("HTTP-Referer", ""),
-                openrouter_app_title=runtime.extra_headers.get("X-Title", ""),
-            )
-            diagnostics.append(
-                StartupDiagnostic(
-                    key="runtime_local_health",
-                    status="ok",
-                    title_key="diagnostics.runtime_local_health_title",
-                    detail_key="diagnostics.runtime_local_health_ok_detail",
-                    detail_args={
-                        "provider": runtime.provider,
-                        "endpoint": str(result.get("endpoint") or runtime.base_url),
-                    },
-                )
-            )
-        except Exception as exc:  # quality: allow[broad-except] provider health errors should stay learner-facing
-            diagnostics.append(
-                StartupDiagnostic(
-                    key="runtime_local_health",
-                    status="error",
-                    title_key="diagnostics.runtime_local_health_title",
-                    detail_key="diagnostics.runtime_local_health_error_detail",
-                    detail_args={"provider": runtime.provider, "detail": str(exc)},
-                )
-            )
+        diagnostic, _models = _runtime_health_diagnostic(runtime)
+        diagnostics.append(diagnostic)
     return diagnostics
+
+
+def _runtime_health_diagnostic(runtime) -> tuple[StartupDiagnostic, list[str]]:
+    """Share the bounded probe and catalog while preserving diagnostic output."""
+    try:
+        result = llm_health_check(
+            provider=runtime.provider,
+            base_url=runtime.base_url,
+            api_key=runtime.api_key,
+            timeout_sec=1.5,
+            openrouter_http_referer=runtime.extra_headers.get("HTTP-Referer", ""),
+            openrouter_app_title=runtime.extra_headers.get("X-Title", ""),
+        )
+        return StartupDiagnostic(
+            key="runtime_local_health",
+            status="ok",
+            title_key="diagnostics.runtime_local_health_title",
+            detail_key="diagnostics.runtime_local_health_ok_detail",
+            detail_args={
+                "provider": runtime.provider,
+                "endpoint": str(result.get("endpoint") or runtime.base_url),
+            },
+        ), _health_payload_models(result.get("payload"))
+    except Exception as exc:  # quality: allow[broad-except] provider health errors should stay learner-facing
+        return StartupDiagnostic(
+            key="runtime_local_health",
+            status="error",
+            title_key="diagnostics.runtime_local_health_title",
+            detail_key="diagnostics.runtime_local_health_error_detail",
+            detail_args={"provider": runtime.provider, "detail": str(exc)},
+        ), []
 
 
 def _microphone_diagnostic() -> StartupDiagnostic:
@@ -212,6 +217,78 @@ def _microphone_diagnostic() -> StartupDiagnostic:
         title_key="diagnostics.microphone_title",
         detail_key="diagnostics.microphone_info_detail",
     )
+
+
+def _ai_tutor_readiness(state) -> ReadinessCheck:
+    diagnostics = {item.key: item for item in _runtime_diagnostics(state, include_runtime_health=False)}
+    runtime = diagnostics["runtime"]
+    check = ReadinessCheck(key="ai_tutor", state="available", blocking=True, reason="available")
+    # Allowlist display values: never forward health errors, endpoints, or secrets.
+    check.detail_args = {key: str(runtime.detail_args[key]) for key in ("provider", "model") if key in runtime.detail_args}
+    if runtime.status != "ok" or not runtime.detail_args.get("model"):
+        check.state, check.reason = "needs_setup", "not_configured"
+    elif "runtime_api_key" in diagnostics and diagnostics["runtime_api_key"].status != "ok":
+        check.state, check.reason = "needs_setup", "credential_missing"
+    else:
+        connection = active_connection(state.prefs)
+        resolved = resolve_connection_runtime(connection)
+        choice = provider_choice_for_connection(connection)
+        if (choice == "ollama_cloud" or connection.auth_mode == "bearer") and not resolved.api_key:
+            check.state, check.reason = "needs_setup", "credential_missing"
+        elif connection.is_local and choice in {"ollama_local", "lmstudio_local"}:
+            health, models = _runtime_health_diagnostic(resolved)
+            model_names = {resolved.model}
+            if resolved.provider == "ollama" and ":" not in resolved.model.rsplit("/", 1)[-1]:
+                model_names.add(f"{resolved.model}:latest")
+            if health.status != "ok":
+                check.state, check.reason = "unavailable", "local_service_unreachable"
+            elif model_names.isdisjoint(models):
+                check.state, check.reason = "needs_setup", "model_unavailable"
+    return check
+
+
+def _speech_recognition_readiness(state, paths: AppDataPaths) -> ReadinessCheck:
+    settings = read_settings(paths.root)
+    check = ReadinessCheck(key="speech_recognition", state="available", blocking=True, reason="available")
+    if settings.asr_provider == "groq":
+        check.detail_args = {"provider": "groq", "model": settings.asr_model}
+        connection = next((item for item in state.prefs.connections
+                           if item.connection_id == settings.asr_connection_id and item.provider_kind == "groq"), None)
+        if connection is None:
+            check.state, check.reason = "needs_setup", "not_configured"
+        elif not resolve_connection_runtime(connection).api_key:
+            check.state, check.reason = "needs_setup", "credential_missing"
+    else:
+        model = str(state.prefs.whisper_model or "small")
+        check.detail_args = {"provider": "local", "model": model}
+        if _whisper_diagnostic(model).status != "ok":
+            check.state, check.reason = "needs_setup", "model_not_cached"
+    return check
+
+
+def collect_readiness(state, paths: AppDataPaths) -> ReadinessResponse:
+    """Check saved practice prerequisites without maintenance scans or cloud calls.
+
+    Local service probes use the diagnostic helper's existing 1.5-second timeout.
+    Cloud availability means a saved selection and credential, not a live API test.
+    """
+    media = _media_diagnostic()
+    storage = _app_data_writable_diagnostic(paths)
+    checks = [
+        _ai_tutor_readiness(state),
+        _speech_recognition_readiness(state, paths),
+        ReadinessCheck(
+            key="media_decoder", blocking=True,
+            state="available" if media.status == "ok" else "unavailable",
+            reason="available" if media.status == "ok" else "media_decoder_missing",
+        ),
+        ReadinessCheck(
+            key="storage", blocking=True,
+            state="available" if storage.status == "ok" else "unavailable",
+            reason="available" if storage.status == "ok" else "storage_not_writable",
+        ),
+    ]
+    return ReadinessResponse(checks=checks, ready=all(check.state == "available" for check in checks if check.blocking))
 
 
 def _iter_files(root: Path) -> list[Path]:

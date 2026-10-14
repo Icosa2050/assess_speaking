@@ -39,6 +39,7 @@ from app_backend.contracts import (
     MaintenanceCleanupRequest,
     MaintenanceCleanupResponse,
     MaintenanceStorageResponse,
+    ReadinessResponse,
     RuntimeConnectionTestRequest,
     RuntimeConnectionTestResponse,
     RuntimeResponse,
@@ -60,7 +61,7 @@ from app_backend.support_bundle import (
     create_support_bundle as create_support_bundle_archive,
     support_bundle_path,
 )
-from app_core.diagnostics import collect_startup_diagnostics
+from app_core.diagnostics import collect_readiness, collect_startup_diagnostics
 from app_core.runtime_providers import (
     default_base_url,
     default_connection_label,
@@ -491,6 +492,11 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
     def diagnostics() -> DiagnosticsResponse:
         state = _load_persisted_state(runtime_config)
         return _serialize_diagnostics(state)
+
+    @app.get("/v1/readiness", response_model=ReadinessResponse, tags=[PRODUCT_API_TAG])
+    def readiness() -> ReadinessResponse:
+        state = _load_persisted_state(runtime_config)
+        return collect_readiness(state, runtime_config.app_data)
 
     @app.get("/v1/runtime", response_model=RuntimeResponse, tags=[PRODUCT_API_TAG])
     def runtime() -> RuntimeResponse:
