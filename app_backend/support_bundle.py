@@ -305,7 +305,11 @@ def _add_optional_tree(
 def create_support_bundle(
     runtime_config: BackendRuntimeConfig,
     request: SupportBundleCreateRequest,
+    *, diagnostics_only: bool = False,
 ) -> SupportBundleCreateResponse:
+    if diagnostics_only:
+        # No caller-provided snapshots or opt-ins in the damaged-journal exit.
+        request = SupportBundleCreateRequest()
     bundle_id = f"bundle_{uuid4().hex[:12]}"
     bundle_path = support_bundle_path(runtime_config, bundle_id)
     created_at = datetime.now(UTC)
@@ -336,7 +340,9 @@ def create_support_bundle(
         _add_json_file_to_archive(
             archive,
             entry_name="backend_state.json",
-            payload=_backend_state_payload(runtime_config),
+            payload=({"host": runtime_config.host, "port": runtime_config.port,
+                      "recovery_files_present": {name: (runtime_config.app_data.root / "maintenance" / name).exists()
+                          for name in ("transaction.json", "purge.json", "edit.json", "recovery-required.json")}} if diagnostics_only else _backend_state_payload(runtime_config)),
             stats=stats,
         )
         _add_json_file_to_archive(archive, entry_name="backend_diagnostics.json", payload=_backend_diagnostics_payload(runtime_config), stats=stats)
@@ -353,14 +359,25 @@ def create_support_bundle(
             stats=stats,
         )
         _add_json_file_to_archive(archive, entry_name="storage_summary.json", payload=build_storage_summary(runtime_config).model_dump(), stats=stats)
-        if runtime_config.log_file.exists():
+        if diagnostics_only and runtime_config.log_file.is_file() and not runtime_config.log_file.is_symlink():
+            # Free-form log messages can contain transcripts or provider replies.
+            # Export only severity counts; never copy message text into this ZIP.
+            levels = dict.fromkeys(('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'), 0)
+            with runtime_config.log_file.open(encoding='utf-8', errors='replace') as log:
+                for line in log:
+                    match = re.search(r'\b(DEBUG|INFO|WARNING|ERROR|CRITICAL)\b', line)
+                    if match:
+                        levels[match.group(1)] += 1
+            _write_json(archive, 'logs/backend.log', {'message_text_omitted': True, 'levels': levels})
+        elif not diagnostics_only and runtime_config.log_file.exists():
             _add_text_file_to_archive(
                 archive,
                 entry_name="logs/backend.log",
                 source=runtime_config.log_file,
                 stats=stats,
             )
-        _add_recent_jobs(archive, runtime_config, stats, include_reports=request.include_reports)
+        if not diagnostics_only:
+            _add_recent_jobs(archive, runtime_config, stats, include_reports=request.include_reports)
         if request.include_reports:
             _add_optional_tree(
                 archive,
@@ -386,6 +403,7 @@ def create_support_bundle(
             archive,
             "manifest.json",
             {
+                "diagnostics_only": diagnostics_only,
                 "bundle_id": bundle_id,
                 "created_at": created_at.isoformat(),
                 "expires_at": expires_at.isoformat(),

@@ -41,9 +41,16 @@ test("populated v1 migrates without losing audio; global maintenance excludes an
   }}));
   await other.goto("/");
   await expect(other.getByTestId("journal-recovery-notice")).toBeVisible();
-  await other.getByTestId("journal-recovery-notice").getByRole("link").click();
+  const notice = other.getByTestId("journal-recovery-notice");
+  for (const name of ["Restore from a backup", "Export diagnostics only", "Start a fresh journal"]) {
+    await expect(notice.getByRole("link", {name, exact: true})).toBeVisible();
+  }
+  await notice.getByRole("link", {name: "Restore from a backup", exact: true}).click();
   await expect(other.getByTestId("journal-panel").getByRole("alert")).toHaveText(recoveryError);
   await expect(other.getByRole("button", {name: "Create and save backup", exact: true})).toBeDisabled();
+  await expect(other.getByLabel("Restore from a backup", {exact: true})).toBeEnabled();
+  await expect(other.getByRole("button", {name: "Export diagnostics only", exact: true})).toBeEnabled();
+  await expect(other.getByRole("button", {name: "Start a fresh journal", exact: true})).toBeEnabled();
   await other.unroute("**/v1/journal/status");
   await other.reload();
   await expect(other.getByTestId("journal-recovery-notice")).toHaveCount(0);
@@ -66,6 +73,9 @@ test("full learner ZIP transfers rehearsal audio to a fresh browser profile and 
   const target = await browser.newContext(); const verifyGuard = await guardBrowserContext(target); const second = await target.newPage(); await second.goto("/settings");
   await second.getByLabel("Open backup ZIP").setInputFiles({ name: "backup.zip", mimeType: "application/zip", buffer: bytes });
   await expect(second.getByText("Restore 0 attempts and 1 rehearsals?")).toBeVisible();
+  await expect(second.getByRole("button", { name: "Finish recovery", exact: true })).toHaveCount(0);
+  await expect(second.getByRole("button", { name: "Roll back restore", exact: true })).toHaveCount(0);
+  await expect(second.getByTestId("journal-recovery-notice")).toHaveCount(0);
   await second.getByRole("button", { name: "Restore these new items", exact: true }).click();
   await expect(second.getByTestId("journal-panel").getByRole("status")).toContainText("Backup restored");
   expect(await second.evaluate(async id => { const path = "/src/lib/rehearsal/storage.ts"; const store = await import(path); const value = await store.getRehearsal(id);
@@ -117,6 +127,9 @@ test("browser quota rollback compensates backend publication; a lost completion 
     await route.fulfill({ status: 503, json: { detail: { detail: "Synthetic lost completion reply" } } }); });
   await second.getByRole("button", { name: "Restore these new items", exact: true }).click();
   await expect(second.getByTestId("journal-panel").getByRole("alert")).toContainText("lost completion reply");
+  await expect(second.getByRole("button", { name: "Finish recovery", exact: true })).toBeVisible();
+  await expect(second.getByTestId("journal-recovery-notice")).toBeVisible();
+  await expect(second.getByRole("button", { name: "Restore these new items", exact: true })).toHaveCount(0);
   await second.unroute("**/v1/journal/*/complete"); await second.reload();
   await expect(second.getByRole("button", { name: "Finish recovery", exact: true })).toBeVisible();
   await second.getByRole("button", { name: "Finish recovery", exact: true }).click();

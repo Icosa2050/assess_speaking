@@ -6,9 +6,21 @@ import {
   type BrowserSnapshot, type BrowserRestore,
 } from "./storage";
 
-export type JournalStatus = { transaction: { id: string; phase: string } | null; archived: string[]; completed: string[]; recovery_error?: string | null };
+export type JournalStatus = { transaction: { id: string; phase: string } | null; archived: string[]; completed: string[]; recovery_error?: string | null; recovery_retryable?: boolean };
 export type BackupResult = { id: string; filename: string; size_bytes: number; missing: string[] };
 export type RestorePreview = { id: string; attempts: number; skipped_attempts: string[]; skipped_rehearsals: string[]; missing: string[]; browser: BrowserSnapshot };
+// Only this renderer's mounted preview owns the transaction. Reloading or
+// leaving Settings exposes it as interrupted recovery again.
+let openPreview: string | undefined;
+export const isOpenJournalPreview = (id: string) => openPreview === id;
+export function ownJournalPreview(id: string) {
+  openPreview = id;
+  window.dispatchEvent(new Event("journal-recovery-changed"));
+  return () => {
+    if (openPreview === id) openPreview = undefined;
+    window.dispatchEvent(new Event("journal-recovery-changed"));
+  };
+}
 const route = (path: string) => `/v1/journal/${path}` as FrozenApiRoute;
 export async function journalRequest<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const binary = body instanceof Blob;
@@ -54,9 +66,13 @@ export async function createLearnerBackup(allowMissing: boolean, progress: (done
 }
 export async function previewLearnerRestore(file: File, signal: AbortSignal): Promise<RestorePreview> {
   return withJournalLock(async access => {
-    if (await rehearsalMaintenance()) throw new Error("Finish the previous recovery before opening another archive.");
-    const { id } = await journalRequest<{ id: string }>("begin", {}, signal);
+    const status = await journalStatus();
+    if (await rehearsalMaintenance() && !status.recovery_error) throw new Error("Finish the previous recovery before opening another archive.");
+    const { id } = await journalRequest<{ id: string }>("begin-restore", {}, signal);
     try {
+      // A damaged backend cannot coordinate the old browser transaction. Forget
+      // its staging/receipt only; never roll back already saved rehearsals/audio.
+      if (status.recovery_error) await clearRehearsalMaintenance(access);
       const preview = await journalRequest<RestorePreview>(`${id}/restore`, file, signal);
       const current = await snapshotRehearsals();
       const used = new Set(current.sessions.map(item => item.id));
@@ -151,5 +167,17 @@ export async function journalRecoveryStatus(): Promise<JournalStatus> {
   const databases = await indexedDB.databases();
   if (!databases.some(database => database.name === "vostavo-rehearsals")) return status;
   const local = await rehearsalMaintenance();
-  return local && !status.transaction ? { ...status, transaction: { id: local.id, phase: "browser_recovery" } } : status;
+  return local && !status.transaction && !status.recovery_error ? { ...status, transaction: { id: local.id, phase: "browser_recovery" } } : status;
+}
+
+export async function startFreshJournal(): Promise<void> {
+  await withJournalLock(async access => {
+    const local = await rehearsalMaintenance();
+    await journalRequest("start-fresh", { confirmed: true, browser_transaction: local?.id });
+    await clearRehearsalMaintenance(access);
+  }, true);
+}
+
+export async function exportJournalDiagnostics(): Promise<import("@/lib/api/types").SupportBundleCreateResponse> {
+  return withJournalLock(() => journalRequest("diagnostics", {}), true);
 }

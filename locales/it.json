@@ -1075,6 +1075,14 @@
     "removal_note": "L’operazione non è annullabile. I backup ZIP salvati restano intatti. Eliminare una prova conserva i tentativi analizzati nella cronologia.",
     "confirm_remove": "Conferma eliminazione definitiva",
     "removed": "Elemento archiviato eliminato definitivamente.",
-    "skipped": "{count} elementi esistenti rimarranno invariati e saranno ignorati."
+    "skipped": "{count} elementi esistenti rimarranno invariati e saranno ignorati.",
+    "restore_backup": "Ripristina da un backup",
+    "diagnostics": "Esporta solo la diagnostica",
+    "fresh": "Avvia un nuovo registro di ripristino",
+    "damaged_guidance": "Il registro di ripristino è danneggiato. La cronologia resta leggibile. Scegli una di queste tre opzioni nelle Impostazioni.",
+    "diagnostics_note": "Esporta diagnostica, stato operativo depurato e conteggi dei log per gravità. Non include mai testi dei log, report, registrazioni o file caricati.",
+    "confirm_fresh": "Conferma: ricomincia",
+    "fresh_note": "Report salvati, cronologia, registrazioni e file caricati restano al loro posto. I file di transazione danneggiati e le copie di rollback vengono accantonati; i dati di ripristino in sospeso nel browser vengono scartati. Le modifiche incomplete non verranno più annullate automaticamente.",
+    "fresh_done": "Un nuovo registro di ripristino è pronto. Puoi tornare a esercitarti."
   }
 }

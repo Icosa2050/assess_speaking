@@ -1075,6 +1075,14 @@
     "removal_note": "This cannot be undone. Saved ZIP exports remain intact. Removing a rehearsal keeps its analysed attempts in History.",
     "confirm_remove": "Confirm permanent removal",
     "removed": "Archived item permanently removed.",
-    "skipped": "{count} existing items will be kept unchanged and skipped."
+    "skipped": "{count} existing items will be kept unchanged and skipped.",
+    "restore_backup": "Restore from a backup",
+    "diagnostics": "Export diagnostics only",
+    "fresh": "Start a fresh journal",
+    "damaged_guidance": "The recovery journal is damaged. History is still readable. Choose one of these three ways to continue in Settings.",
+    "diagnostics_note": "Exports diagnostics, sanitized operational state and log severity counts. Log message text, reports, recordings and uploads are never included.",
+    "confirm_fresh": "Confirm: start fresh",
+    "fresh_note": "Saved reports, history, recordings and uploads stay in place. Damaged transaction files and rollback snapshots are set aside; pending browser restore data is forgotten. Unfinished changes will no longer be rolled back automatically.",
+    "fresh_done": "A fresh recovery journal is ready. You can practise again."
   }
 }
