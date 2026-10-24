@@ -100,7 +100,7 @@
     [
       "e2e/visualRefreshSmoke.spec.ts",
       "",
-      "token controls stay usable across desktop sizes and appearances"
+      "light routes and opt-in dark journal card stay usable at desktop sizes"
     ]
   ],
   "connections": [

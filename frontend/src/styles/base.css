@@ -63,8 +63,8 @@ textarea {
 }
 
 :focus-visible {
-  outline: var(--focus-width) solid var(--color-focus) !important;
-  outline-offset: var(--focus-offset) !important;
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
 }
 
 /* Legacy forms still use inline light colors. Keep their control boundaries

@@ -10,14 +10,18 @@ import { StatusBanner } from "./StatusBanner";
 
 describe("shared controls", () => {
   it("keeps a loading action's visible label and native disabled semantics", () => {
-    render(<Button variant="primary" loading loadingLabel="Saving backup">Create backup</Button>);
+    const view = render(<Button variant="primary" loading={false} loadingLabel="Saving backup">Create backup</Button>);
+    const status = screen.getByRole("status");
+    expect(status).toBeEmptyDOMElement();
+    view.rerender(<Button variant="primary" loading loadingLabel="Saving backup">Create backup</Button>);
 
     const button = screen.getByRole("button", { name: /Create backup/ });
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute("aria-busy", "true");
     expect(button).toHaveAccessibleName("Create backup");
     expect(button).toHaveTextContent("Create backup");
-    expect(screen.getByRole("status")).toHaveTextContent("Saving backup");
+    expect(screen.getByRole("status")).toBe(status);
+    expect(status).toHaveTextContent("Saving backup");
   });
 
   it("associates field hints and errors with a labeled native input", () => {

@@ -467,7 +467,7 @@ export const HistoryRoute = () => {
           {selectedSessionId && <div>
             {archiveConfirm && <p>{translate("journal.archive_confirm")}</p>}
             {archiveError && <p role="alert">{archiveError}</p>}
-            <Button disabled={archiveBusy} loading={archiveBusy} loadingLabel={translate("journey.loading")} onClick={() => {
+            <Button disabled={archiveBusy} loading={archiveBusy} loadingLabel={translate("journal.archive_loading")} onClick={() => {
               if (!archiveConfirm) { setArchiveConfirm(true); return; }
               setArchiveBusy(true); setArchiveError("");
               void withJournalLock(() => journalRequest(`attempts/${encodeURIComponent(selectedSessionId)}/archive`, {}), true).then(async () => {

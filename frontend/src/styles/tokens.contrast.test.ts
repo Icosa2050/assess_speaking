@@ -1,10 +1,13 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import tokens from "./tokens.json";
 
-const css = readFileSync(resolve(process.cwd(), "src/styles/tokens.css"), "utf8");
+const tokenSheet = ["src/styles/tokens.css", "frontend/src/styles/tokens.css"]
+  .map(path => resolve(process.cwd(), path)).find(existsSync);
+if (!tokenSheet) throw new Error("Could not locate frontend/src/styles/tokens.css");
+const css = readFileSync(tokenSheet, "utf8");
 const themeBlocks = {
   light: css.match(/:root, \[data-theme="light"\]\s*\{([^}]*)\}/)?.[1] ?? "",
   dark: css.match(/\[data-theme="dark"\]\s*\{([^}]*)\}/)?.[1] ?? "",

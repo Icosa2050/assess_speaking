@@ -1069,6 +1069,7 @@
     "undo": "Annuler l’archivage",
     "rehearsal_archive_note": "L’archivage conserve l’audio. Les essais analysés restent dans l’historique.",
     "archive_attempt": "Archiver l’essai",
+    "archive_loading": "Archivage de l’essai…",
     "archive_confirm": "Confirmer l’archivage ; audio et rapports conservés. Annulation possible dans les paramètres.",
     "remove": "Supprimer définitivement",
     "removal_preview": "Supprimer {files} fichiers ? {retained} fichiers partagés ou liés seront conservés.",

@@ -189,7 +189,7 @@ export const MicrophoneTestPanel = ({ test, translate }: {
           onChange={event => test.changeProcessing(event.target.checked)} /> {translate("runtime_setup.microphone_processing")}</label>
         <label htmlFor="microphone-input-level">{translate("runtime_setup.microphone_test_level")}</label>
         <meter id="microphone-input-level" min={0} max={100} value={test.level}
-          style={{ width: "100%", height: "1.5rem", accentColor: test.peak >= 0.98 ? "#b42318" : "#0f766e" }} />
+          style={{ width: "100%", height: "1.5rem", accentColor: test.peak >= 0.98 ? "var(--color-recording)" : "var(--color-brand)" }} />
         <p data-testid="microphone-level-guidance">{translate(test.peak >= 0.98 ? "runtime_setup.microphone_test_clipping" : "runtime_setup.microphone_adjustment")}</p>
         <Button variant={active ? "secondary" : "primary"} type="button" data-testid="microphone-test-start" onClick={active ? test.stop : test.start}>
           {translate(active ? "runtime_setup.microphone_test_stop" : "runtime_setup.setup_guide_check_microphone")}

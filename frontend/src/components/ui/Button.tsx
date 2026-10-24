@@ -6,9 +6,7 @@ type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "size"> & {
   children: ReactNode;
   variant?: "primary" | "secondary" | "quiet" | "danger";
   size?: "small" | "default" | "large";
-  loading?: boolean;
-  loadingLabel?: string;
-};
+} & ({ loading?: false; loadingLabel?: never } | { loading: boolean; loadingLabel: string });
 
 export function Button({
   children,
@@ -30,5 +28,5 @@ export function Button({
   >
     <span className={styles.buttonContent}>{children}</span>
   </button>
-  {loading && <span className={styles.loadingStatus} role="status">{loadingLabel || "Loading"}</span>}</>;
+  {loadingLabel !== undefined && <span className={styles.loadingStatus} role="status">{loading ? loadingLabel : ""}</span>}</>;
 }

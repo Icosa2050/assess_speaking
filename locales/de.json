@@ -1069,6 +1069,7 @@
     "undo": "Rückgängig",
     "rehearsal_archive_note": "Beim Archivieren bleiben die Aufnahmen erhalten. Analysierte Versuche bleiben im Verlauf.",
     "archive_attempt": "Versuch archivieren",
+    "archive_loading": "Versuch wird archiviert…",
     "archive_confirm": "Archivieren bestätigen; Audio und Berichte bleiben erhalten. Rückgängig ist in Einstellungen verfügbar.",
     "remove": "Endgültig entfernen",
     "removal_preview": "{files} Dateien entfernen? {retained} gemeinsam genutzte oder verknüpfte Dateien bleiben erhalten.",

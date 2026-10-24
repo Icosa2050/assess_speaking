@@ -148,7 +148,7 @@
 }
 
 .primaryPracticeCard .action:focus-visible {
-  outline-color: var(--color-focus-on-brand) !important;
+  outline-color: var(--color-focus-on-brand);
 }
 
 .primaryAction {

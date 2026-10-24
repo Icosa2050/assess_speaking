@@ -205,10 +205,16 @@ describe("journal recovery visibility", () => {
     });
     archived.mockResolvedValue([{...rehearsal, archivedAt: "2026-10-09T00:00:00Z"}]);
     renderWithProviders(<JournalPanel locale="en" />);
-    expect(await screen.findByText(t("journal.archived_rehearsals"))).toBeVisible();
+    expect(await screen.findByRole("heading", {level: 3, name: t("journal.archived_rehearsals")})).toBeVisible();
     expect(screen.getByText(/Archived fixture/)).toBeVisible();
     expect(screen.getByRole("button", {name: t("journal.undo")})).toBeVisible();
     expect(archived).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps archived attempts in the heading outline", async () => {
+    status.mockResolvedValue({...clean, archived: ["archived-attempt"]});
+    renderWithProviders(<JournalPanel locale="en" />);
+    expect(await screen.findByRole("heading", {level: 3, name: t("journal.archived_attempts")})).toBeVisible();
   });
 
   it("keeps archived rehearsals visible when backend status cannot be loaded", async () => {

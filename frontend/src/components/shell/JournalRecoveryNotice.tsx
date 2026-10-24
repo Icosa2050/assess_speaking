@@ -17,7 +17,7 @@ export function JournalRecoveryNotice({ locale }: { locale: UiLocale }) {
   }, [pathname]);
   if (!pending) return null;
   const t = createTranslator(locale);
-  if (damaged) return <aside data-testid="journal-recovery-notice">
+  if (damaged) return <div data-testid="journal-recovery-notice">
     <StatusBanner title={t("journal.damaged_guidance")} tone="warning">
     <ul>
       <li><Link to="/settings#journal-restore">{t("journal.restore_backup")}</Link></li>
@@ -25,6 +25,6 @@ export function JournalRecoveryNotice({ locale }: { locale: UiLocale }) {
       <li><Link to="/settings#journal-fresh">{t("journal.fresh")}</Link></li>
     </ul>
     </StatusBanner>
-  </aside>;
-  return <aside data-testid="journal-recovery-notice"><StatusBanner title={t("journal.recovery_needed")} action={<Link to="/settings">{t("journal.check_recovery")}</Link>} /></aside>;
+  </div>;
+  return <div data-testid="journal-recovery-notice"><StatusBanner title={t("journal.recovery_needed")} action={<Link to="/settings">{t("journal.check_recovery")}</Link>} /></div>;
 }

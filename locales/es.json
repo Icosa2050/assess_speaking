@@ -1069,6 +1069,7 @@
     "undo": "Deshacer",
     "rehearsal_archive_note": "Al archivar se conserva el audio. Los intentos analizados siguen en el historial.",
     "archive_attempt": "Archivar intento",
+    "archive_loading": "Archivando intento…",
     "archive_confirm": "Confirma el archivo; se conservan audio e informes. Puedes deshacerlo en Ajustes.",
     "remove": "Eliminar definitivamente",
     "removal_preview": "¿Eliminar {files} archivos? Se conservarán {retained} archivos compartidos o vinculados.",
