@@ -21,14 +21,14 @@ export function Button({
   type = "button",
   ...props
 }: ButtonProps) {
-  return <button
+  return <><button
     {...props}
     type={type}
     disabled={disabled || loading}
     aria-busy={loading || undefined}
-    className={`${styles.button} ${styles[variant]} ${styles[size]} ${className}`.trim()}
+    className={[styles.button, styles[variant], styles[size], className].filter(Boolean).join(" ")}
   >
     <span className={styles.buttonContent}>{children}</span>
-    {loading && <span className={styles.loadingStatus} role="status">{loadingLabel || "Loading"}</span>}
-  </button>;
+  </button>
+  {loading && <span className={styles.loadingStatus} role="status">{loadingLabel || "Loading"}</span>}</>;
 }

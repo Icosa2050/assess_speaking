@@ -15,6 +15,7 @@ describe("shared controls", () => {
     const button = screen.getByRole("button", { name: /Create backup/ });
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute("aria-busy", "true");
+    expect(button).toHaveAccessibleName("Create backup");
     expect(button).toHaveTextContent("Create backup");
     expect(screen.getByRole("status")).toHaveTextContent("Saving backup");
   });

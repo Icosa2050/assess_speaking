@@ -10,7 +10,7 @@ export function StatusBanner({ title, children, action, tone = "info", urgent = 
   urgent?: boolean;
   className?: string;
 }) {
-  return <div role={urgent ? "alert" : "status"} className={`${styles.banner} ${styles[tone]} ${className}`.trim()}>
+  return <div role={urgent ? "alert" : "status"} className={[styles.banner, styles[tone], className].filter(Boolean).join(" ")}>
     <span aria-hidden="true" className={styles.bannerGlyph} />
     <div className={styles.bannerContent}>
       <strong>{title}</strong>
