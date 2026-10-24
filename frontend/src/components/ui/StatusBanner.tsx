@@ -10,9 +10,8 @@ export function StatusBanner({ title, children, action, tone = "info", urgent = 
   urgent?: boolean;
   className?: string;
 }) {
-  const glyph = { info: "ⓘ", success: "✓", warning: "!", error: "×" }[tone];
   return <div role={urgent ? "alert" : "status"} className={`${styles.banner} ${styles[tone]} ${className}`.trim()}>
-    <span aria-hidden="true" className={styles.bannerGlyph}>{glyph}</span>
+    <span aria-hidden="true" className={styles.bannerGlyph} />
     <div className={styles.bannerContent}>
       <strong>{title}</strong>
       {children && <div>{children}</div>}

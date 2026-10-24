@@ -51,6 +51,10 @@
 .banner p { margin: 6px 0 0; }
 .banner a { color: inherit; }
 .bannerGlyph { font-size: 20px; font-weight: var(--weight-bold); line-height: 1; }
+.bannerGlyph::before { content: "ⓘ"; }
+.banner.success .bannerGlyph::before { content: "✓"; }
+.banner.warning .bannerGlyph::before { content: "!"; }
+.banner.error .bannerGlyph::before { content: "×"; }
 .bannerContent { min-width: 0; }
 .bannerAction { margin-top: 12px; }
 .banner.warning { border-color: var(--color-warning-border); background: var(--color-warning-bg); color: var(--color-warning); }

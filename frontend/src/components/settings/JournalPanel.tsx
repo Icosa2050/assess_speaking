@@ -88,7 +88,8 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
     <h2>{t("journal.title")}</h2><p>{t("journal.body")}</p><p>{t("journal.limit")}</p>
     {message && <p role="status">{message}</p>}{error && <StatusBanner title={error} tone="error" urgent />}
     {status?.recovery_error && <div className={styles.actionGroup}>
-      <StatusBanner title={status.recovery_error} tone="error" urgent><p>{t("journal.damaged_guidance")}</p></StatusBanner>
+      <StatusBanner title={status.recovery_error} tone="error" urgent />
+      <p>{t("journal.damaged_guidance")}</p>
       <p>{t("journal.diagnostics_note")}</p>
       <Button variant="primary" id="journal-diagnostics" disabled={busy || activeTransaction} onClick={() => void run(async () => {
         const result = await exportJournalDiagnostics(); setDiagnostics(result); await saveDiagnostics(result);
