@@ -4,6 +4,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { buildApiUrl, desktopSessionHeaders } from "@/lib/runtime/environment";
 import type { RuntimeSettingsConnection } from "@/lib/api/types";
 import type { UiLocale } from "@/lib/state/sessionDraft";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+
+import styles from "./CloudSettingsPanel.module.css";
 
 export type CloudSettings = {
   version: number; asr_provider: string; asr_connection_id: string; asr_model: string;
@@ -59,10 +63,10 @@ export function CloudSettingsPanel({locale, connections}: {locale: UiLocale; con
   const act=async(action:()=>Promise<void>)=>{setBusy(true);setMessage("");try{await action();}catch(error){setMessage(error instanceof Error?error.message:String(error));}finally{setBusy(false);}};
   const update=(patch:Partial<CloudSettings>)=>setSettings(current=>current?{...current,...patch}:current);
   const missingAccount = settings && [settings.asr_provider === "groq" ? settings.asr_connection_id : "", settings.fallback_connection_id, ...Object.keys(settings.openrouter_modes)].filter(Boolean).some(id => !connections.some(c => c.connection_id === id));
-  return <section aria-label={t[0]} style={{display:"grid",gap:".8rem",padding:"1.25rem",background:"white",borderRadius:8}}>
+  return <Card as="section" aria-label={t[0]} className={styles.panel}>
     {query.isPending && <p role="status">{recovery[1]}</p>}
-    {query.isError && <button type="button" onClick={()=>void query.refetch()}>{recovery[0]}</button>}
-    {missingAccount && <><p role="status">{recovery[3]}</p><button type="button" disabled={busy} onClick={()=>setSettings(current=>{
+    {query.isError && <Button type="button" onClick={()=>void query.refetch()}>{recovery[0]}</Button>}
+    {missingAccount && <><p role="status">{recovery[3]}</p><Button type="button" disabled={busy} onClick={()=>setSettings(current=>{
       if(!current)return current;
       const exists=(id:string)=>connections.some(c=>c.connection_id===id);
       const speechAvailable=exists(current.asr_connection_id);
@@ -70,12 +74,12 @@ export function CloudSettingsPanel({locale, connections}: {locale: UiLocale; con
       return {...current, asr_provider:speechAvailable?current.asr_provider:"local", asr_connection_id:speechAvailable?current.asr_connection_id:"",
         fallback_connection_id:fallbackAvailable?current.fallback_connection_id:"", paid_fallback_enabled:fallbackAvailable&&current.paid_fallback_enabled,
         openrouter_modes:Object.fromEntries(Object.entries(current.openrouter_modes).filter(([id])=>exists(id)))};
-    })}>{removeAccountLabels[locale]}</button></>}
+    })}>{removeAccountLabels[locale]}</Button></>}
     {connections.some(c=>c.provider_metadata.persistent === false) && <p>{recovery[2]}</p>}
     <h2>{t[0]}</h2><p>{t[18]}</p><p>{t[26]}</p>
-    <button type="button" disabled={busy||Boolean(attempt)} onClick={()=>void act(async()=>{const result=await cloudRequest<{attempt_id:string;authorization_url:string}>("/openrouter/sign-in","POST");setAttempt(result.attempt_id);setUrl(result.authorization_url);await cloudRequest(`/openrouter/attempts/${result.attempt_id}/open-browser`,"POST");})}>{t[15]}</button>
+    <Button type="button" disabled={busy||Boolean(attempt)} onClick={()=>void act(async()=>{const result=await cloudRequest<{attempt_id:string;authorization_url:string}>("/openrouter/sign-in","POST");setAttempt(result.attempt_id);setUrl(result.authorization_url);await cloudRequest(`/openrouter/attempts/${result.attempt_id}/open-browser`,"POST");})}>{t[15]}</Button>
     {url&&<a href={url} target="_blank" rel="noopener noreferrer">{t[16]}</a>}
-    {attempt&&<button type="button" onClick={()=>void act(async()=>{await cloudRequest("/openrouter/cancel","POST");setAttempt("");setUrl("");})}>{t[17]}</button>}
+    {attempt&&<Button type="button" onClick={()=>void act(async()=>{await cloudRequest("/openrouter/cancel","POST");setAttempt("");setUrl("");})}>{t[17]}</Button>}
     {settings&&<fieldset disabled={busy} style={{display:"grid",gap:".8rem",border:0,padding:0}}>
       <label>{t[1]} <select value={settings.asr_provider} onChange={e=>update({asr_provider:e.target.value})}><option value="local">{t[2]}</option><option value="groq">{t[3]}</option></select></label>
       {settings.asr_provider==="groq"&&<><label>{t[4]} <select value={settings.asr_connection_id} onChange={e=>update({asr_connection_id:e.target.value})}><option value="">{t[20]}</option>{connections.filter(c=>c.provider_key==="groq").map(c=><option key={c.connection_id} value={c.connection_id}>{c.label}</option>)}</select></label><label>{t[5]} <select value={settings.asr_model} onChange={e=>update({asr_model:e.target.value})}><option>whisper-large-v3</option><option>whisper-large-v3-turbo</option></select></label></>}
@@ -83,7 +87,7 @@ export function CloudSettingsPanel({locale, connections}: {locale: UiLocale; con
       <label>{t[12]} <input type="number" min="0.01" max="1000" step="0.01" value={settings.monthly_budget_usd} onChange={e=>update({monthly_budget_usd:Number(e.target.value)})}/></label>
       <label>{t[11]} <select value={settings.fallback_connection_id} onChange={e=>update({fallback_connection_id:e.target.value,paid_fallback_enabled:false})}><option value="">{t[20]}</option>{connections.filter(c=>c.provider_key==="openrouter"&&!c.is_default).map(c=><option key={c.connection_id} value={c.connection_id}>{c.label} — {c.model}</option>)}</select></label>
       <label><input type="checkbox" checked={settings.paid_fallback_enabled} disabled={!settings.fallback_connection_id} onChange={e=>update({paid_fallback_enabled:e.target.checked,openrouter_modes:e.target.checked?{...settings.openrouter_modes,[settings.fallback_connection_id]:"paid"}:settings.openrouter_modes})}/>{t[10]}</label>
-      <button type="button" onClick={()=>void act(async()=>{await cloudRequest("","PUT",settings);await client.invalidateQueries({queryKey:["runtime"]});setMessage(t[14]);})}>{t[13]}</button>
+      <Button variant="primary" type="button" onClick={()=>void act(async()=>{await cloudRequest("","PUT",settings);await client.invalidateQueries({queryKey:["runtime"]});setMessage(t[14]);})}>{t[13]}</Button>
     </fieldset>}
     {query.data&&<p>{t[19]}: {query.data.spending.spent_usd.toFixed(2)} / {query.data.spending.reserved_usd.toFixed(2)}</p>}
     {Boolean(query.data?.spending.unresolved_requests.length)&&<p>{t[22]}</p>}
@@ -91,13 +95,13 @@ export function CloudSettingsPanel({locale, connections}: {locale: UiLocale; con
       <legend>{id.slice(0, 8)}</legend>
       <label>{t[23]} <input type="number" min="0" step="0.000001" value={costs[id] ?? ""} onChange={e => setCosts(current => ({...current, [id]: e.target.value}))}/></label>
       <label><input type="checkbox" checked={confirmed[id] ?? false} onChange={e => setConfirmed(current => ({...current, [id]: e.target.checked}))}/>{t[24]}</label>
-      <button type="button" disabled={!confirmed[id] || costs[id] === undefined || costs[id] === "" || !Number.isFinite(Number(costs[id])) || Number(costs[id]) < 0}
+      <Button type="button" disabled={!confirmed[id] || costs[id] === undefined || costs[id] === "" || !Number.isFinite(Number(costs[id])) || Number(costs[id]) < 0}
         onClick={() => void act(async () => {
           await cloudRequest(`/spending/${id}/reconcile`, "POST", {actual_cost_usd: Number(costs[id]), provider_cost_confirmed: true});
           await client.invalidateQueries({queryKey:["runtime", "cloud"]}); setMessage(t[14]);
-        })}>{t[25]}</button>
+        })}>{t[25]}</Button>
     </fieldset>)}
     {(message||query.isError)&&<p role="status">{message||String(query.error)}</p>}
   <CurrentSharingSummary locale={locale} />
-    </section>;
+    </Card>;
 }

@@ -103,7 +103,7 @@ const inputStyle = {
   minWidth: 0,
   minHeight: "44px",
   borderRadius: "8px",
-  border: "1px solid rgba(18, 61, 55, 0.16)",
+  border: "1px solid var(--color-border-control)",
   padding: "0.7rem 0.8rem",
   font: "inherit",
   color: "#10201c",

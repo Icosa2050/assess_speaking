@@ -8,6 +8,12 @@ import { isDesktopRuntime, readDesktopRuntimeBridge } from "@/lib/runtime/deskto
 import { ownJournalPreview, startFreshJournal, exportJournalDiagnostics, attemptRemoval, rehearsalRemoval, createLearnerBackup, previewLearnerRestore, commitLearnerRestore, recoverLearnerJournal, journalRecoveryStatus, journalStatus, journalRequest, journalBlob, type BackupResult, type RestorePreview, type JournalStatus } from "@/lib/rehearsal/maintenance";
 import { listArchivedRehearsals, undoRehearsalArchive } from "@/lib/rehearsal/storage";
 import type { Rehearsal } from "@/lib/rehearsal/session";
+import { Button } from "@/components/ui/Button";
+import { Card, Disclosure } from "@/components/ui/Card";
+import { Field } from "@/components/ui/Field";
+import { StatusBanner } from "@/components/ui/StatusBanner";
+
+import styles from "./JournalPanel.module.css";
 
 export function JournalPanel({ locale }: { locale: UiLocale }) {
   const t = createTranslator(locale);
@@ -78,51 +84,51 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
     void listArchivedRehearsals().then(value => { if (active) setArchived(value); }).catch(failed);
     return () => { active = false; controller.current?.abort(); };
   }, []);
-  return <section style={{ padding: "1.25rem", border: "1px solid #c4d4cd", borderRadius: 8, display: "grid", gap: "0.8rem" }} data-testid="journal-panel">
+  return <Card as="section" className={styles.panel} data-testid="journal-panel">
     <h2>{t("journal.title")}</h2><p>{t("journal.body")}</p><p>{t("journal.limit")}</p>
-    {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}
-    {status?.recovery_error && <div>
-      <p role="alert">{status.recovery_error}</p><p>{t("journal.damaged_guidance")}</p>
+    {message && <p role="status">{message}</p>}{error && <StatusBanner title={error} tone="error" urgent />}
+    {status?.recovery_error && <div className={styles.actionGroup}>
+      <StatusBanner title={status.recovery_error} tone="error" urgent><p>{t("journal.damaged_guidance")}</p></StatusBanner>
       <p>{t("journal.diagnostics_note")}</p>
-      <button id="journal-diagnostics" disabled={busy || activeTransaction} onClick={() => void run(async () => {
+      <Button variant="primary" id="journal-diagnostics" disabled={busy || activeTransaction} onClick={() => void run(async () => {
         const result = await exportJournalDiagnostics(); setDiagnostics(result); await saveDiagnostics(result);
-      })}>{t("journal.diagnostics")}</button>
-      <button id="journal-fresh" disabled={busy || activeTransaction} onClick={() => setConfirmFresh(true)}>{t("journal.fresh")}</button>
-      {confirmFresh && <div role="group" aria-label={t("journal.confirm_fresh")}>
+      })}>{t("journal.diagnostics")}</Button>
+      <Button variant="quiet" id="journal-fresh" disabled={busy || activeTransaction} onClick={() => setConfirmFresh(true)}>{t("journal.fresh")}</Button>
+      {confirmFresh && <div className={styles.actionGroup} role="group" aria-label={t("journal.confirm_fresh")}>
         <p>{t("journal.fresh_note")}</p>
-        <button disabled={busy || activeTransaction} onClick={() => void run(async () => {
+        <Button variant="danger" disabled={busy || activeTransaction} onClick={() => void run(async () => {
           await startFreshJournal(); setConfirmFresh(false); await refresh(); setMessage(t("journal.fresh_done"));
-        })}>{t("journal.confirm_fresh")}</button>
-        <button disabled={busy} onClick={() => setConfirmFresh(false)}>{t("journal.cancel")}</button>
+        })}>{t("journal.confirm_fresh")}</Button>
+        <Button variant="secondary" disabled={busy} onClick={() => setConfirmFresh(false)}>{t("journal.cancel")}</Button>
       </div>}
     </div>}
-    {diagnostics && <button disabled={busy} onClick={() => void run(() => saveDiagnostics(diagnostics))}>{t("settings.support_bundle_save_again")}</button>}
+    {diagnostics && <Button disabled={busy} onClick={() => void run(() => saveDiagnostics(diagnostics))}>{t("settings.support_bundle_save_again")}</Button>}
     <label><input type="checkbox" checked={allowMissing} onChange={e => setAllowMissing(e.target.checked)} disabled={busy} /> {t("journal.allow_missing")}</label>
-    <button disabled={busy || !!preview || activeTransaction || !!status?.recovery_error} onClick={() => void run(async signal => { const result = await createLearnerBackup(allowMissing, progress, signal); setBackup(result); await save(result); })}>{t("journal.backup")}</button>
-    {backup && <button disabled={busy} onClick={() => void run(() => save(backup))}>{t("journal.save_again")}</button>}
+    <Button variant="primary" disabled={busy || !!preview || activeTransaction || !!status?.recovery_error} onClick={() => void run(async signal => { const result = await createLearnerBackup(allowMissing, progress, signal); setBackup(result); await save(result); })}>{t("journal.backup")}</Button>
+    {backup && <Button disabled={busy} onClick={() => void run(() => save(backup))}>{t("journal.save_again")}</Button>}
     {!!backup?.missing.length && <p>{t("journal.missing", { count: backup.missing.length })}</p>}
-    <label>{t(status?.recovery_error ? "journal.restore_backup" : "journal.open")} <input id="journal-restore" type="file" accept=".zip,application/zip" disabled={busy || !!preview || activeTransaction} onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void run(async signal => { try { setPreview(await previewLearnerRestore(file, signal)); } finally { await refresh(); } }); }} /></label>
+    <Field label={t(status?.recovery_error ? "journal.restore_backup" : "journal.open")} id="journal-restore" type="file" accept=".zip,application/zip" disabled={busy || !!preview || activeTransaction} onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void run(async signal => { try { setPreview(await previewLearnerRestore(file, signal)); } finally { await refresh(); } }); }} />
     {preview && <div><p>{t("journal.preview", { attempts: preview.attempts, rehearsals: preview.browser.sessions.length })}</p><p>{t("journal.restore_note")}</p>
       {!!(preview.skipped_attempts.length + preview.skipped_rehearsals.length) && <p>{t("journal.skipped", { count: preview.skipped_attempts.length + preview.skipped_rehearsals.length })}</p>}
       {!!preview.missing.length && <p>{t("journal.missing", { count: preview.missing.length })}</p>}
-      <button disabled={busy} onClick={() => void run(async signal => { try { await commitLearnerRestore(preview, signal, progress, () => setCommitting(true)); } finally { setPreview(null); setStatus(await journalRecoveryStatus()); } setMessage(t("journal.restored")); await refresh(); })}>{t("journal.confirm_restore")}</button>
-      <button disabled={busy} onClick={() => void run(async () => { await retryRecovery(true); setMessage(t("journal.cancelled")); })}>{t("journal.cancel")}</button>
+      <Button variant="danger" disabled={busy} onClick={() => void run(async signal => { try { await commitLearnerRestore(preview, signal, progress, () => setCommitting(true)); } finally { setPreview(null); setStatus(await journalRecoveryStatus()); } setMessage(t("journal.restored")); await refresh(); })}>{t("journal.confirm_restore")}</Button>
+      <Button disabled={busy} onClick={() => void run(async () => { await retryRecovery(true); setMessage(t("journal.cancelled")); })}>{t("journal.cancel")}</Button>
     </div>}
-    {busy && !committing && <button onClick={() => controller.current?.abort()}>{t("journal.cancel")}</button>}
-    <button disabled={busy} onClick={() => void run(refresh)}>{t("journal.check_recovery")}</button>
+    {busy && !committing && <Button onClick={() => controller.current?.abort()}>{t("journal.cancel")}</Button>}
+    <Button disabled={busy} onClick={() => void run(refresh)}>{t("journal.check_recovery")}</Button>
     {pendingTransaction && status?.transaction?.id !== preview?.id && <div><p>{t("journal.recovery_needed")}</p>
-      <button disabled={busy} onClick={() => void run(async () => { await retryRecovery(); setMessage(t("journal.recovered")); })}>{t("journal.recover")}</button>
-      <button disabled={busy} onClick={() => void run(async () => { await retryRecovery(true); setMessage(t("journal.rolled_back")); })}>{t("journal.rollback")}</button>
+      <Button disabled={busy} onClick={() => void run(async () => { await retryRecovery(); setMessage(t("journal.recovered")); })}>{t("journal.recover")}</Button>
+      <Button disabled={busy} onClick={() => void run(async () => { await retryRecovery(true); setMessage(t("journal.rolled_back")); })}>{t("journal.rollback")}</Button>
     </div>}
-    {!!status?.archived.length && <div><h3>{t("journal.archived_attempts")}</h3>{status.archived.map(id => <p key={id}>{id} <button disabled={busy} onClick={() => void run(async () => { await journalRequest(`attempts/${encodeURIComponent(id)}/undo`, {}); await refresh(); })}>{t("journal.undo")}</button> <button disabled={busy} onClick={() => void run(async () => { const preview = await attemptRemoval(id); setRemoval({ id, kind: "attempt", files: preview.files, retained: preview.retained_files, fingerprint: preview.fingerprint }); })}>{t("journal.remove")}</button></p>)}</div>}
-    {!!archived.length && <div><h3>{t("journal.archived_rehearsals")}</h3><p>{t("journal.rehearsal_archive_note")}</p>{archived.map(item => <p key={item.id}>{item.speaker} · {item.createdAt} <button disabled={busy} onClick={() => void run(async () => { await undoRehearsalArchive(item); await refresh(); })}>{t("journal.undo")}</button> <button disabled={busy} onClick={() => setRemoval({ id: item.id, kind: "rehearsal", files: item.parts.filter(part => part.recorded).length, retained: 0 })}>{t("journal.remove")}</button></p>)}</div>}
+    {!!status?.archived.length && <Disclosure title={t("journal.archived_attempts")} open>{status.archived.map(id => <p key={id}>{id} <Button disabled={busy} onClick={() => void run(async () => { await journalRequest(`attempts/${encodeURIComponent(id)}/undo`, {}); await refresh(); })}>{t("journal.undo")}</Button> <Button variant="quiet" disabled={busy} onClick={() => void run(async () => { const preview = await attemptRemoval(id); setRemoval({ id, kind: "attempt", files: preview.files, retained: preview.retained_files, fingerprint: preview.fingerprint }); })}>{t("journal.remove")}</Button></p>)}</Disclosure>}
+    {!!archived.length && <Disclosure title={t("journal.archived_rehearsals")} open><p>{t("journal.rehearsal_archive_note")}</p>{archived.map(item => <p key={item.id}>{item.speaker} · {item.createdAt} <Button disabled={busy} onClick={() => void run(async () => { await undoRehearsalArchive(item); await refresh(); })}>{t("journal.undo")}</Button> <Button variant="quiet" disabled={busy} onClick={() => setRemoval({ id: item.id, kind: "rehearsal", files: item.parts.filter(part => part.recorded).length, retained: 0 })}>{t("journal.remove")}</Button></p>)}</Disclosure>}
     {removal && <div><p>{t("journal.removal_preview", { files: removal.files, retained: removal.retained })}</p><p>{t("journal.removal_note")}</p>
-      <button disabled={busy} onClick={() => void run(async () => {
+      <Button variant="danger" disabled={busy} onClick={() => void run(async () => {
         if (removal.kind === "attempt") await attemptRemoval(removal.id, true, removal.fingerprint);
         else { const session = archived.find(item => item.id === removal.id); if (!session) throw new Error("Refresh archived rehearsals first."); await rehearsalRemoval(session); }
         setRemoval(null); await refresh(); setMessage(t("journal.removed"));
-      })}>{t("journal.confirm_remove")}</button>
-      <button disabled={busy} onClick={() => setRemoval(null)}>{t("journal.cancel")}</button>
+      })}>{t("journal.confirm_remove")}</Button>
+      <Button disabled={busy} onClick={() => setRemoval(null)}>{t("journal.cancel")}</Button>
     </div>}
-  </section>;
+  </Card>;
 }

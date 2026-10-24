@@ -7,7 +7,7 @@
   display: grid;
   gap: 0.875rem;
   padding: 1.25rem;
-  border: 1px solid var(--color-border-soft);
+  border: 1px solid var(--color-border-decorative);
   border-radius: var(--radius-md);
   background-color: rgba(255, 255, 255, 0.96);
 }
@@ -125,7 +125,7 @@
   gap: var(--space-sm);
   min-height: 44px;
   padding: 0.75rem 1rem;
-  border: 1px solid var(--color-border-soft);
+  border: 1px solid var(--color-border-control);
   border-radius: var(--radius-md);
   color: var(--color-ink);
   font: inherit;
@@ -134,14 +134,12 @@
   transition:
     background-color var(--motion-fast) var(--ease-standard),
     border-color var(--motion-fast) var(--ease-standard),
-    color var(--motion-fast) var(--ease-standard),
-    transform var(--motion-fast) var(--ease-standard);
+    color var(--motion-fast) var(--ease-standard);
 }
 
 .action:hover:not(:disabled) {
-  border-color: rgba(39, 106, 115, 0.32);
-  background-color: rgba(239, 248, 245, 0.98);
-  transform: translateY(-1px);
+  border-color: var(--color-selected-border);
+  background-color: var(--color-surface-subtle);
 }
 
 .action:focus-visible {
@@ -150,7 +148,7 @@
 }
 
 .primaryPracticeCard .action:focus-visible {
-  outline-color: var(--color-focus-ring-on-accent);
+  outline-color: var(--color-focus-on-brand) !important;
 }
 
 .primaryAction {
