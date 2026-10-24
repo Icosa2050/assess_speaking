@@ -569,10 +569,15 @@ test("light routes and opt-in dark journal card stay usable at desktop sizes", a
     // Dark tokens are opt-in for migrated surfaces; legacy fixed-light panels
     // are outside this preview until the remaining routes migrate.
     await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
+    await page.getByRole("link", { name: "Session Setup" }).click();
+    const darkSpeaker = page.getByTestId("setup.speaker_id");
+    await expect(darkSpeaker).toHaveCSS("background-color", "rgb(28, 41, 37)");
+    await expect(darkSpeaker).toHaveCSS("color", "rgb(242, 248, 244)");
     await page.getByRole("link", { name: "Settings", exact: true }).click();
     const darkJournal = page.getByTestId("journal-panel");
     const panelBackground = await darkJournal.evaluate(element => getComputedStyle(element).backgroundColor);
     const headingColor = await darkJournal.locator("h2").evaluate(element => getComputedStyle(element).color);
+    expect(panelBackground).toBe("rgb(28, 41, 37)");
     expect(contrastRatio(headingColor, panelBackground)).toBeGreaterThanOrEqual(4.5);
     const backup = darkJournal.getByRole("button", { name: "Create and save backup" });
     await backup.focus();
@@ -581,6 +586,7 @@ test("light routes and opt-in dark journal card stay usable at desktop sizes", a
     await expect(backup).toBeFocused();
     await expect(backup).toHaveCSS("outline-width", "3px");
     const focusColor = await backup.evaluate(element => getComputedStyle(element).outlineColor);
+    expect(focusColor).toBe("rgb(206, 181, 255)");
     expect(contrastRatio(focusColor, panelBackground)).toBeGreaterThanOrEqual(3);
     await captureScreenshot(page, `migration-journal-dark-${viewport.width}x${viewport.height}.png`);
     await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
