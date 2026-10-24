@@ -72,6 +72,9 @@ textarea {
 [data-theme="dark"] :where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea) {
   background-color: var(--color-surface) !important;
   color: var(--color-text) !important;
+}
+
+[data-theme="dark"] :where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea):not([aria-invalid="true"]):not(:hover) {
   border-color: var(--color-border-control) !important;
 }
 

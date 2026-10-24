@@ -1,6 +1,14 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import tokens from "./tokens.json";
+
+const css = readFileSync(resolve(process.cwd(), "src/styles/tokens.css"), "utf8");
+const themeBlocks = {
+  light: css.match(/:root, \[data-theme="light"\]\s*\{([^}]*)\}/)?.[1] ?? "",
+  dark: css.match(/\[data-theme="dark"\]\s*\{([^}]*)\}/)?.[1] ?? "",
+};
 
 const luminance = (hex: string) => {
   const channel = (start: number) => {
@@ -39,6 +47,11 @@ const pairs = [
 describe("used design token contrast", () => {
   for (const theme of ["light", "dark"] as const) {
     const colors = tokens.semantic[theme];
+    it(`${theme}: CSS declarations match JSON semantic colors`, () => {
+      for (const [name, value] of Object.entries(colors)) {
+        expect(themeBlocks[theme]).toContain(`--${name}: ${value};`);
+      }
+    });
     it.each(pairs)(`${theme}: %s on %s meets %s:1`, (foreground, background, minimum) => {
       expect(contrast(colors[foreground], colors[background])).toBeGreaterThanOrEqual(minimum);
     });

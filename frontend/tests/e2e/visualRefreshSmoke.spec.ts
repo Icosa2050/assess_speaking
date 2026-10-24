@@ -514,6 +514,7 @@ test("token controls stay usable across desktop sizes and appearances", async ({
       await expect(homeLink).toHaveCSS("outline-width", "3px");
       await page.keyboard.press("Tab");
       expect(await page.evaluate(() => document.activeElement?.tagName)).toBe("A");
+      await expectNoPageHorizontalOverflow(page);
       await captureScreenshot(page, `migration-shell-${suffix}`);
 
       await page.getByRole("link", { name: "Session Setup" }).click();
@@ -524,6 +525,7 @@ test("token controls stay usable across desktop sizes and appearances", async ({
         await expect(speaker).toHaveCSS("background-color", "rgb(28, 41, 37)");
         await expect(speaker).toHaveCSS("border-top-color", "rgb(161, 185, 171)");
       }
+      await expectNoPageHorizontalOverflow(page);
       await captureScreenshot(page, `migration-form-${suffix}`);
 
       await page.getByRole("link", { name: "Speak", exact: true }).click();
@@ -532,6 +534,7 @@ test("token controls stay usable across desktop sizes and appearances", async ({
       await recordMode.focus();
       await expect(recordMode).toHaveCSS("outline-width", "3px");
       await expect(page.getByTestId("speak.record_start")).toHaveCSS("min-height", "48px");
+      await expectNoPageHorizontalOverflow(page);
       await captureScreenshot(page, `migration-speak-${suffix}`);
 
       await page.getByRole("link", { name: "Settings", exact: true }).click();
@@ -541,6 +544,7 @@ test("token controls stay usable across desktop sizes and appearances", async ({
       const restore = journal.locator("#journal-restore");
       await restore.focus();
       await expect(restore).toHaveCSS("outline-width", "3px");
+      await expectNoPageHorizontalOverflow(page);
       await captureScreenshot(page, `migration-journal-${suffix}`);
 
       await page.getByRole("link", { name: "History", exact: true }).click();
