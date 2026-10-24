@@ -96,6 +96,11 @@
       "e2e/visualRefreshSmoke.spec.ts",
       "",
       "renders primary visual-refresh artifacts without serif typography"
+    ],
+    [
+      "e2e/visualRefreshSmoke.spec.ts",
+      "",
+      "token controls stay usable across desktop sizes and appearances"
     ]
   ],
   "connections": [
