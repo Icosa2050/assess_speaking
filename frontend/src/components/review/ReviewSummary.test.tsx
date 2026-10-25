@@ -53,13 +53,15 @@ describe("Review quality safeguards", () => {
     expect(invalid.scoreOverall).toBeNull();
     expect(invalid.cefrLevel).toBe("");
     expect(invalid.dimensions).toEqual([]);
-    const wrongLanguage = summarize({ checks: { language_pass: false }, scores: {
-      final: 4.1, cefr_estimate: { level: "B2" },
-      dimensions: { pronunciation_intelligibility: { score: 3.7 } },
-    } });
-    expect(wrongLanguage.scoreOverall).toBeNull();
-    expect(wrongLanguage.cefrLevel).toBe("");
-    expect(wrongLanguage.dimensions).toEqual([]);
+    for (const failedCheck of ["language_pass", "topic_pass", "content_validity_pass"]) {
+      const invalidLegacyReport = summarize({ checks: { [failedCheck]: false }, scores: {
+        final: 4.1, cefr_estimate: { level: "B2" },
+        dimensions: { pronunciation_intelligibility: { score: 3.7 } },
+      } });
+      expect(invalidLegacyReport.scoreOverall).toBeNull();
+      expect(invalidLegacyReport.cefrLevel).toBe("");
+      expect(invalidLegacyReport.dimensions).toEqual([]);
+    }
   });
 
   it.each([

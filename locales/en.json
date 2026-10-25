@@ -438,6 +438,7 @@
       "method_title": "How it was estimated",
       "method_hybrid": "Rule-based speech signals and a model rubric both contributed.",
       "method_rules": "Only rule-based speech signals contributed; rubric scoring was unavailable.",
+      "method_unavailable": "No scoring method result is available for this recording.",
       "uncertainty_title": "What is uncertain",
       "uncertainty_body": "The method has no calibrated error range for this result. Treat it as guidance for practice, not a precise measurement.",
       "clarity_title": "Speech clarity signal",

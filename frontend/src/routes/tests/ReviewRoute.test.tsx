@@ -76,8 +76,8 @@ const reviewPayload = {
     },
     checks: {
       language_pass: true,
-      topic_pass: false,
-      content_validity_pass: false,
+      topic_pass: true,
+      content_validity_pass: true,
       duration_pass: true,
       min_words_pass: true,
     },
@@ -160,6 +160,7 @@ describe("Review route", () => {
     } });
     expect(await screen.findByText(/Not enough speech to assess/)).toBeVisible();
     expect(screen.getByTestId("review-next-step-score")).not.toHaveTextContent("3.5");
+    expect(screen.getAllByText("There was not enough assessable speech for a score, or this response could not be assessed. Check the quality notes below.")).toHaveLength(1);
     expect(screen.getByTestId("review-metric-score-overall")).not.toHaveTextContent("3.5");
     expect(screen.getByTestId("review-baseline")).not.toHaveTextContent("Pass");
     expect(screen.queryByRole("button", {name: "Resume unfinished analysis"})).not.toBeInTheDocument();
@@ -275,17 +276,18 @@ describe("Review route", () => {
       "AI feedback was unavailable or took too long. General practice tips are shown instead.",
     );
     expect(screen.getByText("Warnings")).toBeVisible();
-    expect(screen.getByTestId("review-failed-gates")).toHaveTextContent("Failed quality checks");
+    expect(screen.queryByTestId("review-failed-gates")).not.toBeInTheDocument();
     expect(screen.getByText("Result")).toBeVisible();
     expect(screen.getByRole("heading", { name: "Score details" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "Feedback summary" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "Quality checks" })).toBeVisible();
-    expect(screen.getByTestId("review-quality-summary")).toHaveTextContent("3 of 5 checks passed");
-    expect(screen.getByTestId("review-gates-disclosure")).toHaveAttribute("open");
+    expect(screen.getByTestId("review-quality-summary")).toHaveTextContent("5 of 5 checks passed");
+    expect(screen.getByTestId("review-gates-disclosure")).not.toHaveAttribute("open");
     expect(screen.getByTestId("review-validation-toggle")).toHaveTextContent("Show quality check details");
+    fireEvent.click(screen.getByTestId("review-validation-toggle"));
     expect(screen.getByTestId("review-gate-content-validity")).toHaveTextContent("Content validity");
-    expect(screen.getByTestId("review-gate-content-validity")).toHaveTextContent("Failed");
-    expect(screen.getAllByText("Not assessed")).toHaveLength(2);
+    expect(screen.getByTestId("review-gate-content-validity")).toHaveTextContent("Pass");
+    expect(screen.getByTestId("review-baseline")).toHaveTextContent("Pass");
     expect(screen.getByRole("heading", { name: "Transcript and reference" })).toBeVisible();
     expect(screen.getByTestId("review-evidence-disclosure")).not.toHaveAttribute("open");
     expect(screen.getByTestId("review-evidence-toggle")).toHaveTextContent(

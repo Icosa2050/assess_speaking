@@ -40,7 +40,7 @@ export function ReviewResult({ summary, translate }: { summary: ReviewDisplaySum
     <div className={styles.evidence}>
       <div>
         <strong>{translate("review.result.method_title")}</strong>
-        <p>{translate(!hasEstimate ? "review.result.no_estimate_context"
+        <p>{translate(!hasEstimate ? "review.result.method_unavailable"
           : summary.mode === "hybrid" ? "review.result.method_hybrid" : "review.result.method_rules")}</p>
       </div>
       <div>

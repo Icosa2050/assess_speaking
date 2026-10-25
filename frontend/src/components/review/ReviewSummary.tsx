@@ -219,6 +219,7 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
   const eligibility = toRecord(report.eligibility);
   const insufficientSpeech = (Boolean(eligibility.state) && eligibility.state !== "assessable") ||
     checks.min_words_pass === false || checks.language_pass === false ||
+    checks.topic_pass === false || checks.content_validity_pass === false ||
     asTextList(report.warnings).includes("llm_skipped_low_word_count");
   const cefrEstimate = toRecord(scores.cefr_estimate);
   const dimensions = toRecord(scores.dimensions);

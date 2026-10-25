@@ -438,6 +438,7 @@
       "method_title": "Cómo se estimó",
       "method_hybrid": "Contribuyeron señales del habla basadas en reglas y una rúbrica interpretada por un modelo.",
       "method_rules": "Solo contribuyeron señales del habla basadas en reglas; la rúbrica no estaba disponible.",
+      "method_unavailable": "No hay un resultado del método de puntuación para esta grabación.",
       "uncertainty_title": "Qué sigue siendo incierto",
       "uncertainty_body": "El método no ofrece un margen de error calibrado para este resultado. Úsalo como orientación para practicar, no como medida precisa.",
       "clarity_title": "Señal de claridad del habla",

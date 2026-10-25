@@ -438,6 +438,7 @@
       "method_title": "So wurde geschätzt",
       "method_hybrid": "Regelbasierte Sprachsignale und eine vom Modell bewertete Rubrik trugen bei.",
       "method_rules": "Nur regelbasierte Sprachsignale trugen bei; die Rubrik war nicht verfügbar.",
+      "method_unavailable": "Für diese Aufnahme liegt kein Ergebnis des Bewertungsverfahrens vor.",
       "uncertainty_title": "Was unsicher ist",
       "uncertainty_body": "Die Methode liefert für dieses Ergebnis keine kalibrierte Fehlerspanne. Nutze es als Übungshilfe, nicht als präzise Messung.",
       "clarity_title": "Signal zur Sprachklarheit",

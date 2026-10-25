@@ -438,6 +438,7 @@
       "method_title": "Come è stata stimata",
       "method_hybrid": "Hanno contribuito segnali vocali basati su regole e una rubrica valutata da un modello.",
       "method_rules": "Sono stati usati solo segnali vocali basati su regole; la rubrica non era disponibile.",
+      "method_unavailable": "Per questa registrazione non è disponibile un risultato del metodo di valutazione.",
       "uncertainty_title": "Cosa resta incerto",
       "uncertainty_body": "Il metodo non fornisce un margine di errore calibrato per questo risultato. Usalo come guida per esercitarti, non come misura precisa.",
       "clarity_title": "Segnale di chiarezza del parlato",
