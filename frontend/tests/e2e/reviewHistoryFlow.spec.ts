@@ -65,6 +65,7 @@ const reportPayload = (attempt: Attempt, previousSessionId = "") => ({
   },
   notes: attempt.notes,
   transcript_full: attempt.transcript,
+  metrics: { duration_sec: 90 },
   baseline_comparison: {
     level: "B1",
     targets: {

@@ -11,6 +11,17 @@ export function ReviewResult({ summary, translate }: { summary: ReviewDisplaySum
   const hasEstimate = summary.scoreOverall !== null;
   const score = hasEstimate ? summary.scoreOverall!.toFixed(1) : "";
   const speechClarity = summary.dimensions.find((item) => item.key === "pronunciation_intelligibility");
+  const methodKey = !hasEstimate ? "method_unavailable"
+    : summary.mode === "hybrid" ? "method_hybrid"
+      : summary.mode === "deterministic_only" ? "method_rules" : "method_unknown";
+  const dimensionMethods: Record<string, string> = {
+    acoustic_plus_rubric_v1: "dimension_method_fluency",
+    asr_proxy_v1: "dimension_method_clarity",
+    rubric_plus_complexity_v1: "dimension_method_grammar",
+    rubric_plus_support_v1: "dimension_method_lexicon",
+    rubric_plus_discourse_v1: "dimension_method_coherence",
+    task_checks_plus_topic_v1: "dimension_method_task",
+  };
 
   return <Card as="section" className={styles.result} data-testid="review-next-step-score" data-semantic-id="review-next-step-score">
     <div className={styles.heading}>
@@ -24,7 +35,7 @@ export function ReviewResult({ summary, translate }: { summary: ReviewDisplaySum
       <div className={styles.scaleCopy}>
         <strong>{translate("review.result.scale")}</strong>
         <ol className={styles.scale} aria-hidden="true">
-          {[1, 2, 3, 4, 5].map((tick) => <li key={tick} className={tick <= Math.floor(summary.scoreOverall!) ? styles.filled : ""}>{tick}</li>)}
+          {[1, 2, 3, 4, 5].map((tick) => <li key={tick} className={tick <= Math.round(summary.scoreOverall!) ? styles.filled : ""}>{tick}</li>)}
         </ol>
         <p>{translate("review.result.score_meaning")}</p>
       </div>
@@ -40,8 +51,7 @@ export function ReviewResult({ summary, translate }: { summary: ReviewDisplaySum
     <div className={styles.evidence}>
       <div>
         <strong>{translate("review.result.method_title")}</strong>
-        <p>{translate(!hasEstimate ? "review.result.method_unavailable"
-          : summary.mode === "hybrid" ? "review.result.method_hybrid" : "review.result.method_rules")}</p>
+        <p>{translate(`review.result.${methodKey}`)}</p>
       </div>
       <div>
         <strong>{translate("review.result.uncertainty_title")}</strong>
@@ -62,6 +72,7 @@ export function ReviewResult({ summary, translate }: { summary: ReviewDisplaySum
             ? translate("review.result.clarity_title")
             : translate(`guide.dimension_${item.key}`)}</span>
           <strong>{item.score.toFixed(1)}/5</strong>
+          <span>{translate(`review.result.${dimensionMethods[item.method] || "dimension_method_unknown"}`)}</span>
           <span>{translate("review.result.confidence", {
             value: translate(["low", "medium", "high"].includes(item.confidence)
               ? `review.result.confidence_${item.confidence}` : "review.result.confidence_unavailable"),

@@ -88,6 +88,7 @@ const reportPayload = {
   },
   notes: "Visual smoke note",
   transcript_full: "Sono andato a Roma, poi ho visitato il centro e infine ho cenato con amici.",
+  metrics: { duration_sec: 120 },
   report: {
     session_id: "visual-second",
     transcript_preview: "Sono andato a Roma, poi ho visitato il centro.",
@@ -443,6 +444,8 @@ test("renders primary visual-refresh artifacts without serif typography", async 
     await page.setViewportSize(viewport);
     await expectNoPageHorizontalOverflow(page);
     await captureScreenshot(page, `review-result-${viewport.width}x${viewport.height}.png`);
+    await page.locator("body").click({ position: { x: 1, y: 1 } });
+    await page.keyboard.press("ControlOrMeta+Home");
     let guideFocused = false;
     for (let step = 0; step < 60 && !guideFocused; step += 1) {
       await page.keyboard.press("Tab");

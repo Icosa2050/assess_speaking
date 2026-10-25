@@ -14,7 +14,7 @@ type ProgressItem = {
 export type ReviewDisplaySummary = {
   band: string;
   cefrLevel: string;
-  dimensions: { key: string; score: number; confidence: string }[];
+  dimensions: { key: string; score: number; confidence: string; method: string }[];
   eligibilityState?: string;
   baseline: Record<string, unknown> | null;
   coachSummary: string;
@@ -217,30 +217,38 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
 
   const scoreOverall = review.scoreOverall ?? asNumberOrNull(scores.final);
   const eligibility = toRecord(report.eligibility);
-  const insufficientSpeech = (Boolean(eligibility.state) && eligibility.state !== "assessable") ||
-    checks.min_words_pass === false || checks.language_pass === false ||
-    checks.topic_pass === false || checks.content_validity_pass === false ||
-    asTextList(report.warnings).includes("llm_skipped_low_word_count");
+  const metrics = toRecord(payload.metrics);
+  const fallbackMetrics = Object.keys(metrics).length > 0 ? metrics : toRecord(report.metrics);
+  const duration = asNumberOrNull(fallbackMetrics.duration_sec);
+  const warnings = asTextList(report.warnings);
+  // Mirror assessment_runtime/eligibility.py for saved reports that predate eligibility.
+  const legacyState = (duration !== null && duration < 30) || checks.min_words_pass === false ||
+    warnings.includes("llm_skipped_low_word_count") ? "insufficient_speech"
+    : ["language_pass", "topic_pass", "content_validity_pass"].some((key) => checks[key] === false) ? "invalid_content"
+      : duration === null || ["min_words_pass", "language_pass", "content_validity_pass"].some((key) => checks[key] !== true)
+        ? "content_unverified" : "assessable";
+  const eligibilityState = typeof eligibility.state === "string" && eligibility.state ? eligibility.state : legacyState;
+  const notAssessable = eligibilityState !== "assessable";
   const cefrEstimate = toRecord(scores.cefr_estimate);
   const dimensions = toRecord(scores.dimensions);
   const cefrLevel = String(cefrEstimate.level || "").toUpperCase();
   const dimensionKeys = ["fluency", "pronunciation_intelligibility", "grammar", "lexicon", "coherence", "task_fulfillment"];
-  const hasAssessableScore = !insufficientSpeech && scoreOverall !== null;
+  const hasAssessableScore = !notAssessable && scoreOverall !== null;
 
   return {
-    eligibilityState: String(eligibility.state || ""),
-    band: insufficientSpeech ? "" : review.band || String(scores.band || ""),
+    eligibilityState,
+    band: notAssessable ? "" : review.band || String(scores.band || ""),
     cefrLevel: hasAssessableScore && /^(A1|A2|B1|B2|C1|C2)$/.test(cefrLevel) ? cefrLevel : "",
     dimensions: !hasAssessableScore ? [] : dimensionKeys.flatMap((key) => {
       const item = toRecord(dimensions[key]);
       const score = asNumberOrNull(item.score);
       return score !== null && score >= 1 && score <= 5
-        ? [{ key, score, confidence: String(item.confidence || "") }]
+        ? [{ key, score, confidence: String(item.confidence || ""), method: String(item.method || "") }]
         : [];
     }),
     baseline: Object.keys(baseline).length > 0 ? baseline : null,
-    coachSummary: insufficientSpeech ? "" : String(coaching.coach_summary || review.summary || ""),
-    deterministicScore: insufficientSpeech ? null : asNumberOrNull(scores.deterministic),
+    coachSummary: notAssessable ? "" : String(coaching.coach_summary || review.summary || ""),
+    deterministicScore: notAssessable ? null : asNumberOrNull(scores.deterministic),
     failedGates,
     generalPracticeTips: asTextList(report.warnings).some((warning) =>
       ["coaching_unavailable", "llm_unavailable", "llm_invalid_schema", "llm_skipped_low_word_count", "llm_skipped_transcript_uncertain", "llm_skipped_language_mismatch"].includes(warning)),
@@ -262,7 +270,7 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
     )
       .trim()
       .toLowerCase(),
-    llmScore: insufficientSpeech ? null : asNumberOrNull(scores.llm),
+    llmScore: notAssessable ? null : asNumberOrNull(scores.llm),
     mode: String(scores.mode || ""),
     nextExercise: String(coaching.next_exercise || ""),
     nextAttemptInstruction: String(coaching.next_attempt_instruction || ""),
@@ -270,13 +278,13 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
     notes: String(payload.notes || ""),
     payload,
     priorities: asTextList(coaching.top_3_priorities),
-    progressItems: !insufficientSpeech && progressDelta.comparison_verified === true ? buildProgressItems(progressDelta) : [],
+    progressItems: !notAssessable && progressDelta.comparison_verified === true ? buildProgressItems(progressDelta) : [],
     recurringCoherence,
     recurringGrammar,
     reportId: String(report.session_id || review.reportId || payload.report_path || ""),
     requiresHumanReview: Boolean(report.requires_human_review),
-    scoreOverall: insufficientSpeech ? null : scoreOverall,
-    strengths: insufficientSpeech ? [] : asTextList(coaching.strengths),
+    scoreOverall: notAssessable ? null : scoreOverall,
+    strengths: notAssessable ? [] : asTextList(coaching.strengths),
     styleSuggestions: Array.isArray(rubric.style_suggestions) ? rubric.style_suggestions
       .map(toRecord)
       .map((item) => ({ original: String(item.original || ""), suggestion: String(item.suggestion || ""), explanation: String(item.explanation || "") }))
@@ -367,7 +375,7 @@ const qualitySummary = (summary: ReviewDisplaySummary, translate: Translate): st
 };
 
 const baselineNotAssessed = (summary: ReviewDisplaySummary): boolean =>
-  summary.baseline?.valid === false || summary.failedGates.length > 0 ||
+  summary.eligibilityState !== "assessable" || summary.baseline?.valid === false || summary.failedGates.length > 0 ||
   summary.gates.content_validity_pass !== true || summary.gates.language_pass !== true ||
   summary.warnings.includes("llm_skipped_low_word_count");
 

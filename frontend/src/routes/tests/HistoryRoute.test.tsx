@@ -137,6 +137,7 @@ const detailPayload = (sessionId: string, options: { review?: boolean; topicPass
   },
   notes: `Notes for ${sessionId}`,
   transcript_full: `Transcript for ${sessionId}`,
+  metrics: { duration_sec: 120 },
   report: {
     session_id: sessionId,
     input: {
@@ -152,6 +153,7 @@ const detailPayload = (sessionId: string, options: { review?: boolean; topicPass
     checks: {
       language_pass: true,
       topic_pass: options.topicPass ?? true,
+      content_validity_pass: true,
       duration_pass: true,
       min_words_pass: true,
     },
