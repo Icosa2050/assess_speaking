@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { Icon, type IconName } from "@/components/ui/Icon";
@@ -227,6 +227,14 @@ export const HomeRoute = () => {
               <Icon name="arrow-right" />
               {translate("home.resume")}
             </button>
+            <Link
+              to="/rehearsal"
+              className={`${styles.action} ${styles.secondaryAction}`}
+              {...semanticAttributes(SEMANTIC_IDS.home.openRehearsal)}
+            >
+              <Icon name="microphone" />
+              {translate("rehearsal.title")}
+            </Link>
           </div>
         </section>
       )}

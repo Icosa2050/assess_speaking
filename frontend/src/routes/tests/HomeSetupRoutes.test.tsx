@@ -110,6 +110,31 @@ describe("Home and Runtime Setup routes", () => {
     expect(screen.queryByTestId("home.runtime_setup_button")).not.toBeInTheDocument();
   });
 
+  it("opens timed rehearsal from configured Home", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true,
+      provider: "ollama",
+      model: "llama3.2:3b",
+      base_url: "http://localhost:11434/v1",
+      requires_api_key: false,
+      has_api_key: false,
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/"],
+      locale: "en",
+      appState: { preferences: { setupComplete: true } },
+    });
+
+    const rehearsalLink = await screen.findByRole("link", { name: "Timed speaking rehearsal" });
+    expect(rehearsalLink).toHaveAttribute("href", "/rehearsal");
+    fireEvent.click(rehearsalLink);
+
+    expect(await screen.findByTestId("rehearsal-screen")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Timed speaking rehearsal" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Timed speaking rehearsal", current: "page" })).toBeVisible();
+  });
+
   it("treats ok and informational diagnostics as healthy after actual microphone capture", async () => {
     mockedGetRuntime.mockResolvedValue({
       configured: true,
