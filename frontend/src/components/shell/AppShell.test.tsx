@@ -36,7 +36,7 @@ it("exposes grouped navigation, the current page, a disabled step and a skip tar
         <Route element={<AppShell appName="Practice" shellBody="Practice speaking"
           navAriaLabel="Main navigation" skipLabel="Skip to content" navGroups={[
             { id: "primary", items: [{ href: "/", label: "Practice" }, { href: "/history", label: "Progress" }] },
-            { id: "context", label: "Current step", items: [{ href: "/speak", label: "Speak" }, { href: "/review", label: "Review", disabled: true }] },
+            { id: "context", label: "Current step", items: [{ href: "/speak", label: "Speak" }, { href: "/review", label: "Review", disabled: true, disabledReason: "Available after a speaking attempt" }] },
             { id: "preferences", label: "Preferences", items: [{ href: "/guide", label: "How scores work" }] },
           ]} />}>
           <Route path="/speak" element={<p>Speak content</p>} />
@@ -50,7 +50,12 @@ it("exposes grouped navigation, the current page, a disabled step and a skip tar
   expect(screen.getByRole("main")).toHaveAttribute("id", "main-content");
   expect(within(nav).getByRole("link", { name: "Speak" })).toHaveAttribute("aria-current", "page");
   expect(within(nav).getByRole("link", { name: "Review" })).toHaveAttribute("aria-disabled", "true");
-  expect(within(nav).getByRole("link", { name: "Review" })).not.toHaveAttribute("href");
+  expect(within(nav).getByRole("link", { name: "Review" })).toHaveAttribute("href", "/review");
+  expect(within(nav).getByRole("link", { name: "Review" })).toHaveAttribute("tabindex", "0");
+  expect(within(nav).getByRole("link", { name: "Review" })).toHaveAccessibleDescription("Available after a speaking attempt");
+  fireEvent.click(within(nav).getByRole("link", { name: "Review" }));
+  expect(screen.getByText("Speak content")).toBeInTheDocument();
+  expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
   fireEvent.click(within(nav).getByRole("link", { name: "Progress" }));
   expect(within(nav).getByRole("link", { name: "Progress" })).toHaveAttribute("aria-current", "page");
   expect(screen.getByText("Progress content")).toBeInTheDocument();

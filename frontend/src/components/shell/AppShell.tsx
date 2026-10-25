@@ -2,6 +2,7 @@ import { Component, Suspense, type ReactNode } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { SEMANTIC_IDS, semanticAttributes } from "@/lib/i18n";
+import { isPracticePath } from "@/lib/navigation";
 import { Card } from "@/components/ui/Card";
 import { Icon, type IconName } from "@/components/ui/Icon";
 
@@ -12,6 +13,7 @@ type RouteItem = {
   href: string;
   label: string;
   disabled?: boolean;
+  disabledReason?: string;
 };
 
 type NavGroup = {
@@ -77,8 +79,22 @@ export const AppShell = ({
   const contextGroups = navGroups.filter((group) => group.id === "context");
   const footerGroups = navGroups.filter((group) => group.id === "preferences");
   const renderRouteLink = (route: RouteItem) => route.disabled ? (
-    <span key={route.href} className={`${styles.navLink} ${styles.navLinkDisabled}`} role="link" aria-disabled="true">
-      {route.label}
+    <span key={route.href} className={styles.navDisabledItem}>
+      <a
+        className={`${styles.navLink} ${styles.navLinkDisabled}`}
+        href={route.href}
+        tabIndex={0}
+        aria-disabled="true"
+        aria-describedby={route.disabledReason ? `nav-disabled-${route.href.slice(1)}` : undefined}
+        onClick={(event) => event.preventDefault()}
+      >
+        {route.label}
+      </a>
+      {route.disabledReason ? (
+        <small className={styles.navDisabledReason} id={`nav-disabled-${route.href.slice(1)}`}>
+          {route.disabledReason}
+        </small>
+      ) : null}
     </span>
   ) : (
     <NavLink
@@ -91,7 +107,7 @@ export const AppShell = ({
         : route.href === "/" || route.href === "/guide"
           ? { from: location.pathname }
         : undefined}
-      className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ""} ${route.href === "/" && location.pathname !== "/" && ["/runtime-setup", "/session-setup", "/speak", "/rehearsal", "/review"].includes(location.pathname) ? styles.navLinkSectionActive : ""}`}
+      className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ""} ${route.href === "/" && location.pathname !== "/" && isPracticePath(location.pathname) ? styles.navLinkSectionActive : ""}`}
       {...routeSemanticAttributes(route.href)}
     >
       {routeIcons[route.href] ? <Icon name={routeIcons[route.href]} size={20} /> : null}
@@ -121,7 +137,7 @@ export const AppShell = ({
 
         <JournalRecoveryNotice locale={locale} />
         <div className={styles.layout}>
-          <Card as="aside" className={styles.sidebar}>
+          <Card as="div" className={styles.sidebar}>
             <nav
               aria-label={navAriaLabel}
               className={styles.nav}

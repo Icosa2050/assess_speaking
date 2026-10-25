@@ -403,6 +403,11 @@
     [
       "journeys/webkitPractice.spec.ts",
       "",
+      "WebKit skip link keeps Settings return origin"
+    ],
+    [
+      "journeys/webkitPractice.spec.ts",
+      "",
       "WebKit en: upload, saved feedback, replay and retry"
     ],
     [

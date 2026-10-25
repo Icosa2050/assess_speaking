@@ -6,6 +6,7 @@ import { SavedLocale } from "@/components/shell/SavedLocale";
 import { AppShell } from "@/components/shell/AppShell";
 import { apiClient } from "@/lib/api/client";
 import { createTranslator, resolveUiLocale } from "@/lib/i18n";
+import { isPracticePath } from "@/lib/navigation";
 import { queryKeys } from "@/lib/query/queryClient";
 import { AppStoreProvider, useAppStore } from "@/lib/state/appStore";
 import { hasSetupDraft } from "@/lib/state/sessionDraft";
@@ -53,14 +54,12 @@ const routeDefinitions: AppRouteDefinition[] = [
   { path: "/settings", navKey: "nav.settings", titleKey: "settings.title", bodyKey: "settings.body" },
 ];
 
-const practicePaths = ["/runtime-setup", "/session-setup", "/speak", "/rehearsal", "/review"];
-
 export const AppFrame = () => {
   const location = useLocation();
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const hasReview = useAppStore((state) => Boolean(state.review.reportId));
   const hasDraft = useAppStore((state) => hasSetupDraft(state.draft));
-  const fromRoute = typeof location.state?.from === "string" && practicePaths.includes(location.state.from)
+  const fromRoute = typeof location.state?.from === "string" && isPracticePath(location.state.from)
     ? location.state.from
     : null;
   const translate = useMemo(() => createTranslator(locale), [locale]);
@@ -84,7 +83,7 @@ export const AppFrame = () => {
       const item = (path: string, label = routeAt(path).navLabel, disabled = false) => ({ href: path, label, disabled });
       const contextualPaths = (location.pathname === "/" || location.pathname === "/guide") && fromRoute
         ? [fromRoute]
-        : practicePaths.includes(location.pathname)
+        : isPracticePath(location.pathname)
         ? location.pathname === "/runtime-setup"
           ? ["/runtime-setup", ...(hasDraft ? ["/speak"] : []), "/rehearsal"]
           : location.pathname === "/session-setup"
@@ -104,8 +103,14 @@ export const AppFrame = () => {
         },
         ...(contextualPaths.length ? [{
           id: "context",
-          label: translate("nav.current_step"),
-          items: contextualPaths.map((path) => item(path, routeAt(path).navLabel, path === "/review" && path !== location.pathname && !hasReview)),
+          label: fromRoute && (location.pathname === "/" || location.pathname === "/guide")
+            ? translate("nav.return_to_step")
+            : translate("nav.current_step"),
+          items: contextualPaths.map((path) => {
+            const disabled = path === "/review" && path !== location.pathname && !hasReview;
+            return { ...item(path, routeAt(path).navLabel, disabled),
+              disabledReason: disabled ? translate("review.guard_missing_review") : undefined };
+          }),
         }] : []),
         {
           id: "preferences",

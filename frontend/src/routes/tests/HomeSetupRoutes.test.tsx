@@ -135,6 +135,23 @@ describe("Home and Runtime Setup routes", () => {
     expect(screen.getByRole("link", { name: "Timed speaking rehearsal", current: "page" })).toBeVisible();
   });
 
+  it("keeps timed rehearsal discoverable on first-run Home", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: false,
+      provider: "",
+      model: "",
+      base_url: "",
+      requires_api_key: false,
+      has_api_key: false,
+    });
+
+    renderWithProviders(<AppFrame />, { initialEntries: ["/"], locale: "en" });
+
+    expect(await screen.findByRole("button", { name: "Set up local AI" })).toBeVisible();
+    fireEvent.click(screen.getByRole("link", { name: "Timed speaking rehearsal" }));
+    expect(await screen.findByTestId("rehearsal-screen")).toBeVisible();
+  });
+
   it("treats ok and informational diagnostics as healthy after actual microphone capture", async () => {
     mockedGetRuntime.mockResolvedValue({
       configured: true,
@@ -431,6 +448,30 @@ describe("Home and Runtime Setup routes", () => {
       "href",
       "/runtime-setup",
     );
+    expect(within(nav).getByRole("link", { name: "Timed speaking rehearsal" })).toHaveAttribute("href", "/rehearsal");
+    expect(nav.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+  });
+
+  it("shows the return step from route state on Home", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: false,
+      provider: "",
+      model: "",
+      base_url: "",
+      requires_api_key: false,
+      has_api_key: false,
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: [{ pathname: "/", state: { from: "/runtime-setup" } }],
+      locale: "en",
+    });
+
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+    expect(await screen.findByRole("button", { name: "Set up local AI" })).toBeVisible();
+    expect(within(nav).getByRole("group", { name: "Return to step" })).toBeVisible();
+    expect(within(nav).getByRole("link", { name: "Set up local AI" })).toHaveAttribute("href", "/runtime-setup");
+    expect(nav.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
   });
 
   it("shows a setup next step instead of an empty startup checklist", async () => {
