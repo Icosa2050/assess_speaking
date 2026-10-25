@@ -97,8 +97,8 @@ jobs:
         working-directory: frontend
         run: python ../scripts/run_bounded_check.py 420 npm exec --no -- playwright install --with-deps ${{ matrix.browser }}
       - name: Install audio decoding tools
-        timeout-minutes: 3
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+        timeout-minutes: 8
+        run: python scripts/run_bounded_check.py 420 sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Run mandatory browser identities
         timeout-minutes: 32
         env:
