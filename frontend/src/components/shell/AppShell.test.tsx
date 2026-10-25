@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { expect, it, vi } from "vitest";
 import { AppShell } from "./AppShell";
 
@@ -54,4 +54,47 @@ it("exposes grouped navigation, the current page, a disabled step and a skip tar
   fireEvent.click(within(nav).getByRole("link", { name: "Progress" }));
   expect(within(nav).getByRole("link", { name: "Progress" })).toHaveAttribute("aria-current", "page");
   expect(screen.getByText("Progress content")).toBeInTheDocument();
+});
+
+it("focuses content without clearing route state or its contextual navigation", async () => {
+  const originalUrl = window.location.href;
+  const originalState = window.history.state;
+  window.history.replaceState({ usr: { from: "/speak" }, key: "skip-link-test", idx: 0 }, "", "/");
+
+  const ShellWithContext = () => {
+    const location = useLocation();
+    const from = location.state?.from;
+    return (
+      <Routes>
+        <Route element={<AppShell appName="Practice" shellBody="Practice speaking"
+          navAriaLabel="Main navigation" navGroups={[
+            { id: "primary", items: [{ href: "/", label: "Practice" }] },
+            ...(from === "/speak" ? [{ id: "context", label: "Current step", items: [{ href: "/speak", label: "Speak" }] }] : []),
+          ]} />}>
+          <Route path="/" element={<p data-testid="route-state">{from}</p>} />
+        </Route>
+      </Routes>
+    );
+  };
+
+  const { unmount } = render(<BrowserRouter><ShellWithContext /></BrowserRouter>);
+  const pushState = vi.spyOn(window.history, "pushState");
+  try {
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+    expect(within(nav).getByRole("group", { name: "Current step" })).toBeVisible();
+    expect(screen.getByTestId("route-state")).toHaveTextContent("/speak");
+
+    fireEvent.click(screen.getByRole("link", { name: "Skip to content" }));
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(screen.getByRole("main")).toHaveFocus();
+    expect(screen.getByTestId("route-state")).toHaveTextContent("/speak");
+    expect(within(nav).getByRole("group", { name: "Current step" })).toBeVisible();
+    expect(window.location.hash).toBe("");
+    expect(pushState).not.toHaveBeenCalled();
+  } finally {
+    pushState.mockRestore();
+    unmount();
+    window.history.replaceState(originalState, "", originalUrl);
+  }
 });

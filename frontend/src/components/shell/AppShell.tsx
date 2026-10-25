@@ -101,7 +101,16 @@ export const AppShell = ({
 
   return (
     <div className={styles.shell}>
-      <a className={styles.skipLink} href="#main-content">{skipLabel}</a>
+      <a
+        className={styles.skipLink}
+        href="#main-content"
+        onClick={(event) => {
+          event.preventDefault();
+          document.getElementById("main-content")?.focus();
+        }}
+      >
+        {skipLabel}
+      </a>
       <div className={styles.container}>
         <header className={styles.header}>
           <div className={styles.brandBlock}>
