@@ -71,6 +71,8 @@ const reviewPayload = {
       mode: "hybrid",
       llm: 3.7,
       deterministic: 3.2,
+      cefr_estimate: { level: "B2", calibrated: false, confidence: "low" },
+      dimensions: { pronunciation_intelligibility: { score: 3.6, confidence: "low", method: "asr_proxy_v1" } },
     },
     checks: {
       language_pass: true,
@@ -228,12 +230,18 @@ describe("Review route", () => {
     expect(coachTakeaway).toHaveAttribute("data-semantic-id", "review-coach-takeaway");
     expect(coachTakeaway).toHaveTextContent("Focus on connectors.");
     expect(within(nextStepCard).getByText("Choose one thing to work on in your next attempt.")).toBeVisible();
-    const scoreVisual = within(nextStepCard).getByTestId("review-next-step-score");
+    const scoreVisual = screen.getByTestId("review-next-step-score");
     expect(scoreVisual).toHaveAttribute("data-semantic-id", "review-next-step-score");
-    const scoreRing = within(scoreVisual).getByRole("progressbar", { name: "Current result" });
-    expect(scoreRing).toHaveAttribute("aria-valuenow", "70");
-    expect(scoreRing).toHaveAttribute("aria-valuetext", "B2 · 3.5");
-    expect(scoreVisual).toHaveTextContent("B2 · 3.5");
+    expect(within(scoreVisual).queryByRole("progressbar")).not.toBeInTheDocument();
+    expect(within(scoreVisual).getByTestId("review-estimate-text")).toHaveTextContent("3.5/5");
+    expect(scoreVisual).toHaveTextContent("Position on a 1–5 practice scale");
+    expect(scoreVisual).toHaveTextContent("Provisional · not an exam result");
+    expect(within(scoreVisual).getByTestId("review-provisional-cefr")).toHaveTextContent("Provisional CEFR B2");
+    expect(scoreVisual).toHaveTextContent("3.6/5 · limited proxy");
+    expect(scoreVisual).toHaveTextContent("does not assess individual sounds or accent quality");
+    fireEvent.click(within(scoreVisual).getByText("Show dimension signals"));
+    expect(scoreVisual).toHaveTextContent("Reported confidence: low");
+    expect(within(scoreVisual).getByRole("link", { name: "Read the scoring Guide" })).toHaveAttribute("href", "/guide");
     const focusChip = within(nextStepCard).getByTestId("review-next-step-focus");
     expect(focusChip).toHaveAttribute("data-semantic-id", "review-next-step-focus");
     expect(focusChip).toHaveTextContent(

@@ -13,6 +13,8 @@ type ProgressItem = {
 
 export type ReviewDisplaySummary = {
   band: string;
+  cefrLevel: string;
+  dimensions: { key: string; score: number; confidence: string }[];
   eligibilityState?: string;
   baseline: Record<string, unknown> | null;
   coachSummary: string;
@@ -215,11 +217,26 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
 
   const scoreOverall = review.scoreOverall ?? asNumberOrNull(scores.final);
   const eligibility = toRecord(report.eligibility);
-  const insufficientSpeech = (Boolean(eligibility.state) && eligibility.state !== "assessable") || checks.min_words_pass === false || asTextList(report.warnings).includes("llm_skipped_low_word_count");
+  const insufficientSpeech = (Boolean(eligibility.state) && eligibility.state !== "assessable") ||
+    checks.min_words_pass === false || checks.language_pass === false ||
+    asTextList(report.warnings).includes("llm_skipped_low_word_count");
+  const cefrEstimate = toRecord(scores.cefr_estimate);
+  const dimensions = toRecord(scores.dimensions);
+  const cefrLevel = String(cefrEstimate.level || "").toUpperCase();
+  const dimensionKeys = ["fluency", "pronunciation_intelligibility", "grammar", "lexicon", "coherence", "task_fulfillment"];
+  const hasAssessableScore = !insufficientSpeech && scoreOverall !== null;
 
   return {
     eligibilityState: String(eligibility.state || ""),
     band: insufficientSpeech ? "" : review.band || String(scores.band || ""),
+    cefrLevel: hasAssessableScore && /^(A1|A2|B1|B2|C1|C2)$/.test(cefrLevel) ? cefrLevel : "",
+    dimensions: !hasAssessableScore ? [] : dimensionKeys.flatMap((key) => {
+      const item = toRecord(dimensions[key]);
+      const score = asNumberOrNull(item.score);
+      return score !== null && score >= 1 && score <= 5
+        ? [{ key, score, confidence: String(item.confidence || "") }]
+        : [];
+    }),
     baseline: Object.keys(baseline).length > 0 ? baseline : null,
     coachSummary: insufficientSpeech ? "" : String(coaching.coach_summary || review.summary || ""),
     deterministicScore: insufficientSpeech ? null : asNumberOrNull(scores.deterministic),
@@ -518,8 +535,8 @@ export const ReviewSummary = ({
         data-semantic-id="review-metrics"
       >
         {[
-          ["review-metric-score-overall", translate("review.score"), summary.scoreOverall !== null ? summary.scoreOverall.toFixed(1) : "-"],
-          ["review-metric-band", translate("review.band"), summary.band || "-"],
+          ["review-metric-score-overall", translate("review.result.estimate"), summary.scoreOverall !== null ? `${summary.scoreOverall.toFixed(1)}/5` : translate("review.result.no_estimate")],
+          ["review-metric-band", translate("review.result.practice_band"), summary.band || "-"],
           ["review-metric-deterministic-score", translate("review.metric_deterministic"), summary.deterministicScore !== null ? summary.deterministicScore.toFixed(1) : "-"],
           ["review-metric-llm-score", translate("review.metric_llm"), summary.llmScore !== null ? summary.llmScore.toFixed(1) : "-"],
         ].map(([testId, label, value]) => (

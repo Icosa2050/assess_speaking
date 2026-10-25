@@ -30,11 +30,36 @@ describe("Review quality safeguards", () => {
     expect(summary.scoreOverall).toBeNull();
     expect(summary.deterministicScore).toBeNull();
     expect(summary.band).toBe("");
+    expect(summary.cefrLevel).toBe("");
+    expect(summary.dimensions).toEqual([]);
     render(<ReviewSummary summary={summary} translate={createTranslator("en")} />);
     expect(screen.getByText(/Not enough speech to assess/)).toBeVisible();
     expect(screen.getByTestId("review-baseline")).not.toHaveTextContent("Pass");
     expect(screen.getAllByText("Not assessed")).toHaveLength(2);
     expect(legacyBaseline.targets.wpm.ok).toBe(true);
+  });
+
+  it("uses reported provisional CEFR and dimension confidence without deriving uncertainty", () => {
+    const summary = summarize({ eligibility: { state: "assessable" }, scores: {
+      final: 4.1, cefr_estimate: { level: "B2", calibrated: false },
+      dimensions: { pronunciation_intelligibility: { score: 3.7, confidence: "low", method: "asr_proxy_v1" } },
+    } });
+    expect(summary.cefrLevel).toBe("B2");
+    expect(summary.dimensions).toEqual([{ key: "pronunciation_intelligibility", score: 3.7, confidence: "low" }]);
+    const invalid = summarize({ eligibility: { state: "invalid_content" }, scores: {
+      final: 4.1, cefr_estimate: { level: "B2" },
+      dimensions: { pronunciation_intelligibility: { score: 3.7, confidence: "low" } },
+    } });
+    expect(invalid.scoreOverall).toBeNull();
+    expect(invalid.cefrLevel).toBe("");
+    expect(invalid.dimensions).toEqual([]);
+    const wrongLanguage = summarize({ checks: { language_pass: false }, scores: {
+      final: 4.1, cefr_estimate: { level: "B2" },
+      dimensions: { pronunciation_intelligibility: { score: 3.7 } },
+    } });
+    expect(wrongLanguage.scoreOverall).toBeNull();
+    expect(wrongLanguage.cefrLevel).toBe("");
+    expect(wrongLanguage.dimensions).toEqual([]);
   });
 
   it.each([

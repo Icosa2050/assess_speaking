@@ -4,9 +4,9 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ReviewSummary, selectReviewSummary } from "@/components/review/ReviewSummary";
+import { ReviewResult } from "@/components/review/ReviewResult";
 import { WarningsPanel } from "@/components/review/WarningsPanel";
 import { Icon } from "@/components/ui/Icon";
-import { ProgressRing } from "@/components/ui/ProgressRing";
 import { ApiClientError, apiClient } from "@/lib/api/client";
 import { createTranslator } from "@/lib/i18n";
 import { pollingIntervals, queryKeys } from "@/lib/query/queryClient";
@@ -58,17 +58,6 @@ const nextStepCardStyle = {
   ...cardStyle,
   border: "1px solid rgba(15, 118, 110, 0.22)",
   backgroundColor: "rgba(250, 253, 252, 0.98)",
-} as const;
-
-const scoreVisualStyle = {
-  display: "grid",
-  justifyItems: "start",
-  width: "fit-content",
-  maxWidth: "100%",
-  padding: "1rem",
-  border: "1px solid rgba(15, 118, 110, 0.16)",
-  borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.72)",
 } as const;
 
 const focusChipGroupStyle = {
@@ -239,11 +228,6 @@ export const ReviewRoute = () => {
   }, [assessmentQuery.error, setRecordingError]);
 
   const summary = useMemo(() => selectReviewSummary(review), [review]);
-  const scoreStatus = translate("review.next_step_score", {
-    band: summary.band || "-",
-    score: summary.scoreOverall !== null ? summary.scoreOverall.toFixed(1) : "-",
-  });
-  const scoreRingValue = summary.scoreOverall !== null ? summary.scoreOverall * 20 : 0;
   const coachTakeaway = summary.coachSummary || translate("review.coach_takeaway_placeholder");
 
   const handleTryAgain = () => {
@@ -331,6 +315,7 @@ export const ReviewRoute = () => {
         {resumeError && <p role="alert">{resumeError}</p>}
       </section>}
 
+      <ReviewResult summary={summary} translate={translate} />
       <section
         style={nextStepCardStyle}
         data-testid="review-next-step-card"
@@ -435,19 +420,6 @@ export const ReviewRoute = () => {
                 <Icon name="history" size={18} />
                 {translate("review.view_history")}
               </button>
-            </div>
-          </div>
-          <div className={styles.coachAside}>
-            <div
-              style={scoreVisualStyle}
-              data-testid="review-next-step-score"
-              data-semantic-id="review-next-step-score"
-            >
-              <ProgressRing
-                label={translate("review.answer_result_title")}
-                status={scoreStatus}
-                value={scoreRingValue}
-              />
             </div>
           </div>
         </div>
