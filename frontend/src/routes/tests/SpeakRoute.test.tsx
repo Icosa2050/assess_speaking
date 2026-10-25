@@ -194,6 +194,22 @@ describe("Speak route", () => {
     expect(nav.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
   });
 
+  it("enables the Review navigation link when a report exists", async () => {
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/speak"],
+      locale: "en",
+      appState: { ...validDraftState, review: { reportId: "report-1" } },
+    });
+
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+    expect(await screen.findByTestId("speak.input_mode_upload")).toBeVisible();
+    const review = within(nav).getByRole("link", { name: "Review" });
+    expect(review).toHaveAttribute("href", "/review");
+    expect(review).not.toHaveAttribute("aria-disabled");
+    expect(review).not.toHaveAccessibleDescription();
+    expect(nav.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+  });
+
   it("stops before uploading if the displayed sharing route changes", async () => {
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
     fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
