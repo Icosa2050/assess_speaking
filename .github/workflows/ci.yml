@@ -93,9 +93,9 @@ jobs:
           python scripts/run_bounded_check.py 90 npm --prefix frontend test
           python scripts/run_bounded_check.py 90 npm --prefix frontend run build
       - name: Install fixture browser and media dependencies
-        timeout-minutes: 5
+        timeout-minutes: 8
         working-directory: frontend
-        run: python ../scripts/run_bounded_check.py 240 npm exec --no -- playwright install --with-deps ${{ matrix.browser }}
+        run: python ../scripts/run_bounded_check.py 420 npm exec --no -- playwright install --with-deps ${{ matrix.browser }}
       - name: Install audio decoding tools
         timeout-minutes: 3
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
