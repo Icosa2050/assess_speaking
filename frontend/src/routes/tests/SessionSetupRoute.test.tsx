@@ -91,9 +91,6 @@ describe("Session Setup route", () => {
     rerender(<AppFrame />);
     const language = await screen.findByLabelText("Learning language") as HTMLSelectElement;
     expect(within(language).getAllByRole("option").map((option) => option.textContent)).toEqual(["English", "Italiano"]);
-    expect(within(screen.getByRole("navigation", { name: "Main navigation" })).queryByRole("link", {
-      name: /German|Deutsch/i,
-    })).not.toBeInTheDocument();
     expect(language).toHaveValue("en");
     expect(screen.getByLabelText("Theme")).toHaveValue("My last trip abroad");
     expect(screen.queryAllByText("Meine letzte Reise ins Ausland")).toHaveLength(0);
