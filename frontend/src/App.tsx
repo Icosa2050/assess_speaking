@@ -1,9 +1,12 @@
 import { lazy, useEffect, useMemo } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 
 import { SavedLocale } from "@/components/shell/SavedLocale";
 import { AppShell } from "@/components/shell/AppShell";
+import { apiClient } from "@/lib/api/client";
 import { createTranslator, resolveUiLocale } from "@/lib/i18n";
+import { queryKeys } from "@/lib/query/queryClient";
 import { AppStoreProvider, useAppStore } from "@/lib/state/appStore";
 import { hasSetupDraft } from "@/lib/state/sessionDraft";
 import { HomeRoute } from "@/routes/HomeRoute";
@@ -61,6 +64,8 @@ export const AppFrame = () => {
     ? location.state.from
     : null;
   const translate = useMemo(() => createTranslator(locale), [locale]);
+  // Keep readiness warm for guarded Speak links after a History reload and retry.
+  useQuery({ queryKey: queryKeys.runtime, queryFn: () => apiClient.getRuntime() });
 
   const localizedRoutes = useMemo<LocalizedRoute[]>(
     () =>
