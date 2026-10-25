@@ -426,9 +426,9 @@ describe("Speak route", () => {
     fireEvent.change(screen.getByTestId("speak.upload_input"), {
       target: { files: [uploadFile] },
     });
-    expect(await screen.findByTestId("speak.submit")).toBeEnabled();
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
 
-    fireEvent.click(screen.getByRole("link", { name: "Scoring Guide" }));
+    fireEvent.click(screen.getByRole("link", { name: "How scores work" }));
     expect(await screen.findByRole("heading", { name: "Understand your feedback" })).toBeVisible();
     fireEvent.click(screen.getByRole("link", { name: "Speak" }));
 

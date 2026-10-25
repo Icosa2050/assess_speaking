@@ -521,8 +521,8 @@ test("light routes and opt-in dark journal card stay usable at desktop sizes", a
     await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
     const suffix = `light-${viewport.width}x${viewport.height}.png`;
 
-    await page.getByRole("link", { name: "Practice Home" }).click();
-    const homeLink = page.getByRole("link", { name: "Practice Home" });
+    await page.getByRole("link", { name: "Practice", exact: true }).click();
+    const homeLink = page.getByRole("link", { name: "Practice", exact: true });
     await homeLink.focus();
     await expect(homeLink).toHaveCSS("outline-width", "3px");
     await page.keyboard.press("Tab");
@@ -530,14 +530,16 @@ test("light routes and opt-in dark journal card stay usable at desktop sizes", a
     await expectNoPageHorizontalOverflow(page);
     await captureScreenshot(page, `migration-shell-${suffix}`);
 
-    await page.getByRole("link", { name: "Session Setup" }).click();
+    await page.getByTestId("home.start_new").click();
     const speaker = page.getByTestId("setup.speaker_id");
     await speaker.focus();
     await expect(speaker).toHaveCSS("outline-width", "3px");
     await expectNoPageHorizontalOverflow(page);
     await captureScreenshot(page, `migration-form-${suffix}`);
 
-    await page.getByRole("link", { name: "Speak", exact: true }).click();
+    await speaker.fill(speakerId);
+    await page.getByTestId("setup.recommended_start").click();
+    await page.getByTestId("setup.continue").click();
     const recordMode = page.getByTestId("speak.input_mode_record");
     await expect(recordMode).toHaveAttribute("aria-pressed", "true");
     await recordMode.focus();
@@ -558,7 +560,7 @@ test("light routes and opt-in dark journal card stay usable at desktop sizes", a
     await expectNoPageHorizontalOverflow(page);
     await captureScreenshot(page, `migration-journal-${suffix}`);
 
-    await page.getByRole("link", { name: "History", exact: true }).click();
+    await page.getByRole("link", { name: "Progress", exact: true }).click();
     const archive = page.getByRole("button", { name: "Archive attempt" });
     await expect(archive).toBeVisible();
     await archive.focus();
@@ -569,6 +571,8 @@ test("light routes and opt-in dark journal card stay usable at desktop sizes", a
     // Dark tokens are opt-in for migrated surfaces; legacy fixed-light panels
     // are outside this preview until the remaining routes migrate.
     await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
+    await page.goBack();
+    await page.goBack();
     await page.getByRole("link", { name: "Session Setup" }).click();
     const darkSpeaker = page.getByTestId("setup.speaker_id");
     await expect(darkSpeaker).toHaveCSS("background-color", "rgb(28, 41, 37)");

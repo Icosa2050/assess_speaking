@@ -14,17 +14,17 @@ test("nickname survives navigation and starting another practice, including edit
   await page.goto("/session-setup");
   const nickname = page.getByTestId("setup.speaker_id");
   await nickname.fill("maria");
-  await page.getByRole("link", { name: "Practice Home", exact: true }).click();
+  await page.getByRole("link", { name: "Practice", exact: true }).click();
   await page.getByRole("link", { name: "Session Setup", exact: true }).click();
   await expect(nickname).toHaveValue("maria");
 
   await nickname.fill("alex");
-  await page.getByRole("link", { name: "Practice Home", exact: true }).click();
+  await page.getByRole("link", { name: "Practice", exact: true }).click();
   await page.getByTestId("home.start_new").click();
   await expect(nickname).toHaveValue("alex");
 
   await nickname.fill("");
-  await page.getByRole("link", { name: "Practice Home", exact: true }).click();
+  await page.getByRole("link", { name: "Practice", exact: true }).click();
   await page.getByRole("link", { name: "Session Setup", exact: true }).click();
   await expect(nickname).toHaveValue("");
 });

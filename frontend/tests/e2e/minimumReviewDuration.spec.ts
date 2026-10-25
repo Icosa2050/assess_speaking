@@ -33,6 +33,6 @@ test("short upload is rejected by the real local worker without a review or hist
   await expect(page).toHaveURL(/\/speak$/);
   await expect(page.getByRole("button", { name: "Remove recording" })).toBeVisible();
   await expect(page.getByTestId("review-summary")).toHaveCount(0);
-  await page.getByRole("link", { name: "History", exact: true }).click();
+  await page.getByRole("link", { name: "Progress", exact: true }).click();
   await expect(page.getByTestId("history-empty")).toBeVisible();
 });

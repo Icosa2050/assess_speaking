@@ -77,7 +77,7 @@ describe("Library and Guide routes", () => {
     fireEvent.click(await screen.findByTestId("home.open_library"));
     expect(await screen.findByRole("heading", { name: "Pick your next exercise" })).toBeVisible();
 
-    fireEvent.click(screen.getByRole("link", { name: "Scoring Guide" }));
+    fireEvent.click(screen.getByRole("link", { name: "How scores work" }));
     expect(await screen.findByRole("heading", { name: "Understand your feedback" })).toBeVisible();
     expect(screen.getByText("Content validity")).toBeVisible();
   });

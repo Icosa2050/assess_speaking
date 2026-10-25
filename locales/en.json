@@ -1,6 +1,10 @@
 {
   "nav": {
     "main_navigation": "Main navigation",
+    "skip_to_content": "Skip to content",
+    "current_step": "Current step",
+    "preferences": "Preferences",
+    "how_scores_work": "How scores work",
     "group_practice": "Practice",
     "group_progress": "Progress",
     "group_discover": "Discover",

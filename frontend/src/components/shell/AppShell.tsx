@@ -2,6 +2,8 @@ import { Component, Suspense, type ReactNode } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { SEMANTIC_IDS, semanticAttributes } from "@/lib/i18n";
+import { Card } from "@/components/ui/Card";
+import { Icon, type IconName } from "@/components/ui/Icon";
 
 import { JournalRecoveryNotice } from "./JournalRecoveryNotice";
 import styles from "./AppShell.module.css";
@@ -9,6 +11,7 @@ import styles from "./AppShell.module.css";
 type RouteItem = {
   href: string;
   label: string;
+  disabled?: boolean;
 };
 
 type NavGroup = {
@@ -23,6 +26,7 @@ type AppShellProps = {
   appName: string;
   navGroups: NavGroup[];
   navAriaLabel: string;
+  skipLabel?: string;
   shellBody: string;
 };
 
@@ -51,18 +55,32 @@ const routeSemanticAttributes = (href: string): Record<string, string> => {
   }
 };
 
+const routeIcons: Record<string, IconName> = {
+  "/": "target",
+  "/history": "history",
+  "/library": "guide",
+  "/guide": "guide",
+  "/settings": "settings",
+};
+
 export const AppShell = ({
   locale = "en",
   reloadLabel = "Reload page",
   appName,
   navGroups,
   navAriaLabel,
+  skipLabel = "Skip to content",
   shellBody,
 }: AppShellProps) => {
   const location = useLocation();
-  const primaryGroups = navGroups.filter((group) => group.id !== "settings");
-  const footerGroups = navGroups.filter((group) => group.id === "settings");
-  const renderRouteLink = (route: RouteItem) => (
+  const primaryGroups = navGroups.filter((group) => group.id !== "preferences" && group.id !== "context");
+  const contextGroups = navGroups.filter((group) => group.id === "context");
+  const footerGroups = navGroups.filter((group) => group.id === "preferences");
+  const renderRouteLink = (route: RouteItem) => route.disabled ? (
+    <span key={route.href} className={`${styles.navLink} ${styles.navLinkDisabled}`} role="link" aria-disabled="true">
+      {route.label}
+    </span>
+  ) : (
     <NavLink
       key={route.href}
       to={route.href}
@@ -70,16 +88,20 @@ export const AppShell = ({
         ? location.pathname === "/settings"
           ? location.state
           : { from: location.pathname.slice(1) || "home" }
+        : route.href === "/" || route.href === "/guide"
+          ? { from: location.pathname }
         : undefined}
-      className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ""}`}
+      className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ""} ${route.href === "/" && location.pathname !== "/" && ["/runtime-setup", "/session-setup", "/speak", "/rehearsal", "/review"].includes(location.pathname) ? styles.navLinkSectionActive : ""}`}
       {...routeSemanticAttributes(route.href)}
     >
+      {routeIcons[route.href] ? <Icon name={routeIcons[route.href]} size={20} /> : null}
       {route.label}
     </NavLink>
   );
 
   return (
     <div className={styles.shell}>
+      <a className={styles.skipLink} href="#main-content">{skipLabel}</a>
       <div className={styles.container}>
         <header className={styles.header}>
           <div className={styles.brandBlock}>
@@ -90,7 +112,7 @@ export const AppShell = ({
 
         <JournalRecoveryNotice locale={locale} />
         <div className={styles.layout}>
-          <aside className={styles.sidebar}>
+          <Card as="aside" className={styles.sidebar}>
             <nav
               aria-label={navAriaLabel}
               className={styles.nav}
@@ -111,15 +133,26 @@ export const AppShell = ({
                   </div>
                 ))}
               </div>
+              {contextGroups.map((group) => (
+                <div key={group.id} className={styles.navContext} data-nav-group={group.id} role="group" aria-labelledby={`nav-${group.id}-label`}>
+                  {group.label ? <span className={styles.navGroupLabel} id={`nav-${group.id}-label`}>{group.label}</span> : null}
+                  <div className={styles.navLinks}>{group.items.map(renderRouteLink)}</div>
+                </div>
+              ))}
               {footerGroups.length > 0 ? (
                 <div className={styles.navFooter}>
-                  {footerGroups.flatMap((group) => group.items).map(renderRouteLink)}
+                  {footerGroups.map((group) => (
+                    <div key={group.id} className={styles.navGroup} data-nav-group={group.id} role="group" aria-labelledby={`nav-${group.id}-label`}>
+                      {group.label ? <span className={styles.navGroupLabel} id={`nav-${group.id}-label`}>{group.label}</span> : null}
+                      <div className={styles.navLinks}>{group.items.map(renderRouteLink)}</div>
+                    </div>
+                  ))}
                 </div>
               ) : null}
             </nav>
-          </aside>
+          </Card>
 
-          <main className={styles.main}>
+          <main className={styles.main} id="main-content" tabIndex={-1}>
             <RouteRecovery key={location.pathname} label={reloadLabel}>
               <Suspense fallback={<p role="status" aria-busy="true">…</p>}>
                 <Outlet />
