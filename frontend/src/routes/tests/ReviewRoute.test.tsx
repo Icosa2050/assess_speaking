@@ -160,6 +160,9 @@ describe("Review route", () => {
         band: "4", summary: "Try again", payload },
     } });
     expect(await screen.findByText(/Not enough speech to assess/)).toBeVisible();
+    const result = screen.getByTestId("review-result-estimate");
+    expect(within(result).getByText("No estimate")).toBeVisible();
+    expect(within(result).getByText("No scoring method result is available for this recording.")).toBeVisible();
     expect(screen.queryByTestId("review-estimate-text")).not.toBeInTheDocument();
     expect(screen.queryByTestId("review-provisional-cefr")).not.toBeInTheDocument();
     expect(screen.getAllByText("There was not enough assessable speech for a score, or this response could not be assessed. Check the quality notes below.")).toHaveLength(1);
@@ -176,11 +179,28 @@ describe("Review route", () => {
       }},
     }});
     await screen.findByTestId("review-next-step-card");
+    const result = screen.getByTestId("review-result-estimate");
+    expect(within(result).getByText("No estimate")).toBeVisible();
+    expect(within(result).getByText("No scoring method result is available for this recording.")).toBeVisible();
     expect(screen.queryByTestId("review-estimate-text")).not.toBeInTheDocument();
     expect(screen.queryByTestId("review-provisional-cefr")).not.toBeInTheDocument();
     expect(screen.getByTestId("review-metric-score-overall")).not.toHaveTextContent(/\b[1-5]\.\d\b/);
     expect(screen.queryByText(/\d\.\d\/5 · limited proxy/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", {name: "Resume unfinished analysis"})).not.toBeInTheDocument();
+  });
+
+  it("does not offer resume for a legacy invalid report without a rubric or skip warning", async () => {
+    const payload = { ...reviewPayload, report: { ...reviewPayload.report, rubric: undefined,
+      checks: { ...reviewPayload.report.checks, topic_pass: false, content_validity_pass: false },
+      warnings: [],
+    } };
+    renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
+      ...validDraftState, review: { reportId: "report-1", transcript: "Full transcript text", scoreOverall: 3.5,
+        band: "4", summary: "Saved report", payload },
+    } });
+    expect(await screen.findByTestId("review-result-estimate")).toHaveTextContent("No estimate");
+    expect(screen.queryByTestId("review-estimate-text")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Resume unfinished analysis" })).not.toBeInTheDocument();
   });
 
   it("recovers a lost resume response without creating a different submission", async () => {
@@ -236,8 +256,8 @@ describe("Review route", () => {
     expect(coachTakeaway).toHaveAttribute("data-semantic-id", "review-coach-takeaway");
     expect(coachTakeaway).toHaveTextContent("Focus on connectors.");
     expect(within(nextStepCard).getByText("Choose one thing to work on in your next attempt.")).toBeVisible();
-    const scoreVisual = screen.getByTestId("review-next-step-score");
-    expect(scoreVisual).toHaveAttribute("data-semantic-id", "review-next-step-score");
+    const scoreVisual = screen.getByTestId("review-result-estimate");
+    expect(scoreVisual).toHaveAttribute("data-semantic-id", "review-result-estimate");
     expect(within(scoreVisual).queryByRole("progressbar")).not.toBeInTheDocument();
     expect(within(scoreVisual).getByTestId("review-estimate-text")).toHaveTextContent("3.5/5");
     expect(scoreVisual).toHaveTextContent("Position on a 1–5 practice scale");

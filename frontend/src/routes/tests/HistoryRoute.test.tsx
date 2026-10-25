@@ -395,6 +395,9 @@ describe("History route", () => {
     // The saved English attempt failed its topic check, so its legacy coaching
     // cannot be presented as assessable feedback after the filter switches.
     expect(screen.queryByTestId("history-detail-digest-coach-summary")).not.toBeInTheDocument();
+    expect(screen.getByTestId("history-detail-digest-priority")).not.toHaveTextContent("Add one more concrete detail");
+    expect(screen.getByTestId("history-detail-digest-next-focus")).not.toHaveTextContent("Sharpen the structure");
+    expect(screen.getByTestId("history-detail-digest-next-exercise")).not.toHaveTextContent("Repeat the story");
     expect(screen.getByTestId("review-requires-human-review")).toBeVisible();
   });
 

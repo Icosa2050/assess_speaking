@@ -23,7 +23,7 @@ export function ReviewResult({ summary, translate }: { summary: ReviewDisplaySum
     task_checks_plus_topic_v1: "dimension_method_task",
   };
 
-  return <Card as="section" className={styles.result} data-testid="review-next-step-score" data-semantic-id="review-next-step-score">
+  return <Card as="section" className={styles.result} data-testid="review-result-estimate" data-semantic-id="review-result-estimate">
     <div className={styles.heading}>
       <h2>{translate("review.result.estimate")}</h2>
       {hasEstimate && <span className={styles.provisional}>{translate("review.result.provisional")}</span>}

@@ -45,6 +45,7 @@ for (const eligible of [false, true]) {
       await expect(page.getByTestId("review-metric-score-overall")).not.toContainText(/\b[1-5]\.\d\b/);
       await expect(page.getByTestId("review-estimate-text")).toHaveCount(0);
       await expect(page.getByTestId("review-provisional-cefr")).toHaveCount(0);
+      await expect(page.getByTestId("review-metric-score-overall")).toContainText("No estimate");
       await expect(page.getByText("You spoke in the required language.", { exact: true })).toHaveCount(0);
       await expect(page.getByText("Verified language", { exact: true })).toHaveCount(0);
     }

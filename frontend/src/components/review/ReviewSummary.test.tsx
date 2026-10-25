@@ -3,7 +3,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { createTranslator } from "@/lib/i18n";
-import { ReviewSummary, selectReviewSummary } from "./ReviewSummary";
+import reviewEligibilityMatrix from "@/test/reviewEligibilityMatrix.json";
+import { ReviewSummary, reviewEligibilityState, selectReviewSummary } from "./ReviewSummary";
 import { ReviewResult } from "./ReviewResult";
 
 const eligibleChecks = { language_pass: true, topic_pass: true, content_validity_pass: true,
@@ -11,6 +12,16 @@ const eligibleChecks = { language_pass: true, topic_pass: true, content_validity
 const summarize = (report: Record<string, unknown>, metrics: Record<string, unknown> = { duration_sec: 120 }) => selectReviewSummary({
   band: "3", reportId: "saved", scoreOverall: null, summary: "", transcript: "Actual words",
   payload: { metrics, report: { checks: eligibleChecks, ...report } },
+});
+
+it.each(reviewEligibilityMatrix.cases)("matches backend eligibility for $name", (entry) => {
+  const item = entry as { checks?: Record<string, boolean | null>; metrics?: Record<string, number>;
+    omitChecks?: string[]; omitDuration?: boolean; warnings?: string[]; expected: string };
+  const checks: Record<string, unknown> = { ...reviewEligibilityMatrix.baseline.checks, ...item.checks };
+  const metrics: Record<string, unknown> = { ...reviewEligibilityMatrix.baseline.metrics, ...item.metrics };
+  item.omitChecks?.forEach((key) => { delete checks[key]; });
+  if (item.omitDuration) delete metrics.duration_sec;
+  expect(reviewEligibilityState({ report: { checks, warnings: item.warnings || [] }, metrics })).toBe(item.expected);
 });
 
 describe("Review quality safeguards", () => {
@@ -93,6 +104,24 @@ describe("Review quality safeguards", () => {
     expect(summary.scoreOverall).toBe(4.1);
   });
 
+  it.each(["language_pass", "topic_pass", "content_validity_pass"])(
+    "withholds a stale stored assessable result when %s fails", (gate) => {
+      const summary = summarize({ eligibility: { state: "assessable" },
+        checks: { ...eligibleChecks, [gate]: false }, scores: { final: 4.1, cefr_estimate: { level: "B2" },
+          dimensions: { pronunciation_intelligibility: { score: 3.7 } } } });
+      expect(summary.eligibilityState).toBe("invalid_content");
+      expect(summary.scoreOverall).toBeNull();
+      expect(summary.cefrLevel).toBe("");
+      expect(summary.dimensions).toEqual([]);
+    },
+  );
+
+  it("keeps a stored non-assessable state restrictive when current checks pass", () => {
+    const summary = summarize({ eligibility: { state: "content_unverified" }, scores: { final: 4.1 } });
+    expect(summary.eligibilityState).toBe("content_unverified");
+    expect(summary.scoreOverall).toBeNull();
+  });
+
   it.each([
     { ...eligibleChecks, duration_pass: false },
     { ...eligibleChecks, content_validity_pass: false },
@@ -116,7 +145,7 @@ describe("Review quality safeguards", () => {
     const report = { progress_delta: { previous_session_id: "older", score_delta: { final: 1 } } };
     const summary = summarize(report);
     expect(summary.progressItems).toEqual([]);
-    expect(summary.payload.report).toMatchObject(report);
+    expect(summary.payload.report).toEqual({ checks: eligibleChecks, ...report });
   });
 
   it("displays only explicitly verified comparisons", () => {
@@ -152,13 +181,21 @@ describe("Review quality safeguards", () => {
     expect(screen.getByTestId("review-estimate-text")).toHaveTextContent(`${value.toFixed(1)}/5`);
   });
 
-  it("exposes the reported dimension source next to its value", () => {
+  it.each([
+    ["fluency", "acoustic_plus_rubric_v1", "Source: measured pace and pauses, with a model rubric when available."],
+    ["pronunciation_intelligibility", "asr_proxy_v1", "Source: ASR confidence and pausing proxy; not acoustic pronunciation scoring."],
+    ["grammar", "rubric_plus_complexity_v1", "Source: grammar complexity and a model rubric when available."],
+    ["lexicon", "rubric_plus_support_v1", "Source: vocabulary support and a model rubric when available."],
+    ["coherence", "rubric_plus_discourse_v1", "Source: discourse signals and a model rubric when available."],
+    ["task_fulfillment", "task_checks_plus_topic_v1", "Source: task checks and topic signals."],
+    ["fluency", "future_method", "Source not reported for this signal."],
+  ])("shows the reported source for %s with method %s", (key, method, expected) => {
     const summary = summarize({ scores: { final: 4.9, mode: "hybrid", dimensions: {
-      pronunciation_intelligibility: { score: 3.7, confidence: "low", method: "asr_proxy_v1" },
+      [key]: { score: 3.7, confidence: "low", method },
     } } });
     render(<MemoryRouter><ReviewResult summary={summary} translate={createTranslator("en")} /></MemoryRouter>);
     fireEvent.click(screen.getByText("Show dimension signals"));
-    expect(screen.getByText("Source: ASR confidence and pausing proxy; not acoustic pronunciation scoring.")).toBeVisible();
+    expect(screen.getByText(expected)).toBeVisible();
   });
 
   it("does not infer a rules-only method from an unrecognized mode with a rubric score", () => {
@@ -184,7 +221,7 @@ describe("Review quality safeguards", () => {
         expect(screen.queryByText("Verified Italian")).not.toBeInTheDocument();
         expect(summary.progressItems).toEqual([]);
       }
-      expect(summary.payload.report).toMatchObject(report);
+      expect(summary.payload.report).toEqual({ checks: eligibleChecks, ...report });
       expect(report.coaching.coach_summary).toBe("You spoke in the required language.");
     },
   );
@@ -221,7 +258,7 @@ describe("Optional style in saved feedback", () => {
     expect(screen.getByTestId("review-style-suggestions")).toHaveTextContent(locale === "en" ? "Optional wording suggestions" : "Suggerimenti facoltativi");
     expect(screen.getByTestId("review-recurring-grammar")).not.toHaveTextContent("The trip was good");
     expect(screen.getByTestId("review-priorities")).not.toHaveTextContent("The trip was good");
-    expect(summary.payload.report).toMatchObject(report);
+    expect(summary.payload.report).toEqual({ checks: eligibleChecks, ...report });
   });
 
   it("preserves old reports without adding an empty style section", () => {

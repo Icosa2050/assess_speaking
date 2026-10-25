@@ -419,7 +419,7 @@ test("renders primary visual-refresh artifacts without serif typography", async 
   await expect(page.getByTestId("review-coach-takeaway")).toContainText(
     "Keep the structure and close with one personal reflection.",
   );
-  const estimate = page.getByTestId("review-next-step-score");
+  const estimate = page.getByTestId("review-result-estimate");
   await expect(estimate.getByTestId("review-estimate-text")).toHaveText("4.1/5");
   await expect(estimate).toContainText("Position on a 1–5 practice scale");
   await expect(estimate).toContainText("Provisional · not an exam result");
@@ -451,7 +451,7 @@ test("renders primary visual-refresh artifacts without serif typography", async 
       await page.keyboard.press("Tab");
       guideFocused = await page.evaluate(() =>
         document.activeElement?.getAttribute("href") === "/guide" &&
-        Boolean(document.activeElement?.closest('[data-testid="review-next-step-score"]')));
+        Boolean(document.activeElement?.closest('[data-testid="review-result-estimate"]')));
     }
     expect(guideFocused).toBe(true);
     await expect(estimate.getByRole("link", { name: "Read the scoring Guide" })).toBeFocused();

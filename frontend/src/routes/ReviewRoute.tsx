@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { ReviewSummary, selectReviewSummary } from "@/components/review/ReviewSummary";
+import { ReviewSummary, reviewEligibilityState, selectReviewSummary } from "@/components/review/ReviewSummary";
 import { ReviewResult } from "@/components/review/ReviewResult";
 import { WarningsPanel } from "@/components/review/WarningsPanel";
 import { Icon } from "@/components/ui/Icon";
@@ -162,7 +162,7 @@ export const ReviewRoute = () => {
   const warnings = Array.isArray(retainedReport.warnings) ? retainedReport.warnings : [];
   const interruptedAnalysis = warnings.some(warning =>
     ["coaching_unavailable", "llm_unavailable", "llm_invalid_schema"].includes(String(warning)));
-  const eligibilityState = String((retainedReport.eligibility as {state?: unknown} | undefined)?.state || "");
+  const eligibilityState = reviewEligibilityState(review.payload);
   // An unavailable rubric can itself make content unverified. Keep recovery for
   // that interruption, while excluding deliberate skips and invalid speech.
   const intentionallySkipped = warnings.some(warning => String(warning).startsWith("llm_skipped_")) ||

@@ -185,6 +185,25 @@ const buildProgressItems = (progressDelta: Record<string, unknown>): ProgressIte
   return items;
 };
 
+export const reviewEligibilityState = (payload: Record<string, unknown>): string => {
+  const report = toRecord(payload.report);
+  const checks = toRecord(report.checks);
+  const stored = toRecord(report.eligibility);
+  const metrics = toRecord(payload.metrics);
+  const selectedMetrics = Object.keys(metrics).length > 0 ? metrics : toRecord(report.metrics);
+  const duration = asNumberOrNull(selectedMetrics.duration_sec);
+  const warnings = asTextList(report.warnings);
+  // Match assessment_runtime/eligibility.py, including its gate precedence.
+  const computed = (duration !== null && duration < 30) || checks.min_words_pass === false ||
+    warnings.includes("llm_skipped_low_word_count") ? "insufficient_speech"
+    : ["language_pass", "topic_pass", "content_validity_pass"].some((key) => checks[key] === false) ? "invalid_content"
+      : duration === null || ["min_words_pass", "language_pass", "content_validity_pass"].some((key) => checks[key] !== true)
+        ? "content_unverified" : "assessable";
+  // A stale stored state may only further withhold grades, never revive them.
+  return computed !== "assessable" ? computed
+    : typeof stored.state === "string" && stored.state ? stored.state : computed;
+};
+
 export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload" | "reportId" | "scoreOverall" | "summary" | "transcript">): ReviewDisplaySummary => {
   const payload = toRecord(review.payload);
   const meta = toRecord(payload.meta);
@@ -216,18 +235,7 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
   );
 
   const scoreOverall = review.scoreOverall ?? asNumberOrNull(scores.final);
-  const eligibility = toRecord(report.eligibility);
-  const metrics = toRecord(payload.metrics);
-  const fallbackMetrics = Object.keys(metrics).length > 0 ? metrics : toRecord(report.metrics);
-  const duration = asNumberOrNull(fallbackMetrics.duration_sec);
-  const warnings = asTextList(report.warnings);
-  // Mirror assessment_runtime/eligibility.py for saved reports that predate eligibility.
-  const legacyState = (duration !== null && duration < 30) || checks.min_words_pass === false ||
-    warnings.includes("llm_skipped_low_word_count") ? "insufficient_speech"
-    : ["language_pass", "topic_pass", "content_validity_pass"].some((key) => checks[key] === false) ? "invalid_content"
-      : duration === null || ["min_words_pass", "language_pass", "content_validity_pass"].some((key) => checks[key] !== true)
-        ? "content_unverified" : "assessable";
-  const eligibilityState = typeof eligibility.state === "string" && eligibility.state ? eligibility.state : legacyState;
+  const eligibilityState = reviewEligibilityState(payload);
   const notAssessable = eligibilityState !== "assessable";
   const cefrEstimate = toRecord(scores.cefr_estimate);
   const dimensions = toRecord(scores.dimensions);
@@ -272,12 +280,12 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
       .toLowerCase(),
     llmScore: notAssessable ? null : asNumberOrNull(scores.llm),
     mode: String(scores.mode || ""),
-    nextExercise: String(coaching.next_exercise || ""),
+    nextExercise: notAssessable ? "" : String(coaching.next_exercise || ""),
     nextAttemptInstruction: String(coaching.next_attempt_instruction || ""),
-    nextFocus: String(coaching.next_focus || ""),
+    nextFocus: notAssessable ? "" : String(coaching.next_focus || ""),
     notes: String(payload.notes || ""),
     payload,
-    priorities: asTextList(coaching.top_3_priorities),
+    priorities: notAssessable ? [] : asTextList(coaching.top_3_priorities),
     progressItems: !notAssessable && progressDelta.comparison_verified === true ? buildProgressItems(progressDelta) : [],
     recurringCoherence,
     recurringGrammar,

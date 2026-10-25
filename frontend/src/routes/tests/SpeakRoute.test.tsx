@@ -713,7 +713,11 @@ describe("Speak route", () => {
         error: null,
         report_path: "/tmp/report.json",
         payload: {
+          metrics: { duration_sec: 120 },
           report: {
+            scores: { final: 3.5, band: 4, mode: "hybrid" },
+            checks: { language_pass: true, topic_pass: true, content_validity_pass: true,
+              duration_pass: true, min_words_pass: true },
             transcript: {
               text: "Transcript text",
             },
@@ -724,7 +728,7 @@ describe("Speak route", () => {
         },
         summary: {
           score_overall: 3.5,
-          band: "B2",
+          band: "4",
           next_focus: "Focus on connectors.",
         },
       });
@@ -758,5 +762,6 @@ describe("Speak route", () => {
     rerender(<AppFrame />);
 
     expect(await screen.findByTestId("review-summary")).toBeVisible();
+    expect(screen.getByTestId("review-estimate-text")).toHaveTextContent("3.5/5");
   });
 });

@@ -1,0 +1,28 @@
+{
+  "baseline": {
+    "checks": {
+      "language_pass": true,
+      "topic_pass": true,
+      "content_validity_pass": true,
+      "duration_pass": true,
+      "min_words_pass": true
+    },
+    "metrics": { "duration_sec": 120 }
+  },
+  "cases": [
+    { "name": "eligible", "expected": "assessable" },
+    { "name": "unknown topic does not withhold", "checks": { "topic_pass": null }, "expected": "assessable" },
+    { "name": "missed target duration does not withhold", "checks": { "duration_pass": false }, "expected": "assessable" },
+    { "name": "short recording", "metrics": { "duration_sec": 29 }, "expected": "insufficient_speech" },
+    { "name": "minimum words failed", "checks": { "min_words_pass": false }, "expected": "insufficient_speech" },
+    { "name": "low word warning", "warnings": ["llm_skipped_low_word_count"], "expected": "insufficient_speech" },
+    { "name": "language failed", "checks": { "language_pass": false }, "expected": "invalid_content" },
+    { "name": "topic failed", "checks": { "topic_pass": false }, "expected": "invalid_content" },
+    { "name": "content failed", "checks": { "content_validity_pass": false }, "expected": "invalid_content" },
+    { "name": "failed topic takes precedence over unknown duration", "checks": { "topic_pass": false }, "omitDuration": true, "expected": "invalid_content" },
+    { "name": "missing duration", "omitDuration": true, "expected": "content_unverified" },
+    { "name": "unknown language", "checks": { "language_pass": null }, "expected": "content_unverified" },
+    { "name": "missing content check", "omitChecks": ["content_validity_pass"], "expected": "content_unverified" },
+    { "name": "missing word check", "omitChecks": ["min_words_pass"], "expected": "content_unverified" }
+  ]
+}
