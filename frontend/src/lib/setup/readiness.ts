@@ -4,7 +4,7 @@ import type {
   RuntimeResponse,
 } from "@/lib/api/types";
 
-export type SetupReadinessStatus = "loading" | "ready" | "setup" | "unavailable";
+export type SetupReadinessStatus = "loading" | "ready" | "configured" | "setup" | "unavailable";
 
 export type SetupReadinessKey =
   | "speech_recognition"
@@ -31,7 +31,13 @@ export type SetupReadinessInput = {
   runtime?: RuntimeResponse;
   runtimeError?: boolean;
   runtimePending?: boolean;
+  connectionTestPassed?: boolean;
+  cloudSpeechSelected?: boolean;
+  cloudSpeechConnected?: boolean;
+  cloudSpeechPending?: boolean;
+  cloudSpeechError?: boolean;
   whisperCached?: boolean;
+  whisperChecked?: boolean;
   whisperPending?: boolean;
 };
 
@@ -41,6 +47,9 @@ export type SetupReadinessActionTarget =
 
 export const isCoreSetupReadinessKey = (key: SetupReadinessKey): boolean =>
   key === "speech_recognition" || key === "ai_tutor" || key === "microphone";
+
+export const canContinueWithCheck = (status: SetupReadinessStatus): boolean =>
+  status === "ready" || status === "configured";
 
 export const resolveSetupReadinessAction = (
   key: SetupReadinessKey,
@@ -80,10 +89,16 @@ export const buildSetupReadinessRows = ({
   runtime,
   runtimeError = false,
   runtimePending = false,
+  connectionTestPassed = false,
+  cloudSpeechSelected = false,
+  cloudSpeechConnected = false,
+  cloudSpeechPending = false,
+  cloudSpeechError = false,
   whisperCached = false,
+  whisperChecked = false,
   whisperPending = false,
 }: SetupReadinessInput): SetupReadinessRow[] => {
-  const allPending = diagnosticsPending || runtimePending || whisperPending;
+  const allPending = diagnosticsPending || runtimePending || whisperPending || cloudSpeechPending;
   if (allPending) {
     return [
       {
@@ -129,18 +144,23 @@ export const buildSetupReadinessRows = ({
   );
 
   const speechStatus =
-    diagnosticsError ? "unavailable" : whisperCached || whisperItem?.status === "ok" ? "ready" : statusFromDiagnostic(whisperItem);
+    diagnosticsError || cloudSpeechError ? "unavailable"
+      : cloudSpeechSelected ? (cloudSpeechConnected ? "ready" : "setup")
+        : whisperChecked ? (whisperCached ? "ready" : "setup")
+          : whisperCached || whisperItem?.status === "ok" ? "ready"
+            : whisperItem ? statusFromDiagnostic(whisperItem) : runtime?.configured ? "configured" : "setup";
   const aiStatus =
     diagnosticsError || runtimeError
       ? "unavailable"
-      : credentialMissing
+      : credentialMissing || runtimeItem?.status === "error"
         ? "unavailable"
         : runtime?.configured
-          ? "ready"
+          ? runtime.requires_api_key && runtime.has_api_key || connectionTestPassed ? "ready" : "configured"
           : runtimeItem?.status === "error" ? "unavailable" : "setup";
   const microphoneReadiness = microphoneSetupPassed && microphoneStatus === "ready" ? "ready"
     : ["unknown", "needs_review", "ready"].includes(microphoneStatus) ? "setup" : "unavailable";
-  const coreReady = speechStatus === "ready" && aiStatus === "ready" && microphoneReadiness === "ready";
+  const coreStatuses: SetupReadinessStatus[] = [speechStatus, aiStatus, microphoneReadiness];
+  const coreReady = coreStatuses.every(canContinueWithCheck);
 
   return [
     {
@@ -150,7 +170,8 @@ export const buildSetupReadinessRows = ({
       detailKey:
         speechStatus === "ready"
           ? "runtime_setup.setup_guide_speech_ready"
-          : "runtime_setup.setup_guide_speech_setup",
+          : speechStatus === "configured" ? "first_run.speech_configured" : "runtime_setup.setup_guide_speech_setup",
+      rescueKey: cloudSpeechSelected ? "first_run.rescue_cloud_speech" : undefined,
       actionKey: "runtime_setup.setup_guide_download_model",
       disabled: false,
     },
@@ -161,6 +182,8 @@ export const buildSetupReadinessRows = ({
       detailKey:
         credentialMissing
           ? "first_run.ai_missing_key"
+          : aiStatus === "configured"
+          ? "first_run.ai_configured"
           : aiStatus === "ready"
           ? "runtime_setup.setup_guide_ai_ready"
           : "runtime_setup.setup_guide_ai_setup",
@@ -181,7 +204,7 @@ export const buildSetupReadinessRows = ({
     },
     {
       key: "sample_check",
-      status: "setup",
+      status: coreReady ? "configured" : "setup",
       titleKey: "runtime_setup.setup_guide_sample_title",
       detailKey: coreReady
         ? "runtime_setup.setup_guide_sample_ready"

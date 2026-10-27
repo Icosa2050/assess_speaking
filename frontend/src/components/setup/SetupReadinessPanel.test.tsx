@@ -15,6 +15,8 @@ const labels: Record<string, string> = {
   "first_run.guide_anchor_body": "We check transcription, feedback, and microphone sound.",
   "first_run.guide_anchor_ready_body": "Speech, feedback, and microphone checks passed.",
   "first_run.checks_need_attention": "Checks needing attention: {count}.",
+  "first_run.configured_status": "Configured — checked when you start",
+  "first_run.ai_configured": "A tutor model is selected. Its live connection is checked when you start.",
   "first_run.rescue_ai_tutor": "Start the local tutor app and retry the connection test.",
   "runtime_setup.setup_guide_anchor_body": "Speech recognition and the AI tutor power each practice. Microphone access is handled when you start a session.",
   "runtime_setup.setup_guide_progress_label": "{ready} of {total} core services ready",
@@ -182,6 +184,19 @@ describe("SetupReadinessPanel", () => {
 
     expect(screen.getByText("Speech, feedback, and microphone checks passed.")).toBeVisible();
     expect(screen.queryByText("We check transcription, feedback, and microphone sound.")).not.toBeInTheDocument();
+  });
+
+  it("does not call a configured local tutor ready", () => {
+    const rows: SetupReadinessRow[] = setupRows.map((row) => row.key === "ai_tutor"
+      ? { ...row, status: "configured", detailKey: "first_run.ai_configured" }
+      : row.key === "speech_recognition" || row.key === "microphone"
+        ? { ...row, status: "ready" }
+        : row);
+    render(<SetupReadinessPanel rows={rows} translate={translate} onAction={vi.fn()} />);
+
+    expect(screen.getByTestId("runtime_setup.setup_guide.ai_tutor")).toHaveTextContent("Configured — checked when you start");
+    expect(screen.getByRole("progressbar", { name: "2 of 3 core services ready" })).toHaveAttribute("aria-valuenow", "2");
+    expect(screen.queryByText("Speech, feedback, and microphone checks passed.")).not.toBeInTheDocument();
   });
 
   it("keeps the readiness rows in the input order", () => {

@@ -10,7 +10,9 @@ import { apiClient } from "@/lib/api/client";
 import type { HistoryRow } from "@/lib/api/types";
 import { createTranslator } from "@/lib/i18n";
 import { queryKeys } from "@/lib/query/queryClient";
-import { buildSetupReadinessRows, isCoreSetupReadinessKey } from "@/lib/setup/readiness";
+import { buildSetupReadinessRows, canContinueWithCheck, isCoreSetupReadinessKey } from "@/lib/setup/readiness";
+import { useCloudSpeechConnection } from "@/lib/setup/cloudSpeech";
+import { useRecentConnectionTest } from "@/lib/setup/connectionVerification";
 import {
   buildPracticeBrief,
   languageCodes,
@@ -157,6 +159,8 @@ export const SessionSetupRoute = () => {
     queryKey: ["runtime", "settings"],
     queryFn: () => apiClient.getRuntimeSettings(),
   });
+  const cloudSpeech = useCloudSpeechConnection(runtimeSettingsQuery.data);
+  const connectionTestPassed = useRecentConnectionTest(runtimeQuery.data);
 
   const historyQuery = useQuery({
     queryKey: queryKeys.history,
@@ -262,18 +266,25 @@ export const SessionSetupRoute = () => {
     runtimePending: runtimeQuery.isPending,
     microphoneStatus,
     microphoneSetupPassed,
-    whisperCached: runtimeSettingsQuery.data?.asr_provider === "groq",
+    connectionTestPassed,
+    cloudSpeechSelected: cloudSpeech.selected,
+    cloudSpeechConnected: cloudSpeech.connected,
+    cloudSpeechPending: cloudSpeech.pending || runtimeSettingsQuery.isPending,
+    cloudSpeechError: cloudSpeech.error || runtimeSettingsQuery.isError,
   }).filter((row) => isCoreSetupReadinessKey(row.key));
   const readyToRecord = runtimeConfigured && requiredChecks.every((row) => row.status === "ready");
-  const primaryActionLabel = runtimeReadiness.ready
+  const canContinueToSpeak = runtimeReadiness.ready && requiredChecks
+    .filter((row) => row.key !== "microphone")
+    .every((row) => canContinueWithCheck(row.status));
+  const primaryActionLabel = canContinueToSpeak
     ? translate("setup.start_speaking")
     : translate("setup.save_and_setup_device");
   const runtimeCalloutTitle = translate(readyToRecord
     ? "setup.runtime_ready_title"
-    : runtimeReadiness.ready ? "first_run.continue_to_speak_title" : "setup.runtime_setup_needed_title");
+    : canContinueToSpeak ? "first_run.continue_to_speak_title" : "setup.runtime_setup_needed_title");
   const runtimeCalloutBody = translate(readyToRecord
     ? "setup.runtime_ready_body"
-    : runtimeReadiness.ready ? "first_run.continue_to_speak_body" : "setup.runtime_setup_needed_body");
+    : canContinueToSpeak ? "first_run.continue_to_speak_body" : "setup.runtime_setup_needed_body");
 
   const historyRecommendation = useMemo(
     () =>
@@ -406,7 +417,7 @@ export const SessionSetupRoute = () => {
       promptText: brief.prompt,
     });
 
-    if (runtimeReadiness.ready) {
+    if (canContinueToSpeak) {
       navigate("/speak");
       return;
     }
@@ -451,11 +462,11 @@ export const SessionSetupRoute = () => {
     <div style={pageStyle} data-testid="setup.layout" data-semantic-id="setup.layout">
       <div style={{ gridColumn: "1 / -1" }}>
         <StatusBanner
-          title={translate(readyToRecord ? "first_run.ready_for_task" : "first_run.task_setup_title")}
+          title={translate(readyToRecord ? "first_run.ready_for_task" : canContinueToSpeak ? "first_run.continue_to_speak_title" : "first_run.task_setup_title")}
           tone={readyToRecord ? "success" : "info"}
-          action={!readyToRecord ? <Link to="/runtime-setup">{translate("first_run.open_local_setup")}</Link> : undefined}
+          action={!canContinueToSpeak ? <Link to="/runtime-setup">{translate("first_run.open_local_setup")}</Link> : undefined}
         >
-          {translate(readyToRecord ? "first_run.ready_for_task_body" : "first_run.task_setup_body")}
+          {translate(readyToRecord ? "first_run.ready_for_task_body" : canContinueToSpeak ? "first_run.continue_to_speak_body" : "first_run.task_setup_body")}
         </StatusBanner>
       </div>
       <ThemeForm

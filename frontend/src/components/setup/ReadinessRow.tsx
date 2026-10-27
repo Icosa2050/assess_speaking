@@ -14,12 +14,14 @@ type ReadinessRowProps = {
 };
 
 const statusLabelKey = (status: SetupReadinessStatus): string =>
-  `runtime_setup.setup_guide_status_${status}`;
+  status === "configured" ? "first_run.configured_status" : `runtime_setup.setup_guide_status_${status}`;
 
 const statusClass = (status: SetupReadinessStatus): string => {
   switch (status) {
     case "ready":
       return styles.statusReady;
+    case "configured":
+      return styles.statusConfigured;
     case "unavailable":
       return styles.statusUnavailable;
     case "loading":

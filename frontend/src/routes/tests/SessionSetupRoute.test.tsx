@@ -63,7 +63,7 @@ describe("Session Setup route", () => {
       items: [
         {
           key: "whisper",
-          status: "warning",
+          status: "ok",
           title_key: "diagnostics.whisper_title",
           detail_key: "diagnostics.whisper_warning_detail",
           detail_args: {
@@ -196,6 +196,7 @@ describe("Session Setup route", () => {
     );
     expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Continue to the recording step");
     expect(screen.getByTestId("setup.runtime_callout")).not.toHaveTextContent("Ready to record");
+    expect(screen.getAllByText("Continue to the recording step")).toHaveLength(2);
 
     fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
 
@@ -210,7 +211,7 @@ describe("Session Setup route", () => {
     expect(store.getState().draft.durationSec).toBe(90);
   });
 
-  it("shows ready only when cloud transcription, tutor, and microphone checks pass", async () => {
+  it("does not call cloud transcription ready without its selected Groq account", async () => {
     mockedGetRuntime.mockResolvedValue({
       configured: true, provider: "groq", model: "test", base_url: "https://example.test",
       requires_api_key: true, has_api_key: true,
@@ -230,10 +231,28 @@ describe("Session Setup route", () => {
 
     fireEvent.change(await screen.findByLabelText("Learner name or nickname"), { target: { value: "maria" } });
     fireEvent.click(screen.getByTestId("setup.recommended_start"));
-    await waitFor(() => expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Ready to record"));
-    expect(screen.getByText("Your checks are ready")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
-    expect(await screen.findByTestId("speak.status_panel")).toBeVisible();
+    await waitFor(() => expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Device setup needed"));
+    expect(screen.queryByText("Your checks are ready")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save practice and set up device" })).toBeVisible();
+  });
+
+  it("keeps a configured local tutor out of Speak when the speech model is missing", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true, provider: "ollama", model: "llama3.2:3b", base_url: "http://localhost:11434/v1",
+      requires_api_key: false, has_api_key: false,
+    });
+    mockedGetDiagnostics.mockResolvedValue({ items: [
+      { key: "whisper", status: "warning", title_key: "", detail_key: "", detail_args: {} },
+      { key: "runtime", status: "ok", title_key: "", detail_key: "", detail_args: {} },
+    ] });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/session-setup"], locale: "en" });
+
+    fireEvent.change(await screen.findByLabelText("Learner name or nickname"), { target: { value: "maria" } });
+    fireEvent.click(screen.getByTestId("setup.recommended_start"));
+    expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Device setup needed");
+    expect(screen.queryByRole("button", { name: "Start speaking" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save practice and set up device" }));
+    expect(await screen.findByTestId("runtime_setup.screen")).toBeVisible();
   });
 
   it("sends stale saved preferences to device setup when the backend has no runtime", async () => {

@@ -9,6 +9,8 @@ import { apiClient } from "@/lib/api/client";
 import { createTranslator, semanticAttributes, SEMANTIC_IDS } from "@/lib/i18n";
 import { queryKeys } from "@/lib/query/queryClient";
 import { buildSetupReadinessRows } from "@/lib/setup/readiness";
+import { useCloudSpeechConnection } from "@/lib/setup/cloudSpeech";
+import { useRecentConnectionTest } from "@/lib/setup/connectionVerification";
 import { useAppStore } from "@/lib/state/appStore";
 import { hasReviewState, hasSetupDraft } from "@/lib/state/sessionDraft";
 
@@ -91,6 +93,8 @@ export const HomeRoute = () => {
     queryKey: ["runtime", "settings"],
     queryFn: () => apiClient.getRuntimeSettings(),
   });
+  const cloudSpeech = useCloudSpeechConnection(settingsQuery.data);
+  const connectionTestPassed = useRecentConnectionTest(runtimeQuery.data);
 
   useEffect(() => {
     setCurrentPage("home");
@@ -108,7 +112,11 @@ export const HomeRoute = () => {
     runtime: runtimeQuery.data,
     runtimeError: runtimeQuery.isError,
     runtimePending: runtimeQuery.isPending,
-    whisperCached: settingsQuery.data?.asr_provider === "groq",
+    connectionTestPassed,
+    cloudSpeechSelected: cloudSpeech.selected,
+    cloudSpeechConnected: cloudSpeech.connected,
+    cloudSpeechPending: cloudSpeech.pending || settingsQuery.isPending,
+    cloudSpeechError: cloudSpeech.error || settingsQuery.isError,
     microphoneStatus,
     microphoneSetupPassed,
   }).filter(row => row.key !== "sample_check");

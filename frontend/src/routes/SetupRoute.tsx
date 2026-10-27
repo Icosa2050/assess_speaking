@@ -22,9 +22,12 @@ import { createTranslator, semanticAttributes, SEMANTIC_IDS } from "@/lib/i18n";
 import { queryKeys } from "@/lib/query/queryClient";
 import {
   buildSetupReadinessRows,
+  canContinueWithCheck,
   resolveSetupReadinessAction,
   type SetupReadinessKey,
 } from "@/lib/setup/readiness";
+import { useCloudSpeechConnection } from "@/lib/setup/cloudSpeech";
+import { markConnectionTest, useRecentConnectionTest } from "@/lib/setup/connectionVerification";
 import { useAppStore } from "@/lib/state/appStore";
 import styles from "./SetupRoute.module.css";
 
@@ -221,6 +224,8 @@ export const SetupRoute = () => {
   const whisperItem = findDiagnostic(diagnosticsItems, "whisper");
   const runtime = runtimeQuery.data;
   const runtimeSettings = runtimeSettingsQuery.data;
+  const cloudSpeech = useCloudSpeechConnection(runtimeSettings);
+  const connectionTestPassed = useRecentConnectionTest(runtime);
 
   const activeConnection = useMemo(() => {
     if (!runtimeSettings) {
@@ -258,7 +263,13 @@ export const SetupRoute = () => {
     runtime,
     runtimeError: runtimeQuery.isError,
     runtimePending: runtimeQuery.isPending,
-    whisperCached: runtimeSettingsQuery.data?.asr_provider === "groq" || Boolean(whisperStatusQuery.data?.cached),
+    connectionTestPassed,
+    cloudSpeechSelected: cloudSpeech.selected,
+    cloudSpeechConnected: cloudSpeech.connected,
+    cloudSpeechPending: cloudSpeech.pending || runtimeSettingsQuery.isPending,
+    cloudSpeechError: cloudSpeech.error || runtimeSettingsQuery.isError,
+    whisperCached: Boolean(whisperStatusQuery.data?.cached),
+    whisperChecked: Boolean(whisperStatusQuery.data) && !cloudSpeech.selected,
     whisperPending: runtimeSettingsQuery.data?.asr_provider !== "groq" && whisperStatusQuery.isPending,
   });
 
@@ -275,12 +286,14 @@ export const SetupRoute = () => {
   const truthfulRows = setupReadinessRows.map((row) => row.key === "ai_tutor" && !runtime?.configured && row.status === "ready"
     ? { ...row, status: "setup" as const } : row);
   const readinessRows = cloudAsr ? truthfulRows.map(row => row.key === "speech_recognition"
-    ? {...row, detailKey: "cloud.speech", actionKey: "cloud.configure"} : row) : truthfulRows;
+    ? {...row, detailKey: row.status === "ready" ? "cloud.speech" : "first_run.cloud_speech_missing", actionKey: "cloud.configure"} : row) : truthfulRows;
   const readinessTranslate = (key: string, vars?: Record<string, string | number>) =>
     key === "cloud.speech" ? cloudCopy[0] : key === "cloud.configure" ? cloudCopy[1] : translate(key, vars);
   const requiredRows = readinessRows.filter((row) => row.key !== "sample_check");
   const setupReady = Boolean(runtime?.configured) &&
     requiredRows.every((row) => row.status === "ready");
+  const setupCanContinue = Boolean(runtime?.configured) &&
+    requiredRows.every((row) => canContinueWithCheck(row.status));
 
   const initialDraft = buildDraftFromConnection(activeConnection, translate);
   const formResetToken = JSON.stringify({
@@ -396,6 +409,13 @@ export const SetupRoute = () => {
     try {
       const response = await apiClient.postRuntimeSettingsTestConnection({ connection });
       setDetectedModels(response.discovered_models);
+      if (runtime?.configured && activeConnection &&
+        connection.connection_id === activeConnection.connection_id &&
+        connection.provider_choice === activeConnection.provider_choice &&
+        connection.model === activeConnection.model &&
+        connection.base_url === activeConnection.base_url) {
+        markConnectionTest(queryClient, runtime, true);
+      }
       setFormStatus("test-succeeded");
       setFormStatusMessage(
         translate("runtime_setup.test_message", {
@@ -413,6 +433,9 @@ export const SetupRoute = () => {
             ? caught.message
             : String(caught);
       setFormStatus("test-failed");
+      if (runtime?.configured && activeConnection && connection.connection_id === activeConnection.connection_id) {
+        markConnectionTest(queryClient, runtime, false);
+      }
       setFormStatusMessage(translate("runtime_setup.test_error", { detail }));
     } finally {
       setIsBusy(false);
@@ -475,10 +498,10 @@ export const SetupRoute = () => {
           <Button variant="primary" onClick={() => void handleInvalidateRuntime()}>
             {translate("first_run.check_readiness")}
           </Button>
-          {setupReady ? <Button onClick={() => navigate("/session-setup")}>{translate("first_run.choose_task")}</Button> : null}
+          {setupCanContinue ? <Button onClick={() => navigate("/session-setup")}>{translate("first_run.choose_task")}</Button> : null}
         </div>
         <p role="status" className={styles.checkStatus}>
-          {translate(setupReady ? "first_run.checks_ready" : requiredRows.some((row) => row.status === "loading") ? "first_run.checks_loading" : "first_run.checks_next")}
+          {translate(setupReady ? "first_run.checks_ready" : setupCanContinue ? "first_run.checks_configured" : requiredRows.some((row) => row.status === "loading") ? "first_run.checks_loading" : "first_run.checks_next")}
         </p>
       </Card>
 

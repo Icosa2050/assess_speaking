@@ -25,6 +25,7 @@ vi.mock("@/lib/api/client", () => ({
     createAssessment: vi.fn(),
     getAssessmentStatus: vi.fn(),
     getRuntime: vi.fn(),
+    getDiagnostics: vi.fn(),
     getRuntimeSettings: vi.fn(),
     uploadAudio: vi.fn(),
     getUploadLimits: vi.fn(),
@@ -37,6 +38,7 @@ const mockedCancelAssessment = vi.mocked(apiClient.cancelAssessment);
 const mockedCreateAssessment = vi.mocked(apiClient.createAssessment);
 const mockedGetAssessmentStatus = vi.mocked(apiClient.getAssessmentStatus);
 const mockedGetRuntime = vi.mocked(apiClient.getRuntime);
+const mockedGetDiagnostics = vi.mocked(apiClient.getDiagnostics);
 const mockedGetRuntimeSettings = vi.mocked(apiClient.getRuntimeSettings);
 const mockedUploadAudio = vi.mocked(apiClient.uploadAudio);
 
@@ -124,6 +126,17 @@ describe("Speak route", () => {
     expect(await screen.findByTestId("runtime_setup.screen")).toBeVisible();
     expect(screen.queryByTestId("speak.record_start")).not.toBeInTheDocument();
   });
+
+  it("redirects a direct Speak link when a selected cloud tutor lacks its key", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true, provider: "openrouter", model: "vendor/model", base_url: "https://example.test",
+      requires_api_key: true, has_api_key: false,
+    });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+
+    expect(await screen.findByTestId("runtime_setup.screen")).toBeVisible();
+    expect(screen.queryByTestId("speak.record_start")).not.toBeInTheDocument();
+  });
   const stopTrack = vi.fn();
   const getUserMedia = vi.fn();
 
@@ -153,6 +166,10 @@ describe("Speak route", () => {
       requires_api_key: false,
       has_api_key: false,
     });
+    mockedGetDiagnostics.mockResolvedValue({ items: [
+      { key: "whisper", status: "ok", title_key: "", detail_key: "", detail_args: {} },
+      { key: "runtime", status: "ok", title_key: "", detail_key: "", detail_args: {} },
+    ] });
     mockedGetRuntimeSettings.mockResolvedValue({
       ui_locale: "en",
       whisper_model: "small",
@@ -634,14 +651,14 @@ describe("Speak route", () => {
     }
   });
 
-  it("shows the provider warning, runs the queued or running lifecycle, and acknowledges cancel", async () => {
+  it("runs the cloud provider lifecycle and acknowledges cancel", async () => {
     mockedGetRuntime.mockResolvedValue({
       configured: true,
       provider: "OpenRouter",
       model: "google/gemini-3.1-pro-preview",
       base_url: "https://openrouter.ai/api/v1",
       requires_api_key: true,
-      has_api_key: false,
+      has_api_key: true,
     });
     mockedGetRuntimeSettings.mockResolvedValue({
       ui_locale: "en",
@@ -659,8 +676,8 @@ describe("Speak route", () => {
           is_default: true,
           is_local: false,
           requires_api_key: true,
-          has_api_key: false,
-          secret_state: "missing",
+          has_api_key: true,
+          secret_state: "present",
           last_test_status: "",
           last_tested_at: "",
           openrouter_http_referer: "https://example.test/assess-speaking",
@@ -689,11 +706,7 @@ describe("Speak route", () => {
 
     const statusPanel = await screen.findByTestId("speak.status_panel");
 
-    expect(
-      await screen.findByText(
-        "OpenRouter is selected, but this saved connection is missing its API key. Open Runtime Setup or Settings to add one.",
-      ),
-    ).toBeVisible();
+    expect(screen.queryByText(/this saved connection is missing its API key/)).not.toBeInTheDocument();
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Submit for review" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));

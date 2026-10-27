@@ -18,6 +18,9 @@ import { MIN_REVIEW_SECONDS } from "@/lib/recordingPolicy";
 import { hasFirstTakeMilestone, recordFirstTakeMilestone } from "@/lib/history/firstTakeMilestone";
 import { StatusBanner } from "@/components/ui/StatusBanner";
 import { pollingIntervals, queryKeys } from "@/lib/query/queryClient";
+import { buildSetupReadinessRows, canContinueWithCheck } from "@/lib/setup/readiness";
+import { useCloudSpeechConnection } from "@/lib/setup/cloudSpeech";
+import { useRecentConnectionTest } from "@/lib/setup/connectionVerification";
 import {
   resolveSpeakRouteGuardTarget,
   selectAssessmentLifecycleState,
@@ -175,6 +178,27 @@ export const SpeakRoute = () => {
     queryKey: ["runtime", "settings"],
     queryFn: () => apiClient.getRuntimeSettings(),
   });
+  const diagnosticsQuery = useQuery({
+    queryKey: queryKeys.diagnostics,
+    queryFn: () => apiClient.getDiagnostics(),
+  });
+  const cloudSpeech = useCloudSpeechConnection(runtimeSettingsQuery.data);
+  const connectionTestPassed = useRecentConnectionTest(runtimeQuery.data);
+  const speakingChecks = buildSetupReadinessRows({
+    diagnostics: diagnosticsQuery.data?.items ?? [],
+    diagnosticsError: diagnosticsQuery.isError,
+    diagnosticsPending: diagnosticsQuery.isPending,
+    runtime: runtimeQuery.data,
+    runtimeError: runtimeQuery.isError,
+    runtimePending: runtimeQuery.isPending,
+    connectionTestPassed,
+    cloudSpeechSelected: cloudSpeech.selected,
+    cloudSpeechConnected: cloudSpeech.connected,
+    cloudSpeechPending: cloudSpeech.pending || runtimeSettingsQuery.isPending,
+    cloudSpeechError: cloudSpeech.error || runtimeSettingsQuery.isError,
+  }).filter((row) => row.key === "speech_recognition" || row.key === "ai_tutor");
+  const speakingChecksPending = speakingChecks.some((row) => row.status === "loading");
+  const speakingChecksBlocked = speakingChecks.some((row) => !canContinueWithCheck(row.status));
 
   const effectiveWhisperModel =
     String(runtimeSettingsQuery.data?.whisper_model || "").trim() || DEFAULT_SCORING_WHISPER_MODEL;
@@ -198,7 +222,7 @@ export const SpeakRoute = () => {
   const guardTarget = resolveSpeakRouteGuardTarget({
     draft,
     preferences: effectivePreferences,
-  });
+  }) ?? (speakingChecksBlocked && !speakingChecksPending ? "/runtime-setup" : null);
 
   useEffect(() => {
     setCurrentPage("speak");
@@ -331,7 +355,7 @@ export const SpeakRoute = () => {
     }
   }, [lifecycleState, navigate, review.reportId]);
 
-  if (runtimeQuery.isPending) {
+  if (runtimeQuery.isPending || runtimeSettingsQuery.isPending || speakingChecksPending) {
     return <p role="status">{translate("journey.loading")}</p>;
   }
   if (guardTarget) {
