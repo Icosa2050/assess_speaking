@@ -186,16 +186,16 @@ export const SpeakRoute = () => {
   const connectionTestPassed = useRecentConnectionTest(runtimeQuery.data);
   const speakingChecks = buildSetupReadinessRows({
     diagnostics: diagnosticsQuery.data?.items ?? [],
-    diagnosticsError: diagnosticsQuery.isError,
+    diagnosticsError: diagnosticsQuery.isError && !diagnosticsQuery.data,
     diagnosticsPending: diagnosticsQuery.isPending,
     runtime: runtimeQuery.data,
-    runtimeError: runtimeQuery.isError,
+    runtimeError: runtimeQuery.isError && !runtimeQuery.data,
     runtimePending: runtimeQuery.isPending,
     connectionTestPassed,
     cloudSpeechSelected: cloudSpeech.selected,
     cloudSpeechConnected: cloudSpeech.connected,
     cloudSpeechPending: cloudSpeech.pending || runtimeSettingsQuery.isPending,
-    cloudSpeechError: cloudSpeech.error || runtimeSettingsQuery.isError,
+    cloudSpeechError: cloudSpeech.error || (runtimeSettingsQuery.isError && !runtimeSettingsQuery.data),
   }).filter((row) => row.key === "speech_recognition" || row.key === "ai_tutor");
   const speakingChecksPending = speakingChecks.some((row) => row.status === "loading");
   const speakingChecksBlocked = speakingChecks.some((row) => !canContinueWithCheck(row.status));

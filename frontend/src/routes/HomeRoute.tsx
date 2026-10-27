@@ -107,16 +107,16 @@ export const HomeRoute = () => {
   );
   const practiceChecks = buildSetupReadinessRows({
     diagnostics: diagnosticsItems,
-    diagnosticsError: diagnosticsQuery.isError,
+    diagnosticsError: diagnosticsQuery.isError && !diagnosticsQuery.data,
     diagnosticsPending: diagnosticsQuery.isPending,
     runtime: runtimeQuery.data,
-    runtimeError: runtimeQuery.isError,
+    runtimeError: runtimeQuery.isError && !runtimeQuery.data,
     runtimePending: runtimeQuery.isPending,
     connectionTestPassed,
     cloudSpeechSelected: cloudSpeech.selected,
     cloudSpeechConnected: cloudSpeech.connected,
     cloudSpeechPending: cloudSpeech.pending || settingsQuery.isPending,
-    cloudSpeechError: cloudSpeech.error || settingsQuery.isError,
+    cloudSpeechError: cloudSpeech.error || (settingsQuery.isError && !settingsQuery.data),
     microphoneStatus,
     microphoneSetupPassed,
   }).filter(row => row.key !== "sample_check");

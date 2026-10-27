@@ -434,6 +434,34 @@ describe("Speak route", () => {
     expect(FakeMediaRecorder.instances.at(-1)?.state).toBe("recording");
   });
 
+  it("keeps the active recorder mounted when cached readiness refreshes fail", async () => {
+    const { queryClient } = renderWithProviders(<AppFrame />, {
+      initialEntries: ["/speak"], locale: "en", appState: validDraftState,
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Start recording" }));
+    const panel = screen.getByTestId("speak.recording_panel");
+    await screen.findByRole("button", { name: "Stop recording" });
+    mockedGetDiagnostics.mockRejectedValue(new Error("offline"));
+    mockedGetRuntime.mockRejectedValue(new Error("offline"));
+    mockedGetRuntimeSettings.mockRejectedValue(new Error("offline"));
+
+    act(() => {
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["diagnostics"] }),
+        queryClient.invalidateQueries({ queryKey: ["runtime"] }),
+        queryClient.invalidateQueries({ queryKey: ["runtime", "settings"] }),
+      ]);
+    });
+    await waitFor(() => {
+      expect(queryClient.getQueryState(["diagnostics"])?.status).toBe("error");
+      expect(queryClient.getQueryState(["runtime"])?.status).toBe("error");
+      expect(queryClient.getQueryState(["runtime", "settings"])?.status).toBe("error");
+    }, { timeout: 5_000 });
+    expect(screen.getByTestId("speak.recording_panel")).toBe(panel);
+    expect(screen.getByRole("button", { name: "Stop recording" })).toBeVisible();
+    expect(FakeMediaRecorder.instances.at(-1)?.state).toBe("recording");
+  });
+
   it("clears the previous attachment when switching between record and upload modes", async () => {
     renderWithProviders(<AppFrame />, {
       initialEntries: ["/speak"],

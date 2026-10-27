@@ -259,10 +259,10 @@ export const SessionSetupRoute = () => {
   });
   const requiredChecks = buildSetupReadinessRows({
     diagnostics: diagnosticsQuery.data?.items ?? [],
-    diagnosticsError: diagnosticsQuery.isError,
+    diagnosticsError: diagnosticsQuery.isError && !diagnosticsQuery.data,
     diagnosticsPending: diagnosticsQuery.isPending,
     runtime: runtimeQuery.data,
-    runtimeError: runtimeQuery.isError,
+    runtimeError: runtimeQuery.isError && !runtimeQuery.data,
     runtimePending: runtimeQuery.isPending,
     microphoneStatus,
     microphoneSetupPassed,
@@ -270,7 +270,7 @@ export const SessionSetupRoute = () => {
     cloudSpeechSelected: cloudSpeech.selected,
     cloudSpeechConnected: cloudSpeech.connected,
     cloudSpeechPending: cloudSpeech.pending || runtimeSettingsQuery.isPending,
-    cloudSpeechError: cloudSpeech.error || runtimeSettingsQuery.isError,
+    cloudSpeechError: cloudSpeech.error || (runtimeSettingsQuery.isError && !runtimeSettingsQuery.data),
   }).filter((row) => isCoreSetupReadinessKey(row.key));
   const readyToRecord = runtimeConfigured && requiredChecks.every((row) => row.status === "ready");
   const canContinueToSpeak = runtimeReadiness.ready && requiredChecks
