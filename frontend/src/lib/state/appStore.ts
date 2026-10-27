@@ -3,6 +3,7 @@ import { useStore } from "zustand";
 import { createStore, type StoreApi } from "zustand/vanilla";
 
 import type { MicrophoneStatus } from "@/lib/setup/microphone";
+import { persistRetryDraft, readRetryDraft } from "./retryBriefStorage";
 
 import { detectPreferredUiLocale, resolveUiLocale } from "@/lib/i18n";
 
@@ -318,11 +319,14 @@ export const AppStoreProvider = ({
   const storeRef = useRef<AppStoreApi | null>(store ?? null);
 
   if (storeRef.current === null) {
-    storeRef.current = createAppStore();
+    storeRef.current = createAppStore({ draft: readRetryDraft() ?? undefined });
   }
 
   useEffect(() => {
     const activeStore = storeRef.current!;
+    const unsubscribeDraft = activeStore.subscribe((state, previous) => {
+      if (state.draft !== previous.draft) persistRetryDraft(state.draft);
+    });
     let disposed = false;
     let permission: PermissionStatus | undefined;
     const changed = () => {
@@ -340,6 +344,7 @@ export const AppStoreProvider = ({
       }).catch(() => undefined);
     }
     return () => {
+      unsubscribeDraft();
       disposed = true;
       permission?.removeEventListener("change", changed);
       navigator.mediaDevices?.removeEventListener?.("devicechange", deviceChanged);

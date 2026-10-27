@@ -646,6 +646,27 @@
     "new_setup": "Aufgabe ändern",
     "view_history": "Verlauf öffnen"
   },
+  "retry": {
+    "choose_goal": "Wähle ein Ziel für den nächsten Versuch",
+    "suggested_goal": "Vorschlag: {goal}",
+    "goal_label": "Ziel für den nächsten Versuch",
+    "goal_hint": "Wähle einen Vorschlag oder formuliere ein kurzes Ziel. Vor der Aufnahme kannst du es ändern.",
+    "clear_goal": "Ziel entfernen",
+    "brief_title": "Dein Plan für den nächsten Versuch",
+    "brief_context": "Gleiche Aufgabe: {task}",
+    "brief_hint": "Dieses Ziel wird mit deinem Entwurf auf diesem Gerät gespeichert. Du kannst es vor der Aufnahme ändern oder entfernen.",
+    "follow_up_eyebrow": "Dein Ziel",
+    "follow_up_title": "Prüfe diesen Versuch anhand deines Ziels",
+    "goal_value": "Dein Ziel: {goal}",
+    "no_goal": "Für diesen Versuch ist kein Ziel festgelegt.",
+    "observation": "Passende Beobachtung in diesem Bericht: {value}",
+    "transcript_check": "Prüfe für dieses Ziel deine aufgezeichneten Worte: „{value}“. Der Bericht enthält dazu keine eigene Bewertung.",
+    "no_direct_observation": "Dieser Bericht enthält keine Beobachtung speziell zu deinem Ziel. Prüfe Transkript und Coaching-Hinweise, bevor du entscheidest, ob du es erreicht hast.",
+    "overall_change": "Änderung der gesamten Übungseinschätzung: {value}/5. Sie bezieht sich auf den ganzen Versuch, nicht nur auf dieses Ziel.",
+    "no_numeric_change": "Die Versuche sind vergleichbar, aber es wurde keine Änderung der Gesamtwertung gemeldet.",
+    "incompatible": "Eine Wertungsänderung ist nicht verfügbar, weil Übungskontext oder Bewertungsmethode nicht als vergleichbar mit dem vorherigen Versuch bestätigt wurden.",
+    "not_assessable": "Dieser Versuch konnte nicht bewertet werden. Prüfe die Qualitätshinweise; ein Zielvergleich ist nicht verfügbar."
+  },
   "history": {
     "review_unavailable": "Ausführliche Rückmeldung nicht verfügbar",
     "review_selected": "Rückmeldung ausgewählt",

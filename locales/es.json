@@ -646,6 +646,27 @@
     "new_setup": "Cambiar ejercicio",
     "view_history": "Abrir historial"
   },
+  "retry": {
+    "choose_goal": "Elige un objetivo para el siguiente intento",
+    "suggested_goal": "Sugerencia: {goal}",
+    "goal_label": "Objetivo para el siguiente intento",
+    "goal_hint": "Elige una sugerencia o escribe un objetivo breve. Puedes cambiarlo antes de grabar.",
+    "clear_goal": "Borrar objetivo",
+    "brief_title": "Tu plan para repetir",
+    "brief_context": "Misma tarea: {task}",
+    "brief_hint": "Este objetivo se guarda con tu borrador en este dispositivo. Puedes editarlo o borrarlo antes de grabar.",
+    "follow_up_eyebrow": "Tu objetivo",
+    "follow_up_title": "Revisa este intento según tu objetivo",
+    "goal_value": "Tu objetivo: {goal}",
+    "no_goal": "No hay un objetivo para este intento.",
+    "observation": "Observación relacionada en este informe: {value}",
+    "transcript_check": "Para este objetivo, revisa tus palabras grabadas: «{value}». El informe no ofrece un juicio específico sobre el objetivo.",
+    "no_direct_observation": "Este informe no incluye una observación específica sobre tu objetivo. Revisa la transcripción y los comentarios antes de decidir si lo cumpliste.",
+    "overall_change": "Cambio en la estimación global de práctica: {value}/5. Mide todo el intento, no solo este objetivo.",
+    "no_numeric_change": "Los intentos son comparables, pero no se informó de un cambio en la puntuación global.",
+    "incompatible": "No se muestra un cambio de puntuación porque no se verificó que el contexto o el método de evaluación fueran comparables con el intento anterior.",
+    "not_assessable": "Este intento no se pudo evaluar. Revisa las notas de calidad; no hay comparación del objetivo."
+  },
   "history": {
     "review_unavailable": "Evaluación detallada no disponible",
     "review_selected": "Evaluación seleccionada",

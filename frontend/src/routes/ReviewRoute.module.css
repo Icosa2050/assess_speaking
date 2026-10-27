@@ -29,3 +29,43 @@
   flex-wrap: wrap;
   gap: 0.75rem;
 }
+
+.followUp,
+.goalPicker {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.followUp h2,
+.followUp p {
+  margin: 0;
+}
+
+.eyebrow {
+  color: var(--color-brand);
+  font-size: var(--font-size-compact);
+  font-weight: var(--weight-bold);
+}
+
+.goalPicker {
+  padding: var(--space-4);
+  border: 1px solid var(--color-selected-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.goalOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.goalOptions button {
+  max-width: 100%;
+  text-align: left;
+  white-space: normal;
+}
+
+.goalPicker > button {
+  justify-self: start;
+}

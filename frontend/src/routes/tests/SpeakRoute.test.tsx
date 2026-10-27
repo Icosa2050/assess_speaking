@@ -109,6 +109,18 @@ const expectDecorativeIcon = (element: HTMLElement) => {
 describe("Speak route", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it("shows an editable, clearable retry goal before recording", async () => {
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
+      appState: { ...validDraftState, draft: { ...validDraftState.draft,
+        retryOfSessionId: "first", coachingGoal: "Add a clear ending" } } });
+    const brief = await screen.findByTestId("speak-retry-brief");
+    expect(brief).toHaveTextContent("Add a clear ending");
+    expect(screen.getByTestId("speak.record_start")).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("speak-retry-goal"), { target: { value: "Use one transition" } });
+    expect(store.getState().draft.coachingGoal).toBe("Use one transition");
+    fireEvent.click(within(brief).getByRole("button", { name: "Clear goal" }));
+    expect(store.getState().draft.coachingGoal).toBe("");
+  });
   it("keeps recording blocked without calibration while upload remains usable", async () => {
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
       appState: { ...validDraftState, microphoneSetupPassed: false } });

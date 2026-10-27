@@ -175,6 +175,22 @@ describe("Review route", () => {
     expect(screen.queryByText(/\d\.\d\/5 · limited proxy/)).not.toBeInTheDocument();
     expect(screen.getByTestId("review-baseline")).not.toHaveTextContent("Pass");
     expect(screen.queryByRole("button", {name: "Resume unfinished analysis"})).not.toBeInTheDocument();
+    expect(screen.queryByTestId("review-goal-picker")).not.toBeInTheDocument();
+  });
+
+  it("carries one edited coaching goal into Speak and stores it with the retry draft", async () => {
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
+      ...validDraftState,
+      review: { reportId: "report-1", transcript: "Full transcript text", scoreOverall: 3.5,
+        band: "4", summary: "Focus on connectors.", payload: reviewPayload },
+    } });
+    const goal = await screen.findByTestId("review-goal-input") as HTMLInputElement;
+    expect(goal.value).toBe("Connect your examples more clearly.");
+    fireEvent.change(goal, { target: { value: "Connect each example to your point" } });
+    fireEvent.click(screen.getByTestId("review-action-try-again"));
+    expect(await screen.findByTestId("speak-retry-brief")).toHaveTextContent("Connect each example to your point");
+    expect(store.getState().draft.coachingGoal).toBe("Connect each example to your point");
+    expect(window.localStorage.getItem("vostavo.retry-draft.v1")).toContain("Connect each example to your point");
   });
 
   it.each(["content_unverified", "invalid_content"])("withholds stale saved grades for %s reports", async state => {

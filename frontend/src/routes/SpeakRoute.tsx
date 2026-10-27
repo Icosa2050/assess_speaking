@@ -6,6 +6,9 @@ import { useQuery } from "@tanstack/react-query";
 import { AssessmentStatusPanel } from "@/components/speak/AssessmentStatusPanel";
 import { RecorderPanel } from "@/components/speak/RecorderPanel";
 import { SpeakStatusRail, type SpeakConfidencePhase } from "@/components/speak/SpeakStatusRail";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Field } from "@/components/ui/Field";
 import { apiClient, ApiClientError } from "@/lib/api/client";
 import type {
   AssessmentStatusResponse,
@@ -153,6 +156,7 @@ export const SpeakRoute = () => {
   const draft = useAppStore((state) => state.draft);
   const recording = useAppStore((state) => state.recording);
   const review = useAppStore((state) => state.review);
+  const updateDraft = useAppStore((state) => state.updateDraft);
   const setCurrentPage = useAppStore((state) => state.setCurrentPage);
   const updateRecording = useAppStore((state) => state.updateRecording);
   const updateRecordingInputs = useAppStore((state) => state.updateRecordingInputs);
@@ -219,7 +223,7 @@ export const SpeakRoute = () => {
     [preferences, runtimeQuery.data],
   );
 
-  const guardTarget = resolveSpeakRouteGuardTarget({
+  const guardTarget = runtimeQuery.isPending && draft.retryOfSessionId ? null : resolveSpeakRouteGuardTarget({
     draft,
     preferences: effectivePreferences,
   }) ?? (speakingChecksBlocked && !speakingChecksPending ? "/runtime-setup" : null);
@@ -592,6 +596,24 @@ export const SpeakRoute = () => {
           {draft.promptText || translate("speak.prompt_placeholder")}
         </blockquote>
       </section>
+
+      {draft.retryOfSessionId && (
+        <Card as="section" data-testid="speak-retry-brief" style={{ display: "grid", gap: "var(--space-3)" }}>
+          <h2 style={{ margin: 0, fontSize: "var(--font-size-title)" }}>{translate("retry.brief_title")}</h2>
+          <p style={{ margin: 0 }}>{translate("retry.brief_context", { task: draft.themeLabel || draft.promptText })}</p>
+          <p style={{ margin: 0 }} data-testid="speak-retry-goal-text">
+            {draft.coachingGoal.trim()
+              ? translate("retry.goal_value", { goal: draft.coachingGoal.trim() })
+              : translate("retry.no_goal")}
+          </p>
+          <Field label={translate("retry.goal_label")} value={draft.coachingGoal} maxLength={240}
+            onChange={event => updateDraft({ coachingGoal: event.target.value })}
+            hint={translate("retry.brief_hint")} data-testid="speak-retry-goal" />
+          <Button variant="quiet" onClick={() => updateDraft({ coachingGoal: "" })}>
+            {translate("retry.clear_goal")}
+          </Button>
+        </Card>
+      )}
 
       <SpeakStatusRail phase={confidencePhase} translate={translate} />
 
