@@ -339,7 +339,7 @@ test.describe("review and history replacement flow", () => {
     await page.setViewportSize({ width: 1360, height: 900 });
     await expect(page.getByTestId("review-goal-input")).toHaveValue("Keep the story close to the travel theme.");
     await tabTo(page, "review-goal-input");
-    await page.keyboard.press("Meta+A");
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
     await page.keyboard.type("Add one concrete detail");
     await page.screenshot({ path: testInfo.outputPath("retry-review-1360x900.png"), fullPage: true });
     await tabTo(page, "review-action-try-again");
