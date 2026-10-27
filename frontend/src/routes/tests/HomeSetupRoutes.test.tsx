@@ -156,6 +156,19 @@ describe("Home and Runtime Setup routes", () => {
     expect(await screen.findByTestId("rehearsal-screen")).toBeVisible();
   });
 
+  it("labels the German UI sample as an Italian response task", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: false, provider: "", model: "", base_url: "",
+      requires_api_key: false, has_api_key: false,
+    });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/"], locale: "de" });
+
+    const preview = await screen.findByTestId("first-run.preview");
+    expect(preview).toHaveTextContent("Antworte auf Italienisch");
+    expect(preview).toHaveTextContent("Beispiel · Italienisch · B1");
+    expect(preview).toHaveTextContent("BEISPIELBERICHT · NUR ZUR VERANSCHAULICHUNG");
+  });
+
   it("does not call stale saved preferences ready when the runtime is not configured", async () => {
     mockedGetRuntime.mockResolvedValue({ configured: false, provider: "", model: "", base_url: "", requires_api_key: false, has_api_key: false });
     mockedGetDiagnostics.mockResolvedValue({ items: [

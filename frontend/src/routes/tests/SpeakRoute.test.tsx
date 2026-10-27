@@ -426,6 +426,20 @@ describe("Speak route", () => {
     expect(screen.queryByTestId("speak.first_take_milestone")).not.toBeInTheDocument();
   });
 
+  it("shows the milestone for the first take but not the next take in one session", async () => {
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Start recording" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop recording" }));
+    expect(await screen.findByTestId("speak.first_take_milestone")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove recording" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start recording" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop recording" }));
+    expect(await screen.findByTestId("speak.status_panel")).toHaveTextContent("Record at least 30 seconds");
+    expect(screen.queryByTestId("speak.first_take_milestone")).not.toBeInTheDocument();
+  });
+
   it("removes an uploaded recording and returns to the idle state", async () => {
     renderWithProviders(<AppFrame />, {
       initialEntries: ["/speak"],
