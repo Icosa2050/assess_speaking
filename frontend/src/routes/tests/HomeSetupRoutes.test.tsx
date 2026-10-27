@@ -711,6 +711,50 @@ describe("Home and Runtime Setup routes", () => {
     expect(screen.getByRole("button", { name: "Start speaking" })).toBeVisible();
   });
 
+  it("refreshes speech diagnostics after a model download before entering Session Setup", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true, provider: "ollama", model: "llama3.2:3b", base_url: "http://localhost:11434/v1",
+      requires_api_key: false, has_api_key: false,
+    });
+    mockedGetDiagnostics
+      .mockResolvedValueOnce({ items: [
+        { key: "whisper", status: "warning", title_key: "", detail_key: "", detail_args: {} },
+        { key: "runtime", status: "ok", title_key: "", detail_key: "", detail_args: {} },
+      ] })
+      .mockResolvedValue({ items: [
+        { key: "whisper", status: "ok", title_key: "", detail_key: "", detail_args: {} },
+        { key: "runtime", status: "ok", title_key: "", detail_key: "", detail_args: {} },
+      ] });
+    mockedGetWhisperModelStatus
+      .mockResolvedValueOnce({
+        model: "small", repo_id: "systran/faster-whisper-small", cached: false, cached_path: "",
+        recommended: true, recommendation_reason: "Practice tier",
+      })
+      .mockResolvedValue({
+        model: "small", repo_id: "systran/faster-whisper-small", cached: true, cached_path: "/tmp/small",
+        recommended: true, recommendation_reason: "Practice tier",
+      });
+    mockedPostWhisperModelDownload.mockResolvedValue({
+      model: "small", repo_id: "systran/faster-whisper-small", cached: true, cached_path: "/tmp/small",
+      recommended: true, recommendation_reason: "Practice tier",
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/runtime-setup"], locale: "en",
+      appState: { microphoneStatus: "ready", microphoneSetupPassed: true },
+    });
+    const speech = await screen.findByTestId("runtime_setup.setup_guide.speech_recognition");
+    await waitFor(() => expect(speech).toHaveAttribute("data-status", "setup"));
+    fireEvent.click(screen.getByTestId("runtime_setup.download_model"));
+    await waitFor(() => expect(speech).toHaveAttribute("data-status", "ready"));
+    expect(mockedGetDiagnostics).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole("button", { name: "Choose a practice task" }));
+    fireEvent.change(await screen.findByLabelText("Learner name or nickname"), { target: { value: "maria" } });
+    fireEvent.click(screen.getByTestId("setup.recommended_start"));
+    expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Continue to the recording step");
+    expect(screen.getByRole("button", { name: "Start speaking" })).toBeVisible();
+  });
+
   it("shows the runtime setup branch on Home and renders interactive runtime controls", async () => {
     mockedGetRuntime.mockResolvedValue({
       configured: false,

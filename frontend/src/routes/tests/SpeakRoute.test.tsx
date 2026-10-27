@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppFrame } from "@/App";
 import { renderWithProviders } from "@/test/renderWithProviders";
@@ -106,6 +106,8 @@ const expectDecorativeIcon = (element: HTMLElement) => {
 };
 
 describe("Speak route", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it("keeps recording blocked without calibration while upload remains usable", async () => {
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
       appState: { ...validDraftState, microphoneSetupPassed: false } });
@@ -399,6 +401,37 @@ describe("Speak route", () => {
     expect(stopButton).toHaveAttribute("data-semantic-id", "speak.record_stop");
     expectDecorativeIcon(stopButton);
     expect(stopButton).toBeVisible();
+  });
+
+  it("keeps the active recorder mounted during a cloud-settings refresh", async () => {
+    const cloudResponse = {
+      settings: { asr_provider: "groq", asr_connection_id: "groq-1" },
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(cloudResponse), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    })));
+    mockedGetRuntimeSettings.mockResolvedValue({
+      ui_locale: "en", whisper_model: "small", active_connection_id: "conn-primary", asr_provider: "groq",
+      connections: [{
+        connection_id: "groq-1", provider_key: "groq", provider_choice: "groq", provider_label: "Groq",
+        label: "Speech", model: "whisper-large-v3", base_url: "https://api.groq.com", is_default: false,
+        is_local: false, requires_api_key: true, has_api_key: true, secret_state: "present",
+        last_test_status: "", last_tested_at: "", openrouter_http_referer: "", openrouter_app_title: "", provider_metadata: {},
+      }],
+    });
+    const { queryClient } = renderWithProviders(<AppFrame />, {
+      initialEntries: ["/speak"], locale: "en", appState: validDraftState,
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Start recording" }));
+    const panel = screen.getByTestId("speak.recording_panel");
+    await screen.findByRole("button", { name: "Stop recording" });
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+
+    act(() => { void queryClient.invalidateQueries({ queryKey: ["runtime", "cloud"] }); });
+    await waitFor(() => expect(queryClient.getQueryState(["runtime", "cloud"])?.fetchStatus).toBe("fetching"));
+    expect(screen.getByTestId("speak.recording_panel")).toBe(panel);
+    expect(screen.getByRole("button", { name: "Stop recording" })).toBeVisible();
+    expect(FakeMediaRecorder.instances.at(-1)?.state).toBe("recording");
   });
 
   it("clears the previous attachment when switching between record and upload modes", async () => {

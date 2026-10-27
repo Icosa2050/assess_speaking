@@ -29,7 +29,7 @@ export const useCloudSpeechConnection = (runtimeSettings?: RuntimeSettingsRespon
   return {
     selected,
     connected: hasSelectedGroqConnection(runtimeSettings, query.data),
-    pending: selected && (query.isPending || query.isFetching),
-    error: selected && query.isError,
+    pending: selected && query.isPending,
+    error: selected && query.isError && !query.data,
   };
 };

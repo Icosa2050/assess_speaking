@@ -325,7 +325,10 @@ export const SetupRoute = () => {
           path: status.cached_path || status.model,
         }),
       );
-      await queryClient.invalidateQueries({ queryKey: ["runtime", "whisper", selectedWhisperModel] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["runtime", "whisper", selectedWhisperModel] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.diagnostics }),
+      ]);
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
       setWhisperMessage(translate("runtime_setup.whisper_download_failed", { detail }));
