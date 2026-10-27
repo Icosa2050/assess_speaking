@@ -410,9 +410,6 @@ export const HistoryRoute = () => {
       data-testid="history-route"
       data-semantic-id="history-route"
     >
-      {firstTakeRecorded ? <StatusBanner title={translate("first_run.milestone_title")} tone="success" action={<Link to="/session-setup">{translate("first_run.milestone_next")}</Link>}>
-        {translate("first_run.milestone_body")}
-      </StatusBanner> : null}
       <section className={historyStyles.header}>
         <div className={historyStyles.heading}>
           <div>

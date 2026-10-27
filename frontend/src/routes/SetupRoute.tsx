@@ -276,7 +276,7 @@ export const SetupRoute = () => {
   const readinessTranslate = (key: string, vars?: Record<string, string | number>) =>
     key === "cloud.speech" ? cloudCopy[0] : key === "cloud.configure" ? cloudCopy[1] : translate(key, vars);
   const requiredRows = readinessRows.filter((row) => row.key !== "sample_check");
-  const localPathReady = !cloudAsr && Boolean(runtime?.configured) && activeConnection?.provider_choice === "ollama_local" &&
+  const setupReady = Boolean(runtime?.configured) &&
     requiredRows.every((row) => row.status === "ready");
 
   const initialDraft = buildDraftFromConnection(activeConnection, translate);
@@ -472,10 +472,10 @@ export const SetupRoute = () => {
           <Button variant="primary" onClick={() => void handleInvalidateRuntime()}>
             {translate("first_run.check_readiness")}
           </Button>
-          {localPathReady ? <Button onClick={() => navigate("/session-setup")}>{translate("first_run.choose_task")}</Button> : null}
+          {setupReady ? <Button onClick={() => navigate("/session-setup")}>{translate("first_run.choose_task")}</Button> : null}
         </div>
         <p role="status" className={styles.checkStatus}>
-          {translate(localPathReady ? "first_run.checks_ready" : requiredRows.some((row) => row.status === "loading") ? "first_run.checks_loading" : "first_run.checks_next")}
+          {translate(setupReady ? "first_run.checks_ready" : requiredRows.some((row) => row.status === "loading") ? "first_run.checks_loading" : "first_run.checks_next")}
         </p>
       </Card>
 

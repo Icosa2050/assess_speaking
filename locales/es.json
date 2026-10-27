@@ -55,6 +55,8 @@
     "report_guide": "Cómo funcionan los comentarios",
     "task_setup_title": "Prepara este Mac y luego elige una tarea",
     "task_setup_body": "Puedes explorar una tarea ahora. Antes de grabar, comprueba las herramientas locales y el micrófono.",
+    "continue_to_speak_title": "Continúa al paso de grabación",
+    "continue_to_speak_body": "«Empezar a hablar» abre el paso de grabación. Completa las comprobaciones del dispositivo antes de grabar; allí es obligatorio probar el micrófono.",
     "open_local_setup": "Preparar la práctica",
     "ready_for_task": "Las comprobaciones están listas",
     "ready_for_task_body": "Elige una tarea y graba tu primer intento.",

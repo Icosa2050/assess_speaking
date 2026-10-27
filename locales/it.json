@@ -55,6 +55,8 @@
     "report_guide": "Come funziona il feedback",
     "task_setup_title": "Prepara questo Mac, poi scegli un esercizio",
     "task_setup_body": "Puoi già esplorare un esercizio. Prima di registrare, controlla gli strumenti locali e il microfono.",
+    "continue_to_speak_title": "Vai alla fase di registrazione",
+    "continue_to_speak_body": "«Inizia a parlare» apre la fase di registrazione. Completa i controlli del dispositivo prima di registrare; lì è obbligatoria la prova del microfono.",
     "open_local_setup": "Prepara la pratica",
     "ready_for_task": "I controlli sono pronti",
     "ready_for_task_body": "Scegli un esercizio e registra il primo tentativo.",

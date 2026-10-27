@@ -55,6 +55,8 @@
     "report_guide": "How practice feedback works",
     "task_setup_title": "Prepare this Mac, then choose a task",
     "task_setup_body": "You can explore a task now. Before recording, check the local speech tools and test your microphone.",
+    "continue_to_speak_title": "Continue to the recording step",
+    "continue_to_speak_body": "Start speaking opens the recording step. Finish the device checks before you record; the microphone check is required there.",
     "open_local_setup": "Get ready to practice",
     "ready_for_task": "Your checks are ready",
     "ready_for_task_body": "Choose a task and record your first take.",

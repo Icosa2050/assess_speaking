@@ -117,6 +117,7 @@ describe("Speak route", () => {
   const getUserMedia = vi.fn();
 
   beforeEach(() => {
+    window.localStorage.removeItem("assess-speaking.first-take-recorded");
     vi.mocked(apiClient.getUploadLimits).mockResolvedValue({ max_bytes: 104857600, available_bytes: 104857600 });
     vi.clearAllMocks();
     vi.mocked(apiClient.getSharingRoute).mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null });
@@ -400,6 +401,18 @@ describe("Speak route", () => {
     expect(uploadInput).not.toBeVisible();
     expect(uploadInput.closest("label")?.className).toContain("uploadControl");
     expectDecorativeIcon(screen.getByText("Choose audio file"));
+  });
+
+  it("does not repeat the first-take banner for a later recording", async () => {
+    const { rerender } = renderWithProviders(<></>, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+    window.localStorage.setItem("assess-speaking.first-take-recorded", "1");
+    rerender(<AppFrame />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Start recording" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop recording" }));
+
+    expect(await screen.findByTestId("speak.status_panel")).toHaveTextContent("Record at least 30 seconds");
+    expect(screen.queryByTestId("speak.first_take_milestone")).not.toBeInTheDocument();
   });
 
   it("removes an uploaded recording and returns to the idle state", async () => {

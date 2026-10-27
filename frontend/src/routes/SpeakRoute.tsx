@@ -15,7 +15,7 @@ import type {
 } from "@/lib/api/types";
 import { createTranslator } from "@/lib/i18n";
 import { MIN_REVIEW_SECONDS } from "@/lib/recordingPolicy";
-import { recordFirstTakeMilestone } from "@/lib/history/firstTakeMilestone";
+import { hasFirstTakeMilestone, recordFirstTakeMilestone } from "@/lib/history/firstTakeMilestone";
 import { StatusBanner } from "@/components/ui/StatusBanner";
 import { pollingIntervals, queryKeys } from "@/lib/query/queryClient";
 import {
@@ -207,6 +207,7 @@ export const SpeakRoute = () => {
   const [inputMode, setInputMode] = useState<RecordingInputMethod>(recording.inputMethod || "record");
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [recordedDurationSec, setRecordedDurationSec] = useState<number | null>(null);
+  const [firstTakeJustRecorded, setFirstTakeJustRecorded] = useState(false);
   const [previewUrl, setPreviewUrl] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
@@ -224,6 +225,7 @@ export const SpeakRoute = () => {
     setPreviewUrl("");
     setAttachedFile(null);
     setRecordedDurationSec(null);
+    setFirstTakeJustRecorded(false);
     clearRecording({ preserveInputs: true });
   };
 
@@ -260,7 +262,10 @@ export const SpeakRoute = () => {
     setPreviewUrl(nextPreviewUrl);
     setAttachedFile(file);
     setRecordedDurationSec(durationSec ?? null);
-    if (inputMode === "record" && durationSec !== undefined) recordFirstTakeMilestone();
+    if (inputMode === "record" && durationSec !== undefined && !hasFirstTakeMilestone()) {
+      recordFirstTakeMilestone();
+      setFirstTakeJustRecorded(hasFirstTakeMilestone());
+    }
     updateRecording({
       status: "ready",
       assessmentState: "idle",
@@ -563,7 +568,7 @@ export const SpeakRoute = () => {
 
       <SpeakStatusRail phase={confidencePhase} translate={translate} />
 
-      {recordedDurationSec !== null && inputMode === "record" ? (
+      {firstTakeJustRecorded && recordedDurationSec !== null && inputMode === "record" ? (
         <div data-testid="speak.first_take_milestone">
           <StatusBanner title={translate("first_run.milestone_title")} tone="success">
             {translate("first_run.milestone_body")}

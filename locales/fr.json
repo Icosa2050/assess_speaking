@@ -55,6 +55,8 @@
     "report_guide": "Comprendre les conseils de pratique",
     "task_setup_title": "Prépare ce Mac, puis choisis une tâche",
     "task_setup_body": "Tu peux déjà découvrir une tâche. Avant d’enregistrer, vérifie les outils locaux et ton microphone.",
+    "continue_to_speak_title": "Passe à l’étape d’enregistrement",
+    "continue_to_speak_body": "« Commencer à parler » ouvre l’étape d’enregistrement. Termine les vérifications de l’appareil avant d’enregistrer ; le test du microphone y est obligatoire.",
     "open_local_setup": "Préparer la pratique",
     "ready_for_task": "Les vérifications sont réussies",
     "ready_for_task_body": "Choisis une tâche et enregistre ton premier essai.",

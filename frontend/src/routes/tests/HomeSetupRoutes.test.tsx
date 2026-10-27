@@ -561,6 +561,25 @@ describe("Home and Runtime Setup routes", () => {
     expect(screen.getByTestId("runtime_connection.form")).toBeVisible();
   });
 
+  it("accepts a configured alternate provider when all required checks pass", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true, provider: "groq", model: "test", base_url: "https://example.test",
+      requires_api_key: true, has_api_key: true,
+    });
+    mockedGetRuntimeSettings.mockResolvedValue({
+      ui_locale: "en", whisper_model: "small", active_connection_id: "cloud-connection",
+      connections: [], asr_provider: "groq",
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/runtime-setup"], locale: "en",
+      appState: { microphoneStatus: "ready", microphoneSetupPassed: true },
+    });
+
+    expect(await screen.findByText("All three checks passed. You can choose a task.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Choose a practice task" })).toBeEnabled();
+  });
+
   it("shows the runtime setup branch on Home and renders interactive runtime controls", async () => {
     mockedGetRuntime.mockResolvedValue({
       configured: false,

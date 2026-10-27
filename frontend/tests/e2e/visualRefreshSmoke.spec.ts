@@ -391,7 +391,7 @@ test("renders primary visual-refresh artifacts without serif typography", async 
   await expectMobileRouteAudit(page, "visual-refresh-smoke-session-setup-mobile.png");
   await page.getByTestId("setup.speaker_id").fill(speakerId);
   await page.getByTestId("setup.recommended_start").click();
-  await expect(page.getByTestId("setup.runtime_callout")).toContainText("Device setup needed");
+  await expect(page.getByTestId("setup.runtime_callout")).toContainText("Continue to the recording step");
   await expect(page.getByTestId("setup.continue")).toHaveText("Start speaking");
   await page.getByTestId("setup.continue").click();
 

@@ -153,6 +153,10 @@ export const SessionSetupRoute = () => {
     queryKey: queryKeys.diagnostics,
     queryFn: () => apiClient.getDiagnostics(),
   });
+  const runtimeSettingsQuery = useQuery({
+    queryKey: ["runtime", "settings"],
+    queryFn: () => apiClient.getRuntimeSettings(),
+  });
 
   const historyQuery = useQuery({
     queryKey: queryKeys.history,
@@ -258,17 +262,18 @@ export const SessionSetupRoute = () => {
     runtimePending: runtimeQuery.isPending,
     microphoneStatus,
     microphoneSetupPassed,
+    whisperCached: runtimeSettingsQuery.data?.asr_provider === "groq",
   }).filter((row) => isCoreSetupReadinessKey(row.key));
   const readyToRecord = runtimeConfigured && requiredChecks.every((row) => row.status === "ready");
   const primaryActionLabel = runtimeReadiness.ready
     ? translate("setup.start_speaking")
     : translate("setup.save_and_setup_device");
-  const runtimeCalloutTitle = readyToRecord
-    ? translate("setup.runtime_ready_title")
-    : translate("setup.runtime_setup_needed_title");
-  const runtimeCalloutBody = readyToRecord
-    ? translate("setup.runtime_ready_body")
-    : translate("setup.runtime_setup_needed_body");
+  const runtimeCalloutTitle = translate(readyToRecord
+    ? "setup.runtime_ready_title"
+    : runtimeReadiness.ready ? "first_run.continue_to_speak_title" : "setup.runtime_setup_needed_title");
+  const runtimeCalloutBody = translate(readyToRecord
+    ? "setup.runtime_ready_body"
+    : runtimeReadiness.ready ? "first_run.continue_to_speak_body" : "setup.runtime_setup_needed_body");
 
   const historyRecommendation = useMemo(
     () =>

@@ -24,12 +24,14 @@ vi.mock("@/lib/api/client", () => ({
     getDiagnostics: vi.fn(),
     getHistory: vi.fn(),
     getRuntime: vi.fn(),
+    getRuntimeSettings: vi.fn(),
   },
 }));
 
 import { apiClient } from "@/lib/api/client";
 
 const mockedGetRuntime = vi.mocked(apiClient.getRuntime);
+const mockedGetRuntimeSettings = vi.mocked(apiClient.getRuntimeSettings);
 const mockedGetDiagnostics = vi.mocked(apiClient.getDiagnostics);
 const mockedGetHistory = vi.mocked(apiClient.getHistory);
 const STORAGE_KEY = "assess-speaking.session-setup.theme-library";
@@ -72,6 +74,9 @@ describe("Session Setup route", () => {
       ],
     });
     mockedGetHistory.mockResolvedValue({ items: [] });
+    mockedGetRuntimeSettings.mockResolvedValue({
+      ui_locale: "en", whisper_model: "small", active_connection_id: "", connections: [], asr_provider: "local",
+    });
   });
 
   it("offers only profiled languages with a stored German theme and draft", async () => {
@@ -189,7 +194,8 @@ describe("Session Setup route", () => {
       "data-semantic-id",
       "setup.runtime_callout",
     );
-    expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Device setup needed");
+    expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Continue to the recording step");
+    expect(screen.getByTestId("setup.runtime_callout")).not.toHaveTextContent("Ready to record");
 
     fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
 
@@ -202,6 +208,32 @@ describe("Session Setup route", () => {
     expect(store.getState().draft.cefrLevel).toBe("B1");
     expect(store.getState().draft.themeLabel).toBe("Il mio ultimo viaggio all'estero");
     expect(store.getState().draft.durationSec).toBe(90);
+  });
+
+  it("shows ready only when cloud transcription, tutor, and microphone checks pass", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true, provider: "groq", model: "test", base_url: "https://example.test",
+      requires_api_key: true, has_api_key: true,
+    });
+    mockedGetRuntimeSettings.mockResolvedValue({
+      ui_locale: "en", whisper_model: "small", active_connection_id: "cloud-connection",
+      connections: [], asr_provider: "groq",
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/session-setup"], locale: "en",
+      appState: {
+        microphoneStatus: "ready", microphoneSetupPassed: true,
+        preferences: { activeConnectionId: "cloud-connection", setupComplete: true },
+      },
+    });
+
+    fireEvent.change(await screen.findByLabelText("Learner name or nickname"), { target: { value: "maria" } });
+    fireEvent.click(screen.getByTestId("setup.recommended_start"));
+    await waitFor(() => expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Ready to record"));
+    expect(screen.getByText("Your checks are ready")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
+    expect(await screen.findByTestId("speak.status_panel")).toBeVisible();
   });
 
   it("keeps the recommended library theme authoritative over a populated prior draft", async () => {
