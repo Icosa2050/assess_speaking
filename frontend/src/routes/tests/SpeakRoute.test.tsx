@@ -112,14 +112,48 @@ describe("Speak route", () => {
   it("shows an editable, clearable retry goal before recording", async () => {
     const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
       appState: { ...validDraftState, draft: { ...validDraftState.draft,
-        retryOfSessionId: "first", coachingGoal: "Add a clear ending" } } });
+        retryOfSessionId: "first", coachingGoal: "Add a clear ending", retryGoalEligible: true } } });
     const brief = await screen.findByTestId("speak-retry-brief");
     expect(brief).toHaveTextContent("Add a clear ending");
+    expect(brief).toHaveAttribute("role", "status");
     expect(screen.getByTestId("speak.record_start")).toBeInTheDocument();
     fireEvent.change(screen.getByTestId("speak-retry-goal"), { target: { value: "Use one transition" } });
     expect(store.getState().draft.coachingGoal).toBe("Use one transition");
     fireEvent.click(within(brief).getByRole("button", { name: "Clear goal" }));
     expect(store.getState().draft.coachingGoal).toBe("");
+  });
+  it("withholds the goal editor from a non-assessable parent", async () => {
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
+      appState: { ...validDraftState, draft: { ...validDraftState.draft,
+        retryOfSessionId: "invalid", coachingGoal: "Stale goal", retryGoalEligible: false } } });
+    expect(await screen.findByTestId("speak.session_summary")).toBeVisible();
+    expect(screen.queryByTestId("speak-retry-brief")).not.toBeInTheDocument();
+  });
+  it("asks who owns a restored retry before showing its goal", async () => {
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
+      appState: { ...validDraftState, retryRestorePending: true, draft: { ...validDraftState.draft,
+        retryOfSessionId: "first", coachingGoal: "Add a clear ending", retryGoalEligible: true } } });
+    expect(await screen.findByTestId("speak-retry-resume")).toHaveTextContent("bern");
+    expect(screen.queryByTestId("speak-retry-brief")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Resume this retry" }));
+    expect(store.getState().retryRestorePending).toBe(false);
+    expect(await screen.findByTestId("speak-retry-brief")).toHaveTextContent("Add a clear ending");
+  });
+  it("keeps recording unavailable while checking runtime setup for a retry", async () => {
+    mockedGetRuntime.mockImplementationOnce(() => new Promise(() => undefined));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
+      appState: { ...validDraftState, draft: { ...validDraftState.draft,
+        retryOfSessionId: "first", coachingGoal: "Add a clear ending", retryGoalEligible: true } } });
+    expect(await screen.findByTestId("speak-retry-runtime-check")).toHaveTextContent("Add a clear ending");
+    expect(screen.queryByTestId("speak.record_start")).not.toBeInTheDocument();
+  });
+  it("locks the brief while recording is in progress", async () => {
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
+      appState: { ...validDraftState, recording: { status: "recording" }, draft: { ...validDraftState.draft,
+        retryOfSessionId: "first", coachingGoal: "Add a clear ending", retryGoalEligible: true } } });
+    const brief = await screen.findByTestId("speak-retry-brief");
+    expect(screen.getByTestId("speak-retry-goal")).toBeDisabled();
+    expect(within(brief).getByRole("button", { name: "Clear goal" })).toBeDisabled();
   });
   it("keeps recording blocked without calibration while upload remains usable", async () => {
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",

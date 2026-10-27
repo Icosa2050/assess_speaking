@@ -22,6 +22,7 @@ describe("practice progress", () => {
     expect(comparableAttempts([first, next], next)).toEqual([next]);
     expect(comparisonAttempt([first, next], next)).toBeNull();
     expect(retryDraft(first)).not.toBeNull();
+    expect(retryDraft(first)?.retryGoalEligible).toBe(false);
   });
   it("keeps missing and invalid measurements distinct from a real zero", () => {
     for (const input of [null, undefined, "", "  ", false, NaN, Infinity]) expect(measurement(input)).toBeNull();
@@ -51,5 +52,6 @@ describe("practice progress", () => {
   it("restores the saved goal and exact prompt for a retry without inferring them from the score", () => {
     expect(retryDraft(attempt("first"))).toMatchObject({ cefrLevel: "B2", promptText: "Describe a trip", retryOfSessionId: "first", durationSec: 90 });
     expect(retryDraft(attempt("first", { practice: null }))).toBeNull();
+    expect(retryDraft(attempt("first", { eligibility: { version: 1, state: "assessable", reasons: [], metrics_reliable: true, task_complete: true } }))?.retryGoalEligible).toBe(true);
   });
 });

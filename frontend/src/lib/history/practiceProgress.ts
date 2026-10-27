@@ -53,6 +53,7 @@ export const retryDraft = (row: HistoryRow): Partial<SessionDraft> | null => {
     promptId: context.prompt_id,
     promptText: context.prompt_text,
     retryOfSessionId: row.session_id,
+    retryGoalEligible: row.eligibility?.state === "assessable",
   };
 };
 

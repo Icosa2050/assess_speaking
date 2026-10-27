@@ -56,7 +56,10 @@ describe("journal recovery visibility", () => {
 
   it("enables and names all three damaged-journal exits", async () => {
     status.mockResolvedValue({...damaged, transaction: {id: "damaged", phase: "recovery_error"}});
-    renderWithProviders(<><JournalRecoveryNotice locale="en" /><JournalPanel locale="en" /></>);
+    const { store } = renderWithProviders(<><JournalRecoveryNotice locale="en" /><JournalPanel locale="en" /></>, { appState: {
+      draft: { speakerId: "learner", themeId: "trip", promptText: "Describe a trip",
+        retryOfSessionId: "first", coachingGoal: "Add a closing sentence", retryGoalEligible: true },
+    } });
     await screen.findByRole("alert");
     expect(screen.getByLabelText("Restore from a backup")).toBeEnabled();
     expect(screen.getByRole("button", {name: "Export diagnostics only"})).toBeEnabled();
@@ -76,6 +79,8 @@ describe("journal recovery visibility", () => {
     fireEvent.click(screen.getByRole("button", {name: "Confirm: start fresh"}));
     await waitFor(() => expect(startFreshJournal).toHaveBeenCalledOnce());
     expect(await screen.findByText(t("journal.fresh_done"))).toBeVisible();
+    expect(store.getState().draft.coachingGoal).toBe("");
+    expect(store.getState().draft.retryOfSessionId).toBe("");
   });
 
   it("disables the exits while a repair transaction is pending", async () => {

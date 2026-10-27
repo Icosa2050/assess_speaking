@@ -154,6 +154,9 @@ export const SpeakRoute = () => {
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const preferences = useAppStore((state) => state.preferences);
   const draft = useAppStore((state) => state.draft);
+  const retryRestorePending = useAppStore((state) => state.retryRestorePending);
+  const confirmRetryRestore = useAppStore((state) => state.confirmRetryRestore);
+  const discardRetryRestore = useAppStore((state) => state.discardRetryRestore);
   const recording = useAppStore((state) => state.recording);
   const review = useAppStore((state) => state.review);
   const updateDraft = useAppStore((state) => state.updateDraft);
@@ -223,7 +226,7 @@ export const SpeakRoute = () => {
     [preferences, runtimeQuery.data],
   );
 
-  const guardTarget = runtimeQuery.isPending && draft.retryOfSessionId ? null : resolveSpeakRouteGuardTarget({
+  const guardTarget = resolveSpeakRouteGuardTarget({
     draft,
     preferences: effectivePreferences,
   }) ?? (speakingChecksBlocked && !speakingChecksPending ? "/runtime-setup" : null);
@@ -359,8 +362,25 @@ export const SpeakRoute = () => {
     }
   }, [lifecycleState, navigate, review.reportId]);
 
+  if (retryRestorePending) {
+    return <Card as="section" data-testid="speak-retry-resume" style={{ display: "grid", gap: "var(--space-3)" }}>
+      <h2>{translate("retry.resume_title")}</h2>
+      <p>{translate("retry.resume_context", { speaker: draft.speakerId, task: draft.themeLabel || draft.promptText })}</p>
+      <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+        <Button variant="primary" onClick={confirmRetryRestore}>{translate("retry.resume_action")}</Button>
+        <Button onClick={() => { discardRetryRestore(); navigate("/session-setup"); }}>{translate("retry.discard_action")}</Button>
+      </div>
+    </Card>;
+  }
+
   if (runtimeQuery.isPending || runtimeSettingsQuery.isPending || speakingChecksPending) {
-    return <p role="status">{translate("journey.loading")}</p>;
+    return draft.retryOfSessionId ? <Card as="section" role="status" data-testid="speak-retry-runtime-check">
+      <h2>{translate("retry.brief_title")}</h2>
+      {draft.retryGoalEligible && <p>{draft.coachingGoal.trim()
+        ? translate("retry.goal_value", { goal: draft.coachingGoal.trim() })
+        : translate("retry.no_goal")}</p>}
+      <p>{translate("retry.runtime_check")}</p>
+    </Card> : <p role="status">{translate("journey.loading")}</p>;
   }
   if (guardTarget) {
     return <Navigate replace to={guardTarget} state={guardTarget === "/runtime-setup" ? { returnTo: "/speak" } : undefined} />;
@@ -597,8 +617,8 @@ export const SpeakRoute = () => {
         </blockquote>
       </section>
 
-      {draft.retryOfSessionId && (
-        <Card as="section" data-testid="speak-retry-brief" style={{ display: "grid", gap: "var(--space-3)" }}>
+      {draft.retryOfSessionId && draft.retryGoalEligible && (
+        <Card as="section" role="status" aria-live="polite" data-testid="speak-retry-brief" style={{ display: "grid", gap: "var(--space-3)" }}>
           <h2 style={{ margin: 0, fontSize: "var(--font-size-title)" }}>{translate("retry.brief_title")}</h2>
           <p style={{ margin: 0 }}>{translate("retry.brief_context", { task: draft.themeLabel || draft.promptText })}</p>
           <p style={{ margin: 0 }} data-testid="speak-retry-goal-text">
@@ -606,10 +626,12 @@ export const SpeakRoute = () => {
               ? translate("retry.goal_value", { goal: draft.coachingGoal.trim() })
               : translate("retry.no_goal")}
           </p>
-          <Field label={translate("retry.goal_label")} value={draft.coachingGoal}
+          <Field label={translate("retry.goal_label")} value={draft.coachingGoal} maxLength={12000}
+            disabled={recording.status === "recording" || isSubmitting || lifecycleState === "queued" || lifecycleState === "running"}
             onChange={event => updateDraft({ coachingGoal: event.target.value })}
             hint={translate("retry.brief_hint")} data-testid="speak-retry-goal" />
-          <Button variant="quiet" onClick={() => updateDraft({ coachingGoal: "" })}>
+          <Button variant="quiet" disabled={recording.status === "recording" || isSubmitting || lifecycleState === "queued" || lifecycleState === "running"}
+            onClick={() => updateDraft({ coachingGoal: "" })}>
             {translate("retry.clear_goal")}
           </Button>
         </Card>

@@ -348,6 +348,9 @@ test.describe("review and history replacement flow", () => {
     await expect(page.getByTestId("speak-retry-goal-text")).toContainText("Add one concrete detail");
     await page.reload();
     await expect(page).toHaveURL(/\/speak$/);
+    await expect(page.getByTestId("speak-retry-resume")).toContainText("playwright-review-history");
+    await expect(page.getByTestId("speak-retry-brief")).not.toBeVisible();
+    await page.getByRole("button", { name: "Resume this retry" }).click();
     await expect(page.getByTestId("speak-retry-goal-text")).toContainText("Add one concrete detail");
     await page.setViewportSize({ width: 1100, height: 760 });
     await tabTo(page, "speak-retry-goal");
@@ -367,6 +370,7 @@ test.describe("review and history replacement flow", () => {
     await expect(page.getByTestId("review-retry-follow-up")).toContainText("Add one concrete detail");
     await expect(page.getByTestId("review-retry-observation")).toContainText("Add one more concrete detail");
     await expect(page.getByTestId("review-retry-change")).toContainText("+0.90/5");
+    expect(await page.evaluate(() => window.localStorage.getItem("vostavo.retry-draft.v2"))).toBeNull();
     await expect(page.getByTestId("review-transcript")).toHaveValue(attempts[1].transcript);
 
     await page.getByTestId("review-action-view-history").click();

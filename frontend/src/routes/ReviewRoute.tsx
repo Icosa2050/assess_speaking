@@ -235,14 +235,17 @@ export const ReviewRoute = () => {
 
   const summary = useMemo(() => selectReviewSummary(review), [review]);
   const [chosenGoal, setChosenGoal] = useState("");
-  useEffect(() => setChosenGoal(summary.nextFocus), [summary.reportId, summary.nextFocus]);
+  useEffect(() => setChosenGoal(summary.nextFocus.slice(0, 12000)), [summary.reportId, summary.nextFocus]);
   const goalOptions = [...new Set([summary.nextFocus, ...summary.priorities].map(value => value.trim()).filter(Boolean))];
   const followUp = followUpBrief(summary, draft);
   const coachTakeaway = summary.coachSummary || translate("review.coach_takeaway_placeholder");
 
   const handleTryAgain = () => {
     clearAttempt({ keepSetup: true });
-    updateDraft({ coachingGoal: summary.eligibilityState === "assessable" ? chosenGoal.trim() : "" });
+    updateDraft({
+      coachingGoal: summary.eligibilityState === "assessable" ? chosenGoal.trim() : "",
+      retryGoalEligible: summary.eligibilityState === "assessable",
+    });
     setReturnTo("review");
     navigate("/speak");
   };
@@ -408,18 +411,18 @@ export const ReviewRoute = () => {
                 </div>
               ) : null}
             </div>
-            {summary.eligibilityState === "assessable" && goalOptions.length > 0 ? (
+            {summary.eligibilityState === "assessable" ? (
               <div className={styles.goalPicker} data-testid="review-goal-picker">
                 <strong>{translate("retry.choose_goal")}</strong>
-                <div className={styles.goalOptions}>
+                <div className={styles.goalOptions} role="group" aria-label={translate("retry.choose_goal")}>
                   {goalOptions.map((option, index) => (
                     <Button key={option} variant={chosenGoal === option ? "primary" : "secondary"}
-                      aria-pressed={chosenGoal === option} onClick={() => setChosenGoal(option)}>
+                      aria-pressed={chosenGoal === option} onClick={() => setChosenGoal(option.slice(0, 12000))}>
                       {index === 0 ? translate("retry.suggested_goal", { goal: option }) : option}
                     </Button>
                   ))}
                 </div>
-                <Field label={translate("retry.goal_label")} value={chosenGoal}
+                <Field label={translate("retry.goal_label")} value={chosenGoal} maxLength={12000}
                   onChange={event => setChosenGoal(event.target.value)} hint={translate("retry.goal_hint")}
                   data-testid="review-goal-input" />
                 <Button variant="quiet" onClick={() => setChosenGoal("")}>{translate("retry.clear_goal")}</Button>

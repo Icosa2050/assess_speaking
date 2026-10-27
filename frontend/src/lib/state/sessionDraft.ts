@@ -64,6 +64,7 @@ export interface SessionDraft {
   promptText: string;
   retryOfSessionId: string;
   coachingGoal: string;
+  retryGoalEligible: boolean;
 }
 
 export interface AssessmentJobState {
@@ -135,7 +136,8 @@ export const buildSessionDraft = (
   promptId: overrides.promptId ?? "",
   promptText: overrides.promptText ?? "",
   retryOfSessionId: overrides.retryOfSessionId ?? "",
-  coachingGoal: overrides.coachingGoal ?? "",
+  coachingGoal: String(overrides.coachingGoal ?? "").slice(0, 12000),
+  retryGoalEligible: overrides.retryGoalEligible ?? false,
 });
 
 export const buildAssessmentJobState = (

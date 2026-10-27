@@ -25,7 +25,7 @@ export const followUpBrief = (summary: ReviewDisplaySummary, draft: SessionDraft
   const parentId = draft.retryOfSessionId;
   const report = record(summary.payload.report);
   const practice = record(record(summary.payload.meta).practice);
-  if (!goal || !parentId || !summary.reportId || summary.reportId === parentId ||
+  if (!draft.retryGoalEligible || !goal || !parentId || !summary.reportId || summary.reportId === parentId ||
       practice.retry_of_session_id !== parentId) return null;
 
   const goalWords = words(goal);

@@ -5,7 +5,7 @@ import { buildSessionDraft } from "./state/sessionDraft";
 import { followUpBrief } from "./retryBrief";
 
 const checks = { language_pass: true, topic_pass: true, content_validity_pass: true, min_words_pass: true };
-const draft = buildSessionDraft({ retryOfSessionId: "first", coachingGoal: "Connect your examples" });
+const draft = buildSessionDraft({ retryOfSessionId: "first", coachingGoal: "Connect your examples", retryGoalEligible: true });
 
 const summary = (progress: unknown, eligibility = "assessable", priorities = ["Connect examples with one transition."]) => selectReviewSummary({
   reportId: "second", band: "", scoreOverall: null, summary: "", transcript: "",
@@ -34,7 +34,7 @@ describe("follow-up retry brief", () => {
   });
 
   it("does not call a generic shared word a goal-related observation", () => {
-    const goal = buildSessionDraft({ retryOfSessionId: "first", coachingGoal: "Speak more slowly and clearly" });
+    const goal = buildSessionDraft({ retryOfSessionId: "first", coachingGoal: "Speak more slowly and clearly", retryGoalEligible: true });
     expect(followUpBrief(summary(null, "assessable", ["Use more varied vocabulary"]), goal)?.observation).toBe("");
   });
 });

@@ -160,7 +160,7 @@ describe("Review route", () => {
         duration_pass: false, min_words_pass: false },
       warnings: ["llm_skipped_low_word_count"],
     } };
-    renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
       ...validDraftState, review: { reportId: "short", transcript: "bla bla bla", scoreOverall: 3.5,
         band: "4", summary: "Try again", payload },
     } });
@@ -176,6 +176,22 @@ describe("Review route", () => {
     expect(screen.getByTestId("review-baseline")).not.toHaveTextContent("Pass");
     expect(screen.queryByRole("button", {name: "Resume unfinished analysis"})).not.toBeInTheDocument();
     expect(screen.queryByTestId("review-goal-picker")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("review-action-try-again"));
+    expect(await screen.findByTestId("speak.session_summary")).toBeVisible();
+    expect(screen.queryByTestId("speak-retry-brief")).not.toBeInTheDocument();
+    expect(store.getState().draft.coachingGoal).toBe("");
+    expect(store.getState().draft.retryGoalEligible).toBe(false);
+  });
+
+  it("allows a learner-written goal on Review when an assessable report has no suggestions", async () => {
+    const payload = { ...reviewPayload, report: { ...reviewPayload.report, coaching: {
+      ...reviewPayload.report.coaching, next_focus: "", top_3_priorities: [],
+    } } };
+    renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
+      ...validDraftState, review: { reportId: "report-1", payload },
+    } });
+    expect(await screen.findByTestId("review-goal-picker")).toBeVisible();
+    expect(screen.getByTestId("review-goal-input")).toHaveValue("");
   });
 
   it("carries one edited coaching goal into Speak and stores it with the retry draft", async () => {
@@ -190,7 +206,7 @@ describe("Review route", () => {
     fireEvent.click(screen.getByTestId("review-action-try-again"));
     expect(await screen.findByTestId("speak-retry-brief")).toHaveTextContent("Connect each example to your point");
     expect(store.getState().draft.coachingGoal).toBe("Connect each example to your point");
-    expect(window.localStorage.getItem("vostavo.retry-draft.v1")).toContain("Connect each example to your point");
+    expect(window.localStorage.getItem("vostavo.retry-draft.v2")).toContain("Connect each example to your point");
   });
 
   it.each(["content_unverified", "invalid_content"])("withholds stale saved grades for %s reports", async state => {

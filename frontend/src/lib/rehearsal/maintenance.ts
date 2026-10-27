@@ -1,5 +1,6 @@
 import { buildApiUrl, desktopSessionHeaders } from "@/lib/runtime/environment";
 import type { FrozenApiRoute } from "@/lib/api/types";
+import { clearRetryDraft } from "@/lib/state/retryBriefStorage";
 import {
   clearRehearsalMaintenance, commitRehearsals, rehearsalMaintenance,
   snapshotRehearsals, stageRehearsals, withJournalLock,
@@ -120,6 +121,7 @@ export async function commitLearnerRestore(preview: RestorePreview, signal: Abor
       throw error;
     }
   }, true);
+  clearRetryDraft();
 }
 export async function recoverLearnerJournal(rollback = false): Promise<void> {
   await withJournalLock(async access => {
@@ -176,6 +178,7 @@ export async function startFreshJournal(): Promise<void> {
     await journalRequest("start-fresh", { confirmed: true, browser_transaction: local?.id });
     await clearRehearsalMaintenance(access);
   }, true);
+  clearRetryDraft();
 }
 
 export async function exportJournalDiagnostics(): Promise<import("@/lib/api/types").SupportBundleCreateResponse> {
