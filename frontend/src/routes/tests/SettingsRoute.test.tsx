@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 
 import { renderWithProviders } from "@/test/renderWithProviders";
+import { queryKeys } from "@/lib/query/queryClient";
 
 vi.mock("@/lib/api/client", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/api/client")>(),
@@ -260,6 +261,50 @@ describe("Settings route", () => {
     fireEvent.click(screen.getByTestId("settings.return"));
 
     expect(await screen.findByRole("button", { name: "Start new session" })).toBeVisible();
+  });
+
+  it("refreshes old credential diagnostics when switching from a missing-key cloud tutor to local", async () => {
+    let localActive = false;
+    const localSettings = runtimeSettings({
+      active_connection_id: "conn-alpha",
+      connections: [{ ...alphaConnection, is_default: true }, { ...bravoConnection, is_default: false }],
+    });
+    const oldDiagnostics = { items: [
+      { key: "whisper", status: "ok", title_key: "", detail_key: "", detail_args: {} },
+      { key: "runtime", status: "ok", title_key: "", detail_key: "", detail_args: {} },
+      { key: "runtime_api_key", status: "error", title_key: "", detail_key: "", detail_args: {
+        provider: "openrouter", model: "gpt-4.1-mini", base_url: "https://openrouter.ai/api/v1",
+      } },
+    ] };
+    mockedGetRuntime.mockImplementation(async () => localActive
+      ? { configured: true, provider: "ollama", model: "llama3.2:3b", base_url: "http://localhost:11434/v1", requires_api_key: false, has_api_key: false }
+      : { configured: true, provider: "openrouter", model: "gpt-4.1-mini", base_url: "https://openrouter.ai/api/v1", requires_api_key: true, has_api_key: false });
+    mockedGetRuntimeSettings.mockImplementation(async () => localActive ? localSettings : runtimeSettings());
+    mockedGetDiagnostics.mockImplementation(async () => localActive
+      ? { items: oldDiagnostics.items.filter((item) => item.key !== "runtime_api_key") }
+      : oldDiagnostics);
+    mockedPostRuntimeSettingsSetDefault.mockImplementation(async () => {
+      localActive = true;
+      return localSettings;
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: false } } });
+    queryClient.setQueryData(queryKeys.diagnostics, oldDiagnostics);
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: [{ pathname: "/settings", state: { from: "home" } }],
+      locale: "en", queryClient,
+    });
+    expect(await screen.findAllByText("Alpha runtime")).toHaveLength(2);
+    fireEvent.change(screen.getByTestId("settings.connection_id"), { target: { value: "conn-alpha" } });
+    fireEvent.click(screen.getByTestId("settings.connection_row_set_default"));
+    await waitFor(() => expect(mockedPostRuntimeSettingsSetDefault).toHaveBeenCalledWith("conn-alpha"));
+    await waitFor(() => expect(queryClient.getQueryState(queryKeys.diagnostics)?.isInvalidated).toBe(true));
+    fireEvent.click(screen.getByTestId("settings.return"));
+    await waitFor(() => expect(mockedGetDiagnostics).toHaveBeenCalled());
+    fireEvent.click(await screen.findByRole("button", { name: "Open Setup Guide" }));
+    const tutor = await screen.findByTestId("runtime_setup.setup_guide.ai_tutor");
+    await waitFor(() => expect(tutor).toHaveAttribute("data-status", "configured"));
+    expect(screen.getByRole("button", { name: "Choose a practice task" })).toBeEnabled();
   });
 
   it("tests, saves, and deletes the selected connection through the runtime settings API", async () => {

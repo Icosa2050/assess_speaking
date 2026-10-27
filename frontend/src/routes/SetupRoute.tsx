@@ -588,7 +588,7 @@ export const SetupRoute = () => {
             ))}
           </select>
         </label>
-        {savedWhisperModel && selectedWhisperModel !== savedWhisperModel ? <p role="status" style={{ margin: 0, lineHeight: 1.55, color: "#9a6700" }}>
+        {savedWhisperModel && selectedWhisperModel !== savedWhisperModel ? <p role="status" style={{ margin: 0, lineHeight: 1.55, color: "var(--color-warning)" }}>
           {translate("first_run.save_speech_selection", { model: selectedWhisperModel })}
         </p> : null}
         <p

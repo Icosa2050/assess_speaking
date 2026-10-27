@@ -86,6 +86,47 @@ describe("buildSetupReadinessRows", () => {
     expect(rows[3].disabled).toBe(true);
   });
 
+  it("ignores a previous cloud credential error after switching to a valid local tutor", () => {
+    const rows = buildSetupReadinessRows({
+      diagnostics: [{
+        ...diagnostic("runtime_api_key", "error"),
+        detail_args: { provider: "openrouter", model: "old-model", base_url: "https://openrouter.ai/api/v1" },
+      }],
+      runtime: configuredRuntime,
+    });
+    expect(rows[1].status).toBe("configured");
+    expect(rows[1].detailKey).toBe("first_run.ai_configured");
+  });
+
+  it.each([
+    { provider: "groq", model: "current-model", base_url: "https://current.example/v1" },
+    { provider: "openrouter", model: "old-model", base_url: "https://current.example/v1" },
+    { provider: "openrouter", model: "current-model", base_url: "https://old.example/v1" },
+  ])("ignores a credential diagnostic for another runtime identity: $provider/$model/$base_url", (identity) => {
+    const rows = buildSetupReadinessRows({
+      diagnostics: [{ ...diagnostic("runtime_api_key", "error"), detail_args: identity }],
+      runtime: {
+        ...configuredRuntime, provider: "openrouter", model: "current-model",
+        base_url: "https://current.example/v1", requires_api_key: true, has_api_key: true,
+      },
+    });
+    expect(rows[1].status).toBe("ready");
+  });
+
+  it("honors a credential error for the current runtime identity", () => {
+    const runtime = {
+      ...configuredRuntime, provider: "openrouter", model: "current-model",
+      base_url: "https://current.example/v1", requires_api_key: true, has_api_key: true,
+    };
+    const rows = buildSetupReadinessRows({
+      diagnostics: [{ ...diagnostic("runtime_api_key", "error"), detail_args: {
+        provider: runtime.provider, model: runtime.model, base_url: runtime.base_url,
+      } }],
+      runtime,
+    });
+    expect(rows[1].status).toBe("unavailable");
+  });
+
   it("allows continuation without calling an untested local tutor ready", () => {
     const rows = buildSetupReadinessRows({
       diagnostics: [diagnostic("whisper", "ok"), diagnostic("runtime", "ok")],

@@ -145,6 +145,10 @@ class StartupDiagnosticsTests(unittest.TestCase):
         self.assertEqual(by_key["runtime"].status, "ok")
         self.assertEqual(by_key["runtime_api_key"].status, "error")
         self.assertEqual(by_key["runtime_api_key"].detail_args["credential_state"], "missing")
+        self.assertEqual(
+            {key: by_key["runtime_api_key"].detail_args[key] for key in ("provider", "model", "base_url")},
+            {"provider": "openrouter", "model": "google/gemini-3.1-pro-preview", "base_url": "https://openrouter.ai/api/v1"},
+        )
 
     @mock.patch("app_core.diagnostics.describe_model_availability")
     @mock.patch("app_core.diagnostics._media_available", return_value=True)
@@ -286,6 +290,8 @@ class StartupDiagnosticsTests(unittest.TestCase):
         by_key = {item.key: item for item in diagnostics}
         self.assertEqual(by_key["runtime_api_key"].status, "ok")
         self.assertEqual(by_key["runtime_api_key"].detail_args["credential_state"], "saved")
+        self.assertEqual(by_key["runtime_api_key"].detail_args["model"], "google/gemini-3.1-pro-preview")
+        self.assertEqual(by_key["runtime_api_key"].detail_args["base_url"], "https://openrouter.ai/api/v1")
 
     @mock.patch("app_core.diagnostics.describe_model_availability")
     @mock.patch("app_core.diagnostics._media_available", return_value=True)

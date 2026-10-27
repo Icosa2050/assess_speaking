@@ -139,8 +139,15 @@ export const buildSetupReadinessRows = ({
   const whisperItem = findDiagnostic(diagnostics, "whisper");
   const runtimeItem = findDiagnostic(diagnostics, "runtime");
   const credentialItem = findDiagnostic(diagnostics, "runtime_api_key");
+  const credentialDiagnosticMatchesRuntime = Boolean(
+    runtime?.configured &&
+    credentialItem?.detail_args.provider === runtime.provider &&
+    credentialItem?.detail_args.model === runtime.model &&
+    credentialItem?.detail_args.base_url === runtime.base_url,
+  );
   const credentialMissing = Boolean(
-    runtime?.requires_api_key && !runtime.has_api_key || credentialItem?.status === "error",
+    runtime?.requires_api_key &&
+    (!runtime.has_api_key || credentialDiagnosticMatchesRuntime && credentialItem?.status === "error"),
   );
 
   const speechStatus =
