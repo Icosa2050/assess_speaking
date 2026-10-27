@@ -1,6 +1,6 @@
 import { useSharingRoute, SharingSummary } from "@/lib/setup/sharing";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { AssessmentStatusPanel } from "@/components/speak/AssessmentStatusPanel";
@@ -173,6 +173,7 @@ export const SpeakRoute = () => {
   const lifecycleState = useAppStore(selectAssessmentLifecycleState);
   const canSubmitAssessment = useAppStore(selectCanSubmitAssessment);
   const retryBriefHeadingRef = useRef<HTMLHeadingElement>(null);
+  const focusedRetryBriefRef = useRef<string | null>(null);
   const microphoneSetupPassed = useAppStore(state => state.microphoneSetupPassed);
   const microphoneDeviceId = useAppStore(state => state.microphoneDeviceId);
   const microphoneVoiceProcessing = useAppStore(state => state.microphoneVoiceProcessing);
@@ -365,14 +366,21 @@ export const SpeakRoute = () => {
   }, [lifecycleState, navigate, review.reportId]);
 
   useEffect(() => {
+    const focusKey = `${draft.sessionId}:${draft.retryOfSessionId}`;
     if (draft.retryOfSessionId && draft.retryGoalEligible && !retryRestorePending &&
-        !runtimeQuery.isPending && !guardTarget && lifecycleState !== "completed") {
+        !runtimeQuery.isPending && !guardTarget && lifecycleState !== "completed" &&
+        focusedRetryBriefRef.current !== focusKey) {
       retryBriefHeadingRef.current?.focus();
+      focusedRetryBriefRef.current = focusKey;
     }
-  }, [draft.retryOfSessionId, draft.retryGoalEligible, retryRestorePending, runtimeQuery.isPending, guardTarget, lifecycleState]);
+  }, [draft.sessionId, draft.retryOfSessionId, draft.retryGoalEligible, retryRestorePending, runtimeQuery.isPending, guardTarget, lifecycleState]);
 
   if (lifecycleState === "completed") {
-    return review.reportId ? <Navigate replace to="/review" /> : null;
+    return review.reportId ? <Navigate replace to="/review" /> :
+      <Card as="section" role="status" data-testid="speak-completed-no-report">
+        <h2>{translate("review.status_done")}</h2>
+        <Link to="/history">{translate("review.view_history")}</Link>
+      </Card>;
   }
 
   if (retryRestorePending) {
@@ -633,7 +641,6 @@ export const SpeakRoute = () => {
       {draft.retryOfSessionId && draft.retryGoalEligible && (
         <Card as="section" data-testid="speak-retry-brief" style={{ display: "grid", gap: "var(--space-3)" }}>
           <h2 ref={retryBriefHeadingRef} tabIndex={-1} style={{ margin: 0, fontSize: "var(--font-size-title)" }}>{translate("retry.brief_title")}</h2>
-          <p role="status" aria-live="polite" data-testid="speak-retry-announcement" style={{ margin: 0 }}>{translate("retry.brief_title")}</p>
           <p style={{ margin: 0 }}>{translate("retry.brief_context", { task: draft.themeLabel || draft.promptText })}</p>
           <p style={{ margin: 0 }} data-testid="speak-retry-goal-text">
             {draft.coachingGoal.trim()

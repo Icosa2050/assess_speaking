@@ -207,6 +207,8 @@ describe("Review route", () => {
     expect(screen.queryByTestId("review-goal-picker")).not.toBeInTheDocument();
     expect(screen.queryByTestId("review-retry-change")).not.toBeInTheDocument();
     expect(screen.queryByTestId("review-next-focus")).not.toBeInTheDocument();
+    expect(screen.getByTestId("review-next-step-focus")).toHaveTextContent("The next-step recommendation will appear after assessment.");
+    expect(screen.queryByTestId("review-next-step-exercise")).not.toBeInTheDocument();
     expect(screen.queryByTestId("review-style-suggestions")).not.toBeInTheDocument();
     expect(screen.queryByTestId("review-next-attempt-instruction")).not.toBeInTheDocument();
     expect(screen.queryByText(/new unverified grammar|new unverified coherence/i)).not.toBeInTheDocument();

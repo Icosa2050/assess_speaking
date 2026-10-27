@@ -115,17 +115,29 @@ describe("Speak route", () => {
         retryOfSessionId: "first", coachingGoal: "Add a clear ending", retryGoalEligible: true } } });
     const brief = await screen.findByTestId("speak-retry-brief");
     expect(brief).toHaveTextContent("Add a clear ending");
-    const announcement = screen.getByTestId("speak-retry-announcement");
-    expect(announcement).toHaveAttribute("role", "status");
-    expect(announcement).toHaveTextContent("Your retry brief");
-    expect(announcement).not.toContainElement(screen.getByTestId("speak-retry-goal"));
+    expect(screen.queryByTestId("speak-retry-announcement")).not.toBeInTheDocument();
     await waitFor(() => expect(within(brief).getByRole("heading")).toHaveFocus());
+    expect(screen.getByTestId("speak-retry-goal-text")).toHaveTextContent("Add a clear ending");
     expect(screen.getByTestId("speak.record_start")).toBeInTheDocument();
     fireEvent.change(screen.getByTestId("speak-retry-goal"), { target: { value: "Use one transition" } });
     expect(store.getState().draft.coachingGoal).toBe("Use one transition");
-    expect(announcement).toHaveTextContent("Your retry brief");
     fireEvent.click(within(brief).getByRole("button", { name: "Clear goal" }));
     expect(store.getState().draft.coachingGoal).toBe("");
+  });
+  it("does not refocus the brief on queued, running, or failed transitions", async () => {
+    mockedGetAssessmentStatus.mockImplementation(() => new Promise(() => undefined));
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
+      appState: { ...validDraftState, draft: { ...validDraftState.draft,
+        retryOfSessionId: "first", coachingGoal: "Add a clear ending", retryGoalEligible: true } } });
+    const heading = within(await screen.findByTestId("speak-retry-brief")).getByRole("heading");
+    await waitFor(() => expect(heading).toHaveFocus());
+    const historyLink = screen.getByRole("link", { name: "History" });
+    historyLink.focus();
+    for (const status of ["queued", "running", "failed"]) {
+      act(() => store.getState().setRecordingJob({ status }));
+      expect(historyLink).toHaveFocus();
+      expect(heading).not.toHaveFocus();
+    }
   });
   it("redirects a completed take before a retained goal can reappear", async () => {
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: {
@@ -136,6 +148,17 @@ describe("Speak route", () => {
       review: { reportId: "completed", payload: {} },
     } });
     await screen.findByTestId("review-action-try-again");
+    expect(screen.queryByTestId("speak-retry-brief")).not.toBeInTheDocument();
+  });
+  it("shows a History fallback when assessment completes without a report", async () => {
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: {
+      ...validDraftState, draft: { ...validDraftState.draft,
+        retryOfSessionId: "first", coachingGoal: "Retained goal", retryGoalEligible: true },
+      recording: { assessmentState: "completed" },
+    } });
+    const status = await screen.findByTestId("speak-completed-no-report");
+    expect(status).toHaveTextContent("Assessment completed.");
+    expect(within(status).getByRole("link", { name: "Open history" })).toHaveAttribute("href", "/history");
     expect(screen.queryByTestId("speak-retry-brief")).not.toBeInTheDocument();
   });
   it("withholds the goal editor from a non-assessable parent", async () => {
