@@ -172,6 +172,7 @@ export const SpeakRoute = () => {
   const translate = useMemo(() => createTranslator(locale), [locale]);
   const lifecycleState = useAppStore(selectAssessmentLifecycleState);
   const canSubmitAssessment = useAppStore(selectCanSubmitAssessment);
+  const retryBriefHeadingRef = useRef<HTMLHeadingElement>(null);
   const microphoneSetupPassed = useAppStore(state => state.microphoneSetupPassed);
   const microphoneDeviceId = useAppStore(state => state.microphoneDeviceId);
   const microphoneVoiceProcessing = useAppStore(state => state.microphoneVoiceProcessing);
@@ -363,6 +364,17 @@ export const SpeakRoute = () => {
     }
   }, [lifecycleState, navigate, review.reportId]);
 
+  useEffect(() => {
+    if (draft.retryOfSessionId && draft.retryGoalEligible && !retryRestorePending &&
+        !runtimeQuery.isPending && !guardTarget && lifecycleState !== "completed") {
+      retryBriefHeadingRef.current?.focus();
+    }
+  }, [draft.retryOfSessionId, draft.retryGoalEligible, retryRestorePending, runtimeQuery.isPending, guardTarget, lifecycleState]);
+
+  if (lifecycleState === "completed") {
+    return review.reportId ? <Navigate replace to="/review" /> : null;
+  }
+
   if (retryRestorePending) {
     return <Card as="section" data-testid="speak-retry-resume" style={{ display: "grid", gap: "var(--space-3)" }}>
       <h2>{translate("retry.resume_title")}</h2>
@@ -391,7 +403,7 @@ export const SpeakRoute = () => {
   const isOpenRouterRuntime = String(runtime?.provider || "").trim().toLowerCase() === "openrouter";
   const storeHasAttachment = hasRecordingAttachment(recording);
   const assessmentOwnsAttachment =
-    lifecycleState === "queued" || lifecycleState === "running" || lifecycleState === "completed";
+    lifecycleState === "queued" || lifecycleState === "running";
   const hasAttachment = assessmentOwnsAttachment ? storeHasAttachment : Boolean(attachedFile);
   const shortRecording = recordedDurationSec !== null && recordedDurationSec < MIN_REVIEW_SECONDS;
   const canSubmitLiveAttachment = canSubmitAssessment && Boolean(attachedFile) && !shortRecording && Boolean(sharingQuery.data?.available);
@@ -619,8 +631,9 @@ export const SpeakRoute = () => {
       </section>
 
       {draft.retryOfSessionId && draft.retryGoalEligible && (
-        <Card as="section" role="status" aria-live="polite" data-testid="speak-retry-brief" style={{ display: "grid", gap: "var(--space-3)" }}>
-          <h2 style={{ margin: 0, fontSize: "var(--font-size-title)" }}>{translate("retry.brief_title")}</h2>
+        <Card as="section" data-testid="speak-retry-brief" style={{ display: "grid", gap: "var(--space-3)" }}>
+          <h2 ref={retryBriefHeadingRef} tabIndex={-1} style={{ margin: 0, fontSize: "var(--font-size-title)" }}>{translate("retry.brief_title")}</h2>
+          <p role="status" aria-live="polite" data-testid="speak-retry-announcement" style={{ margin: 0 }}>{translate("retry.brief_title")}</p>
           <p style={{ margin: 0 }}>{translate("retry.brief_context", { task: draft.themeLabel || draft.promptText })}</p>
           <p style={{ margin: 0 }} data-testid="speak-retry-goal-text">
             {draft.coachingGoal.trim()
@@ -710,13 +723,6 @@ export const SpeakRoute = () => {
           }
         />
       </div>
-      {lifecycleState === "completed" ? (
-        <span
-          hidden
-          data-testid="speak.review_auto_nav"
-          data-semantic-id="speak.review_auto_nav"
-        />
-      ) : null}
     </div>
   );
 };

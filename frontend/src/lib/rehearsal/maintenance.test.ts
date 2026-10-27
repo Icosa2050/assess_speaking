@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { exportJournalDiagnostics, journalRecoveryStatus, recoverLearnerJournal, previewLearnerRestore, startFreshJournal } from "./maintenance";
-import { clearRehearsalMaintenance, rehearsalMaintenance, stageRehearsals } from "./storage";
+import { commitLearnerRestore, exportJournalDiagnostics, journalRecoveryStatus, recoverLearnerJournal, previewLearnerRestore, startFreshJournal } from "./maintenance";
+import { clearRehearsalMaintenance, commitRehearsals, rehearsalMaintenance, stageRehearsals } from "./storage";
 import { buildSessionDraft } from "@/lib/state/sessionDraft";
 import { persistRetryDraft, RETRY_DRAFT_STORAGE_KEY } from "@/lib/state/retryBriefStorage";
 
@@ -29,6 +29,16 @@ describe("damaged journal browser coordination", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({confirmed: true});
     // No rollback flag: already committed sessions and audio must be retained.
     expect(clearRehearsalMaintenance).toHaveBeenCalledExactlyOnceWith({});
+    expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull();
+  });
+
+  it("clears a saved retry after a successful learner restore", async () => {
+    persistRetryDraft(buildSessionDraft({ speakerId: "learner", themeId: "trip", promptText: "Describe a trip",
+      retryOfSessionId: "first", coachingGoal: "Add a closing sentence", retryGoalEligible: true }));
+    fetchMock.mockImplementation(async () => reply({phase: "complete"}));
+    await commitLearnerRestore({ id: "restore", attempts: 0, skipped_attempts: [], skipped_rehearsals: [], missing: [],
+      browser: { sessions: [], recordings: [] } }, new AbortController().signal, vi.fn());
+    expect(commitRehearsals).toHaveBeenCalledOnce();
     expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull();
   });
 

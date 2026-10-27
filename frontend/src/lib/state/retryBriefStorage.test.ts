@@ -24,6 +24,20 @@ describe("local retry draft", () => {
     expect(readRetryDraft()).toMatchObject({ promptText: "Describe a trip", coachingGoal: longSuggestion });
   });
 
+  it("normalizes oversized setup fields on write and preserves the retry", () => {
+    persistRetryDraft(buildSessionDraft({ ...retry(), speakerId: "s".repeat(257),
+      themeLabel: "t".repeat(1001), promptText: "p".repeat(12001) }));
+    expect(readRetryDraft()).toMatchObject({ speakerId: "s".repeat(256),
+      themeLabel: "t".repeat(1000), promptText: "p".repeat(12000), coachingGoal: "End with one reflection" });
+  });
+
+  it("keeps a 12,000-character goal and caps one character beyond it", () => {
+    persistRetryDraft(buildSessionDraft({ ...retry(), coachingGoal: "g".repeat(12000) }));
+    expect(readRetryDraft()?.coachingGoal).toHaveLength(12000);
+    persistRetryDraft(buildSessionDraft({ ...retry(), coachingGoal: "g".repeat(12001) }));
+    expect(readRetryDraft()?.coachingGoal).toHaveLength(12000);
+  });
+
   it("expires an abandoned retry after seven days and removes the stale key", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-01T12:00:00Z"));
@@ -40,6 +54,9 @@ describe("local retry draft", () => {
     persistRetryDraft(retry());
     clearRetryDraft();
     expect(readRetryDraft()).toBeNull();
+    window.localStorage.setItem("vostavo.retry-draft.v1", "stale");
+    clearRetryDraft();
+    expect(window.localStorage.getItem("vostavo.retry-draft.v1")).toBeNull();
   });
 
   it.each([

@@ -11,13 +11,24 @@ const textLimits: Partial<Record<keyof SessionDraft, number>> = {
   promptId: 256, promptText: 12000, retryOfSessionId: 128, coachingGoal: 12000,
 };
 
+const normalizeRetryDraft = (draft: SessionDraft): SessionDraft => {
+  const bounded = { ...draft };
+  for (const [key, max] of Object.entries(textLimits) as [keyof SessionDraft, number][]) {
+    (bounded as unknown as Record<string, unknown>)[key] = String(draft[key]).slice(0, max);
+  }
+  return buildSessionDraft(bounded);
+};
+
 const contextFor = (draft: SessionDraft): string => JSON.stringify([
   draft.speakerId, draft.learningLanguage, draft.themeId, draft.promptId,
   draft.taskFamily, draft.cefrLevel, draft.durationSec, draft.promptText, draft.retryOfSessionId,
 ]);
 
 export const clearRetryDraft = (): void => {
-  try { window.localStorage.removeItem(RETRY_DRAFT_STORAGE_KEY); } catch { /* Storage may be disabled. */ }
+  try {
+    window.localStorage.removeItem(RETRY_DRAFT_STORAGE_KEY);
+    window.localStorage.removeItem("vostavo.retry-draft.v1");
+  } catch { /* Storage may be disabled. */ }
 };
 
 const parseStored = (raw: string | null): StoredRetry | null => {
@@ -36,7 +47,7 @@ const parseStored = (raw: string | null): StoredRetry | null => {
     !CEFR_LEVELS.includes(draft.cefrLevel as SessionDraft["cefrLevel"]) ||
     !TASK_FAMILY_OPTIONS.includes(draft.taskFamily as SessionDraft["taskFamily"]) ||
     !["en", "it"].includes(String(draft.learningLanguage))) return null;
-  const restored = buildSessionDraft(draft as unknown as SessionDraft);
+  const restored = normalizeRetryDraft(draft as unknown as SessionDraft);
   if (!restored.retryOfSessionId || !hasSetupDraft(restored) || stored.context !== contextFor(restored)) return null;
   return { version: 2, createdAt: stored.createdAt, context: stored.context, draft: restored };
 };
@@ -60,18 +71,19 @@ export const readRetryDraft = (): SessionDraft | null => {
 
 export const persistRetryDraft = (draft: SessionDraft): void => {
   try {
-    if (!draft.retryGoalEligible || !draft.retryOfSessionId || !hasSetupDraft(draft)) {
+    const normalized = normalizeRetryDraft(draft);
+    if (!normalized.retryGoalEligible || !normalized.retryOfSessionId || !hasSetupDraft(normalized)) {
       clearRetryDraft();
       return;
     }
-    const context = contextFor(draft);
+    const context = contextFor(normalized);
     let previous: StoredRetry | null = null;
     try { previous = parseStored(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)); }
     catch { clearRetryDraft(); }
     const now = Date.now();
     const createdAt = previous?.context === context && now - previous.createdAt >= 0 &&
       now - previous.createdAt <= RETRY_DRAFT_TTL_MS ? previous.createdAt : now;
-    window.localStorage.setItem(RETRY_DRAFT_STORAGE_KEY, JSON.stringify({ version: 2, createdAt, context, draft } satisfies StoredRetry));
+    window.localStorage.setItem(RETRY_DRAFT_STORAGE_KEY, JSON.stringify({ version: 2, createdAt, context, draft: normalized } satisfies StoredRetry));
   } catch {
     // Storage can be disabled or full. The in-memory draft remains usable.
   }

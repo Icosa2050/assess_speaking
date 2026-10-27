@@ -186,10 +186,15 @@ describe("Review route", () => {
   it("keeps a learner's earlier goal after an ineligible retry without suggesting or comparing it", async () => {
     const payload = { ...reviewPayload,
       meta: { ...reviewPayload.meta, practice: { retry_of_session_id: "first" } },
-      report: { ...reviewPayload.report, session_id: "second", rubric: undefined,
+      report: { ...reviewPayload.report, session_id: "second", rubric: {
+        recurring_grammar_errors: [{ type: "new_unverified_grammar" }],
+        coherence_issues: [{ type: "new_unverified_coherence" }],
+        style_suggestions: [{ original: "Old phrase", suggestion: "New unverified style", explanation: "Unverified explanation" }],
+      },
         checks: { ...reviewPayload.report.checks, duration_pass: false, min_words_pass: false },
         warnings: ["llm_skipped_low_word_count"],
-        coaching: { ...reviewPayload.report.coaching, next_focus: "New unverified advice" },
+        coaching: { ...reviewPayload.report.coaching, next_focus: "New unverified advice",
+          next_attempt_instruction: "New unverified instruction" },
         progress_delta: { comparison_verified: true, previous_session_id: "first", score_delta: { final: 1 } },
       },
     };
@@ -201,6 +206,11 @@ describe("Review route", () => {
     expect(await screen.findByTestId("review-retry-follow-up")).toHaveTextContent("Finish with one concrete example");
     expect(screen.queryByTestId("review-goal-picker")).not.toBeInTheDocument();
     expect(screen.queryByTestId("review-retry-change")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("review-next-focus")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("review-style-suggestions")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("review-next-attempt-instruction")).not.toBeInTheDocument();
+    expect(screen.queryByText(/new unverified grammar|new unverified coherence/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("review-general-practice-tips")).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId("review-action-try-again"));
     expect(await screen.findByTestId("speak-retry-brief")).toHaveTextContent("Finish with one concrete example");
     expect(store.getState().draft).toMatchObject({ retryOfSessionId: "first", coachingGoal: "Finish with one concrete example", retryGoalEligible: true });

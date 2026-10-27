@@ -115,12 +115,28 @@ describe("Speak route", () => {
         retryOfSessionId: "first", coachingGoal: "Add a clear ending", retryGoalEligible: true } } });
     const brief = await screen.findByTestId("speak-retry-brief");
     expect(brief).toHaveTextContent("Add a clear ending");
-    expect(brief).toHaveAttribute("role", "status");
+    const announcement = screen.getByTestId("speak-retry-announcement");
+    expect(announcement).toHaveAttribute("role", "status");
+    expect(announcement).toHaveTextContent("Your retry brief");
+    expect(announcement).not.toContainElement(screen.getByTestId("speak-retry-goal"));
+    await waitFor(() => expect(within(brief).getByRole("heading")).toHaveFocus());
     expect(screen.getByTestId("speak.record_start")).toBeInTheDocument();
     fireEvent.change(screen.getByTestId("speak-retry-goal"), { target: { value: "Use one transition" } });
     expect(store.getState().draft.coachingGoal).toBe("Use one transition");
+    expect(announcement).toHaveTextContent("Your retry brief");
     fireEvent.click(within(brief).getByRole("button", { name: "Clear goal" }));
     expect(store.getState().draft.coachingGoal).toBe("");
+  });
+  it("redirects a completed take before a retained goal can reappear", async () => {
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: {
+      ...validDraftState, draft: { ...validDraftState.draft,
+        retryOfSessionId: "first", coachingGoal: "Retained goal", retryGoalEligible: true },
+      recording: { job: { assessmentId: "asmt", status: "completed", phase: "", progress: 1,
+        error: "", reportPath: "completed" }, assessmentState: "completed" },
+      review: { reportId: "completed", payload: {} },
+    } });
+    await screen.findByTestId("review-action-try-again");
+    expect(screen.queryByTestId("speak-retry-brief")).not.toBeInTheDocument();
   });
   it("withholds the goal editor from a non-assessable parent", async () => {
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { PracticeBriefCard } from "@/components/setup/PracticeBriefCard";
@@ -116,6 +116,11 @@ const resolveHistoryRecommendation = ({
 };
 
 export const SessionSetupRoute = () => {
+  const retryRestorePending = useAppStore(state => state.retryRestorePending);
+  return retryRestorePending ? <Navigate replace to="/speak" /> : <SessionSetupContent />;
+};
+
+const SessionSetupContent = () => {
   const navigate = useNavigate();
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const preferences = useAppStore((state) => state.preferences);

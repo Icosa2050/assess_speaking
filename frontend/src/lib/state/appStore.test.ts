@@ -56,6 +56,9 @@ describe("app store recording jobs", () => {
     { learningLanguage: "en" },
     { themeId: "different-task" },
     { promptText: "Different prompt" },
+    { taskFamily: "travel_narrative" as const },
+    { cefrLevel: "C1" as const },
+    { durationSec: 120 as const },
   ])("drops a carried goal when practice identity changes: %j", change => {
     const store = createAppStore({ draft: {
       speakerId: "learner", learningLanguage: "it", themeId: "trip", promptText: "Describe a trip",

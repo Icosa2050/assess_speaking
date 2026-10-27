@@ -161,6 +161,19 @@ describe("journal recovery visibility", () => {
     expect(recoverLearnerJournal).toHaveBeenCalledWith();
   });
 
+  it("starts a clean in-memory session after a successful restore", async () => {
+    const { store } = renderWithProviders(<JournalPanel locale="en" />, { appState: { draft: {
+      speakerId: "learner", themeId: "trip", promptText: "Describe a trip",
+      retryOfSessionId: "first", coachingGoal: "Add a closing sentence", retryGoalEligible: true,
+    } } });
+    vi.mocked(previewLearnerRestore).mockResolvedValue({ id: "restore", attempts: 0,
+      skipped_attempts: [], skipped_rehearsals: [], missing: [], browser: { sessions: [], recordings: [] } });
+    fireEvent.change(await screen.findByLabelText(t("journal.open")), { target: { files: [new File(["zip"], "backup.zip")] } });
+    fireEvent.click(await screen.findByRole("button", { name: t("journal.confirm_restore") }));
+    await waitFor(() => expect(commitLearnerRestore).toHaveBeenCalledOnce());
+    await waitFor(() => expect(store.getState().draft).toMatchObject({ coachingGoal: "", retryOfSessionId: "" }));
+  });
+
   it("offers exits immediately when an explicit rollback retry fails", async () => {
     const transaction = {id: "d".repeat(32), phase: "backend_committed"};
     status.mockResolvedValue({...clean, transaction});
