@@ -13,6 +13,8 @@ const labels: Record<string, string> = {
   "runtime_setup.setup_guide_anchor_title": "Ready to speak",
   "first_run.guide_anchor_pending": "Check this Mac before recording",
   "first_run.guide_anchor_body": "We check transcription, feedback, and microphone sound.",
+  "first_run.guide_anchor_ready_body": "Speech, feedback, and microphone checks passed.",
+  "first_run.checks_need_attention": "Checks needing attention: {count}.",
   "first_run.rescue_ai_tutor": "Start the local tutor app and retry the connection test.",
   "runtime_setup.setup_guide_anchor_body": "Speech recognition and the AI tutor power each practice. Microphone access is handled when you start a session.",
   "runtime_setup.setup_guide_progress_label": "{ready} of {total} core services ready",
@@ -143,6 +145,8 @@ describe("SetupReadinessPanel", () => {
     render(<SetupReadinessPanel rows={rows} translate={translate} onAction={vi.fn()} />);
 
     expect(screen.getByText("Start the local tutor app and retry the connection test.")).toBeVisible();
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByRole("status")).toHaveTextContent("Checks needing attention: 1.");
     expect(screen.getByTestId("runtime_setup.setup_guide.ai_tutor")).toHaveAttribute("data-status", "unavailable");
   });
 
@@ -170,6 +174,14 @@ describe("SetupReadinessPanel", () => {
       "data-status",
       "setup",
     );
+  });
+
+  it("describes completed checks in the ready anchor", () => {
+    const rows = setupRows.map((row) => row.key === "sample_check" ? row : { ...row, status: "ready" as const });
+    render(<SetupReadinessPanel rows={rows} translate={translate} onAction={vi.fn()} />);
+
+    expect(screen.getByText("Speech, feedback, and microphone checks passed.")).toBeVisible();
+    expect(screen.queryByText("We check transcription, feedback, and microphone sound.")).not.toBeInTheDocument();
   });
 
   it("keeps the readiness rows in the input order", () => {

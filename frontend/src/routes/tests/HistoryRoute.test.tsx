@@ -229,6 +229,7 @@ describe("History route", () => {
     expect(screen.getByText("First take recorded on this Mac")).toBeVisible();
     expect(screen.getByText(/A score is not available here/)).toBeVisible();
     expect(screen.getByRole("link", { name: "Try another take" })).toHaveAttribute("href", "/session-setup");
+    expect(screen.queryByRole("button", { name: "Start your first session" })).not.toBeInTheDocument();
   });
 
   it("does not keep the first-take banner above saved results", async () => {

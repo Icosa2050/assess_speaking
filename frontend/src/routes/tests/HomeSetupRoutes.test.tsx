@@ -150,6 +150,8 @@ describe("Home and Runtime Setup routes", () => {
     expect(await screen.findByRole("button", { name: "Get ready to practice" })).toBeVisible();
     expect(screen.getByTestId("first-run.preview")).toHaveTextContent("SAMPLE REPORT · ILLUSTRATIVE");
     expect(screen.getByTestId("first-run.preview")).toHaveTextContent("This is a sample, never your result or score.");
+    expect(screen.getByRole("region", { name: /SAMPLE REPORT · ILLUSTRATIVE/ })).toHaveAccessibleDescription(/never your result or score/);
+    expect(screen.getByRole("region", { name: /Example first task/ })).toBeVisible();
     fireEvent.click(screen.getByRole("link", { name: "Timed speaking rehearsal" }));
     expect(await screen.findByTestId("rehearsal-screen")).toBeVisible();
   });
@@ -577,6 +579,8 @@ describe("Home and Runtime Setup routes", () => {
     });
 
     expect(await screen.findByText("All three checks passed. You can choose a task.")).toBeVisible();
+    expect(screen.getByTestId("runtime_setup.local_path")).toHaveTextContent("Your current setup");
+    expect(screen.getByTestId("runtime_setup.local_path")).not.toHaveTextContent("Recommended local path");
     expect(screen.getByRole("button", { name: "Choose a practice task" })).toBeEnabled();
   });
 
@@ -671,7 +675,12 @@ describe("Home and Runtime Setup routes", () => {
     expect(within(providerField).queryByRole("option", { name: "LM Studio local" })).not.toBeInTheDocument();
     expect(within(providerField).queryByRole("option", { name: "OpenRouter" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show cloud and advanced providers" })).toBeVisible();
-    expect(screen.getByText("Choose another route: cloud or expert setup").closest("details")).not.toHaveAttribute("open");
+    const otherRoutes = screen.getByText("Choose another route: cloud or expert setup").closest("details");
+    expect(otherRoutes).not.toHaveAttribute("open");
+    expect(screen.queryByRole("region", { name: "Cloud services" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Choose another route: cloud or expert setup"));
+    expect(otherRoutes).toHaveAttribute("open");
+    expect(await screen.findByRole("region", { name: "Cloud services" })).toBeVisible();
     expect(screen.getByTestId("runtime_setup.detect_local_models")).toBeVisible();
     expect(screen.queryByTestId("runtime_connection.api_key")).not.toBeInTheDocument();
     const diagnosticsSummary = screen.getByText("Connection diagnostics");

@@ -249,8 +249,8 @@ export const SessionSetupRoute = () => {
       activeConnectionId: runtimeConfigured
         ? preferences.activeConnectionId ||
           `${runtimeQuery.data?.provider || "runtime"}:${runtimeQuery.data?.model || "active"}`
-        : preferences.activeConnectionId,
-      setupComplete: runtimeConfigured || preferences.setupComplete,
+        : "",
+      setupComplete: runtimeConfigured,
     },
   });
   const requiredChecks = buildSetupReadinessRows({

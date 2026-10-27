@@ -189,8 +189,8 @@ export const SpeakRoute = () => {
       activeConnectionId: runtimeQuery.data?.configured
         ? preferences.activeConnectionId ||
           `${runtimeQuery.data.provider || "runtime"}:${runtimeQuery.data.model || "active"}`
-        : preferences.activeConnectionId,
-      setupComplete: Boolean(runtimeQuery.data?.configured) || preferences.setupComplete,
+        : "",
+      setupComplete: Boolean(runtimeQuery.data?.configured),
     }),
     [preferences, runtimeQuery.data],
   );
@@ -331,6 +331,9 @@ export const SpeakRoute = () => {
     }
   }, [lifecycleState, navigate, review.reportId]);
 
+  if (runtimeQuery.isPending) {
+    return <p role="status">{translate("journey.loading")}</p>;
+  }
   if (guardTarget) {
     return <Navigate replace to={guardTarget} />;
   }

@@ -74,6 +74,18 @@ describe("buildSetupReadinessRows", () => {
     expect(rows[3].actionKey).toBe("runtime_setup.setup_guide_run_sample");
   });
 
+  it("does not mark a configured cloud tutor ready without its required credential", () => {
+    const rows = buildSetupReadinessRows({
+      diagnostics: [diagnostic("runtime", "ok"), diagnostic("runtime_api_key", "error")],
+      runtime: { ...configuredRuntime, requires_api_key: true, has_api_key: false },
+      whisperCached: true,
+    });
+    expect(rows[1].status).toBe("unavailable");
+    expect(rows[1].detailKey).toBe("first_run.ai_missing_key");
+    expect(rows[1].rescueKey).toBe("first_run.rescue_ai_credential");
+    expect(rows[3].disabled).toBe(true);
+  });
+
   it("enables practice only after all three required checks are ready", () => {
     const rows = buildSetupReadinessRows({
       diagnostics: [diagnostic("whisper", "ok"), diagnostic("runtime", "ok")],

@@ -113,6 +113,17 @@ describe("Speak route", () => {
     fireEvent.click(screen.getByTestId("speak.input_mode_upload"));
     expect(screen.getByTestId("speak.upload_input")).toBeEnabled();
   });
+
+  it("redirects a direct Speak link when saved setup points to a missing runtime", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: false, provider: "", model: "", base_url: "",
+      requires_api_key: false, has_api_key: false,
+    });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+
+    expect(await screen.findByTestId("runtime_setup.screen")).toBeVisible();
+    expect(screen.queryByTestId("speak.record_start")).not.toBeInTheDocument();
+  });
   const stopTrack = vi.fn();
   const getUserMedia = vi.fn();
 

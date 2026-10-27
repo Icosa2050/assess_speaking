@@ -17,6 +17,7 @@ export type SetupReadinessRow = {
   detailKey: string;
   disabled: boolean;
   key: SetupReadinessKey;
+  rescueKey?: string;
   status: SetupReadinessStatus;
   titleKey: string;
 };
@@ -122,15 +123,21 @@ export const buildSetupReadinessRows = ({
 
   const whisperItem = findDiagnostic(diagnostics, "whisper");
   const runtimeItem = findDiagnostic(diagnostics, "runtime");
+  const credentialItem = findDiagnostic(diagnostics, "runtime_api_key");
+  const credentialMissing = Boolean(
+    runtime?.requires_api_key && !runtime.has_api_key || credentialItem?.status === "error",
+  );
 
   const speechStatus =
     diagnosticsError ? "unavailable" : whisperCached || whisperItem?.status === "ok" ? "ready" : statusFromDiagnostic(whisperItem);
   const aiStatus =
     diagnosticsError || runtimeError
       ? "unavailable"
-      : runtime?.configured || runtimeItem?.status === "ok"
-        ? "ready"
-        : statusFromDiagnostic(runtimeItem);
+      : credentialMissing
+        ? "unavailable"
+        : runtime?.configured
+          ? "ready"
+          : runtimeItem?.status === "error" ? "unavailable" : "setup";
   const microphoneReadiness = microphoneSetupPassed && microphoneStatus === "ready" ? "ready"
     : ["unknown", "needs_review", "ready"].includes(microphoneStatus) ? "setup" : "unavailable";
   const coreReady = speechStatus === "ready" && aiStatus === "ready" && microphoneReadiness === "ready";
@@ -152,9 +159,12 @@ export const buildSetupReadinessRows = ({
       status: aiStatus,
       titleKey: "runtime_setup.setup_guide_ai_title",
       detailKey:
-        aiStatus === "ready"
+        credentialMissing
+          ? "first_run.ai_missing_key"
+          : aiStatus === "ready"
           ? "runtime_setup.setup_guide_ai_ready"
           : "runtime_setup.setup_guide_ai_setup",
+      rescueKey: credentialMissing ? "first_run.rescue_ai_credential" : undefined,
       actionKey: "runtime_setup.setup_guide_connect_ai",
       disabled: false,
     },

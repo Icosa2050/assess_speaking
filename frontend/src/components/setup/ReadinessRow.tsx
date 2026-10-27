@@ -48,8 +48,8 @@ export const ReadinessRow = ({
       </div>
       <p className={styles.rowDetail}>{translate(row.detailKey)}</p>
       {row.status === "unavailable" && row.key !== "sample_check" ? (
-        <p className={styles.rowRescue} role="status">
-          {translate(`first_run.rescue_${row.key}`)}
+        <p className={styles.rowRescue}>
+          {translate(row.rescueKey ?? `first_run.rescue_${row.key}`)}
         </p>
       ) : null}
     </div>

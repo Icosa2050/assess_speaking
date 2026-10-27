@@ -236,6 +236,24 @@ describe("Session Setup route", () => {
     expect(await screen.findByTestId("speak.status_panel")).toBeVisible();
   });
 
+  it("sends stale saved preferences to device setup when the backend has no runtime", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: false, provider: "", model: "", base_url: "",
+      requires_api_key: false, has_api_key: false,
+    });
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/session-setup"], locale: "en",
+      appState: { preferences: { activeConnectionId: "old-connection", setupComplete: true } },
+    });
+
+    fireEvent.change(await screen.findByLabelText("Learner name or nickname"), { target: { value: "maria" } });
+    fireEvent.click(screen.getByTestId("setup.recommended_start"));
+    await waitFor(() => expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Device setup needed"));
+    expect(screen.queryByRole("button", { name: "Start speaking" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save practice and set up device" }));
+    expect(await screen.findByTestId("runtime_setup.screen")).toBeVisible();
+  });
+
   it("keeps the recommended library theme authoritative over a populated prior draft", async () => {
     mockedGetRuntime.mockResolvedValue({
       configured: true,

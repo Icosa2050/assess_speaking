@@ -183,6 +183,7 @@ export const SetupRoute = () => {
   >("idle");
   const [formStatusMessage, setFormStatusMessage] = useState("");
   const [isBusy, setIsBusy] = useState(false);
+  const [cloudOptionsOpen, setCloudOptionsOpen] = useState(hash === "#runtime-setup-cloud");
 
   const runtimeQuery = useQuery({
     queryKey: queryKeys.runtime,
@@ -262,6 +263,8 @@ export const SetupRoute = () => {
   });
 
   const cloudAsr = runtimeSettings?.asr_provider === "groq";
+  const recommendedLocalPath = !cloudAsr && (!runtime?.configured ||
+    ["ollama", "ollama_local"].includes(activeConnection?.provider_choice ?? runtime.provider));
   const cloudCopy = {
     en: ["Groq cloud transcription selected", "Configure cloud transcription"],
     it: ["Trascrizione cloud Groq selezionata", "Configura trascrizione cloud"],
@@ -460,14 +463,14 @@ export const SetupRoute = () => {
       {...semanticAttributes(SEMANTIC_IDS.runtimeSetup.screen)}
     >
       <Card as="section" className={styles.path} data-testid="runtime_setup.local_path">
-        <p className={styles.eyebrow}>{translate("first_run.local_path_eyebrow")}</p>
-        <h2>{translate("first_run.local_path_title")}</h2>
-        <p>{translate("first_run.local_path_body")}</p>
-        <ol>
+        <p className={styles.eyebrow}>{translate(recommendedLocalPath ? "first_run.local_path_eyebrow" : "first_run.current_path_eyebrow")}</p>
+        <h2>{translate(recommendedLocalPath ? "first_run.local_path_title" : "first_run.current_path_title")}</h2>
+        <p>{translate(recommendedLocalPath ? "first_run.local_path_body" : "first_run.current_path_body")}</p>
+        {recommendedLocalPath ? <ol>
           <li>{translate("first_run.prerequisite_mac")}</li>
           <li>{translate("first_run.prerequisite_download")}</li>
           <li>{translate("first_run.prerequisite_microphone")}</li>
-        </ol>
+        </ol> : null}
         <div className={styles.pathActions}>
           <Button variant="primary" onClick={() => void handleInvalidateRuntime()}>
             {translate("first_run.check_readiness")}
@@ -490,9 +493,9 @@ export const SetupRoute = () => {
       <MicrophoneTestPanel test={microphoneTest} translate={translate} />
 
       <div id="runtime-setup-cloud">
-        <Disclosure title={translate("first_run.other_routes")} open={cloudAsr || hash === "#runtime-setup-cloud"}>
+        <Disclosure title={translate("first_run.other_routes")} open={cloudAsr || hash === "#runtime-setup-cloud" || cloudOptionsOpen} onToggle={(event) => setCloudOptionsOpen(event.currentTarget.open)}>
           <p>{translate("first_run.other_routes_body")}</p>
-          <CloudSettingsPanel locale={locale} connections={runtimeSettings?.connections ?? []}/>
+          {(cloudAsr || hash === "#runtime-setup-cloud" || cloudOptionsOpen) ? <CloudSettingsPanel locale={locale} connections={runtimeSettings?.connections ?? []}/> : null}
         </Disclosure>
       </div>
 

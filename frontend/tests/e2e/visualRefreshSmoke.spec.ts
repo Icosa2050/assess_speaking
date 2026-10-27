@@ -510,6 +510,12 @@ test("light routes and opt-in dark journal card stay usable at desktop sizes", a
   await page.emulateMedia({ colorScheme: "dark" });
   await expect(page.locator("body")).toHaveCSS("background-color", "rgb(247, 249, 247)");
   await page.emulateMedia({ colorScheme: "light" });
+  await page.goto("/runtime-setup");
+  const otherRoutes = page.getByText("Choose another route: cloud or expert setup");
+  await otherRoutes.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("region", { name: "Cloud services" })).toBeVisible();
+  await page.goto("/");
   await page.getByTestId("home.start_new").click();
   await page.getByTestId("setup.speaker_id").fill(speakerId);
   await page.getByTestId("setup.recommended_start").click();

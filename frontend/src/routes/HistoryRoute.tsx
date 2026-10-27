@@ -369,12 +369,11 @@ export const HistoryRoute = () => {
   if (!historyQuery.isPending && allRecords.length === 0) {
     return (
       <div className={layoutStyles.stack}>
-        {firstTakeRecorded ? (
+        {firstTakeRecorded ? <section data-testid="history-empty" data-semantic-id="history-empty">
           <StatusBanner title={translate("first_run.milestone_title")} tone="success" action={<Link to="/session-setup">{translate("first_run.milestone_next")}</Link>}>
             {translate("first_run.milestone_unscored")}
           </StatusBanner>
-        ) : null}
-        <section style={cardStyle} data-testid="history-empty" data-semantic-id="history-empty">
+        </section> : <section style={cardStyle} data-testid="history-empty" data-semantic-id="history-empty">
           <h2 style={{ margin: 0, fontSize: "1.5rem", color: "#10201c" }}>{translate("history.empty_title")}</h2>
           <p style={{ margin: 0, color: "#33514b", lineHeight: 1.6 }}>{translate("history.empty_body")}</p>
           <button
@@ -386,7 +385,7 @@ export const HistoryRoute = () => {
           >
             {translate("history.empty_cta")}
           </button>
-        </section>
+        </section>}
       </div>
     );
   }
