@@ -190,6 +190,7 @@ export const SetupRoute = () => {
   const [isBusy, setIsBusy] = useState(false);
   const testedDraftRef = useRef<string | null>(null);
   const [cloudOptionsOpen, setCloudOptionsOpen] = useState(hash === "#runtime-setup-cloud");
+  const [cloudPanelOpened, setCloudPanelOpened] = useState(hash === "#runtime-setup-cloud");
 
   const runtimeQuery = useQuery({
     queryKey: queryKeys.runtime,
@@ -277,6 +278,10 @@ export const SetupRoute = () => {
   });
 
   const cloudAsr = runtimeSettings?.asr_provider === "groq";
+  const cloudDisclosureOpen = cloudAsr || hash === "#runtime-setup-cloud" || cloudOptionsOpen;
+  useEffect(() => {
+    if (cloudDisclosureOpen) setCloudPanelOpened(true);
+  }, [cloudDisclosureOpen]);
   const recommendedLocalPath = !cloudAsr && (!runtime?.configured ||
     ["ollama", "ollama_local"].includes(activeConnection?.provider_choice ?? runtime.provider));
   const cloudCopy = {
@@ -542,9 +547,12 @@ export const SetupRoute = () => {
       <MicrophoneTestPanel test={microphoneTest} translate={translate} />
 
       <div id="runtime-setup-cloud">
-        <Disclosure title={translate("first_run.other_routes")} open={cloudAsr || hash === "#runtime-setup-cloud" || cloudOptionsOpen} onToggle={(event) => setCloudOptionsOpen(event.currentTarget.open)}>
+        <Disclosure title={translate("first_run.other_routes")} open={cloudDisclosureOpen} onToggle={(event) => {
+          setCloudOptionsOpen(event.currentTarget.open);
+          if (event.currentTarget.open) setCloudPanelOpened(true);
+        }}>
           <p>{translate("first_run.other_routes_body")}</p>
-          {(cloudAsr || hash === "#runtime-setup-cloud" || cloudOptionsOpen) ? <CloudSettingsPanel locale={locale} connections={runtimeSettings?.connections ?? []}/> : null}
+          {(cloudDisclosureOpen || cloudPanelOpened) ? <CloudSettingsPanel locale={locale} connections={runtimeSettings?.connections ?? []}/> : null}
         </Disclosure>
       </div>
 

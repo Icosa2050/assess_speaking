@@ -1071,6 +1071,65 @@ describe("Home and Runtime Setup routes", () => {
     });
   });
 
+  it("finishes OpenRouter authorization after the cloud disclosure is collapsed", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: false, provider: "", model: "", base_url: "",
+      requires_api_key: false, has_api_key: false,
+    });
+    let accountConnected = false;
+    mockedGetRuntimeSettings.mockImplementation(async () => ({
+      ui_locale: "en", whisper_model: "small", active_connection_id: "",
+      asr_provider: "local", connections: accountConnected ? [{
+        connection_id: "openrouter-account", provider_key: "openrouter",
+        provider_choice: "openrouter", provider_label: "OpenRouter",
+        label: "New OpenRouter account", model: "vendor/model:free",
+        base_url: "", is_default: false, is_local: false,
+        requires_api_key: true, has_api_key: true, secret_state: "present",
+        last_test_status: "", last_tested_at: "",
+        openrouter_http_referer: "", openrouter_app_title: "", provider_metadata: {},
+      }] : [],
+    }));
+    let finishPoll: ((response: Response) => void) | undefined;
+    const pollResponse = new Promise<Response>((resolve) => { finishPoll = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const path = String(url);
+      if (path.endsWith("/openrouter/sign-in")) {
+        return new Response(JSON.stringify({ attempt_id: "pending-account", authorization_url: "https://openrouter.ai/auth" }));
+      }
+      if (path.endsWith("/openrouter/attempts/pending-account/open-browser")) return new Response("{}");
+      if (path.endsWith("/openrouter/attempts/pending-account")) return pollResponse;
+      return new Response(JSON.stringify({ settings: {
+        version: 1, asr_provider: "local", asr_connection_id: "", asr_model: "whisper-large-v3",
+        openrouter_modes: {}, fallback_connection_id: "", paid_fallback_enabled: false,
+        monthly_budget_usd: 5, max_output_tokens: 4096,
+      }, spending: { spent_usd: 0, reserved_usd: 0, unresolved_requests: [] } }));
+    }));
+
+    const { queryClient } = renderWithProviders(<AppFrame />, {
+      initialEntries: ["/runtime-setup"], locale: "en",
+    });
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+    const disclosure = (await screen.findByText("Choose another route: cloud or expert setup")).closest("details");
+    expect(disclosure).not.toHaveAttribute("open");
+    expect(screen.queryByRole("region", { name: "Cloud services" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Choose another route: cloud or expert setup"));
+    fireEvent.click(await screen.findByRole("button", { name: "Connect OpenRouter" }));
+    await waitFor(() => expect(finishPoll).toBeDefined());
+    fireEvent.click(screen.getByText("Choose another route: cloud or expert setup"));
+    expect(disclosure).not.toHaveAttribute("open");
+    expect(disclosure?.querySelector('section[aria-label="Cloud services"]')).toBeInTheDocument();
+
+    accountConnected = true;
+    await act(async () => {
+      finishPoll?.(new Response(JSON.stringify({ status: "connected" })));
+    });
+    await waitFor(() => expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["runtime"] }));
+    await waitFor(() => expect(mockedGetRuntimeSettings).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByText("Choose another route: cloud or expert setup"));
+    expect(await screen.findByText("OpenRouter access: New OpenRouter account")).toBeVisible();
+  });
+
   it("preserves saved-secret clear confirmation and save flow for existing connections", async () => {
     mockedGetRuntime.mockResolvedValue({
       configured: true,
