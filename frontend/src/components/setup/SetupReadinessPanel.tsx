@@ -63,8 +63,8 @@ export const SetupReadinessPanel = ({
           value={readyCount}
         />
         <div className={styles.anchorCopy}>
-          <p className={styles.anchorTitle}>{translate("runtime_setup.setup_guide_anchor_title")}</p>
-          <p className={styles.anchorBody}>{translate("runtime_setup.setup_guide_anchor_body")}</p>
+          <p className={styles.anchorTitle}>{translate(allReady ? "runtime_setup.setup_guide_anchor_title" : "first_run.guide_anchor_pending")}</p>
+          <p className={styles.anchorBody}>{translate("first_run.guide_anchor_body")}</p>
         </div>
       </div>
       <ol className={styles.rows}>

@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { HistoryDetailPanel } from "@/components/history/HistoryDetailPanel";
 import historyStyles from "./HistoryRoute.module.css";
 import { HistoryList } from "@/components/history/HistoryList";
 import { Button } from "@/components/ui/Button";
+import { StatusBanner } from "@/components/ui/StatusBanner";
 import { PracticeProgress } from "@/components/history/PracticeProgress";
 import { measurement, retryDraft } from "@/lib/history/practiceProgress";
+import { hasFirstTakeMilestone } from "@/lib/history/firstTakeMilestone";
 import layoutStyles from "@/components/ui/layout.module.css";
 import { apiClient } from "@/lib/api/client";
 import { createTranslator } from "@/lib/i18n";
@@ -275,6 +277,7 @@ export const formatTrendSummary = (
 };
 
 export const HistoryRoute = () => {
+  const firstTakeRecorded = hasFirstTakeMilestone();
   const [archiveConfirm, setArchiveConfirm] = useState(false);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [archiveError, setArchiveError] = useState("");
@@ -365,19 +368,26 @@ export const HistoryRoute = () => {
 
   if (!historyQuery.isPending && allRecords.length === 0) {
     return (
-      <section style={cardStyle} data-testid="history-empty" data-semantic-id="history-empty">
-        <h2 style={{ margin: 0, fontSize: "1.5rem", color: "#10201c" }}>{translate("history.empty_title")}</h2>
-        <p style={{ margin: 0, color: "#33514b", lineHeight: 1.6 }}>{translate("history.empty_body")}</p>
-        <button
-          type="button"
-          onClick={() => navigate("/session-setup")}
-          style={primaryButtonStyle}
-          data-testid="history-empty-cta"
-          data-semantic-id="history-empty-cta"
-        >
-          {translate("history.empty_cta")}
-        </button>
-      </section>
+      <div className={layoutStyles.stack}>
+        {firstTakeRecorded ? (
+          <StatusBanner title={translate("first_run.milestone_title")} tone="success" action={<Link to="/session-setup">{translate("first_run.milestone_next")}</Link>}>
+            {translate("first_run.milestone_unscored")}
+          </StatusBanner>
+        ) : null}
+        <section style={cardStyle} data-testid="history-empty" data-semantic-id="history-empty">
+          <h2 style={{ margin: 0, fontSize: "1.5rem", color: "#10201c" }}>{translate("history.empty_title")}</h2>
+          <p style={{ margin: 0, color: "#33514b", lineHeight: 1.6 }}>{translate("history.empty_body")}</p>
+          <button
+            type="button"
+            onClick={() => navigate("/session-setup")}
+            style={primaryButtonStyle}
+            data-testid="history-empty-cta"
+            data-semantic-id="history-empty-cta"
+          >
+            {translate("history.empty_cta")}
+          </button>
+        </section>
+      </div>
     );
   }
 
@@ -400,6 +410,9 @@ export const HistoryRoute = () => {
       data-testid="history-route"
       data-semantic-id="history-route"
     >
+      {firstTakeRecorded ? <StatusBanner title={translate("first_run.milestone_title")} tone="success" action={<Link to="/session-setup">{translate("first_run.milestone_next")}</Link>}>
+        {translate("first_run.milestone_body")}
+      </StatusBanner> : null}
       <section className={historyStyles.header}>
         <div className={historyStyles.heading}>
           <div>

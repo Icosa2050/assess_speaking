@@ -383,6 +383,8 @@ describe("Speak route", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Stop recording" }));
 
     const statusPanel = await screen.findByTestId("speak.status_panel");
+    expect(await screen.findByTestId("speak.first_take_milestone")).toHaveTextContent("First take recorded on this Mac");
+    expect(window.localStorage.getItem("assess-speaking.first-take-recorded")).toBe("1");
     expect(statusPanel).toHaveTextContent("Record at least 30 seconds before requesting a review.");
     expect(statusPanel).not.toHaveTextContent("A recording is attached and ready for assessment.");
     expect(screen.getByRole("button", { name: "Remove recording" })).toBeVisible();

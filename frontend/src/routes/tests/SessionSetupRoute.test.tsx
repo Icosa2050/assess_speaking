@@ -189,7 +189,7 @@ describe("Session Setup route", () => {
       "data-semantic-id",
       "setup.runtime_callout",
     );
-    expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Ready to record");
+    expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Device setup needed");
 
     fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
 

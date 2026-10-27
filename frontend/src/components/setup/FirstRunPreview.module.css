@@ -1,0 +1,43 @@
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  gap: var(--space-4);
+}
+
+.preview {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+}
+
+.preview h2,
+.preview p {
+  margin: 0;
+}
+
+.preview h2 {
+  font-size: var(--font-size-title);
+}
+
+.preview a {
+  color: var(--color-brand);
+  font-weight: var(--weight-semibold);
+}
+
+.eyebrow,
+.sampleLabel {
+  color: var(--color-brand);
+  font-size: var(--font-size-compact);
+  font-weight: 750;
+}
+
+.sampleLabel {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.meta,
+.note {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-compact);
+}

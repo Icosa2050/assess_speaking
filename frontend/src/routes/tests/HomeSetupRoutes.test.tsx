@@ -147,9 +147,28 @@ describe("Home and Runtime Setup routes", () => {
 
     renderWithProviders(<AppFrame />, { initialEntries: ["/"], locale: "en" });
 
-    expect(await screen.findByRole("button", { name: "Set up local AI" })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Get ready to practice" })).toBeVisible();
+    expect(screen.getByTestId("first-run.preview")).toHaveTextContent("SAMPLE REPORT · ILLUSTRATIVE");
+    expect(screen.getByTestId("first-run.preview")).toHaveTextContent("This is a sample, never your result or score.");
     fireEvent.click(screen.getByRole("link", { name: "Timed speaking rehearsal" }));
     expect(await screen.findByTestId("rehearsal-screen")).toBeVisible();
+  });
+
+  it("does not call stale saved preferences ready when the runtime is not configured", async () => {
+    mockedGetRuntime.mockResolvedValue({ configured: false, provider: "", model: "", base_url: "", requires_api_key: false, has_api_key: false });
+    mockedGetDiagnostics.mockResolvedValue({ items: [
+      { key: "whisper", status: "ok", title_key: "", detail_key: "", detail_args: {} },
+      { key: "runtime", status: "ok", title_key: "", detail_key: "", detail_args: {} },
+    ] });
+
+    renderWithProviders(<AppFrame />, { initialEntries: ["/"], locale: "en", appState: {
+      preferences: { setupComplete: true, activeConnectionId: "old-connection" },
+      microphoneStatus: "ready", microphoneSetupPassed: true,
+    } });
+
+    expect(await screen.findByRole("button", { name: "Get ready to practice" })).toBeVisible();
+    await waitFor(() => expect(screen.getByRole("progressbar", { name: "Practice readiness" })).toHaveAttribute("aria-valuenow", "67"));
+    expect(screen.queryByText("Ready on this device")).not.toBeInTheDocument();
   });
 
   it("treats ok and informational diagnostics as healthy after actual microphone capture", async () => {
@@ -468,7 +487,7 @@ describe("Home and Runtime Setup routes", () => {
     });
 
     const nav = screen.getByRole("navigation", { name: "Main navigation" });
-    expect(await screen.findByRole("button", { name: "Set up local AI" })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Get ready to practice" })).toBeVisible();
     expect(within(nav).getByRole("group", { name: "Return to step" })).toBeVisible();
     expect(within(nav).getByRole("link", { name: "Set up local AI" })).toHaveAttribute("href", "/runtime-setup");
     expect(nav.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
@@ -491,7 +510,7 @@ describe("Home and Runtime Setup routes", () => {
     });
 
     expect(await screen.findByText("Next step")).toBeVisible();
-    expect(screen.getByText("Set up local AI to unlock speaking practice on this device.")).toBeVisible();
+    expect(screen.getByText("Run the guided checks to prepare your first recording.")).toBeVisible();
     expect(screen.queryByText("See what is ready and what still needs to be set up.")).not.toBeInTheDocument();
   });
 
@@ -506,7 +525,7 @@ describe("Home and Runtime Setup routes", () => {
 
     expect(screen.getByText("Running startup checks...")).toBeVisible();
     expect(screen.queryByText("Next step")).not.toBeInTheDocument();
-    expect(screen.queryByText("Set up local AI to unlock speaking practice on this device.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Run the guided checks to prepare your first recording.")).not.toBeInTheDocument();
   });
 
   it("shows the setup guide readiness rows before runtime controls", async () => {
@@ -531,6 +550,7 @@ describe("Home and Runtime Setup routes", () => {
     });
 
     expect(await screen.findByTestId("runtime_setup.setup_guide")).toBeVisible();
+    expect(screen.getByTestId("runtime_setup.local_path")).toHaveTextContent("Recommended local path");
     expect(screen.getByRole("heading", { name: "Setup Guide" })).toBeVisible();
     expect(screen.getByTestId("runtime_setup.setup_guide.speech_recognition")).toHaveTextContent(
       "Speech recognition",
@@ -623,15 +643,16 @@ describe("Home and Runtime Setup routes", () => {
       locale: "en",
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Set up local AI" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Get ready to practice" }));
 
     expect(await screen.findByTestId("runtime_setup.screen")).toBeVisible();
     expect(screen.getByTestId("runtime_connection.form")).toBeVisible();
     const providerField = screen.getByTestId("runtime_connection.provider");
     expect(within(providerField).getByRole("option", { name: "Ollama local" })).toBeInTheDocument();
-    expect(within(providerField).getByRole("option", { name: "LM Studio local" })).toBeInTheDocument();
+    expect(within(providerField).queryByRole("option", { name: "LM Studio local" })).not.toBeInTheDocument();
     expect(within(providerField).queryByRole("option", { name: "OpenRouter" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show cloud and advanced providers" })).toBeVisible();
+    expect(screen.getByText("Choose another route: cloud or expert setup").closest("details")).not.toHaveAttribute("open");
     expect(screen.getByTestId("runtime_setup.detect_local_models")).toBeVisible();
     expect(screen.queryByTestId("runtime_connection.api_key")).not.toBeInTheDocument();
     const diagnosticsSummary = screen.getByText("Connection diagnostics");
@@ -656,6 +677,7 @@ describe("Home and Runtime Setup routes", () => {
       "Connection to http://localhost:11434/api/tags succeeded. Model llama3.2:3b responded via http://localhost:11434/v1. Preview: ok";
     expect(await screen.findByText(healthCheckMessage)).toBeVisible();
 
+    fireEvent.click(screen.getByRole("button", { name: "Show cloud and advanced providers" }));
     fireEvent.change(screen.getByTestId("runtime_connection.provider"), {
       target: { value: "lmstudio_local" },
     });
@@ -714,6 +736,7 @@ describe("Home and Runtime Setup routes", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Show cloud and advanced providers" }));
 
+    expect(within(providerField).getByRole("option", { name: "LM Studio local" })).toBeInTheDocument();
     expect(within(providerField).getByRole("option", { name: "OpenRouter" })).toBeInTheDocument();
     expect(within(providerField).getByRole("option", { name: "Generic OpenAI-compatible" })).toBeInTheDocument();
 

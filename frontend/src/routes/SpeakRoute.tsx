@@ -15,6 +15,8 @@ import type {
 } from "@/lib/api/types";
 import { createTranslator } from "@/lib/i18n";
 import { MIN_REVIEW_SECONDS } from "@/lib/recordingPolicy";
+import { recordFirstTakeMilestone } from "@/lib/history/firstTakeMilestone";
+import { StatusBanner } from "@/components/ui/StatusBanner";
 import { pollingIntervals, queryKeys } from "@/lib/query/queryClient";
 import {
   resolveSpeakRouteGuardTarget,
@@ -258,6 +260,7 @@ export const SpeakRoute = () => {
     setPreviewUrl(nextPreviewUrl);
     setAttachedFile(file);
     setRecordedDurationSec(durationSec ?? null);
+    if (inputMode === "record" && durationSec !== undefined) recordFirstTakeMilestone();
     updateRecording({
       status: "ready",
       assessmentState: "idle",
@@ -559,6 +562,14 @@ export const SpeakRoute = () => {
       </section>
 
       <SpeakStatusRail phase={confidencePhase} translate={translate} />
+
+      {recordedDurationSec !== null && inputMode === "record" ? (
+        <div data-testid="speak.first_take_milestone">
+          <StatusBanner title={translate("first_run.milestone_title")} tone="success">
+            {translate("first_run.milestone_body")}
+          </StatusBanner>
+        </div>
+      ) : null}
 
       <div
         style={{

@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { PracticeBriefCard } from "@/components/setup/PracticeBriefCard";
+import { FirstRunPreview } from "@/components/setup/FirstRunPreview";
+import { StatusBanner } from "@/components/ui/StatusBanner";
 import { ThemeForm, type SessionSetupStep } from "@/components/setup/ThemeForm";
 import { apiClient } from "@/lib/api/client";
 import type { HistoryRow } from "@/lib/api/types";
 import { createTranslator } from "@/lib/i18n";
 import { queryKeys } from "@/lib/query/queryClient";
+import { buildSetupReadinessRows, isCoreSetupReadinessKey } from "@/lib/setup/readiness";
 import {
   buildPracticeBrief,
   languageCodes,
@@ -114,6 +117,8 @@ export const SessionSetupRoute = () => {
   const navigate = useNavigate();
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const preferences = useAppStore((state) => state.preferences);
+  const microphoneStatus = useAppStore((state) => state.microphoneStatus);
+  const microphoneSetupPassed = useAppStore((state) => state.microphoneSetupPassed);
   const draft = useAppStore((state) => state.draft);
   const updateDraft = useAppStore((state) => state.updateDraft);
   const applySetup = useAppStore((state) => state.applySetup);
@@ -143,6 +148,10 @@ export const SessionSetupRoute = () => {
   const runtimeQuery = useQuery({
     queryKey: queryKeys.runtime,
     queryFn: () => apiClient.getRuntime(),
+  });
+  const diagnosticsQuery = useQuery({
+    queryKey: queryKeys.diagnostics,
+    queryFn: () => apiClient.getDiagnostics(),
   });
 
   const historyQuery = useQuery({
@@ -240,13 +249,24 @@ export const SessionSetupRoute = () => {
       setupComplete: runtimeConfigured || preferences.setupComplete,
     },
   });
+  const requiredChecks = buildSetupReadinessRows({
+    diagnostics: diagnosticsQuery.data?.items ?? [],
+    diagnosticsError: diagnosticsQuery.isError,
+    diagnosticsPending: diagnosticsQuery.isPending,
+    runtime: runtimeQuery.data,
+    runtimeError: runtimeQuery.isError,
+    runtimePending: runtimeQuery.isPending,
+    microphoneStatus,
+    microphoneSetupPassed,
+  }).filter((row) => isCoreSetupReadinessKey(row.key));
+  const readyToRecord = runtimeConfigured && requiredChecks.every((row) => row.status === "ready");
   const primaryActionLabel = runtimeReadiness.ready
     ? translate("setup.start_speaking")
     : translate("setup.save_and_setup_device");
-  const runtimeCalloutTitle = runtimeReadiness.ready
+  const runtimeCalloutTitle = readyToRecord
     ? translate("setup.runtime_ready_title")
     : translate("setup.runtime_setup_needed_title");
-  const runtimeCalloutBody = runtimeReadiness.ready
+  const runtimeCalloutBody = readyToRecord
     ? translate("setup.runtime_ready_body")
     : translate("setup.runtime_setup_needed_body");
 
@@ -424,6 +444,15 @@ export const SessionSetupRoute = () => {
 
   return (
     <div style={pageStyle} data-testid="setup.layout" data-semantic-id="setup.layout">
+      <div style={{ gridColumn: "1 / -1" }}>
+        <StatusBanner
+          title={translate(readyToRecord ? "first_run.ready_for_task" : "first_run.task_setup_title")}
+          tone={readyToRecord ? "success" : "info"}
+          action={!readyToRecord ? <Link to="/runtime-setup">{translate("first_run.open_local_setup")}</Link> : undefined}
+        >
+          {translate(readyToRecord ? "first_run.ready_for_task_body" : "first_run.task_setup_body")}
+        </StatusBanner>
+      </div>
       <ThemeForm
         availableLanguages={availableLanguages}
         availableThemes={availableThemes.map((theme) => ({ title: theme.title }))}
@@ -521,6 +550,7 @@ export const SessionSetupRoute = () => {
         successFocus={brief.successFocus}
         translate={translate}
       />
+      <div style={{ gridColumn: "1 / -1" }}><FirstRunPreview locale={locale} /></div>
     </div>
   );
 };
