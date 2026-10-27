@@ -212,17 +212,17 @@ export const SetupRoute = () => {
     queryFn: () => apiClient.getWhisperModelStatus(selectedWhisperModel),
     enabled: Boolean(selectedWhisperModel) && runtimeSettingsQuery.data?.asr_provider !== "groq",
   });
+  const savedWhisperModel = String(runtimeSettingsQuery.data?.whisper_model || "").trim();
 
   useEffect(() => {
     setCurrentPage("runtime_setup");
   }, [setCurrentPage]);
 
   useEffect(() => {
-    const nextModel = String(runtimeSettingsQuery.data?.whisper_model || "").trim();
-    if (nextModel) {
-      setSelectedWhisperModel(nextModel);
+    if (savedWhisperModel) {
+      setSelectedWhisperModel(savedWhisperModel);
     }
-  }, [runtimeSettingsQuery.data?.whisper_model]);
+  }, [savedWhisperModel]);
 
   const diagnosticsItems = diagnosticsQuery.data?.items ?? [];
   const whisperItem = findDiagnostic(diagnosticsItems, "whisper");
@@ -272,9 +272,6 @@ export const SetupRoute = () => {
     cloudSpeechConnected: cloudSpeech.connected,
     cloudSpeechPending: cloudSpeech.pending || runtimeSettingsQuery.isPending,
     cloudSpeechError: cloudSpeech.error || (runtimeSettingsQuery.isError && !runtimeSettingsQuery.data),
-    whisperCached: Boolean(whisperStatusQuery.data?.cached),
-    whisperChecked: Boolean(whisperStatusQuery.data) && !cloudSpeech.selected,
-    whisperPending: runtimeSettingsQuery.data?.asr_provider !== "groq" && whisperStatusQuery.isPending,
   });
 
   const cloudAsr = runtimeSettings?.asr_provider === "groq";
@@ -591,6 +588,9 @@ export const SetupRoute = () => {
             ))}
           </select>
         </label>
+        {savedWhisperModel && selectedWhisperModel !== savedWhisperModel ? <p role="status" style={{ margin: 0, lineHeight: 1.55, color: "#9a6700" }}>
+          {translate("first_run.save_speech_selection", { model: selectedWhisperModel })}
+        </p> : null}
         <p
           style={{
             margin: 0,

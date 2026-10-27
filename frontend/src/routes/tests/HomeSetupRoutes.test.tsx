@@ -854,6 +854,68 @@ describe("Home and Runtime Setup routes", () => {
     expect(screen.getByRole("button", { name: "Start speaking" })).toBeVisible();
   });
 
+  it("does not continue with a downloaded speech model until that model is saved", async () => {
+    let savedModel = "small";
+    let mediumCached = false;
+    const connection = {
+      connection_id: "local-1", provider_key: "ollama", provider_choice: "ollama_local", provider_label: "Ollama local",
+      label: "Local tutor", model: "llama3.2:3b", base_url: "http://localhost:11434", is_default: true,
+      is_local: true, requires_api_key: false, has_api_key: false, secret_state: "absent" as const,
+      last_test_status: "", last_tested_at: "", openrouter_http_referer: "", openrouter_app_title: "", provider_metadata: {},
+    };
+    mockedGetRuntime.mockResolvedValue({
+      configured: true, provider: "ollama", model: "llama3.2:3b", base_url: "http://localhost:11434/v1",
+      requires_api_key: false, has_api_key: false,
+    });
+    mockedGetRuntimeSettings.mockImplementation(async () => ({
+      ui_locale: "en", whisper_model: savedModel, active_connection_id: "local-1",
+      asr_provider: "local", connections: [connection],
+    }));
+    mockedGetDiagnostics.mockImplementation(async () => ({ items: [
+      { key: "whisper", status: savedModel === "small" ? "warning" as const : "ok" as const, title_key: "", detail_key: "", detail_args: {} },
+      { key: "runtime", status: "ok" as const, title_key: "", detail_key: "", detail_args: {} },
+    ] }));
+    mockedGetWhisperModelStatus.mockImplementation(async (model) => ({
+      model, repo_id: `systran/faster-whisper-${model}`, cached: model === "medium" && mediumCached,
+      cached_path: model === "medium" && mediumCached ? "/tmp/medium" : "",
+      recommended: true, recommendation_reason: "Practice tier",
+    }));
+    mockedPostWhisperModelDownload.mockImplementation(async (model) => {
+      mediumCached = true;
+      return { model, repo_id: `systran/faster-whisper-${model}`, cached: true,
+        cached_path: "/tmp/medium", recommended: true, recommendation_reason: "Practice tier" };
+    });
+    mockedPutRuntimeSettings.mockImplementation(async (request) => {
+      savedModel = request.whisper_model;
+      return { ui_locale: "en", whisper_model: savedModel, active_connection_id: "local-1",
+        asr_provider: "local", connections: [connection] };
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/runtime-setup"], locale: "en",
+      appState: { microphoneStatus: "ready", microphoneSetupPassed: true },
+    });
+    const speech = await screen.findByTestId("runtime_setup.setup_guide.speech_recognition");
+    await waitFor(() => expect(speech).toHaveAttribute("data-status", "setup"));
+    fireEvent.change(screen.getByLabelText("Whisper model"), { target: { value: "medium" } });
+    expect(screen.getByText(/Practice still uses the saved speech model/)).toHaveTextContent("medium");
+    fireEvent.click(screen.getByTestId("runtime_setup.download_model"));
+    await waitFor(() => expect(screen.getByTestId("runtime_setup.whisper_status")).toHaveTextContent("/tmp/medium"));
+    expect(mockedPostWhisperModelDownload).toHaveBeenCalledWith("medium");
+    expect(speech).toHaveAttribute("data-status", "setup");
+    expect(screen.queryByRole("button", { name: "Choose a practice task" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("runtime_connection.save_connection"));
+    await waitFor(() => expect(mockedPutRuntimeSettings).toHaveBeenCalledWith(expect.objectContaining({ whisper_model: "medium" })));
+    await waitFor(() => expect(speech).toHaveAttribute("data-status", "ready"));
+    expect(screen.getByRole("button", { name: "Choose a practice task" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Choose a practice task" }));
+    fireEvent.change(await screen.findByLabelText("Learner name or nickname"), { target: { value: "maria" } });
+    fireEvent.click(screen.getByTestId("setup.recommended_start"));
+    expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Continue to the recording step");
+    expect(screen.getByRole("button", { name: "Start speaking" })).toBeVisible();
+  });
+
   it("shows the runtime setup branch on Home and renders interactive runtime controls", async () => {
     mockedGetRuntime.mockResolvedValue({
       configured: false,

@@ -47,6 +47,7 @@
     "configured_status": "Configurato — verificato all’avvio",
     "ai_configured": "È stato scelto un modello tutor. La connessione viene verificata all’avvio.",
     "speech_configured": "È stato scelto un modello vocale. La disponibilità viene verificata all’avvio.",
+    "save_speech_selection": "Per esercitarti viene ancora usato il modello vocale salvato. Per usare {model}, scaricalo, poi scegli Salva e usa connessione qui sotto.",
     "checks_configured": "La configurazione è pronta. La connessione viene verificata all’avvio; non tutti i controlli sono ancora superati.",
     "speak_return_title": "Completa la configurazione per registrare",
     "speak_return_body": "Il controllo {check} richiede attenzione prima di continuare.",

@@ -47,6 +47,7 @@
     "configured_status": "Eingerichtet — beim Start geprüft",
     "ai_configured": "Ein Tutor-Modell ist gewählt. Die Verbindung wird beim Start geprüft.",
     "speech_configured": "Ein Sprachmodell ist gewählt. Die Verfügbarkeit wird beim Start geprüft.",
+    "save_speech_selection": "Für die Übung wird noch das gespeicherte Sprachmodell verwendet. Um {model} zu nutzen, lade es herunter und wähle unten Verbindung speichern und verwenden.",
     "checks_configured": "Die Einrichtung ist konfiguriert. Die Verbindung wird beim Start geprüft; noch sind nicht alle Prüfungen bestanden.",
     "speak_return_title": "Einrichtung für den Aufnahmeschritt abschließen",
     "speak_return_body": "Die Prüfung „{check}“ braucht noch Aufmerksamkeit, bevor du fortfahren kannst.",

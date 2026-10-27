@@ -47,6 +47,7 @@
     "configured_status": "Configured — checked when you start",
     "ai_configured": "A tutor model is selected. Its live connection is checked when you start.",
     "speech_configured": "A speech model is selected. Availability is checked when you start.",
+    "save_speech_selection": "Practice still uses the saved speech model. To use {model}, download it, then choose Save and use connection below.",
     "checks_configured": "The setup is configured. Live connection availability is checked when you start; the checklist does not yet claim every check passed.",
     "speak_return_title": "Finish setup to enter the recording step",
     "speak_return_body": "The {check} check needs attention before you can continue.",

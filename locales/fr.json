@@ -47,6 +47,7 @@
     "configured_status": "Configuré — vérifié au démarrage",
     "ai_configured": "Un modèle de tutorat est choisi. Sa connexion sera vérifiée au démarrage.",
     "speech_configured": "Un modèle vocal est choisi. Sa disponibilité sera vérifiée au démarrage.",
+    "save_speech_selection": "L’exercice utilise encore le modèle vocal enregistré. Pour utiliser {model}, télécharge-le, puis choisis Enregistrer et utiliser la connexion ci-dessous.",
     "checks_configured": "La configuration est prête. La connexion sera vérifiée au démarrage ; toutes les vérifications ne sont pas encore réussies.",
     "speak_return_title": "Terminez la configuration avant l’enregistrement",
     "speak_return_body": "La vérification « {check} » demande votre attention avant de continuer.",

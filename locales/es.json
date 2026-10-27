@@ -47,6 +47,7 @@
     "configured_status": "Configurado — se comprueba al empezar",
     "ai_configured": "Hay un modelo de tutor elegido. La conexión activa se comprueba al empezar.",
     "speech_configured": "Hay un modelo de voz elegido. Su disponibilidad se comprueba al empezar.",
+    "save_speech_selection": "La práctica aún usa el modelo de voz guardado. Para usar {model}, descárgalo y después elige Guardar y usar conexión abajo.",
     "checks_configured": "La configuración está preparada. La conexión se comprueba al empezar; aún no han pasado todas las comprobaciones.",
     "speak_return_title": "Termina la configuración para entrar en la grabación",
     "speak_return_body": "La comprobación de {check} necesita atención antes de continuar.",
