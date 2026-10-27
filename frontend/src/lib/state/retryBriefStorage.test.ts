@@ -16,6 +16,9 @@ describe("local retry draft", () => {
     expect(readRetryDraft()).toMatchObject({ promptText: "Describe a trip", coachingGoal: "End with one reflection" });
     persistRetryDraft(buildSessionDraft({ ...retry(), coachingGoal: "" }));
     expect(readRetryDraft()?.coachingGoal).toBe("");
+    const longSuggestion = "End with a personal reflection. ".repeat(12);
+    persistRetryDraft(buildSessionDraft({ ...retry(), coachingGoal: longSuggestion }));
+    expect(readRetryDraft()).toMatchObject({ promptText: "Describe a trip", coachingGoal: longSuggestion });
   });
 
   it("removes stale retry data when starting a different task and ignores damaged storage", () => {

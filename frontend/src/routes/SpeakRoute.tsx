@@ -606,7 +606,7 @@ export const SpeakRoute = () => {
               ? translate("retry.goal_value", { goal: draft.coachingGoal.trim() })
               : translate("retry.no_goal")}
           </p>
-          <Field label={translate("retry.goal_label")} value={draft.coachingGoal} maxLength={240}
+          <Field label={translate("retry.goal_label")} value={draft.coachingGoal}
             onChange={event => updateDraft({ coachingGoal: event.target.value })}
             hint={translate("retry.brief_hint")} data-testid="speak-retry-goal" />
           <Button variant="quiet" onClick={() => updateDraft({ coachingGoal: "" })}>

@@ -419,7 +419,7 @@ export const ReviewRoute = () => {
                     </Button>
                   ))}
                 </div>
-                <Field label={translate("retry.goal_label")} value={chosenGoal} maxLength={240}
+                <Field label={translate("retry.goal_label")} value={chosenGoal}
                   onChange={event => setChosenGoal(event.target.value)} hint={translate("retry.goal_hint")}
                   data-testid="review-goal-input" />
                 <Button variant="quiet" onClick={() => setChosenGoal("")}>{translate("retry.clear_goal")}</Button>

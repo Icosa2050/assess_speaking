@@ -19,8 +19,7 @@ export const readRetryDraft = (): SessionDraft | null => {
       !DURATION_OPTIONS.includes(draft.durationSec as SessionDraft["durationSec"]) ||
       !CEFR_LEVELS.includes(draft.cefrLevel as SessionDraft["cefrLevel"]) ||
       !TASK_FAMILY_OPTIONS.includes(draft.taskFamily as SessionDraft["taskFamily"]) ||
-      !["en", "it"].includes(String(draft.learningLanguage)) ||
-      String(draft.coachingGoal).length > 240) return null;
+      !["en", "it"].includes(String(draft.learningLanguage))) return null;
     const restored = buildSessionDraft(draft as unknown as SessionDraft);
     return restored.retryOfSessionId && hasSetupDraft(restored) ? restored : null;
   } catch {
