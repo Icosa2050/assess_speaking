@@ -240,6 +240,7 @@ export const SpeakRoute = () => {
   const [recordedDurationSec, setRecordedDurationSec] = useState<number | null>(null);
   const [firstTakeJustRecorded, setFirstTakeJustRecorded] = useState(false);
   const [previewUrl, setPreviewUrl] = useState("");
+  const [recordingActive, setRecordingActive] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const uploadController = useRef<AbortController | null>(null);
@@ -627,10 +628,10 @@ export const SpeakRoute = () => {
               : translate("retry.no_goal")}
           </p>
           <Field label={translate("retry.goal_label")} value={draft.coachingGoal} maxLength={12000}
-            disabled={recording.status === "recording" || isSubmitting || lifecycleState === "queued" || lifecycleState === "running"}
+            disabled={recordingActive || isSubmitting || lifecycleState === "queued" || lifecycleState === "running"}
             onChange={event => updateDraft({ coachingGoal: event.target.value })}
             hint={translate("retry.brief_hint")} data-testid="speak-retry-goal" />
-          <Button variant="quiet" disabled={recording.status === "recording" || isSubmitting || lifecycleState === "queued" || lifecycleState === "running"}
+          <Button variant="quiet" disabled={recordingActive || isSubmitting || lifecycleState === "queued" || lifecycleState === "running"}
             onClick={() => updateDraft({ coachingGoal: "" })}>
             {translate("retry.clear_goal")}
           </Button>
@@ -659,6 +660,7 @@ export const SpeakRoute = () => {
         <p data-testid="speak.minimum_duration">{translate("speak.recording_too_short")}</p>
         <SharingSummary route={sharingQuery.data} locale={locale} />
       <RecorderPanel onMicrophoneStatusChange={setMicrophoneStatus}
+          onRecordingActiveChange={setRecordingActive}
           microphoneSetupPassed={microphoneSetupPassed}
           microphoneDeviceId={microphoneDeviceId}
           microphoneVoiceProcessing={microphoneVoiceProcessing}

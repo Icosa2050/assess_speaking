@@ -147,13 +147,20 @@ describe("Speak route", () => {
     expect(await screen.findByTestId("speak-retry-runtime-check")).toHaveTextContent("Add a clear ending");
     expect(screen.queryByTestId("speak.record_start")).not.toBeInTheDocument();
   });
-  it("locks the brief while recording is in progress", async () => {
+  it("locks the brief during an actual recording and unlocks it afterward", async () => {
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
-      appState: { ...validDraftState, recording: { status: "recording" }, draft: { ...validDraftState.draft,
+      appState: { ...validDraftState, draft: { ...validDraftState.draft,
         retryOfSessionId: "first", coachingGoal: "Add a clear ending", retryGoalEligible: true } } });
     const brief = await screen.findByTestId("speak-retry-brief");
-    expect(screen.getByTestId("speak-retry-goal")).toBeDisabled();
-    expect(within(brief).getByRole("button", { name: "Clear goal" })).toBeDisabled();
+    const goalField = screen.getByTestId("speak-retry-goal");
+    const clearGoal = within(brief).getByRole("button", { name: "Clear goal" });
+    expect(goalField).toBeEnabled();
+    fireEvent.click(await screen.findByRole("button", { name: "Start recording" }));
+    await waitFor(() => expect(goalField).toBeDisabled());
+    expect(clearGoal).toBeDisabled();
+    fireEvent.click(await screen.findByRole("button", { name: "Stop recording" }));
+    await waitFor(() => expect(goalField).toBeEnabled());
+    expect(clearGoal).toBeEnabled();
   });
   it("keeps recording blocked without calibration while upload remains usable", async () => {
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
