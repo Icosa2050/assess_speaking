@@ -36,5 +36,7 @@ describe("follow-up retry brief", () => {
   it("does not call a generic shared word a goal-related observation", () => {
     const goal = buildSessionDraft({ retryOfSessionId: "first", coachingGoal: "Speak more slowly and clearly", retryGoalEligible: true });
     expect(followUpBrief(summary(null, "assessable", ["Use more varied vocabulary"]), goal)?.observation).toBe("");
+    const inflectedGoal = buildSessionDraft({ retryOfSessionId: "first", coachingGoal: "Add concrete details", retryGoalEligible: true });
+    expect(followUpBrief(summary(null, "assessable", ["Add one concrete detail"]), inflectedGoal)?.observation).toBe("");
   });
 });
