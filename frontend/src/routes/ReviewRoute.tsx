@@ -241,10 +241,14 @@ export const ReviewRoute = () => {
   const coachTakeaway = summary.coachSummary || translate("review.coach_takeaway_placeholder");
 
   const handleTryAgain = () => {
+    // A failed retry does not create new guidance. Keep the learner's existing
+    // goal tied to its last assessable parent so the next take can continue it.
+    const continueEarlierGoal = summary.eligibilityState !== "assessable" && followUp !== null;
     clearAttempt({ keepSetup: true });
     updateDraft({
-      coachingGoal: summary.eligibilityState === "assessable" ? chosenGoal.trim() : "",
-      retryGoalEligible: summary.eligibilityState === "assessable",
+      ...(continueEarlierGoal ? { retryOfSessionId: draft.retryOfSessionId } : {}),
+      coachingGoal: summary.eligibilityState === "assessable" ? chosenGoal.trim() : continueEarlierGoal ? followUp.goal : "",
+      retryGoalEligible: summary.eligibilityState === "assessable" || continueEarlierGoal,
     });
     setReturnTo("review");
     navigate("/speak");

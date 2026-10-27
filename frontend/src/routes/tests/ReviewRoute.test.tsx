@@ -183,6 +183,31 @@ describe("Review route", () => {
     expect(store.getState().draft.retryGoalEligible).toBe(false);
   });
 
+  it("keeps a learner's earlier goal after an ineligible retry without suggesting or comparing it", async () => {
+    const payload = { ...reviewPayload,
+      meta: { ...reviewPayload.meta, practice: { retry_of_session_id: "first" } },
+      report: { ...reviewPayload.report, session_id: "second", rubric: undefined,
+        checks: { ...reviewPayload.report.checks, duration_pass: false, min_words_pass: false },
+        warnings: ["llm_skipped_low_word_count"],
+        coaching: { ...reviewPayload.report.coaching, next_focus: "New unverified advice" },
+        progress_delta: { comparison_verified: true, previous_session_id: "first", score_delta: { final: 1 } },
+      },
+    };
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
+      ...validDraftState,
+      draft: { ...validDraftState.draft, retryOfSessionId: "first", coachingGoal: "Finish with one concrete example", retryGoalEligible: true },
+      review: { reportId: "second", transcript: "Too short", payload },
+    } });
+    expect(await screen.findByTestId("review-retry-follow-up")).toHaveTextContent("Finish with one concrete example");
+    expect(screen.queryByTestId("review-goal-picker")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("review-retry-change")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("review-action-try-again"));
+    expect(await screen.findByTestId("speak-retry-brief")).toHaveTextContent("Finish with one concrete example");
+    expect(store.getState().draft).toMatchObject({ retryOfSessionId: "first", coachingGoal: "Finish with one concrete example", retryGoalEligible: true });
+    const saved = JSON.parse(window.localStorage.getItem("vostavo.retry-draft.v2") || "null");
+    expect(saved?.draft).toMatchObject({ retryOfSessionId: "first", coachingGoal: "Finish with one concrete example" });
+  });
+
   it("allows a learner-written goal on Review when an assessable report has no suggestions", async () => {
     const payload = { ...reviewPayload, report: { ...reviewPayload.report, coaching: {
       ...reviewPayload.report.coaching, next_focus: "", top_3_priorities: [],
