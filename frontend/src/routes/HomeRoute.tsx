@@ -124,7 +124,7 @@ export const HomeRoute = () => {
   const allChecksReady = readyChecks === practiceChecks.length && runtimeConfigured;
   const diagnosticsCardState: DiagnosticsCardState = (() => {
     if (runtimeQuery.isPending || diagnosticsQuery.isPending) return "loading";
-    if (runtimeQuery.isError || diagnosticsQuery.isError) return "unavailable";
+    if ((runtimeQuery.isError && !runtimeQuery.data) || (diagnosticsQuery.isError && !diagnosticsQuery.data)) return "unavailable";
     if (actionableDiagnostics.length > 0) return "checks";
     return allChecksReady ? "ready" : "setup";
   })();

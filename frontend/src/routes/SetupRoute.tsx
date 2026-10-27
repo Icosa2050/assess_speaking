@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -161,7 +161,9 @@ const formStateColor = (tone: "success" | "warning" | "error"): string => {
 
 export const SetupRoute = () => {
   const navigate = useNavigate();
-  const { hash } = useLocation();
+  const location = useLocation();
+  const { hash } = location;
+  const returningToSpeak = (location.state as { returnTo?: string } | null)?.returnTo === "/speak";
   useEffect(() => {
     if (hash === "#runtime-setup-microphone" || hash === "#runtime-setup-cloud") {
       document.getElementById(hash.slice(1))?.scrollIntoView?.({ block: "start" });
@@ -186,6 +188,7 @@ export const SetupRoute = () => {
   >("idle");
   const [formStatusMessage, setFormStatusMessage] = useState("");
   const [isBusy, setIsBusy] = useState(false);
+  const testedDraftRef = useRef<string | null>(null);
   const [cloudOptionsOpen, setCloudOptionsOpen] = useState(hash === "#runtime-setup-cloud");
 
   const runtimeQuery = useQuery({
@@ -293,7 +296,8 @@ export const SetupRoute = () => {
   const setupReady = Boolean(runtime?.configured) &&
     requiredRows.every((row) => row.status === "ready");
   const setupCanContinue = Boolean(runtime?.configured) &&
-    requiredRows.every((row) => canContinueWithCheck(row.status));
+    requiredRows.filter((row) => row.key !== "microphone").every((row) => canContinueWithCheck(row.status));
+  const returnCheck = requiredRows.find((row) => row.key !== "microphone" && !canContinueWithCheck(row.status));
 
   const initialDraft = buildDraftFromConnection(activeConnection, translate);
   const formResetToken = JSON.stringify({
@@ -411,6 +415,7 @@ export const SetupRoute = () => {
     setFormStatusMessage(translate("runtime_setup.testing_connection"));
     try {
       const response = await apiClient.postRuntimeSettingsTestConnection({ connection });
+      testedDraftRef.current = JSON.stringify({ ...connection, connection_id: "" });
       setDetectedModels(response.discovered_models);
       if (runtime?.configured && activeConnection &&
         connection.connection_id === activeConnection.connection_id &&
@@ -429,6 +434,7 @@ export const SetupRoute = () => {
         }),
       );
     } catch (caught) {
+      testedDraftRef.current = null;
       const detail =
         caught instanceof ApiClientError && caught.code === "validation_error"
           ? caught.detail
@@ -468,6 +474,19 @@ export const SetupRoute = () => {
       const saved = response.connections.find(c => c.connection_id === response.active_connection_id);
       setFormStatusMessage(translate(saved?.provider_metadata.persistent === false ? "runtime_setup.save_success_session_only" : "runtime_setup.save_success"));
       await handleInvalidateRuntime();
+      const refreshedRuntime = queryClient.getQueryData<typeof runtime>(queryKeys.runtime);
+      const savedBaseUrl = saved?.base_url.replace(/\/+$/, "");
+      const sameRuntimeBase = refreshedRuntime?.base_url === saved?.base_url ||
+        (saved?.provider_choice === "ollama_local" && refreshedRuntime?.base_url === `${savedBaseUrl}/v1`);
+      if (!clearSavedSecret && saved && refreshedRuntime?.configured &&
+        queryClient.getQueryState(queryKeys.runtime)?.status === "success" &&
+        testedDraftRef.current === JSON.stringify({ ...connection, connection_id: "" }) &&
+        saved.provider_choice === connection.provider_choice && saved.model === connection.model &&
+        saved.base_url === connection.base_url && refreshedRuntime.model === saved.model &&
+        [saved.provider_key, saved.provider_choice].includes(refreshedRuntime.provider) && sameRuntimeBase) {
+        markConnectionTest(queryClient, refreshedRuntime, true);
+      }
+      testedDraftRef.current = null;
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
       setFormStatus("save-failed");
@@ -488,6 +507,10 @@ export const SetupRoute = () => {
       }}
       {...semanticAttributes(SEMANTIC_IDS.runtimeSetup.screen)}
     >
+      {returningToSpeak ? <StatusBanner title={translate(setupCanContinue ? "first_run.continue_to_speak_title" : "first_run.speak_return_title")} tone={setupCanContinue ? "success" : "warning"}>
+        {returnCheck ? translate("first_run.speak_return_body", { check: translate(returnCheck.titleKey) }) : translate("first_run.speak_return_ready_body")}
+        {setupCanContinue ? <Button onClick={() => navigate("/speak")}>{translate("first_run.return_to_speak")}</Button> : null}
+      </StatusBanner> : null}
       <Card as="section" className={styles.path} data-testid="runtime_setup.local_path">
         <p className={styles.eyebrow}>{translate(recommendedLocalPath ? "first_run.local_path_eyebrow" : "first_run.current_path_eyebrow")}</p>
         <h2>{translate(recommendedLocalPath ? "first_run.local_path_title" : "first_run.current_path_title")}</h2>

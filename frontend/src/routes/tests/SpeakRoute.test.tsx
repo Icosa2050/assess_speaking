@@ -27,6 +27,7 @@ vi.mock("@/lib/api/client", () => ({
     getRuntime: vi.fn(),
     getDiagnostics: vi.fn(),
     getRuntimeSettings: vi.fn(),
+    getWhisperModelStatus: vi.fn(),
     uploadAudio: vi.fn(),
     getUploadLimits: vi.fn(),
   },
@@ -123,10 +124,27 @@ describe("Speak route", () => {
       configured: false, provider: "", model: "", base_url: "",
       requires_api_key: false, has_api_key: false,
     });
-    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+    const { queryClient } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
 
     expect(await screen.findByTestId("runtime_setup.screen")).toBeVisible();
+    expect(screen.getByText("Finish setup to enter the recording step")).toBeVisible();
+    expect(screen.getByText(/needs attention before you can continue/)).toBeVisible();
     expect(screen.queryByTestId("speak.record_start")).not.toBeInTheDocument();
+
+    act(() => queryClient.setQueryData(["runtime"], {
+      configured: true, provider: "ollama_local", model: "llama3.2:3b", base_url: "http://localhost:11434",
+      requires_api_key: false, has_api_key: false,
+    }));
+    fireEvent.click(await screen.findByRole("button", { name: "Return to the recording step" }));
+    expect(await screen.findByTestId("speak.recording_panel", {}, { timeout: 5_000 })).toBeVisible();
+  });
+
+  it("allows local speech when settings fetch fails without cached settings", async () => {
+    mockedGetRuntimeSettings.mockRejectedValue(new Error("settings offline"));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+
+    expect(await screen.findByTestId("speak.recording_panel", {}, { timeout: 5_000 })).toBeVisible();
+    expect(screen.queryByTestId("runtime_setup.screen")).not.toBeInTheDocument();
   });
 
   it("redirects a direct Speak link when a selected cloud tutor lacks its key", async () => {

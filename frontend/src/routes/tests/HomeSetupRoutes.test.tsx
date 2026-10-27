@@ -6,6 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "@/test/renderWithProviders";
 
 vi.mock("@/lib/api/client", () => ({
+  ApiClientError: class ApiClientError extends Error {
+    code = "runtime_error";
+    detail: string;
+    constructor(_status: number, error: { detail: string }) {
+      super(error.detail);
+      this.detail = error.detail;
+    }
+  },
   apiClient: {
     getSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
     getResumeSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
@@ -113,6 +121,26 @@ describe("Home and Runtime Setup routes", () => {
     );
     expect(screen.queryByText("See what is ready and what still needs to be set up.")).not.toBeInTheDocument();
     expect(screen.queryByTestId("home.runtime_setup_button")).not.toBeInTheDocument();
+  });
+
+  it("keeps cached Home diagnostics visible after a background refresh fails", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true, provider: "ollama", model: "local-model", base_url: "http://localhost:11434",
+      requires_api_key: false, has_api_key: false,
+    });
+    mockedGetDiagnostics.mockResolvedValue({ items: [
+      { key: "whisper", status: "ok", title_key: "", detail_key: "", detail_args: {} },
+    ] });
+    const { queryClient } = renderWithProviders(<AppFrame />, { initialEntries: ["/"], locale: "en" });
+    expect(await screen.findByText("Next step")).toBeVisible();
+
+    mockedGetDiagnostics.mockRejectedValue(new Error("offline"));
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["diagnostics"] });
+    });
+    expect(queryClient.getQueryState(["diagnostics"])?.status).toBe("error");
+    expect(screen.getByText("Next step")).toBeVisible();
+    expect(screen.queryByText("The setup checks could not run. Open setup to check your connections.")).not.toBeInTheDocument();
   });
 
   it("opens timed rehearsal from configured Home", async () => {
@@ -709,6 +737,77 @@ describe("Home and Runtime Setup routes", () => {
     fireEvent.click(screen.getByTestId("setup.recommended_start"));
     expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Ready to record");
     expect(screen.getByRole("button", { name: "Start speaking" })).toBeVisible();
+  });
+
+  it("lets a learner choose a task and enter Speak before testing the microphone", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true, provider: "ollama", model: "local-model", base_url: "http://localhost:11434",
+      requires_api_key: false, has_api_key: false,
+    });
+    mockedGetDiagnostics.mockResolvedValue({ items: [
+      { key: "whisper", status: "ok", title_key: "", detail_key: "", detail_args: {} },
+      { key: "runtime", status: "ok", title_key: "", detail_key: "", detail_args: {} },
+    ] });
+    mockedGetWhisperModelStatus.mockResolvedValue({
+      model: "small", repo_id: "systran/faster-whisper-small", cached: true, cached_path: "/tmp/small",
+      recommended: true, recommendation_reason: "Practice tier",
+    });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/runtime-setup"], locale: "en" });
+
+    await waitFor(() => expect(screen.getByTestId("runtime_setup.setup_guide.microphone")).toHaveAttribute("data-status", "setup"));
+    expect(screen.queryByText("All three checks passed. You can choose a task.")).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Choose a practice task" }));
+    fireEvent.change(await screen.findByLabelText("Learner name or nickname"), { target: { value: "maria" } });
+    fireEvent.click(screen.getByTestId("setup.recommended_start"));
+    expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Continue to the recording step");
+    fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
+    expect(await screen.findByTestId("speak.recording_panel")).toBeVisible();
+    expect(screen.getByTestId("speak.record_start")).toBeDisabled();
+  });
+
+  it("keeps a successful test on a new connection after saving and activating it", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: false, provider: "", model: "", base_url: "",
+      requires_api_key: false, has_api_key: false,
+    });
+    mockedGetDiagnostics.mockResolvedValue({ items: [
+      { key: "whisper", status: "ok", title_key: "", detail_key: "", detail_args: {} },
+    ] });
+    mockedGetRuntimeSettings.mockResolvedValue({
+      ui_locale: "en", whisper_model: "small", active_connection_id: "", connections: [], asr_provider: "local",
+    });
+    mockedGetWhisperModelStatus.mockResolvedValue({
+      model: "small", repo_id: "systran/faster-whisper-small", cached: true, cached_path: "/tmp/small",
+      recommended: true, recommendation_reason: "Practice tier",
+    });
+    mockedPostRuntimeSettingsTestConnection.mockResolvedValue({
+      provider: "ollama", base_url: "http://localhost:11434/v1", service_base_url: "http://localhost:11434",
+      health_endpoint: "http://localhost:11434/api/tags", discovered_models: ["local-model"],
+      tested_at: "2026-10-27T09:00:00Z", content_preview: "ok",
+    });
+    mockedPutRuntimeSettings.mockImplementation(async () => {
+      mockedGetRuntime.mockResolvedValue({
+        configured: true, provider: "ollama", model: "local-model", base_url: "http://localhost:11434/v1",
+        requires_api_key: false, has_api_key: false,
+      });
+      return {
+        ui_locale: "en", whisper_model: "small", active_connection_id: "new-local", asr_provider: "local",
+        connections: [{
+          connection_id: "new-local", provider_key: "ollama", provider_choice: "ollama_local", provider_label: "Ollama local",
+          label: "Ollama local", model: "local-model", base_url: "http://localhost:11434", is_default: true,
+          is_local: true, requires_api_key: false, has_api_key: false, secret_state: "absent",
+          last_test_status: "", last_tested_at: "", openrouter_http_referer: "", openrouter_app_title: "", provider_metadata: {},
+        }],
+      };
+    });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/runtime-setup"], locale: "en" });
+
+    fireEvent.change(await screen.findByTestId("runtime_connection.model"), { target: { value: "local-model" } });
+    fireEvent.click(screen.getByTestId("runtime_connection.test_connection"));
+    await screen.findByText(/Connection to .* succeeded/);
+    fireEvent.click(screen.getByTestId("runtime_connection.save_connection"));
+    await waitFor(() => expect(screen.getByTestId("runtime_setup.setup_guide.ai_tutor")).toHaveAttribute("data-status", "ready"));
+    expect(screen.getByText("The setup is configured. Live connection availability is checked when you start; the checklist does not yet claim every check passed.")).toBeVisible();
   });
 
   it("refreshes speech diagnostics after a model download before entering Session Setup", async () => {

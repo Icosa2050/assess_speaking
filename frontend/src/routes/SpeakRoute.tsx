@@ -194,8 +194,8 @@ export const SpeakRoute = () => {
     connectionTestPassed,
     cloudSpeechSelected: cloudSpeech.selected,
     cloudSpeechConnected: cloudSpeech.connected,
-    cloudSpeechPending: cloudSpeech.pending || runtimeSettingsQuery.isPending,
-    cloudSpeechError: cloudSpeech.error || (runtimeSettingsQuery.isError && !runtimeSettingsQuery.data),
+    cloudSpeechPending: cloudSpeech.pending || (cloudSpeech.selected && runtimeSettingsQuery.isPending),
+    cloudSpeechError: cloudSpeech.error || (cloudSpeech.selected && runtimeSettingsQuery.isError && !runtimeSettingsQuery.data),
   }).filter((row) => row.key === "speech_recognition" || row.key === "ai_tutor");
   const speakingChecksPending = speakingChecks.some((row) => row.status === "loading");
   const speakingChecksBlocked = speakingChecks.some((row) => !canContinueWithCheck(row.status));
@@ -359,7 +359,7 @@ export const SpeakRoute = () => {
     return <p role="status">{translate("journey.loading")}</p>;
   }
   if (guardTarget) {
-    return <Navigate replace to={guardTarget} />;
+    return <Navigate replace to={guardTarget} state={guardTarget === "/runtime-setup" ? { returnTo: "/speak" } : undefined} />;
   }
 
   const runtime = runtimeQuery.data as RuntimeResponse | undefined;
