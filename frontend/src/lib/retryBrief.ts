@@ -4,7 +4,11 @@ import type { SessionDraft } from "./state/sessionDraft";
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
-const commonWords = new Set(["with", "your", "this", "that", "from", "into", "para", "avec", "pour", "dass", "eine", "einen", "questo", "questa", "della", "delle"]);
+const commonWords = new Set([
+  "with", "your", "this", "that", "from", "into", "more", "speak", "make", "each", "about", "some", "when", "also",
+  "para", "cada", "sobre", "algo", "mucho", "avec", "pour", "plus", "dans", "dass", "eine", "einen", "mehr", "sehr",
+  "questo", "questa", "della", "delle", "molto", "anche",
+]);
 const words = (value: string): Set<string> => new Set(
   (value.toLocaleLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? []).filter(word => !commonWords.has(word)),
 );
@@ -35,7 +39,8 @@ export const followUpBrief = (summary: ReviewDisplaySummary, draft: SessionDraft
   const value = record(progress.score_delta).final;
   return {
     goal,
-    observation: matching?.overlap ? matching.text : "",
+    observation: matching && matching.overlap >= 2 && matching.overlap / goalWords.size >= 0.5
+      ? matching.text : "",
     comparable,
     overallChange: comparable && typeof value === "number" && Number.isFinite(value) ? value : null,
   };

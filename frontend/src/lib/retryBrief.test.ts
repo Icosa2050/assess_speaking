@@ -7,7 +7,7 @@ import { followUpBrief } from "./retryBrief";
 const checks = { language_pass: true, topic_pass: true, content_validity_pass: true, min_words_pass: true };
 const draft = buildSessionDraft({ retryOfSessionId: "first", coachingGoal: "Connect your examples" });
 
-const summary = (progress: unknown, eligibility = "assessable") => selectReviewSummary({
+const summary = (progress: unknown, eligibility = "assessable", priorities = ["Connect examples with one transition."]) => selectReviewSummary({
   reportId: "second", band: "", scoreOverall: null, summary: "", transcript: "",
   payload: {
     metrics: { duration_sec: 90 },
@@ -15,7 +15,7 @@ const summary = (progress: unknown, eligibility = "assessable") => selectReviewS
     report: {
       session_id: "second", checks, eligibility: { state: eligibility },
       scores: { final: 3.5 },
-      coaching: { top_3_priorities: ["Connect examples with one transition."] },
+      coaching: { top_3_priorities: priorities },
       progress_delta: progress,
     },
   },
@@ -31,5 +31,10 @@ describe("follow-up retry brief", () => {
     expect(followUpBrief(summary({ comparison_verified: true, previous_session_id: "other", score_delta: { final: 0.5 } }), draft)?.overallChange).toBeNull();
     expect(followUpBrief(summary({ comparison_verified: true, previous_session_id: "first", score_delta: { final: 0.5 } }, "invalid_content"), draft)?.overallChange).toBeNull();
     expect(followUpBrief(summary({ comparison_verified: false, previous_session_id: "first", score_delta: { final: 0.5 } }), draft)?.overallChange).toBeNull();
+  });
+
+  it("does not call a generic shared word a goal-related observation", () => {
+    const goal = buildSessionDraft({ retryOfSessionId: "first", coachingGoal: "Speak more slowly and clearly" });
+    expect(followUpBrief(summary(null, "assessable", ["Use more varied vocabulary"]), goal)?.observation).toBe("");
   });
 });
