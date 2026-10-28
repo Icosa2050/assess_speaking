@@ -368,12 +368,14 @@ export const SpeakRoute = () => {
   useEffect(() => {
     const focusKey = `${draft.sessionId}:${draft.retryOfSessionId}`;
     if (draft.retryOfSessionId && draft.retryGoalEligible && !retryRestorePending &&
-        !runtimeQuery.isPending && !guardTarget && lifecycleState !== "completed" &&
-        focusedRetryBriefRef.current !== focusKey) {
-      retryBriefHeadingRef.current?.focus();
+        !runtimeQuery.isPending && !runtimeSettingsQuery.isPending && !speakingChecksPending &&
+        !guardTarget && lifecycleState !== "completed" &&
+        focusedRetryBriefRef.current !== focusKey && retryBriefHeadingRef.current) {
+      retryBriefHeadingRef.current.focus();
       focusedRetryBriefRef.current = focusKey;
     }
-  }, [draft.sessionId, draft.retryOfSessionId, draft.retryGoalEligible, retryRestorePending, runtimeQuery.isPending, guardTarget, lifecycleState]);
+  }, [draft.sessionId, draft.retryOfSessionId, draft.retryGoalEligible, retryRestorePending,
+    runtimeQuery.isPending, runtimeSettingsQuery.isPending, speakingChecksPending, guardTarget, lifecycleState]);
 
   if (lifecycleState === "completed") {
     return review.reportId ? <Navigate replace to="/review" /> :

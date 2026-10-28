@@ -131,7 +131,7 @@ describe("Speak route", () => {
         retryOfSessionId: "first", coachingGoal: "Add a clear ending", retryGoalEligible: true } } });
     const heading = within(await screen.findByTestId("speak-retry-brief")).getByRole("heading");
     await waitFor(() => expect(heading).toHaveFocus());
-    const historyLink = screen.getByRole("link", { name: "History" });
+    const historyLink = screen.getByTestId("home.open_history");
     historyLink.focus();
     for (const status of ["queued", "running", "failed"]) {
       act(() => store.getState().setRecordingJob({ status }));
