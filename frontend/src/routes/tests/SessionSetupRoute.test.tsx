@@ -79,6 +79,21 @@ describe("Session Setup route", () => {
     });
   });
 
+  it("routes a restored retry through confirmation before showing setup fields", async () => {
+    mockedGetRuntime.mockResolvedValue({ configured: true, provider: "ollama_local", model: "test",
+      base_url: "http://localhost:11434", requires_api_key: false, has_api_key: false });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/session-setup"], locale: "en", appState: {
+      retryRestorePending: true,
+      preferences: { activeConnectionId: "conn-primary", setupComplete: true },
+      draft: { speakerId: "private learner", learningLanguage: "it", themeId: "private-theme",
+        themeLabel: "Private task", promptText: "Private prompt", retryOfSessionId: "first",
+        coachingGoal: "Private goal", retryGoalEligible: true },
+    } });
+    expect(await screen.findByTestId("speak-retry-resume")).toBeVisible();
+    expect(screen.queryByTestId("setup.wizard")).not.toBeInTheDocument();
+    expect(screen.queryByText("Private goal")).not.toBeInTheDocument();
+  });
+
   it("offers only profiled languages with a stored German theme and draft", async () => {
     mockedGetRuntime.mockResolvedValue({
       configured: true, provider: "ollama_local", model: "test", base_url: "http://localhost:11434",

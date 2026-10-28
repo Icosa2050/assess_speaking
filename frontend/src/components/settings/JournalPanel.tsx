@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { createTranslator } from "@/lib/i18n";
 import type { UiLocale } from "@/lib/state/sessionDraft";
+import { useAppStore } from "@/lib/state/appStore";
 import { isDesktopRuntime, readDesktopRuntimeBridge } from "@/lib/runtime/desktopBridge";
 import { ownJournalPreview, startFreshJournal, exportJournalDiagnostics, attemptRemoval, rehearsalRemoval, createLearnerBackup, previewLearnerRestore, commitLearnerRestore, recoverLearnerJournal, journalRecoveryStatus, journalStatus, journalRequest, journalBlob, type BackupResult, type RestorePreview, type JournalStatus } from "@/lib/rehearsal/maintenance";
 import { listArchivedRehearsals, undoRehearsalArchive } from "@/lib/rehearsal/storage";
@@ -17,6 +18,7 @@ import styles from "./JournalPanel.module.css";
 
 export function JournalPanel({ locale }: { locale: UiLocale }) {
   const t = createTranslator(locale);
+  const beginNewSession = useAppStore((state) => state.beginNewSession);
   const cache = useQueryClient();
   const controller = useRef<AbortController | null>(null);
   const [confirmFresh, setConfirmFresh] = useState(false);
@@ -98,7 +100,7 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
       {confirmFresh && <div className={styles.actionGroup} role="group" aria-label={t("journal.confirm_fresh")}>
         <p>{t("journal.fresh_note")}</p>
         <Button variant="danger" disabled={busy || activeTransaction} onClick={() => void run(async () => {
-          await startFreshJournal(); setConfirmFresh(false); await refresh(); setMessage(t("journal.fresh_done"));
+          await startFreshJournal(); beginNewSession(); setConfirmFresh(false); await refresh(); setMessage(t("journal.fresh_done"));
         })}>{t("journal.confirm_fresh")}</Button>
         <Button variant="secondary" disabled={busy} onClick={() => setConfirmFresh(false)}>{t("journal.cancel")}</Button>
       </div>}
@@ -112,7 +114,7 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
     {preview && <div className={styles.actionGroup}><p>{t("journal.preview", { attempts: preview.attempts, rehearsals: preview.browser.sessions.length })}</p><p>{t("journal.restore_note")}</p>
       {!!(preview.skipped_attempts.length + preview.skipped_rehearsals.length) && <p>{t("journal.skipped", { count: preview.skipped_attempts.length + preview.skipped_rehearsals.length })}</p>}
       {!!preview.missing.length && <p>{t("journal.missing", { count: preview.missing.length })}</p>}
-      <Button variant="primary" disabled={busy} onClick={() => void run(async signal => { try { await commitLearnerRestore(preview, signal, progress, () => setCommitting(true)); } finally { setPreview(null); setStatus(await journalRecoveryStatus()); } setMessage(t("journal.restored")); await refresh(); })}>{t("journal.confirm_restore")}</Button>
+      <Button variant="primary" disabled={busy} onClick={() => void run(async signal => { try { await commitLearnerRestore(preview, signal, progress, () => setCommitting(true)); beginNewSession(); } finally { setPreview(null); setStatus(await journalRecoveryStatus()); } setMessage(t("journal.restored")); await refresh(); })}>{t("journal.confirm_restore")}</Button>
       <Button disabled={busy} onClick={() => void run(async () => { await retryRecovery(true); setMessage(t("journal.cancelled")); })}>{t("journal.cancel")}</Button>
     </div>}
     {busy && !committing && <Button onClick={() => controller.current?.abort()}>{t("journal.cancel")}</Button>}

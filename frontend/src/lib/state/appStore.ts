@@ -3,6 +3,7 @@ import { useStore } from "zustand";
 import { createStore, type StoreApi } from "zustand/vanilla";
 
 import type { MicrophoneStatus } from "@/lib/setup/microphone";
+import { clearRetryDraft, persistRetryDraft, readRetryDraft } from "./retryBriefStorage";
 
 import { detectPreferredUiLocale, resolveUiLocale } from "@/lib/i18n";
 
@@ -33,6 +34,7 @@ export interface AppStoreState {
   recording: RecordingState;
   review: ReviewState;
   navigation: NavigationState;
+  retryRestorePending: boolean;
 }
 
 export type AppStoreSeed = Partial<{
@@ -45,6 +47,7 @@ export type AppStoreSeed = Partial<{
   recording: Partial<RecordingState>;
   review: Partial<ReviewState>;
   navigation: Partial<NavigationState>;
+  retryRestorePending: boolean;
 }>;
 
 export interface AppStoreActions {
@@ -69,6 +72,8 @@ export interface AppStoreActions {
   clearRecording: (options?: { preserveInputs?: boolean }) => void;
   updateReview: (updates: Partial<ReviewState>) => void;
   clearAttempt: (options?: { keepSetup?: boolean }) => void;
+  confirmRetryRestore: () => void;
+  discardRetryRestore: () => void;
 }
 
 export type AppStore = AppStoreState & AppStoreActions;
@@ -99,8 +104,14 @@ const buildAppStoreState = (seed: AppStoreSeed = {}): AppStoreState => {
     recording: buildRecordingState(seed.recording),
     review: buildReviewState(seed.review),
     navigation: buildNavigationState(seed.navigation),
+    retryRestorePending: seed.retryRestorePending ?? false,
   };
 };
+
+const retryContextChanged = (draft: SessionDraft, updates: Partial<SessionDraft>): boolean =>
+  Boolean(draft.retryOfSessionId) &&
+  (["speakerId", "learningLanguage", "themeId", "promptId", "promptText", "taskFamily", "cefrLevel", "durationSec"] as const)
+    .some(key => key in updates && updates[key] !== draft[key]);
 
 export const createAppStore = (seed: AppStoreSeed = {}): AppStoreApi => {
   const initialState = buildAppStoreState(seed);
@@ -163,13 +174,17 @@ export const createAppStore = (seed: AppStoreSeed = {}): AppStoreApi => {
         recording: buildRecordingState(),
         review: buildReviewState(),
         navigation: buildNavigationState(),
+        retryRestorePending: false,
       })),
     updateDraft: (updates) =>
       set((state) => ({
         draft: buildSessionDraft({
           ...state.draft,
           ...updates,
+          ...(retryContextChanged(state.draft, updates)
+            ? { retryOfSessionId: "", coachingGoal: "", retryGoalEligible: false } : {}),
         }),
+        retryRestorePending: retryContextChanged(state.draft, updates) ? false : state.retryRestorePending,
       })),
     applySetup: (updates) =>
       set(() => {
@@ -187,6 +202,7 @@ export const createAppStore = (seed: AppStoreSeed = {}): AppStoreApi => {
           },
           recording: buildRecordingState(),
           review: buildReviewState(),
+          retryRestorePending: false,
         };
       }),
     updateRecording: (updates) =>
@@ -290,6 +306,8 @@ export const createAppStore = (seed: AppStoreSeed = {}): AppStoreApi => {
                 typeof (state.review.payload.report as Record<string, unknown> | undefined)?.session_id === "string"
                   ? String((state.review.payload.report as Record<string, unknown>).session_id)
                   : "",
+              coachingGoal: "",
+              retryGoalEligible: false,
             })
           : buildSessionDraft({
               sessionId: state.draft.sessionId,
@@ -302,7 +320,18 @@ export const createAppStore = (seed: AppStoreSeed = {}): AppStoreApi => {
           notesInput: keepSetup ? state.recording.notesInput : "",
         }),
         review: buildReviewState(),
+        retryRestorePending: false,
       })),
+    confirmRetryRestore: () => set({ retryRestorePending: false }),
+    discardRetryRestore: () => {
+      clearRetryDraft();
+      set(() => ({
+        draft: buildSessionDraft(),
+        recording: buildRecordingState(),
+        review: buildReviewState(),
+        retryRestorePending: false,
+      }));
+    },
   }));
 };
 
@@ -318,11 +347,19 @@ export const AppStoreProvider = ({
   const storeRef = useRef<AppStoreApi | null>(store ?? null);
 
   if (storeRef.current === null) {
-    storeRef.current = createAppStore();
+    const restored = readRetryDraft();
+    storeRef.current = createAppStore({ draft: restored ?? undefined, retryRestorePending: Boolean(restored) });
   }
 
   useEffect(() => {
     const activeStore = storeRef.current!;
+    const unsubscribeDraft = activeStore.subscribe((state, previous) => {
+      if (state.recording.assessmentState === "completed") {
+        clearRetryDraft();
+      } else if (state.draft !== previous.draft) {
+        persistRetryDraft(state.draft);
+      }
+    });
     let disposed = false;
     let permission: PermissionStatus | undefined;
     const changed = () => {
@@ -340,6 +377,7 @@ export const AppStoreProvider = ({
       }).catch(() => undefined);
     }
     return () => {
+      unsubscribeDraft();
       disposed = true;
       permission?.removeEventListener("change", changed);
       navigator.mediaDevices?.removeEventListener?.("devicechange", deviceChanged);

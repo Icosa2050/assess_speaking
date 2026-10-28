@@ -160,7 +160,7 @@ describe("Review route", () => {
         duration_pass: false, min_words_pass: false },
       warnings: ["llm_skipped_low_word_count"],
     } };
-    renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
       ...validDraftState, review: { reportId: "short", transcript: "bla bla bla", scoreOverall: 3.5,
         band: "4", summary: "Try again", payload },
     } });
@@ -175,6 +175,77 @@ describe("Review route", () => {
     expect(screen.queryByText(/\d\.\d\/5 · limited proxy/)).not.toBeInTheDocument();
     expect(screen.getByTestId("review-baseline")).not.toHaveTextContent("Pass");
     expect(screen.queryByRole("button", {name: "Resume unfinished analysis"})).not.toBeInTheDocument();
+    expect(screen.queryByTestId("review-goal-picker")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("review-action-try-again"));
+    expect(await screen.findByTestId("speak.session_summary")).toBeVisible();
+    expect(screen.queryByTestId("speak-retry-brief")).not.toBeInTheDocument();
+    expect(store.getState().draft.coachingGoal).toBe("");
+    expect(store.getState().draft.retryGoalEligible).toBe(false);
+  });
+
+  it("keeps a learner's earlier goal after an ineligible retry without suggesting or comparing it", async () => {
+    const payload = { ...reviewPayload,
+      meta: { ...reviewPayload.meta, practice: { retry_of_session_id: "first" } },
+      report: { ...reviewPayload.report, session_id: "second", rubric: {
+        recurring_grammar_errors: [{ type: "new_unverified_grammar" }],
+        coherence_issues: [{ type: "new_unverified_coherence" }],
+        style_suggestions: [{ original: "Old phrase", suggestion: "New unverified style", explanation: "Unverified explanation" }],
+      },
+        checks: { ...reviewPayload.report.checks, duration_pass: false, min_words_pass: false },
+        warnings: ["llm_skipped_low_word_count"],
+        coaching: { ...reviewPayload.report.coaching, next_focus: "New unverified advice",
+          next_attempt_instruction: "New unverified instruction" },
+        progress_delta: { comparison_verified: true, previous_session_id: "first", score_delta: { final: 1 } },
+      },
+    };
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
+      ...validDraftState,
+      draft: { ...validDraftState.draft, retryOfSessionId: "first", coachingGoal: "Finish with one concrete example", retryGoalEligible: true },
+      review: { reportId: "second", transcript: "Too short", payload },
+    } });
+    expect(await screen.findByTestId("review-retry-follow-up")).toHaveTextContent("Finish with one concrete example");
+    expect(screen.queryByTestId("review-goal-picker")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("review-retry-change")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("review-next-focus")).not.toBeInTheDocument();
+    expect(screen.getByTestId("review-next-step-focus")).toHaveTextContent("The next-step recommendation will appear after assessment.");
+    expect(screen.queryByTestId("review-next-step-exercise")).not.toBeInTheDocument();
+    expect(screen.queryByText("New unverified advice")).not.toBeInTheDocument();
+    expect(screen.queryByText("New unverified instruction")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("review-style-suggestions")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("review-next-attempt-instruction")).not.toBeInTheDocument();
+    expect(screen.queryByText(/new unverified grammar|new unverified coherence/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("review-general-practice-tips")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("review-action-try-again"));
+    expect(await screen.findByTestId("speak-retry-brief")).toHaveTextContent("Finish with one concrete example");
+    expect(store.getState().draft).toMatchObject({ retryOfSessionId: "first", coachingGoal: "Finish with one concrete example", retryGoalEligible: true });
+    const saved = JSON.parse(window.localStorage.getItem("vostavo.retry-draft.v2") || "null");
+    expect(saved?.draft).toMatchObject({ retryOfSessionId: "first", coachingGoal: "Finish with one concrete example" });
+  });
+
+  it("allows a learner-written goal on Review when an assessable report has no suggestions", async () => {
+    const payload = { ...reviewPayload, report: { ...reviewPayload.report, coaching: {
+      ...reviewPayload.report.coaching, next_focus: "", top_3_priorities: [],
+    } } };
+    renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
+      ...validDraftState, review: { reportId: "report-1", payload },
+    } });
+    expect(await screen.findByTestId("review-goal-picker")).toBeVisible();
+    expect(screen.getByTestId("review-goal-input")).toHaveValue("");
+  });
+
+  it("carries one edited coaching goal into Speak and stores it with the retry draft", async () => {
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
+      ...validDraftState,
+      review: { reportId: "report-1", transcript: "Full transcript text", scoreOverall: 3.5,
+        band: "4", summary: "Focus on connectors.", payload: reviewPayload },
+    } });
+    const goal = await screen.findByTestId("review-goal-input") as HTMLInputElement;
+    expect(goal.value).toBe("Connect your examples more clearly.");
+    fireEvent.change(goal, { target: { value: "Connect each example to your point" } });
+    fireEvent.click(screen.getByTestId("review-action-try-again"));
+    expect(await screen.findByTestId("speak-retry-brief")).toHaveTextContent("Connect each example to your point");
+    expect(store.getState().draft.coachingGoal).toBe("Connect each example to your point");
+    expect(window.localStorage.getItem("vostavo.retry-draft.v2")).toContain("Connect each example to your point");
   });
 
   it.each(["content_unverified", "invalid_content"])("withholds stale saved grades for %s reports", async state => {

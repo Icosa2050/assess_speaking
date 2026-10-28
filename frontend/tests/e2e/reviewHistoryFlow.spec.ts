@@ -62,6 +62,7 @@ const reportPayload = (attempt: Attempt, previousSessionId = "") => ({
   meta: {
     label: attempt.label,
     learning_language: "it",
+    practice: { retry_of_session_id: previousSessionId },
   },
   notes: attempt.notes,
   transcript_full: attempt.transcript,
@@ -281,6 +282,14 @@ const fillOptionalContext = async (page: Page, attempt: Attempt) => {
   await page.getByTestId("speak.notes").fill(attempt.notes);
 };
 
+const tabTo = async (page: Page, testId: string) => {
+  for (let step = 0; step < 120; step += 1) {
+    await page.keyboard.press("Tab");
+    if (await page.evaluate(() => document.activeElement?.getAttribute("data-testid")) === testId) return;
+  }
+  throw new Error(`Keyboard navigation did not reach ${testId}`);
+};
+
 test.describe("review and history replacement flow", () => {
   test("keeps empty Review and History states actionable", async ({ page }) => {
     await installReadyEmptyBackend(page);
@@ -327,8 +336,26 @@ test.describe("review and history replacement flow", () => {
     await expect(page.getByTestId("review-gates")).toContainText("Pass");
     await expect(page.getByTestId("review-metric-mode")).toContainText("Full assessment");
 
-    await page.getByTestId("review-action-try-again").click();
+    await page.setViewportSize({ width: 1360, height: 900 });
+    await expect(page.getByTestId("review-goal-input")).toHaveValue("Keep the story close to the travel theme.");
+    await tabTo(page, "review-goal-input");
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
+    await page.keyboard.type("Add one concrete detail");
+    await page.screenshot({ path: testInfo.outputPath("retry-review-1360x900.png"), fullPage: true });
+    await tabTo(page, "review-action-try-again");
+    await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/speak$/);
+    await expect(page.getByTestId("speak-retry-goal-text")).toContainText("Add one concrete detail");
+    await page.reload();
+    await expect(page).toHaveURL(/\/speak$/);
+    await expect(page.getByTestId("speak-retry-resume")).toContainText("playwright-review-history");
+    await expect(page.getByTestId("speak-retry-brief")).not.toBeVisible();
+    await page.getByRole("button", { name: "Resume this retry" }).click();
+    await expect(page.getByTestId("speak-retry-goal-text")).toContainText("Add one concrete detail");
+    await page.setViewportSize({ width: 1100, height: 760 });
+    await tabTo(page, "speak-retry-goal");
+    await expect(page.getByTestId("speak-retry-goal")).toBeFocused();
+    await page.screenshot({ path: testInfo.outputPath("retry-speak-1100x760.png"), fullPage: true });
 
     await attachAudio(page, "second-attempt.wav");
     await fillOptionalContext(page, attempts[1]);
@@ -340,6 +367,10 @@ test.describe("review and history replacement flow", () => {
     await expect(page.getByTestId("review-progress")).toContainText(
       "Change in overall score: +0.90.",
     );
+    await expect(page.getByTestId("review-retry-follow-up")).toContainText("Add one concrete detail");
+    await expect(page.getByTestId("review-retry-observation")).toContainText("Add one more concrete detail");
+    await expect(page.getByTestId("review-retry-change")).toContainText("+0.90/5");
+    expect(await page.evaluate(() => window.localStorage.getItem("vostavo.retry-draft.v2"))).toBeNull();
     await expect(page.getByTestId("review-transcript")).toHaveValue(attempts[1].transcript);
 
     await page.getByTestId("review-action-view-history").click();

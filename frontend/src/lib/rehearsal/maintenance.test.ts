@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { exportJournalDiagnostics, journalRecoveryStatus, recoverLearnerJournal, previewLearnerRestore, startFreshJournal } from "./maintenance";
-import { clearRehearsalMaintenance, rehearsalMaintenance, stageRehearsals } from "./storage";
+import { commitLearnerRestore, exportJournalDiagnostics, journalRecoveryStatus, recoverLearnerJournal, previewLearnerRestore, startFreshJournal } from "./maintenance";
+import { clearRehearsalMaintenance, commitRehearsals, rehearsalMaintenance, stageRehearsals } from "./storage";
+import { buildSessionDraft } from "@/lib/state/sessionDraft";
+import { persistRetryDraft, RETRY_DRAFT_STORAGE_KEY } from "@/lib/state/retryBriefStorage";
 
 vi.mock("./storage", () => ({
   withJournalLock: vi.fn(async action => action({})),
@@ -16,14 +18,28 @@ const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body)
 
 describe("damaged journal browser coordination", () => {
   afterEach(() => vi.unstubAllGlobals());
-  beforeEach(() => { vi.clearAllMocks(); vi.mocked(rehearsalMaintenance).mockResolvedValue(undefined); vi.stubGlobal("fetch", fetchMock); });
+  beforeEach(() => { vi.clearAllMocks(); window.localStorage.clear(); vi.mocked(rehearsalMaintenance).mockResolvedValue(undefined); vi.stubGlobal("fetch", fetchMock); });
 
   it("forgets only the pending browser journal after confirmed fresh start", async () => {
+    persistRetryDraft(buildSessionDraft({ speakerId: "learner", themeId: "trip", promptText: "Describe a trip",
+      retryOfSessionId: "first", coachingGoal: "Add a closing sentence", retryGoalEligible: true }));
+    expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).not.toBeNull();
     fetchMock.mockResolvedValueOnce(reply({phase: "fresh"}));
     await startFreshJournal();
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({confirmed: true});
     // No rollback flag: already committed sessions and audio must be retained.
     expect(clearRehearsalMaintenance).toHaveBeenCalledExactlyOnceWith({});
+    expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull();
+  });
+
+  it("clears a saved retry after a successful learner restore", async () => {
+    persistRetryDraft(buildSessionDraft({ speakerId: "learner", themeId: "trip", promptText: "Describe a trip",
+      retryOfSessionId: "first", coachingGoal: "Add a closing sentence", retryGoalEligible: true }));
+    fetchMock.mockImplementation(async () => reply({phase: "complete"}));
+    await commitLearnerRestore({ id: "restore", attempts: 0, skipped_attempts: [], skipped_rehearsals: [], missing: [],
+      browser: { sessions: [], recordings: [] } }, new AbortController().signal, vi.fn());
+    expect(commitRehearsals).toHaveBeenCalledOnce();
+    expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull();
   });
 
   it("retries interrupted fresh-start cleanup without rolling back saved sessions", async () => {

@@ -51,6 +51,24 @@ describe("app store recording jobs", () => {
     expect(store.getState().draft.retryOfSessionId).toBe("");
   });
 
+  it.each([
+    { speakerId: "another learner" },
+    { learningLanguage: "en" },
+    { themeId: "different-task" },
+    { promptText: "Different prompt" },
+    { taskFamily: "travel_narrative" as const },
+    { cefrLevel: "C1" as const },
+    { durationSec: 120 as const },
+  ])("drops a carried goal when practice identity changes: %j", change => {
+    const store = createAppStore({ draft: {
+      speakerId: "learner", learningLanguage: "it", themeId: "trip", promptText: "Describe a trip",
+      retryOfSessionId: "first", coachingGoal: "Add a closing sentence", retryGoalEligible: true,
+    }, retryRestorePending: true });
+    store.getState().updateDraft(change);
+    expect(store.getState().draft).toMatchObject({ retryOfSessionId: "", coachingGoal: "", retryGoalEligible: false });
+    expect(store.getState().retryRestorePending).toBe(false);
+  });
+
   it.each(["upload", "assessment"])("allows retry after an %s failure without losing the recording", (phase) => {
     const store = createAppStore({
       draft: { speakerId: "learner", themeId: "travel", promptText: "Describe a trip", cefrLevel: "B1" },

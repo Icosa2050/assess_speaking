@@ -7,8 +7,12 @@ import { ReviewSummary, reviewEligibilityState, selectReviewSummary } from "@/co
 import { ReviewResult } from "@/components/review/ReviewResult";
 import { WarningsPanel } from "@/components/review/WarningsPanel";
 import { Icon } from "@/components/ui/Icon";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Field } from "@/components/ui/Field";
 import { ApiClientError, apiClient } from "@/lib/api/client";
 import { createTranslator } from "@/lib/i18n";
+import { followUpBrief } from "@/lib/retryBrief";
 import { pollingIntervals, queryKeys } from "@/lib/query/queryClient";
 import { useAppStore } from "@/lib/state/appStore";
 import { hasReviewState } from "@/lib/state/sessionDraft";
@@ -158,6 +162,7 @@ export const ReviewRoute = () => {
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const recording = useAppStore((state) => state.recording);
   const review = useAppStore((state) => state.review);
+  const draft = useAppStore((state) => state.draft);
   const retainedReport = (review.payload.report || {}) as Record<string, unknown>;
   const warnings = Array.isArray(retainedReport.warnings) ? retainedReport.warnings : [];
   const interruptedAnalysis = warnings.some(warning =>
@@ -178,6 +183,7 @@ export const ReviewRoute = () => {
   const setRecordingJob = useAppStore((state) => state.setRecordingJob);
   const setReturnTo = useAppStore((state) => state.setReturnTo);
   const updateReview = useAppStore((state) => state.updateReview);
+  const updateDraft = useAppStore((state) => state.updateDraft);
 
   const translate = createTranslator(locale);
   const hasReview = hasReviewState(review);
@@ -228,10 +234,22 @@ export const ReviewRoute = () => {
   }, [assessmentQuery.error, setRecordingError]);
 
   const summary = useMemo(() => selectReviewSummary(review), [review]);
+  const [chosenGoal, setChosenGoal] = useState("");
+  useEffect(() => setChosenGoal(summary.nextFocus.slice(0, 12000)), [summary.reportId, summary.nextFocus]);
+  const goalOptions = [...new Set([summary.nextFocus, ...summary.priorities].map(value => value.trim()).filter(Boolean))];
+  const followUp = followUpBrief(summary, draft);
   const coachTakeaway = summary.coachSummary || translate("review.coach_takeaway_placeholder");
 
   const handleTryAgain = () => {
+    // A failed retry does not create new guidance. Keep the learner's existing
+    // goal tied to its last assessable parent so the next take can continue it.
+    const continueEarlierGoal = summary.eligibilityState !== "assessable" && followUp !== null;
     clearAttempt({ keepSetup: true });
+    updateDraft({
+      ...(continueEarlierGoal ? { retryOfSessionId: draft.retryOfSessionId } : {}),
+      coachingGoal: summary.eligibilityState === "assessable" ? chosenGoal.trim() : continueEarlierGoal ? followUp.goal : "",
+      retryGoalEligible: summary.eligibilityState === "assessable" || continueEarlierGoal,
+    });
     setReturnTo("review");
     navigate("/speak");
   };
@@ -316,6 +334,31 @@ export const ReviewRoute = () => {
       </section>}
 
       <ReviewResult summary={summary} translate={translate} />
+      {followUp && (
+        <Card as="section" className={styles.followUp} data-testid="review-retry-follow-up">
+          <p className={styles.eyebrow}>{translate("retry.follow_up_eyebrow")}</p>
+          <h2>{translate("retry.follow_up_title")}</h2>
+          <p>{translate("retry.goal_value", { goal: followUp.goal })}</p>
+          {summary.eligibilityState !== "assessable" ? (
+            <p data-testid="review-retry-incompatible">{translate("retry.not_assessable")}</p>
+          ) : (
+            <>
+              <p data-testid="review-retry-observation">
+                {followUp.observation
+                  ? translate("retry.observation", { value: followUp.observation })
+                  : summary.transcript
+                    ? translate("retry.transcript_check", { value: summary.transcript.slice(0, 220) })
+                    : translate("retry.no_direct_observation")}
+              </p>
+              {followUp.comparable ? (
+                followUp.overallChange !== null ? <p data-testid="review-retry-change">
+                  {translate("retry.overall_change", { value: `${followUp.overallChange >= 0 ? "+" : ""}${followUp.overallChange.toFixed(2)}` })}
+                </p> : <p>{translate("retry.no_numeric_change")}</p>
+              ) : <p data-testid="review-retry-incompatible">{translate("retry.incompatible")}</p>}
+            </>
+          )}
+        </Card>
+      )}
       <section
         style={nextStepCardStyle}
         data-testid="review-next-step-card"
@@ -372,6 +415,23 @@ export const ReviewRoute = () => {
                 </div>
               ) : null}
             </div>
+            {summary.eligibilityState === "assessable" ? (
+              <div className={styles.goalPicker} data-testid="review-goal-picker">
+                <strong>{translate("retry.choose_goal")}</strong>
+                <div className={styles.goalOptions} role="group" aria-label={translate("retry.choose_goal")}>
+                  {goalOptions.map((option, index) => (
+                    <Button key={option} variant={chosenGoal === option ? "primary" : "secondary"}
+                      aria-pressed={chosenGoal === option} onClick={() => setChosenGoal(option.slice(0, 12000))}>
+                      {index === 0 ? translate("retry.suggested_goal", { goal: option }) : option}
+                    </Button>
+                  ))}
+                </div>
+                <Field label={translate("retry.goal_label")} value={chosenGoal} maxLength={12000}
+                  onChange={event => setChosenGoal(event.target.value)} hint={translate("retry.goal_hint")}
+                  data-testid="review-goal-input" />
+                <Button variant="quiet" onClick={() => setChosenGoal("")}>{translate("retry.clear_goal")}</Button>
+              </div>
+            ) : null}
             {summary.requiresHumanReview ? (
               <p
                 role="status"

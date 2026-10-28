@@ -258,7 +258,7 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
     coachSummary: notAssessable ? "" : String(coaching.coach_summary || review.summary || ""),
     deterministicScore: notAssessable ? null : asNumberOrNull(scores.deterministic),
     failedGates,
-    generalPracticeTips: asTextList(report.warnings).some((warning) =>
+    generalPracticeTips: !notAssessable && asTextList(report.warnings).some((warning) =>
       ["coaching_unavailable", "llm_unavailable", "llm_invalid_schema", "llm_skipped_low_word_count", "llm_skipped_transcript_uncertain", "llm_skipped_language_mismatch"].includes(warning)),
     transcriptUncertain: asTextList(report.warnings).includes("transcript_uncertain"),
     gates: {
@@ -281,19 +281,19 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
     llmScore: notAssessable ? null : asNumberOrNull(scores.llm),
     mode: String(scores.mode || ""),
     nextExercise: notAssessable ? "" : String(coaching.next_exercise || ""),
-    nextAttemptInstruction: String(coaching.next_attempt_instruction || ""),
+    nextAttemptInstruction: notAssessable ? "" : String(coaching.next_attempt_instruction || ""),
     nextFocus: notAssessable ? "" : String(coaching.next_focus || ""),
     notes: String(payload.notes || ""),
     payload,
     priorities: notAssessable ? [] : asTextList(coaching.top_3_priorities),
     progressItems: !notAssessable && progressDelta.comparison_verified === true ? buildProgressItems(progressDelta) : [],
-    recurringCoherence,
-    recurringGrammar,
+    recurringCoherence: notAssessable ? [] : recurringCoherence,
+    recurringGrammar: notAssessable ? [] : recurringGrammar,
     reportId: String(report.session_id || review.reportId || payload.report_path || ""),
     requiresHumanReview: Boolean(report.requires_human_review),
     scoreOverall: notAssessable ? null : scoreOverall,
     strengths: notAssessable ? [] : asTextList(coaching.strengths),
-    styleSuggestions: Array.isArray(rubric.style_suggestions) ? rubric.style_suggestions
+    styleSuggestions: !notAssessable && Array.isArray(rubric.style_suggestions) ? rubric.style_suggestions
       .map(toRecord)
       .map((item) => ({ original: String(item.original || ""), suggestion: String(item.suggestion || ""), explanation: String(item.explanation || "") }))
       .filter((item) => item.original && item.suggestion && item.explanation) : [],

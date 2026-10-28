@@ -109,6 +109,98 @@ const expectDecorativeIcon = (element: HTMLElement) => {
 describe("Speak route", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it("shows an editable, clearable retry goal before recording", async () => {
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
+      appState: { ...validDraftState, draft: { ...validDraftState.draft,
+        retryOfSessionId: "first", coachingGoal: "Add a clear ending", retryGoalEligible: true } } });
+    const brief = await screen.findByTestId("speak-retry-brief");
+    expect(brief).toHaveTextContent("Add a clear ending");
+    expect(screen.queryByTestId("speak-retry-announcement")).not.toBeInTheDocument();
+    await waitFor(() => expect(within(brief).getByRole("heading")).toHaveFocus());
+    expect(screen.getByTestId("speak-retry-goal-text")).toHaveTextContent("Add a clear ending");
+    expect(screen.getByTestId("speak.record_start")).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("speak-retry-goal"), { target: { value: "Use one transition" } });
+    expect(store.getState().draft.coachingGoal).toBe("Use one transition");
+    fireEvent.click(within(brief).getByRole("button", { name: "Clear goal" }));
+    expect(store.getState().draft.coachingGoal).toBe("");
+  });
+  it("does not refocus the brief on queued, running, or failed transitions", async () => {
+    mockedGetAssessmentStatus.mockImplementation(() => new Promise(() => undefined));
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
+      appState: { ...validDraftState, draft: { ...validDraftState.draft,
+        retryOfSessionId: "first", coachingGoal: "Add a clear ending", retryGoalEligible: true } } });
+    const heading = within(await screen.findByTestId("speak-retry-brief")).getByRole("heading");
+    await waitFor(() => expect(heading).toHaveFocus());
+    const historyLink = screen.getByTestId("home.open_history");
+    historyLink.focus();
+    for (const status of ["queued", "running", "failed"]) {
+      act(() => store.getState().setRecordingJob({ status }));
+      expect(historyLink).toHaveFocus();
+      expect(heading).not.toHaveFocus();
+    }
+  });
+  it("redirects a completed take before a retained goal can reappear", async () => {
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: {
+      ...validDraftState, draft: { ...validDraftState.draft,
+        retryOfSessionId: "first", coachingGoal: "Retained goal", retryGoalEligible: true },
+      recording: { job: { assessmentId: "asmt", status: "completed", phase: "", progress: 1,
+        error: "", reportPath: "completed" }, assessmentState: "completed" },
+      review: { reportId: "completed", payload: {} },
+    } });
+    await screen.findByTestId("review-action-try-again");
+    expect(screen.queryByTestId("speak-retry-brief")).not.toBeInTheDocument();
+  });
+  it("shows a History fallback when assessment completes without a report", async () => {
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: {
+      ...validDraftState, draft: { ...validDraftState.draft,
+        retryOfSessionId: "first", coachingGoal: "Retained goal", retryGoalEligible: true },
+      recording: { assessmentState: "completed" },
+    } });
+    const status = await screen.findByTestId("speak-completed-no-report");
+    expect(status).toHaveTextContent("Assessment completed.");
+    expect(within(status).getByRole("link", { name: "Open history" })).toHaveAttribute("href", "/history");
+    expect(screen.queryByTestId("speak-retry-brief")).not.toBeInTheDocument();
+  });
+  it("withholds the goal editor from a non-assessable parent", async () => {
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
+      appState: { ...validDraftState, draft: { ...validDraftState.draft,
+        retryOfSessionId: "invalid", coachingGoal: "Stale goal", retryGoalEligible: false } } });
+    expect(await screen.findByTestId("speak.session_summary")).toBeVisible();
+    expect(screen.queryByTestId("speak-retry-brief")).not.toBeInTheDocument();
+  });
+  it("asks who owns a restored retry before showing its goal", async () => {
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
+      appState: { ...validDraftState, retryRestorePending: true, draft: { ...validDraftState.draft,
+        retryOfSessionId: "first", coachingGoal: "Add a clear ending", retryGoalEligible: true } } });
+    expect(await screen.findByTestId("speak-retry-resume")).toHaveTextContent("bern");
+    expect(screen.queryByTestId("speak-retry-brief")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Resume this retry" }));
+    expect(store.getState().retryRestorePending).toBe(false);
+    expect(await screen.findByTestId("speak-retry-brief")).toHaveTextContent("Add a clear ending");
+  });
+  it("keeps recording unavailable while checking runtime setup for a retry", async () => {
+    mockedGetRuntime.mockImplementationOnce(() => new Promise(() => undefined));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
+      appState: { ...validDraftState, draft: { ...validDraftState.draft,
+        retryOfSessionId: "first", coachingGoal: "Add a clear ending", retryGoalEligible: true } } });
+    expect(await screen.findByTestId("speak-retry-runtime-check")).toHaveTextContent("Add a clear ending");
+    expect(screen.queryByTestId("speak.record_start")).not.toBeInTheDocument();
+  });
+  it("locks the brief during an actual recording and unlocks it afterward", async () => {
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
+      appState: { ...validDraftState, draft: { ...validDraftState.draft,
+        retryOfSessionId: "first", coachingGoal: "Add a clear ending", retryGoalEligible: true } } });
+    const brief = await screen.findByTestId("speak-retry-brief");
+    const goalField = screen.getByTestId("speak-retry-goal");
+    const clearGoal = within(brief).getByRole("button", { name: "Clear goal" });
+    expect(goalField).toBeEnabled();
+    fireEvent.click(await screen.findByRole("button", { name: "Start recording" }));
+    await waitFor(() => expect(goalField).toBeDisabled());
+    expect(clearGoal).toBeDisabled();
+    fireEvent.click(await screen.findByRole("button", { name: "Stop recording" }));
+    await waitFor(() => expect(goalField).toBeEnabled());
+    expect(clearGoal).toBeEnabled();
+  });
   it("keeps recording blocked without calibration while upload remains usable", async () => {
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
       appState: { ...validDraftState, microphoneSetupPassed: false } });

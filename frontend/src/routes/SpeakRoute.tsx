@@ -1,11 +1,14 @@
 import { useSharingRoute, SharingSummary } from "@/lib/setup/sharing";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { AssessmentStatusPanel } from "@/components/speak/AssessmentStatusPanel";
 import { RecorderPanel } from "@/components/speak/RecorderPanel";
 import { SpeakStatusRail, type SpeakConfidencePhase } from "@/components/speak/SpeakStatusRail";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Field } from "@/components/ui/Field";
 import { apiClient, ApiClientError } from "@/lib/api/client";
 import type {
   AssessmentStatusResponse,
@@ -151,8 +154,12 @@ export const SpeakRoute = () => {
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const preferences = useAppStore((state) => state.preferences);
   const draft = useAppStore((state) => state.draft);
+  const retryRestorePending = useAppStore((state) => state.retryRestorePending);
+  const confirmRetryRestore = useAppStore((state) => state.confirmRetryRestore);
+  const discardRetryRestore = useAppStore((state) => state.discardRetryRestore);
   const recording = useAppStore((state) => state.recording);
   const review = useAppStore((state) => state.review);
+  const updateDraft = useAppStore((state) => state.updateDraft);
   const setCurrentPage = useAppStore((state) => state.setCurrentPage);
   const updateRecording = useAppStore((state) => state.updateRecording);
   const updateRecordingInputs = useAppStore((state) => state.updateRecordingInputs);
@@ -165,6 +172,8 @@ export const SpeakRoute = () => {
   const translate = useMemo(() => createTranslator(locale), [locale]);
   const lifecycleState = useAppStore(selectAssessmentLifecycleState);
   const canSubmitAssessment = useAppStore(selectCanSubmitAssessment);
+  const retryBriefHeadingRef = useRef<HTMLHeadingElement>(null);
+  const focusedRetryBriefRef = useRef<string | null>(null);
   const microphoneSetupPassed = useAppStore(state => state.microphoneSetupPassed);
   const microphoneDeviceId = useAppStore(state => state.microphoneDeviceId);
   const microphoneVoiceProcessing = useAppStore(state => state.microphoneVoiceProcessing);
@@ -233,6 +242,7 @@ export const SpeakRoute = () => {
   const [recordedDurationSec, setRecordedDurationSec] = useState<number | null>(null);
   const [firstTakeJustRecorded, setFirstTakeJustRecorded] = useState(false);
   const [previewUrl, setPreviewUrl] = useState("");
+  const [recordingActive, setRecordingActive] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const uploadController = useRef<AbortController | null>(null);
@@ -355,8 +365,45 @@ export const SpeakRoute = () => {
     }
   }, [lifecycleState, navigate, review.reportId]);
 
+  useEffect(() => {
+    const focusKey = `${draft.sessionId}:${draft.retryOfSessionId}`;
+    if (draft.retryOfSessionId && draft.retryGoalEligible && !retryRestorePending &&
+        !runtimeQuery.isPending && !runtimeSettingsQuery.isPending && !speakingChecksPending &&
+        !guardTarget && lifecycleState !== "completed" &&
+        focusedRetryBriefRef.current !== focusKey && retryBriefHeadingRef.current) {
+      retryBriefHeadingRef.current.focus();
+      focusedRetryBriefRef.current = focusKey;
+    }
+  }, [draft.sessionId, draft.retryOfSessionId, draft.retryGoalEligible, retryRestorePending,
+    runtimeQuery.isPending, runtimeSettingsQuery.isPending, speakingChecksPending, guardTarget, lifecycleState]);
+
+  if (lifecycleState === "completed") {
+    return review.reportId ? <Navigate replace to="/review" /> :
+      <Card as="section" role="status" data-testid="speak-completed-no-report">
+        <h2>{translate("review.status_done")}</h2>
+        <Link to="/history">{translate("review.view_history")}</Link>
+      </Card>;
+  }
+
+  if (retryRestorePending) {
+    return <Card as="section" data-testid="speak-retry-resume" style={{ display: "grid", gap: "var(--space-3)" }}>
+      <h2>{translate("retry.resume_title")}</h2>
+      <p>{translate("retry.resume_context", { speaker: draft.speakerId, task: draft.themeLabel || draft.promptText })}</p>
+      <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+        <Button variant="primary" onClick={confirmRetryRestore}>{translate("retry.resume_action")}</Button>
+        <Button onClick={() => { discardRetryRestore(); navigate("/session-setup"); }}>{translate("retry.discard_action")}</Button>
+      </div>
+    </Card>;
+  }
+
   if (runtimeQuery.isPending || runtimeSettingsQuery.isPending || speakingChecksPending) {
-    return <p role="status">{translate("journey.loading")}</p>;
+    return draft.retryOfSessionId ? <Card as="section" role="status" data-testid="speak-retry-runtime-check">
+      <h2>{translate("retry.brief_title")}</h2>
+      {draft.retryGoalEligible && <p>{draft.coachingGoal.trim()
+        ? translate("retry.goal_value", { goal: draft.coachingGoal.trim() })
+        : translate("retry.no_goal")}</p>}
+      <p>{translate("retry.runtime_check")}</p>
+    </Card> : <p role="status">{translate("journey.loading")}</p>;
   }
   if (guardTarget) {
     return <Navigate replace to={guardTarget} state={guardTarget === "/runtime-setup" ? { returnTo: "/speak" } : undefined} />;
@@ -366,7 +413,7 @@ export const SpeakRoute = () => {
   const isOpenRouterRuntime = String(runtime?.provider || "").trim().toLowerCase() === "openrouter";
   const storeHasAttachment = hasRecordingAttachment(recording);
   const assessmentOwnsAttachment =
-    lifecycleState === "queued" || lifecycleState === "running" || lifecycleState === "completed";
+    lifecycleState === "queued" || lifecycleState === "running";
   const hasAttachment = assessmentOwnsAttachment ? storeHasAttachment : Boolean(attachedFile);
   const shortRecording = recordedDurationSec !== null && recordedDurationSec < MIN_REVIEW_SECONDS;
   const canSubmitLiveAttachment = canSubmitAssessment && Boolean(attachedFile) && !shortRecording && Boolean(sharingQuery.data?.available);
@@ -593,6 +640,26 @@ export const SpeakRoute = () => {
         </blockquote>
       </section>
 
+      {draft.retryOfSessionId && draft.retryGoalEligible && (
+        <Card as="section" data-testid="speak-retry-brief" style={{ display: "grid", gap: "var(--space-3)" }}>
+          <h2 ref={retryBriefHeadingRef} tabIndex={-1} style={{ margin: 0, fontSize: "var(--font-size-title)" }}>{translate("retry.brief_title")}</h2>
+          <p style={{ margin: 0 }}>{translate("retry.brief_context", { task: draft.themeLabel || draft.promptText })}</p>
+          <p style={{ margin: 0 }} data-testid="speak-retry-goal-text">
+            {draft.coachingGoal.trim()
+              ? translate("retry.goal_value", { goal: draft.coachingGoal.trim() })
+              : translate("retry.no_goal")}
+          </p>
+          <Field label={translate("retry.goal_label")} value={draft.coachingGoal} maxLength={12000}
+            disabled={recordingActive || isSubmitting || lifecycleState === "queued" || lifecycleState === "running"}
+            onChange={event => updateDraft({ coachingGoal: event.target.value })}
+            hint={translate("retry.brief_hint")} data-testid="speak-retry-goal" />
+          <Button variant="quiet" disabled={recordingActive || isSubmitting || lifecycleState === "queued" || lifecycleState === "running"}
+            onClick={() => updateDraft({ coachingGoal: "" })}>
+            {translate("retry.clear_goal")}
+          </Button>
+        </Card>
+      )}
+
       <SpeakStatusRail phase={confidencePhase} translate={translate} />
 
       {firstTakeJustRecorded && recordedDurationSec !== null && inputMode === "record" ? (
@@ -615,6 +682,7 @@ export const SpeakRoute = () => {
         <p data-testid="speak.minimum_duration">{translate("speak.recording_too_short")}</p>
         <SharingSummary route={sharingQuery.data} locale={locale} />
       <RecorderPanel onMicrophoneStatusChange={setMicrophoneStatus}
+          onRecordingActiveChange={setRecordingActive}
           microphoneSetupPassed={microphoneSetupPassed}
           microphoneDeviceId={microphoneDeviceId}
           microphoneVoiceProcessing={microphoneVoiceProcessing}
@@ -664,13 +732,6 @@ export const SpeakRoute = () => {
           }
         />
       </div>
-      {lifecycleState === "completed" ? (
-        <span
-          hidden
-          data-testid="speak.review_auto_nav"
-          data-semantic-id="speak.review_auto_nav"
-        />
-      ) : null}
     </div>
   );
 };
