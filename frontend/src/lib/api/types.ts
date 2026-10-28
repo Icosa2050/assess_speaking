@@ -104,6 +104,13 @@ export interface RuntimeSettingsResponse {
   connections: RuntimeSettingsConnection[];
 }
 
+export interface RuntimeCloudSettingsResponse {
+  settings: {
+    asr_provider: string;
+    asr_connection_id: string;
+  };
+}
+
 export interface RuntimeConnectionDraft {
   connection_id?: string;
   provider_choice: string;

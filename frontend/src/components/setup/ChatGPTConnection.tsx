@@ -4,6 +4,7 @@ import type { RuntimeConnectionDraft } from "@/lib/api/types";
 import { apiClient } from "@/lib/api/client";
 import { isDesktopRuntime } from "@/lib/runtime/desktopBridge";
 import { buildApiUrl, desktopSessionHeaders } from "@/lib/runtime/environment";
+import { queryKeys } from "@/lib/query/queryClient";
 import { createTranslator } from "@/lib/i18n";
 import type { UiLocale } from "@/lib/state/sessionDraft";
 
@@ -37,7 +38,10 @@ export function ChatGPTConnection({ connectionId = "", locale, onConnected, onTe
   const settings = useQuery({ queryKey: ["runtime", "settings"], queryFn: () => apiClient.getRuntimeSettings() });
   const connection = settings.data?.connections.find(c => c.connection_id === id && c.provider_key === "chatgpt");
   const models = (connection?.provider_metadata.models || []) as { slug: string; display_name: string }[];
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["runtime"] });
+  const refresh = () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: ["runtime"] }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.diagnostics }),
+  ]);
   useEffect(() => { setId(connectionId); }, [connectionId]);
   useEffect(() => {
     let active = true;

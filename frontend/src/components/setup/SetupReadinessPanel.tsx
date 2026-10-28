@@ -37,6 +37,7 @@ export const SetupReadinessPanel = ({
         total: totalCount,
       })
     : translate("runtime_setup.setup_guide_progress_empty");
+  const unavailableCount = progressRows.filter((row) => row.status === "unavailable").length;
 
   return (
     <section
@@ -63,10 +64,13 @@ export const SetupReadinessPanel = ({
           value={readyCount}
         />
         <div className={styles.anchorCopy}>
-          <p className={styles.anchorTitle}>{translate("runtime_setup.setup_guide_anchor_title")}</p>
-          <p className={styles.anchorBody}>{translate("runtime_setup.setup_guide_anchor_body")}</p>
+          <p className={styles.anchorTitle}>{translate(allReady ? "runtime_setup.setup_guide_anchor_title" : "first_run.guide_anchor_pending")}</p>
+          <p className={styles.anchorBody}>{translate(allReady ? "first_run.guide_anchor_ready_body" : "first_run.guide_anchor_body")}</p>
         </div>
       </div>
+      {unavailableCount > 0 ? (
+        <p role="status">{translate("first_run.checks_need_attention", { count: unavailableCount })}</p>
+      ) : null}
       <ol className={styles.rows}>
         {rows.map((row) => (
           <ReadinessRow

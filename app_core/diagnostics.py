@@ -151,6 +151,8 @@ def _runtime_diagnostics(state, *, include_runtime_health: bool) -> list[Startup
                 detail_key="diagnostics.runtime_api_key_error_detail",
                 detail_args={
                     "provider": runtime.provider,
+                    "model": runtime.model,
+                    "base_url": runtime.base_url,
                     "credential_state": client_snapshot["credential_state"],
                     "secure_storage_persistent": client_snapshot["secure_storage_persistent"],
                 },
@@ -165,6 +167,8 @@ def _runtime_diagnostics(state, *, include_runtime_health: bool) -> list[Startup
                 detail_key="diagnostics.runtime_api_key_ok_detail",
                 detail_args={
                     "provider": runtime.provider,
+                    "model": runtime.model,
+                    "base_url": runtime.base_url,
                     "credential_state": client_snapshot["credential_state"],
                 },
             )

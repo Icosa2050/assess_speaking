@@ -2,6 +2,7 @@ import { CurrentSharingSummary } from "@/lib/setup/sharing";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { buildApiUrl, desktopSessionHeaders } from "@/lib/runtime/environment";
+import { queryKeys } from "@/lib/query/queryClient";
 import type { RuntimeSettingsConnection } from "@/lib/api/types";
 import type { UiLocale } from "@/lib/state/sessionDraft";
 import { Button } from "@/components/ui/Button";
@@ -56,7 +57,10 @@ export function CloudSettingsPanel({locale, connections}: {locale: UiLocale; con
       if(stopped)return;
       if(["waiting","processing"].includes(result.status)) {timer=setTimeout(()=>void poll(),1500);return;}
       setAttempt("");setUrl("");setMessage(result.status==="connected"?t[21]:result.detail||result.status);
-      await client.invalidateQueries({queryKey:["runtime"]});
+      await Promise.all([
+        client.invalidateQueries({queryKey:["runtime"]}),
+        client.invalidateQueries({queryKey:queryKeys.diagnostics}),
+      ]);
     } catch(error) {if(!stopped){setMessage(String(error));setAttempt("");}}}; void poll();
     return()=>{stopped=true;clearTimeout(timer);};
   },[attempt, client, locale]);

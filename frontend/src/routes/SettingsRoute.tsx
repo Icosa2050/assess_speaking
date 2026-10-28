@@ -302,6 +302,7 @@ export const SettingsRoute = () => {
   const handleInvalidateRuntime = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.runtime }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.diagnostics }),
       queryClient.invalidateQueries({ queryKey: ["runtime", "settings"] }),
       queryClient.invalidateQueries({ queryKey: ["runtime", "whisper", selectedWhisperModel] }),
     ]);

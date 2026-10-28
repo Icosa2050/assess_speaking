@@ -49,6 +49,7 @@ test("LM Studio failure keeps the form editable and a corrected retry succeeds",
     }
   });
   await page.goto("/runtime-setup");
+  await page.getByTestId("runtime_setup.advanced_providers_toggle").click();
   await page.getByTestId("runtime_connection.provider").selectOption("lmstudio_local");
   await page.getByTestId("runtime_connection.base_url").fill("http://localhost:1234/v1");
   await page.getByTestId("runtime_connection.model").fill("missing-model");

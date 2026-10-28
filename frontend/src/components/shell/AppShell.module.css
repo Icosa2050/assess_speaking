@@ -4,6 +4,24 @@
   color: var(--color-ink);
 }
 
+.skipLink {
+  position: absolute;
+  z-index: 10;
+  top: var(--space-2);
+  left: var(--space-2);
+  transform: translateY(-160%);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-brand);
+  font-weight: var(--weight-semibold);
+}
+
+.skipLink:focus-visible {
+  transform: none;
+}
+
 .container {
   max-width: var(--content-max);
   margin: 0 auto;
@@ -47,27 +65,30 @@
 .sidebar {
   display: flex;
   flex-direction: column;
-  padding: 1rem;
-  border: 1px solid var(--color-border-decorative);
-  border-radius: var(--radius-md);
-  background-color: var(--color-surface);
-  box-shadow: var(--shadow-card);
+  padding: var(--space-4);
 }
 
 .nav {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: var(--space-4);
 }
 
 .navPrimary {
   display: grid;
-  gap: 1rem;
+  gap: var(--space-2);
 }
 
 .navGroup {
   display: grid;
-  gap: 0.45rem;
+  gap: var(--space-2);
+}
+
+.navContext {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border-decorative);
 }
 
 .navGroupLabel {
@@ -80,31 +101,35 @@
 
 .navLinks {
   display: grid;
-  gap: 0.5rem;
+  gap: var(--space-2);
 }
 
 .navFooter {
   display: grid;
-  gap: 0.5rem;
-  padding-top: 0.9rem;
+  gap: var(--space-2);
+  padding-top: var(--space-4);
   border-top: 1px solid var(--color-border-decorative);
 }
 
 .navLink {
-  display: block;
-  padding: 0.75rem 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-md);
   background-color: var(--color-surface);
   color: var(--color-ink);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   text-decoration: none;
   transition:
     background-color var(--motion-fast) var(--ease-standard),
     border-color var(--motion-fast) var(--ease-standard);
 }
 
-.navLink:hover {
+.navLink:hover:not(.navLinkDisabled) {
   border-color: var(--color-selected-border);
   background-color: var(--color-surface-subtle);
 }
@@ -112,6 +137,36 @@
 .navLinkActive {
   border-color: var(--color-selected-border);
   background-color: var(--color-selected);
+  box-shadow: inset 3px 0 var(--color-selected-border);
+}
+
+.navLinkSectionActive {
+  border-color: var(--color-selected-border);
+  color: var(--color-brand);
+}
+
+.navLink:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+
+.navLinkDisabled {
+  background: var(--color-disabled-surface);
+  color: var(--color-disabled-text);
+  cursor: not-allowed;
+}
+
+.navDisabledItem {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-2);
+}
+
+.navDisabledReason {
+  padding-inline: var(--space-3);
+  color: var(--color-disabled-text);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-body);
 }
 
 .main {
@@ -122,6 +177,11 @@
 
 .main > * {
   min-width: 0;
+}
+
+@media (max-width: 1160px) {
+  .container { padding: var(--space-4); }
+  .layout { gap: var(--space-4); }
 }
 
 @media (max-width: 760px) {
@@ -139,7 +199,7 @@
 
   .sidebar { min-width: 0; padding: .75rem; }
   .nav { flex-direction: row; flex-wrap: wrap; gap: .5rem; }
-  .navPrimary, .navGroup, .navLinks, .navFooter { display: contents; }
+  .navPrimary, .navGroup, .navLinks, .navContext, .navFooter { display: contents; }
   .navGroupLabel { display: none; }
   .navLink { padding: .65rem .75rem; min-height: 44px; font-size: .875rem; }
 }

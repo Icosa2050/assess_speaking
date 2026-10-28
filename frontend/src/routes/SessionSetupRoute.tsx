@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { PracticeBriefCard } from "@/components/setup/PracticeBriefCard";
+import { FirstRunPreview } from "@/components/setup/FirstRunPreview";
+import { StatusBanner } from "@/components/ui/StatusBanner";
 import { ThemeForm, type SessionSetupStep } from "@/components/setup/ThemeForm";
 import { apiClient } from "@/lib/api/client";
 import type { HistoryRow } from "@/lib/api/types";
 import { createTranslator } from "@/lib/i18n";
 import { queryKeys } from "@/lib/query/queryClient";
+import { buildSetupReadinessRows, canContinueWithCheck, isCoreSetupReadinessKey } from "@/lib/setup/readiness";
+import { useCloudSpeechConnection } from "@/lib/setup/cloudSpeech";
+import { useRecentConnectionTest } from "@/lib/setup/connectionVerification";
 import {
   buildPracticeBrief,
   languageCodes,
@@ -114,6 +119,8 @@ export const SessionSetupRoute = () => {
   const navigate = useNavigate();
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const preferences = useAppStore((state) => state.preferences);
+  const microphoneStatus = useAppStore((state) => state.microphoneStatus);
+  const microphoneSetupPassed = useAppStore((state) => state.microphoneSetupPassed);
   const draft = useAppStore((state) => state.draft);
   const updateDraft = useAppStore((state) => state.updateDraft);
   const applySetup = useAppStore((state) => state.applySetup);
@@ -144,6 +151,16 @@ export const SessionSetupRoute = () => {
     queryKey: queryKeys.runtime,
     queryFn: () => apiClient.getRuntime(),
   });
+  const diagnosticsQuery = useQuery({
+    queryKey: queryKeys.diagnostics,
+    queryFn: () => apiClient.getDiagnostics(),
+  });
+  const runtimeSettingsQuery = useQuery({
+    queryKey: ["runtime", "settings"],
+    queryFn: () => apiClient.getRuntimeSettings(),
+  });
+  const cloudSpeech = useCloudSpeechConnection(runtimeSettingsQuery.data);
+  const connectionTestPassed = useRecentConnectionTest(runtimeQuery.data);
 
   const historyQuery = useQuery({
     queryKey: queryKeys.history,
@@ -236,19 +253,38 @@ export const SessionSetupRoute = () => {
       activeConnectionId: runtimeConfigured
         ? preferences.activeConnectionId ||
           `${runtimeQuery.data?.provider || "runtime"}:${runtimeQuery.data?.model || "active"}`
-        : preferences.activeConnectionId,
-      setupComplete: runtimeConfigured || preferences.setupComplete,
+        : "",
+      setupComplete: runtimeConfigured,
     },
   });
-  const primaryActionLabel = runtimeReadiness.ready
+  const requiredChecks = buildSetupReadinessRows({
+    diagnostics: diagnosticsQuery.data?.items ?? [],
+    diagnosticsError: diagnosticsQuery.isError && !diagnosticsQuery.data,
+    diagnosticsPending: diagnosticsQuery.isPending,
+    runtime: runtimeQuery.data,
+    runtimeError: runtimeQuery.isError && !runtimeQuery.data,
+    runtimePending: runtimeQuery.isPending,
+    microphoneStatus,
+    microphoneSetupPassed,
+    connectionTestPassed,
+    cloudSpeechSelected: cloudSpeech.selected,
+    cloudSpeechConnected: cloudSpeech.connected,
+    cloudSpeechPending: cloudSpeech.pending || runtimeSettingsQuery.isPending,
+    cloudSpeechError: cloudSpeech.error || (runtimeSettingsQuery.isError && !runtimeSettingsQuery.data),
+  }).filter((row) => isCoreSetupReadinessKey(row.key));
+  const readyToRecord = runtimeConfigured && requiredChecks.every((row) => row.status === "ready");
+  const canContinueToSpeak = runtimeReadiness.ready && requiredChecks
+    .filter((row) => row.key !== "microphone")
+    .every((row) => canContinueWithCheck(row.status));
+  const primaryActionLabel = canContinueToSpeak
     ? translate("setup.start_speaking")
     : translate("setup.save_and_setup_device");
-  const runtimeCalloutTitle = runtimeReadiness.ready
-    ? translate("setup.runtime_ready_title")
-    : translate("setup.runtime_setup_needed_title");
-  const runtimeCalloutBody = runtimeReadiness.ready
-    ? translate("setup.runtime_ready_body")
-    : translate("setup.runtime_setup_needed_body");
+  const runtimeCalloutTitle = translate(readyToRecord
+    ? "setup.runtime_ready_title"
+    : canContinueToSpeak ? "first_run.continue_to_speak_title" : "setup.runtime_setup_needed_title");
+  const runtimeCalloutBody = translate(readyToRecord
+    ? "setup.runtime_ready_body"
+    : canContinueToSpeak ? "first_run.continue_to_speak_body" : "setup.runtime_setup_needed_body");
 
   const historyRecommendation = useMemo(
     () =>
@@ -381,7 +417,7 @@ export const SessionSetupRoute = () => {
       promptText: brief.prompt,
     });
 
-    if (runtimeReadiness.ready) {
+    if (canContinueToSpeak) {
       navigate("/speak");
       return;
     }
@@ -424,6 +460,15 @@ export const SessionSetupRoute = () => {
 
   return (
     <div style={pageStyle} data-testid="setup.layout" data-semantic-id="setup.layout">
+      <div style={{ gridColumn: "1 / -1" }}>
+        <StatusBanner
+          title={translate(readyToRecord ? "first_run.ready_for_task" : canContinueToSpeak ? "first_run.continue_to_speak_title" : "first_run.task_setup_title")}
+          tone={readyToRecord ? "success" : "info"}
+          action={!canContinueToSpeak ? <Link to="/runtime-setup">{translate("first_run.open_local_setup")}</Link> : undefined}
+        >
+          {translate(readyToRecord ? "first_run.ready_for_task_body" : canContinueToSpeak ? "first_run.continue_to_speak_body" : "first_run.task_setup_body")}
+        </StatusBanner>
+      </div>
       <ThemeForm
         availableLanguages={availableLanguages}
         availableThemes={availableThemes.map((theme) => ({ title: theme.title }))}
@@ -521,6 +566,7 @@ export const SessionSetupRoute = () => {
         successFocus={brief.successFocus}
         translate={translate}
       />
+      <div style={{ gridColumn: "1 / -1" }}><FirstRunPreview locale={locale} /></div>
     </div>
   );
 };

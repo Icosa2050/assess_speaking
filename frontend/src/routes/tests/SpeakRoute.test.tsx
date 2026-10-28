@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppFrame } from "@/App";
 import { renderWithProviders } from "@/test/renderWithProviders";
@@ -25,7 +25,9 @@ vi.mock("@/lib/api/client", () => ({
     createAssessment: vi.fn(),
     getAssessmentStatus: vi.fn(),
     getRuntime: vi.fn(),
+    getDiagnostics: vi.fn(),
     getRuntimeSettings: vi.fn(),
+    getWhisperModelStatus: vi.fn(),
     uploadAudio: vi.fn(),
     getUploadLimits: vi.fn(),
   },
@@ -37,6 +39,7 @@ const mockedCancelAssessment = vi.mocked(apiClient.cancelAssessment);
 const mockedCreateAssessment = vi.mocked(apiClient.createAssessment);
 const mockedGetAssessmentStatus = vi.mocked(apiClient.getAssessmentStatus);
 const mockedGetRuntime = vi.mocked(apiClient.getRuntime);
+const mockedGetDiagnostics = vi.mocked(apiClient.getDiagnostics);
 const mockedGetRuntimeSettings = vi.mocked(apiClient.getRuntimeSettings);
 const mockedUploadAudio = vi.mocked(apiClient.uploadAudio);
 
@@ -104,6 +107,8 @@ const expectDecorativeIcon = (element: HTMLElement) => {
 };
 
 describe("Speak route", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it("keeps recording blocked without calibration while upload remains usable", async () => {
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
       appState: { ...validDraftState, microphoneSetupPassed: false } });
@@ -113,10 +118,50 @@ describe("Speak route", () => {
     fireEvent.click(screen.getByTestId("speak.input_mode_upload"));
     expect(screen.getByTestId("speak.upload_input")).toBeEnabled();
   });
+
+  it("redirects a direct Speak link when saved setup points to a missing runtime", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: false, provider: "", model: "", base_url: "",
+      requires_api_key: false, has_api_key: false,
+    });
+    const { queryClient } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+
+    expect(await screen.findByTestId("runtime_setup.screen")).toBeVisible();
+    expect(screen.getByText("Finish setup to enter the recording step")).toBeVisible();
+    expect(screen.getByText(/needs attention before you can continue/)).toBeVisible();
+    expect(screen.queryByTestId("speak.record_start")).not.toBeInTheDocument();
+
+    act(() => queryClient.setQueryData(["runtime"], {
+      configured: true, provider: "ollama_local", model: "llama3.2:3b", base_url: "http://localhost:11434",
+      requires_api_key: false, has_api_key: false,
+    }));
+    fireEvent.click(await screen.findByRole("button", { name: "Return to the recording step" }));
+    expect(await screen.findByTestId("speak.recording_panel", {}, { timeout: 5_000 })).toBeVisible();
+  });
+
+  it("allows local speech when settings fetch fails without cached settings", async () => {
+    mockedGetRuntimeSettings.mockRejectedValue(new Error("settings offline"));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+
+    expect(await screen.findByTestId("speak.recording_panel", {}, { timeout: 5_000 })).toBeVisible();
+    expect(screen.queryByTestId("runtime_setup.screen")).not.toBeInTheDocument();
+  });
+
+  it("redirects a direct Speak link when a selected cloud tutor lacks its key", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true, provider: "openrouter", model: "vendor/model", base_url: "https://example.test",
+      requires_api_key: true, has_api_key: false,
+    });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+
+    expect(await screen.findByTestId("runtime_setup.screen")).toBeVisible();
+    expect(screen.queryByTestId("speak.record_start")).not.toBeInTheDocument();
+  });
   const stopTrack = vi.fn();
   const getUserMedia = vi.fn();
 
   beforeEach(() => {
+    window.localStorage.removeItem("assess-speaking.first-take-recorded");
     vi.mocked(apiClient.getUploadLimits).mockResolvedValue({ max_bytes: 104857600, available_bytes: 104857600 });
     vi.clearAllMocks();
     vi.mocked(apiClient.getSharingRoute).mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null });
@@ -141,6 +186,10 @@ describe("Speak route", () => {
       requires_api_key: false,
       has_api_key: false,
     });
+    mockedGetDiagnostics.mockResolvedValue({ items: [
+      { key: "whisper", status: "ok", title_key: "", detail_key: "", detail_args: {} },
+      { key: "runtime", status: "ok", title_key: "", detail_key: "", detail_args: {} },
+    ] });
     mockedGetRuntimeSettings.mockResolvedValue({
       ui_locale: "en",
       whisper_model: "small",
@@ -177,6 +226,37 @@ describe("Speak route", () => {
       payload: null,
       summary: null,
     });
+  });
+
+  it("shows one current Practice step and explains unavailable Review in AppFrame", async () => {
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+    expect(await screen.findByTestId("speak.input_mode_upload")).toBeVisible();
+    expect(within(nav).getByRole("link", { name: "Session Setup" })).toHaveAttribute("href", "/session-setup");
+    expect(within(nav).getByRole("link", { name: "Speak" })).toHaveAttribute("aria-current", "page");
+    const review = within(nav).getByRole("link", { name: "Review" });
+    expect(review).toHaveAttribute("aria-disabled", "true");
+    expect(review).toHaveAttribute("href", "/review");
+    expect(review).toHaveAttribute("tabindex", "0");
+    expect(review).toHaveAccessibleDescription("Submit a speaking attempt before opening the review screen.");
+    expect(nav.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+  });
+
+  it("enables the Review navigation link when a report exists", async () => {
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/speak"],
+      locale: "en",
+      appState: { ...validDraftState, review: { reportId: "report-1" } },
+    });
+
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+    expect(await screen.findByTestId("speak.input_mode_upload")).toBeVisible();
+    const review = within(nav).getByRole("link", { name: "Review" });
+    expect(review).toHaveAttribute("href", "/review");
+    expect(review).not.toHaveAttribute("aria-disabled");
+    expect(review).not.toHaveAccessibleDescription();
+    expect(nav.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
   });
 
   it("stops before uploading if the displayed sharing route changes", async () => {
@@ -341,6 +421,65 @@ describe("Speak route", () => {
     expect(stopButton).toBeVisible();
   });
 
+  it("keeps the active recorder mounted during a cloud-settings refresh", async () => {
+    const cloudResponse = {
+      settings: { asr_provider: "groq", asr_connection_id: "groq-1" },
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(cloudResponse), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    })));
+    mockedGetRuntimeSettings.mockResolvedValue({
+      ui_locale: "en", whisper_model: "small", active_connection_id: "conn-primary", asr_provider: "groq",
+      connections: [{
+        connection_id: "groq-1", provider_key: "groq", provider_choice: "groq", provider_label: "Groq",
+        label: "Speech", model: "whisper-large-v3", base_url: "https://api.groq.com", is_default: false,
+        is_local: false, requires_api_key: true, has_api_key: true, secret_state: "present",
+        last_test_status: "", last_tested_at: "", openrouter_http_referer: "", openrouter_app_title: "", provider_metadata: {},
+      }],
+    });
+    const { queryClient } = renderWithProviders(<AppFrame />, {
+      initialEntries: ["/speak"], locale: "en", appState: validDraftState,
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Start recording" }));
+    const panel = screen.getByTestId("speak.recording_panel");
+    await screen.findByRole("button", { name: "Stop recording" });
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+
+    act(() => { void queryClient.invalidateQueries({ queryKey: ["runtime", "cloud"] }); });
+    await waitFor(() => expect(queryClient.getQueryState(["runtime", "cloud"])?.fetchStatus).toBe("fetching"));
+    expect(screen.getByTestId("speak.recording_panel")).toBe(panel);
+    expect(screen.getByRole("button", { name: "Stop recording" })).toBeVisible();
+    expect(FakeMediaRecorder.instances.at(-1)?.state).toBe("recording");
+  });
+
+  it("keeps the active recorder mounted when cached readiness refreshes fail", async () => {
+    const { queryClient } = renderWithProviders(<AppFrame />, {
+      initialEntries: ["/speak"], locale: "en", appState: validDraftState,
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Start recording" }));
+    const panel = screen.getByTestId("speak.recording_panel");
+    await screen.findByRole("button", { name: "Stop recording" });
+    mockedGetDiagnostics.mockRejectedValue(new Error("offline"));
+    mockedGetRuntime.mockRejectedValue(new Error("offline"));
+    mockedGetRuntimeSettings.mockRejectedValue(new Error("offline"));
+
+    act(() => {
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["diagnostics"] }),
+        queryClient.invalidateQueries({ queryKey: ["runtime"] }),
+        queryClient.invalidateQueries({ queryKey: ["runtime", "settings"] }),
+      ]);
+    });
+    await waitFor(() => {
+      expect(queryClient.getQueryState(["diagnostics"])?.status).toBe("error");
+      expect(queryClient.getQueryState(["runtime"])?.status).toBe("error");
+      expect(queryClient.getQueryState(["runtime", "settings"])?.status).toBe("error");
+    }, { timeout: 5_000 });
+    expect(screen.getByTestId("speak.recording_panel")).toBe(panel);
+    expect(screen.getByRole("button", { name: "Stop recording" })).toBeVisible();
+    expect(FakeMediaRecorder.instances.at(-1)?.state).toBe("recording");
+  });
+
   it("clears the previous attachment when switching between record and upload modes", async () => {
     renderWithProviders(<AppFrame />, {
       initialEntries: ["/speak"],
@@ -352,6 +491,8 @@ describe("Speak route", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Stop recording" }));
 
     const statusPanel = await screen.findByTestId("speak.status_panel");
+    expect(await screen.findByTestId("speak.first_take_milestone")).toHaveTextContent("First take recorded on this Mac");
+    expect(window.localStorage.getItem("assess-speaking.first-take-recorded")).toBe("1");
     expect(statusPanel).toHaveTextContent("Record at least 30 seconds before requesting a review.");
     expect(statusPanel).not.toHaveTextContent("A recording is attached and ready for assessment.");
     expect(screen.getByRole("button", { name: "Remove recording" })).toBeVisible();
@@ -367,6 +508,32 @@ describe("Speak route", () => {
     expect(uploadInput).not.toBeVisible();
     expect(uploadInput.closest("label")?.className).toContain("uploadControl");
     expectDecorativeIcon(screen.getByText("Choose audio file"));
+  });
+
+  it("does not repeat the first-take banner for a later recording", async () => {
+    const { rerender } = renderWithProviders(<></>, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+    window.localStorage.setItem("assess-speaking.first-take-recorded", "1");
+    rerender(<AppFrame />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Start recording" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop recording" }));
+
+    expect(await screen.findByTestId("speak.status_panel")).toHaveTextContent("Record at least 30 seconds");
+    expect(screen.queryByTestId("speak.first_take_milestone")).not.toBeInTheDocument();
+  });
+
+  it("shows the milestone for the first take but not the next take in one session", async () => {
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Start recording" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop recording" }));
+    expect(await screen.findByTestId("speak.first_take_milestone")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove recording" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start recording" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop recording" }));
+    expect(await screen.findByTestId("speak.status_panel")).toHaveTextContent("Record at least 30 seconds");
+    expect(screen.queryByTestId("speak.first_take_milestone")).not.toBeInTheDocument();
   });
 
   it("removes an uploaded recording and returns to the idle state", async () => {
@@ -426,9 +593,9 @@ describe("Speak route", () => {
     fireEvent.change(screen.getByTestId("speak.upload_input"), {
       target: { files: [uploadFile] },
     });
-    expect(await screen.findByTestId("speak.submit")).toBeEnabled();
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
 
-    fireEvent.click(screen.getByRole("link", { name: "Scoring Guide" }));
+    fireEvent.click(screen.getByRole("link", { name: "How scores work" }));
     expect(await screen.findByRole("heading", { name: "Understand your feedback" })).toBeVisible();
     fireEvent.click(screen.getByRole("link", { name: "Speak" }));
 
@@ -563,14 +730,14 @@ describe("Speak route", () => {
     }
   });
 
-  it("shows the provider warning, runs the queued or running lifecycle, and acknowledges cancel", async () => {
+  it("runs the cloud provider lifecycle and acknowledges cancel", async () => {
     mockedGetRuntime.mockResolvedValue({
       configured: true,
       provider: "OpenRouter",
       model: "google/gemini-3.1-pro-preview",
       base_url: "https://openrouter.ai/api/v1",
       requires_api_key: true,
-      has_api_key: false,
+      has_api_key: true,
     });
     mockedGetRuntimeSettings.mockResolvedValue({
       ui_locale: "en",
@@ -588,8 +755,8 @@ describe("Speak route", () => {
           is_default: true,
           is_local: false,
           requires_api_key: true,
-          has_api_key: false,
-          secret_state: "missing",
+          has_api_key: true,
+          secret_state: "present",
           last_test_status: "",
           last_tested_at: "",
           openrouter_http_referer: "https://example.test/assess-speaking",
@@ -618,11 +785,7 @@ describe("Speak route", () => {
 
     const statusPanel = await screen.findByTestId("speak.status_panel");
 
-    expect(
-      await screen.findByText(
-        "OpenRouter is selected, but this saved connection is missing its API key. Open Runtime Setup or Settings to add one.",
-      ),
-    ).toBeVisible();
+    expect(screen.queryByText(/this saved connection is missing its API key/)).not.toBeInTheDocument();
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Submit for review" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));

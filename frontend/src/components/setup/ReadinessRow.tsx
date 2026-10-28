@@ -14,12 +14,14 @@ type ReadinessRowProps = {
 };
 
 const statusLabelKey = (status: SetupReadinessStatus): string =>
-  `runtime_setup.setup_guide_status_${status}`;
+  status === "configured" ? "first_run.configured_status" : `runtime_setup.setup_guide_status_${status}`;
 
 const statusClass = (status: SetupReadinessStatus): string => {
   switch (status) {
     case "ready":
       return styles.statusReady;
+    case "configured":
+      return styles.statusConfigured;
     case "unavailable":
       return styles.statusUnavailable;
     case "loading":
@@ -47,6 +49,11 @@ export const ReadinessRow = ({
         <span className={styles.statusLabel}>{translate(statusLabelKey(row.status))}</span>
       </div>
       <p className={styles.rowDetail}>{translate(row.detailKey)}</p>
+      {row.status === "unavailable" && row.key !== "sample_check" ? (
+        <p className={styles.rowRescue}>
+          {translate(row.rescueKey ?? `first_run.rescue_${row.key}`)}
+        </p>
+      ) : null}
     </div>
     <Button
       type="button"

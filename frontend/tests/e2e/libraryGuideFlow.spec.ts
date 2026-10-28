@@ -68,6 +68,20 @@ const installLibraryGuideBackend = async (page: Page) => {
 };
 
 test.describe("library and guide browser flow", () => {
+  test("opens timed rehearsal from configured Home", async ({ page }) => {
+    await installLibraryGuideBackend(page);
+
+    await page.setViewportSize({ width: 1100, height: 760 });
+    await page.goto("/");
+    await expect(page.getByTestId("home.open_rehearsal")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(1100);
+    await page.getByTestId("home.open_rehearsal").click();
+
+    await expect(page).toHaveURL(/\/rehearsal$/);
+    await expect(page.getByTestId("rehearsal-screen")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Timed speaking rehearsal" })).toBeVisible();
+  });
+
   test("keeps Guide reachable and carries a prepared sample into Session Setup and Speak", async ({
     page,
   }) => {
