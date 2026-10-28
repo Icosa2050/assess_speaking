@@ -110,6 +110,48 @@ describe("Home and Runtime Setup routes", () => {
     expect(screen.queryByTestId("home.runtime_setup_button")).not.toBeInTheDocument();
   });
 
+  it("opens timed rehearsal from configured Home", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true,
+      provider: "ollama",
+      model: "llama3.2:3b",
+      base_url: "http://localhost:11434/v1",
+      requires_api_key: false,
+      has_api_key: false,
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/"],
+      locale: "en",
+      appState: { preferences: { setupComplete: true } },
+    });
+
+    const rehearsalLink = await screen.findByRole("link", { name: "Timed speaking rehearsal" });
+    expect(rehearsalLink).toHaveAttribute("href", "/rehearsal");
+    fireEvent.click(rehearsalLink);
+
+    expect(await screen.findByTestId("rehearsal-screen")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Timed speaking rehearsal" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Timed speaking rehearsal", current: "page" })).toBeVisible();
+  });
+
+  it("keeps timed rehearsal discoverable on first-run Home", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: false,
+      provider: "",
+      model: "",
+      base_url: "",
+      requires_api_key: false,
+      has_api_key: false,
+    });
+
+    renderWithProviders(<AppFrame />, { initialEntries: ["/"], locale: "en" });
+
+    expect(await screen.findByRole("button", { name: "Set up local AI" })).toBeVisible();
+    fireEvent.click(screen.getByRole("link", { name: "Timed speaking rehearsal" }));
+    expect(await screen.findByTestId("rehearsal-screen")).toBeVisible();
+  });
+
   it("treats ok and informational diagnostics as healthy after actual microphone capture", async () => {
     mockedGetRuntime.mockResolvedValue({
       configured: true,
@@ -337,11 +379,15 @@ describe("Home and Runtime Setup routes", () => {
     expect(await screen.findByRole("button", { name: "Start new session" })).toBeVisible();
     expect(within(nav).getByText("Practice")).toBeVisible();
     expect(within(nav).getByText("Progress")).toBeVisible();
-    expect(within(nav).getByText("Discover")).toBeVisible();
-    expect(within(nav).getByRole("link", { name: "Practice Home" })).toBeVisible();
-    expect(within(nav).getByRole("link", { name: "Session Setup" })).toBeVisible();
-    expect(within(nav).getByRole("link", { name: "Speak" })).toBeVisible();
-    expect(within(nav).getByRole("link", { name: "Review" })).toBeVisible();
+    expect(within(nav).getByRole("link", { name: "Practice" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("link", { name: "Progress" })).toHaveAttribute("href", "/history");
+    expect(within(nav).getByRole("link", { name: "Library" })).toHaveAttribute("href", "/library");
+    expect(within(nav).getByRole("link", { name: "How scores work" })).toHaveAttribute("href", "/guide");
+    expect(within(nav).getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings");
+    expect(within(nav).queryByRole("link", { name: "Session Setup" })).not.toBeInTheDocument();
+    expect(within(nav).queryByRole("link", { name: "Speak" })).not.toBeInTheDocument();
+    expect(within(nav).queryByRole("link", { name: "Review" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Skip to content" })).toHaveAttribute("href", "#main-content");
     expect(within(nav).queryByRole("link", { name: "Set up local AI" })).not.toBeInTheDocument();
     expect(screen.getByTestId("home.open_history")).toHaveAttribute("href", "/history");
     expect(screen.getByTestId("home.open_library")).toHaveAttribute("href", "/library");
@@ -402,6 +448,30 @@ describe("Home and Runtime Setup routes", () => {
       "href",
       "/runtime-setup",
     );
+    expect(within(nav).getByRole("link", { name: "Timed speaking rehearsal" })).toHaveAttribute("href", "/rehearsal");
+    expect(nav.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+  });
+
+  it("shows the return step from route state on Home", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: false,
+      provider: "",
+      model: "",
+      base_url: "",
+      requires_api_key: false,
+      has_api_key: false,
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: [{ pathname: "/", state: { from: "/runtime-setup" } }],
+      locale: "en",
+    });
+
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+    expect(await screen.findByRole("button", { name: "Set up local AI" })).toBeVisible();
+    expect(within(nav).getByRole("group", { name: "Return to step" })).toBeVisible();
+    expect(within(nav).getByRole("link", { name: "Set up local AI" })).toHaveAttribute("href", "/runtime-setup");
+    expect(nav.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
   });
 
   it("shows a setup next step instead of an empty startup checklist", async () => {

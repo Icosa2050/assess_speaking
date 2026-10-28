@@ -179,6 +179,37 @@ describe("Speak route", () => {
     });
   });
 
+  it("shows one current Practice step and explains unavailable Review in AppFrame", async () => {
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+    expect(await screen.findByTestId("speak.input_mode_upload")).toBeVisible();
+    expect(within(nav).getByRole("link", { name: "Session Setup" })).toHaveAttribute("href", "/session-setup");
+    expect(within(nav).getByRole("link", { name: "Speak" })).toHaveAttribute("aria-current", "page");
+    const review = within(nav).getByRole("link", { name: "Review" });
+    expect(review).toHaveAttribute("aria-disabled", "true");
+    expect(review).toHaveAttribute("href", "/review");
+    expect(review).toHaveAttribute("tabindex", "0");
+    expect(review).toHaveAccessibleDescription("Submit a speaking attempt before opening the review screen.");
+    expect(nav.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+  });
+
+  it("enables the Review navigation link when a report exists", async () => {
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/speak"],
+      locale: "en",
+      appState: { ...validDraftState, review: { reportId: "report-1" } },
+    });
+
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+    expect(await screen.findByTestId("speak.input_mode_upload")).toBeVisible();
+    const review = within(nav).getByRole("link", { name: "Review" });
+    expect(review).toHaveAttribute("href", "/review");
+    expect(review).not.toHaveAttribute("aria-disabled");
+    expect(review).not.toHaveAccessibleDescription();
+    expect(nav.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+  });
+
   it("stops before uploading if the displayed sharing route changes", async () => {
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
     fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
@@ -426,9 +457,9 @@ describe("Speak route", () => {
     fireEvent.change(screen.getByTestId("speak.upload_input"), {
       target: { files: [uploadFile] },
     });
-    expect(await screen.findByTestId("speak.submit")).toBeEnabled();
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
 
-    fireEvent.click(screen.getByRole("link", { name: "Scoring Guide" }));
+    fireEvent.click(screen.getByRole("link", { name: "How scores work" }));
     expect(await screen.findByRole("heading", { name: "Understand your feedback" })).toBeVisible();
     fireEvent.click(screen.getByRole("link", { name: "Speak" }));
 

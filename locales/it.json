@@ -1,6 +1,11 @@
 {
   "nav": {
     "main_navigation": "Navigazione principale",
+    "skip_to_content": "Vai al contenuto",
+    "current_step": "Passo attuale",
+    "return_to_step": "Torna al passaggio",
+    "preferences": "Preferenze",
+    "how_scores_work": "Come funzionano i punteggi",
     "group_practice": "Esercitati",
     "group_progress": "Progressi",
     "group_discover": "Scopri",

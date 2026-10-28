@@ -1,6 +1,11 @@
 {
   "nav": {
     "main_navigation": "Hauptnavigation",
+    "skip_to_content": "Zum Inhalt springen",
+    "current_step": "Aktueller Schritt",
+    "return_to_step": "Zurück zum Schritt",
+    "preferences": "Voreinstellungen",
+    "how_scores_work": "So funktionieren die Bewertungen",
     "group_practice": "Üben",
     "group_progress": "Fortschritt",
     "group_discover": "Entdecken",

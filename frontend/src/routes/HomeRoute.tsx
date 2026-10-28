@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { Icon, type IconName } from "@/components/ui/Icon";
@@ -153,6 +153,17 @@ export const HomeRoute = () => {
     navigate(hasReviewState(review) ? "/review" : "/speak");
   };
 
+  const rehearsalAction = (
+    <Link
+      to="/rehearsal"
+      className={`${styles.action} ${styles.secondaryAction}`}
+      {...semanticAttributes(SEMANTIC_IDS.home.openRehearsal)}
+    >
+      <Icon name="microphone" />
+      {translate("rehearsal.title")}
+    </Link>
+  );
+
   return (
     <div className={styles.homeGrid}>
       {!runtimeReadiness.ready ? (
@@ -185,6 +196,7 @@ export const HomeRoute = () => {
               <Icon name="settings" />
               {translate("home.runtime_setup_button")}
             </button>
+            {rehearsalAction}
           </div>
         </section>
       ) : (
@@ -227,6 +239,7 @@ export const HomeRoute = () => {
               <Icon name="arrow-right" />
               {translate("home.resume")}
             </button>
+            {rehearsalAction}
           </div>
         </section>
       )}

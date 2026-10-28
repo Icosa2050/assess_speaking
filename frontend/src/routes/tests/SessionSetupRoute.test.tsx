@@ -128,7 +128,7 @@ describe("Session Setup route", () => {
     fireEvent.change(await screen.findByLabelText("Learner name or nickname"), {
       target: { value: edited },
     });
-    fireEvent.click(screen.getByRole("link", { name: "Practice Home" }));
+    fireEvent.click(screen.getByRole("link", { name: "Practice" }));
     await screen.findByRole("button", { name: "Start new session" });
     fireEvent.click(screen.getByRole("link", { name: "Session Setup" }));
 

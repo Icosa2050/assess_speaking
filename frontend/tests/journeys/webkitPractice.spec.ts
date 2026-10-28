@@ -4,6 +4,31 @@ import path from "node:path";
 // WebKit uses upload journeys: Chromium-only fake microphone flags do not
 // exercise the macOS microphone permission dialog in Safari.
 test.use({ browserName: "webkit", permissions: [], launchOptions: {} });
+
+test("WebKit skip link keeps Settings return origin", async ({ page }) => {
+  await page.goto("/history");
+  await page.getByTestId("home.open_settings").click();
+  await expect(page).toHaveURL(/\/settings$/);
+  const historyBeforeSkip = await page.evaluate(() => ({
+    length: window.history.length,
+    from: window.history.state?.usr?.from ?? null,
+  }));
+  expect(historyBeforeSkip.from).toBe("history");
+
+  const skip = page.locator('a[href="#main-content"]');
+  await skip.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("main")).toBeFocused();
+  await expect(page).toHaveURL(/\/settings$/);
+  expect(await page.evaluate(() => ({
+    length: window.history.length,
+    from: window.history.state?.usr?.from ?? null,
+  }))).toEqual(historyBeforeSkip);
+
+  await page.getByTestId("settings.return").click();
+  await expect(page).toHaveURL(/\/history$/);
+});
+
 for (const language of ["en", "it"]) {
   test(`WebKit ${language}: upload, saved feedback, replay and retry`, async ({ page, request }) => {
     const errors: string[] = [];

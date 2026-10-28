@@ -87,7 +87,7 @@ test("setup tests real browser audio and carries its result to Home without remo
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.locator("#runtime-setup-microphone").screenshot({ path: "/tmp/vostavo-microphone-setup-mobile.png" });
   expect(await page.evaluate(() => (window as unknown as Window & { testedStream: MediaStream }).testedStream.getTracks().every(track => track.readyState === "ended"))).toBe(true);
-  await page.getByRole("link", { name: "Practice Home", exact: true }).click();
+  await page.getByRole("link", { name: "Practice", exact: true }).click();
   await expect(page.getByRole("progressbar", { name: "Practice readiness" })).toHaveAttribute("aria-valuenow", "100");
   await expect(page.getByText("Please review these notices")).toBeVisible();
   await page.getByTestId("home.setup_guide_button").click();
@@ -104,7 +104,7 @@ test(`${entry}-started recording requires the setup sample and playback confirma
   await page.getByTestId("setup.recommended_start").click();
   await page.getByTestId("setup.continue").click();
   if (entry === "drawer") {
-    await page.getByRole("link", { name: "Practice Home", exact: true }).click();
+    await page.getByRole("link", { name: "Practice", exact: true }).click();
     await page.getByRole("link", { name: "Speak", exact: true }).click();
   }
   await expect(page.getByTestId("speak.record_start")).toBeDisabled();
@@ -122,7 +122,7 @@ test(`${entry}-started recording requires the setup sample and playback confirma
   await expect(page.getByTestId("speak.recording_visualizer")).toHaveAttribute("data-recording-state", "ready");
   await expect(page.getByTestId("speak.submit")).toBeDisabled();
   await expect(page.getByTestId("speak.status_panel")).toContainText("Record at least 30 seconds");
-  await page.getByRole("link", { name: "Practice Home", exact: true }).click();
+  await page.getByRole("link", { name: "Practice", exact: true }).click();
   await expect(page.getByRole("progressbar", { name: "Practice readiness" })).toHaveAttribute("aria-valuenow", "100");
 });
 }
@@ -135,7 +135,7 @@ test("denied microphone access gives guidance and never counts as ready", async 
   await page.getByTestId("microphone-test-start").click();
   await expect(page.getByTestId("microphone-test-status")).toContainText("access was denied");
   await expect(page.getByTestId("runtime_setup.setup_guide.microphone")).toHaveAttribute("data-status", "unavailable");
-  await page.getByRole("link", { name: "Practice Home", exact: true }).click();
+  await page.getByRole("link", { name: "Practice", exact: true }).click();
   await expect(page.getByRole("progressbar", { name: "Practice readiness" })).toHaveAttribute("aria-valuenow", "67");
 });
 
@@ -178,6 +178,6 @@ test("rehearsal requires calibration and retains learner choices through setup",
     await expect(page.getByTestId("microphone-test-status")).toContainText("Input is too high", { timeout: 10_000 });
     await expect(page.getByTestId("microphone-test-confirm")).toBeDisabled();
     await expect(page.getByTestId("runtime_setup.setup_guide.microphone")).toHaveAttribute("data-status", "unavailable");
-    await page.getByRole("link", { name: "Practice Home", exact: true }).click();
+    await page.getByRole("link", { name: "Practice", exact: true }).click();
     await expect(page.getByRole("progressbar", { name: "Practice readiness" })).toHaveAttribute("aria-valuenow", "67");
   });

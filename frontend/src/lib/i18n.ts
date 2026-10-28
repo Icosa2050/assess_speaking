@@ -20,6 +20,7 @@ export const SEMANTIC_IDS = {
     setupGuideButton: "home.setup_guide_button",
     startNew: "home.start_new",
     resume: "home.resume",
+    openRehearsal: "home.open_rehearsal",
     openHistory: "home.open_history",
     openLibrary: "home.open_library",
     openGuide: "home.open_guide",

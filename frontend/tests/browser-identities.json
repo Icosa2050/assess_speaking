@@ -4,6 +4,12 @@
       "e2e/libraryGuideFlow.spec.ts",
       "",
       "library and guide browser flow",
+      "opens timed rehearsal from configured Home"
+    ],
+    [
+      "e2e/libraryGuideFlow.spec.ts",
+      "",
+      "library and guide browser flow",
       "keeps Guide reachable and carries a prepared sample into Session Setup and Speak"
     ],
     [
@@ -394,6 +400,11 @@
     ]
   ],
   "journeys-webkit": [
+    [
+      "journeys/webkitPractice.spec.ts",
+      "",
+      "WebKit skip link keeps Settings return origin"
+    ],
     [
       "journeys/webkitPractice.spec.ts",
       "",
