@@ -45,6 +45,7 @@ const reviewPayload = {
   },
   notes: "Mention two concrete examples.",
   transcript_full: "Full transcript text",
+  metrics: { duration_sec: 120 },
   baseline_comparison: {
     level: "B2",
     targets: {
@@ -69,15 +70,17 @@ const reviewPayload = {
     },
     scores: {
       final: 3.5,
-      band: "B2",
+      band: "4",
       mode: "hybrid",
       llm: 3.7,
       deterministic: 3.2,
+      cefr_estimate: { level: "B2", calibrated: false, confidence: "low" },
+      dimensions: { pronunciation_intelligibility: { score: 3.6, confidence: "low", method: "asr_proxy_v1" } },
     },
     checks: {
       language_pass: true,
-      topic_pass: false,
-      content_validity_pass: false,
+      topic_pass: true,
+      content_validity_pass: true,
       duration_pass: true,
       min_words_pass: true,
     },
@@ -159,25 +162,50 @@ describe("Review route", () => {
     } };
     renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
       ...validDraftState, review: { reportId: "short", transcript: "bla bla bla", scoreOverall: 3.5,
-        band: "B2", summary: "Try again", payload },
+        band: "4", summary: "Try again", payload },
     } });
     expect(await screen.findByText(/Not enough speech to assess/)).toBeVisible();
-    expect(screen.getByTestId("review-next-step-score")).not.toHaveTextContent("3.5");
-    expect(screen.getByTestId("review-metric-score-overall")).not.toHaveTextContent("3.5");
+    const result = screen.getByTestId("review-result-estimate");
+    expect(within(result).getByText("No estimate")).toBeVisible();
+    expect(within(result).getByText("No scoring method result is available for this recording.")).toBeVisible();
+    expect(screen.queryByTestId("review-estimate-text")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("review-provisional-cefr")).not.toBeInTheDocument();
+    expect(screen.getAllByText("There was not enough assessable speech for a score, or this response could not be assessed. Check the quality notes below.")).toHaveLength(1);
+    expect(screen.getByTestId("review-metric-score-overall")).not.toHaveTextContent(/\b[1-5]\.\d\b/);
+    expect(screen.queryByText(/\d\.\d\/5 · limited proxy/)).not.toBeInTheDocument();
     expect(screen.getByTestId("review-baseline")).not.toHaveTextContent("Pass");
     expect(screen.queryByRole("button", {name: "Resume unfinished analysis"})).not.toBeInTheDocument();
   });
 
   it.each(["content_unverified", "invalid_content"])("withholds stale saved grades for %s reports", async state => {
     renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
-      ...validDraftState, review: {reportId: "report-1", transcript: "Full transcript text", scoreOverall: 3.5, band: "B2", summary: "Saved report", payload: {
+      ...validDraftState, review: {reportId: "report-1", transcript: "Full transcript text", scoreOverall: 3.5, band: "4", summary: "Saved report", payload: {
         ...reviewPayload, report: {...reviewPayload.report, rubric: undefined, warnings: [], eligibility: {version: 1, state, metrics_reliable: false, reasons: [], task_complete: null}},
       }},
     }});
     await screen.findByTestId("review-next-step-card");
-    expect(screen.getByTestId("review-next-step-score")).not.toHaveTextContent("3.5");
-    expect(screen.getByTestId("review-metric-score-overall")).not.toHaveTextContent("3.5");
+    const result = screen.getByTestId("review-result-estimate");
+    expect(within(result).getByText("No estimate")).toBeVisible();
+    expect(within(result).getByText("No scoring method result is available for this recording.")).toBeVisible();
+    expect(screen.queryByTestId("review-estimate-text")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("review-provisional-cefr")).not.toBeInTheDocument();
+    expect(screen.getByTestId("review-metric-score-overall")).not.toHaveTextContent(/\b[1-5]\.\d\b/);
+    expect(screen.queryByText(/\d\.\d\/5 · limited proxy/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", {name: "Resume unfinished analysis"})).not.toBeInTheDocument();
+  });
+
+  it("does not offer resume for a legacy invalid report without a rubric or skip warning", async () => {
+    const payload = { ...reviewPayload, report: { ...reviewPayload.report, rubric: undefined,
+      checks: { ...reviewPayload.report.checks, topic_pass: false, content_validity_pass: false },
+      warnings: [],
+    } };
+    renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
+      ...validDraftState, review: { reportId: "report-1", transcript: "Full transcript text", scoreOverall: 3.5,
+        band: "4", summary: "Saved report", payload },
+    } });
+    expect(await screen.findByTestId("review-result-estimate")).toHaveTextContent("No estimate");
+    expect(screen.queryByTestId("review-estimate-text")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Resume unfinished analysis" })).not.toBeInTheDocument();
   });
 
   it("recovers a lost resume response without creating a different submission", async () => {
@@ -187,7 +215,7 @@ describe("Review route", () => {
     const {store} = renderWithProviders(<AppFrame />, {
       initialEntries: ["/review"], locale: "en", appState: {
         ...validDraftState,
-        review: {reportId:"report-1",transcript:"Full transcript text",scoreOverall:3.5,band:"B2",summary:"Saved partial report",payload:{...reviewPayload,report:{...reviewPayload.report,rubric:undefined,eligibility:{state:"content_unverified"},warnings:["llm_unavailable"]}}},
+        review: {reportId:"report-1",transcript:"Full transcript text",scoreOverall:3.5,band:"4",summary:"Saved partial report",payload:{...reviewPayload,report:{...reviewPayload.report,rubric:undefined,eligibility:{state:"content_unverified"},warnings:["llm_unavailable"]}}},
       },
     });
     await waitFor(() => expect(screen.getByRole("button", {name:"Resume unfinished analysis"})).toBeEnabled());
@@ -201,7 +229,7 @@ describe("Review route", () => {
 
   it("does not offer unfinished-analysis recovery for a fully successful report", async () => {
     renderWithProviders(<AppFrame />, {initialEntries:["/review"],locale:"en",appState:{...validDraftState,
-      review:{reportId:"report-1",transcript:"Full transcript text",scoreOverall:3.5,band:"B2",summary:"Ready",
+      review:{reportId:"report-1",transcript:"Full transcript text",scoreOverall:3.5,band:"4",summary:"Ready",
         payload:{...reviewPayload,report:{...reviewPayload.report,rubric:{overall:4},warnings:[]}}},
     }});
     await screen.findByTestId("review-next-step-card");
@@ -218,7 +246,7 @@ describe("Review route", () => {
           reportId: "report-1",
           transcript: "Full transcript text",
           scoreOverall: 3.5,
-          band: "B2",
+          band: "4",
           summary: "Focus on connectors.",
           payload: reviewPayload,
         },
@@ -233,12 +261,22 @@ describe("Review route", () => {
     expect(coachTakeaway).toHaveAttribute("data-semantic-id", "review-coach-takeaway");
     expect(coachTakeaway).toHaveTextContent("Focus on connectors.");
     expect(within(nextStepCard).getByText("Choose one thing to work on in your next attempt.")).toBeVisible();
-    const scoreVisual = within(nextStepCard).getByTestId("review-next-step-score");
-    expect(scoreVisual).toHaveAttribute("data-semantic-id", "review-next-step-score");
-    const scoreRing = within(scoreVisual).getByRole("progressbar", { name: "Current result" });
-    expect(scoreRing).toHaveAttribute("aria-valuenow", "70");
-    expect(scoreRing).toHaveAttribute("aria-valuetext", "B2 · 3.5");
-    expect(scoreVisual).toHaveTextContent("B2 · 3.5");
+    const scoreVisual = screen.getByTestId("review-result-estimate");
+    expect(scoreVisual).toHaveAttribute("data-semantic-id", "review-result-estimate");
+    expect(within(scoreVisual).queryByRole("progressbar")).not.toBeInTheDocument();
+    expect(within(scoreVisual).getByTestId("review-estimate-text")).toHaveTextContent("3.5/5");
+    expect(scoreVisual).toHaveTextContent("Position on a 1–5 practice scale");
+    expect(scoreVisual).toHaveTextContent("Provisional · not an exam result");
+    expect(within(scoreVisual).getByTestId("review-provisional-cefr")).toHaveTextContent("Provisional CEFR B2");
+    expect(screen.getByTestId("review-metric-band")).toHaveTextContent("Rounded practice band");
+    expect(screen.getByTestId("review-metric-band")).toHaveTextContent("4");
+    expect(screen.getByTestId("review-metric-band")).not.toHaveTextContent("B2");
+    expect(scoreVisual).toHaveTextContent("3.6/5 · limited proxy");
+    expect(scoreVisual).toHaveTextContent("does not assess individual sounds or accent quality");
+    fireEvent.click(within(scoreVisual).getByText("Show dimension signals"));
+    expect(scoreVisual).toHaveTextContent("Reported confidence: low");
+    expect(scoreVisual).toHaveTextContent("Source: ASR confidence and pausing proxy; not acoustic pronunciation scoring.");
+    expect(within(scoreVisual).getByRole("link", { name: "Read the scoring Guide" })).toHaveAttribute("href", "/guide");
     const focusChip = within(nextStepCard).getByTestId("review-next-step-focus");
     expect(focusChip).toHaveAttribute("data-semantic-id", "review-next-step-focus");
     expect(focusChip).toHaveTextContent(
@@ -272,17 +310,18 @@ describe("Review route", () => {
       "AI feedback was unavailable or took too long. General practice tips are shown instead.",
     );
     expect(screen.getByText("Warnings")).toBeVisible();
-    expect(screen.getByTestId("review-failed-gates")).toHaveTextContent("Failed quality checks");
+    expect(screen.queryByTestId("review-failed-gates")).not.toBeInTheDocument();
     expect(screen.getByText("Result")).toBeVisible();
     expect(screen.getByRole("heading", { name: "Score details" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "Feedback summary" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "Quality checks" })).toBeVisible();
-    expect(screen.getByTestId("review-quality-summary")).toHaveTextContent("3 of 5 checks passed");
-    expect(screen.getByTestId("review-gates-disclosure")).toHaveAttribute("open");
+    expect(screen.getByTestId("review-quality-summary")).toHaveTextContent("5 of 5 checks passed");
+    expect(screen.getByTestId("review-gates-disclosure")).not.toHaveAttribute("open");
     expect(screen.getByTestId("review-validation-toggle")).toHaveTextContent("Show quality check details");
+    fireEvent.click(screen.getByTestId("review-validation-toggle"));
     expect(screen.getByTestId("review-gate-content-validity")).toHaveTextContent("Content validity");
-    expect(screen.getByTestId("review-gate-content-validity")).toHaveTextContent("Failed");
-    expect(screen.getAllByText("Not assessed")).toHaveLength(2);
+    expect(screen.getByTestId("review-gate-content-validity")).toHaveTextContent("Pass");
+    expect(screen.getByTestId("review-baseline")).toHaveTextContent("Pass");
     expect(screen.getByRole("heading", { name: "Transcript and reference" })).toBeVisible();
     expect(screen.getByTestId("review-evidence-disclosure")).not.toHaveAttribute("open");
     expect(screen.getByTestId("review-evidence-toggle")).toHaveTextContent(
@@ -347,7 +386,7 @@ describe("Review route", () => {
       report_path: "/tmp/report-1.json",
       summary: {
         score_overall: 3.5,
-        band: "B2",
+        band: "4",
         next_focus: "Connect your examples more clearly.",
       },
     });
@@ -391,7 +430,7 @@ describe("Review route", () => {
           reportId: "report-1",
           transcript: "Full transcript text",
           scoreOverall: 3.5,
-          band: "B2",
+          band: "4",
           summary: "Focus on connectors.",
           payload: reviewPayload,
         },
@@ -415,7 +454,7 @@ describe("Review route", () => {
           reportId: "report-1",
           transcript: "Full transcript text",
           scoreOverall: 3.5,
-          band: "B2",
+          band: "4",
           summary: "Focus on connectors.",
           payload: reviewPayload,
         },

@@ -1,7 +1,24 @@
 import copy
+import json
+from pathlib import Path
 import pytest
 from assessment_runtime.eligibility import annotate_payload, eligibility
 from assessment_runtime.comparison import comparison_key
+
+
+REVIEW_MATRIX = json.loads((Path(__file__).resolve().parents[1] / "frontend/src/test/reviewEligibilityMatrix.json").read_text())
+
+
+@pytest.mark.parametrize("case", REVIEW_MATRIX["cases"], ids=lambda case: case["name"])
+def test_review_eligibility_matrix_matches_backend(case):
+    checks = {**REVIEW_MATRIX["baseline"]["checks"], **case.get("checks", {})}
+    metrics = {**REVIEW_MATRIX["baseline"]["metrics"], **case.get("metrics", {})}
+    for key in case.get("omitChecks", []):
+        checks.pop(key)
+    if case.get("omitDuration"):
+        metrics.pop("duration_sec")
+    report = {"checks": checks, "warnings": case.get("warnings", [])}
+    assert eligibility(report, metrics)["state"] == case["expected"]
 
 
 def assessable():

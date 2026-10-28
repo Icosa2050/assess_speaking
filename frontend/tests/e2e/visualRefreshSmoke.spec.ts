@@ -88,6 +88,7 @@ const reportPayload = {
   },
   notes: "Visual smoke note",
   transcript_full: "Sono andato a Roma, poi ho visitato il centro e infine ho cenato con amici.",
+  metrics: { duration_sec: 120 },
   report: {
     session_id: "visual-second",
     transcript_preview: "Sono andato a Roma, poi ho visitato il centro.",
@@ -100,6 +101,8 @@ const reportPayload = {
       mode: "hybrid",
       llm: 4.2,
       deterministic: 4.0,
+      cefr_estimate: { level: "B2", calibrated: false, confidence: "low" },
+      dimensions: { pronunciation_intelligibility: { score: 3.6, confidence: "low", method: "asr_proxy_v1" } },
     },
     checks: {
       language_pass: true,
@@ -416,10 +419,15 @@ test("renders primary visual-refresh artifacts without serif typography", async 
   await expect(page.getByTestId("review-coach-takeaway")).toContainText(
     "Keep the structure and close with one personal reflection.",
   );
-  const scoreRing = page.getByRole("progressbar", { name: "Current result" });
-  await expect(scoreRing).toBeVisible();
-  await expect(scoreRing).toHaveAttribute("aria-valuenow", "82");
-  await expect(scoreRing).toHaveAttribute("aria-valuetext", "4 · 4.1");
+  const estimate = page.getByTestId("review-result-estimate");
+  await expect(estimate.getByTestId("review-estimate-text")).toHaveText("4.1/5");
+  await expect(estimate).toContainText("Position on a 1–5 practice scale");
+  await expect(estimate).toContainText("Provisional · not an exam result");
+  await expect(estimate.getByTestId("review-provisional-cefr")).toContainText("Provisional CEFR B2");
+  await expect(estimate).toContainText("3.6/5 · limited proxy");
+  await expect(estimate).toContainText("does not assess individual sounds or accent quality");
+  await expect(estimate.getByRole("progressbar")).toHaveCount(0);
+  await expect(estimate.getByRole("link", { name: "Read the scoring Guide" })).toHaveAttribute("href", "/guide");
   await expect(page.getByTestId("review-next-step-focus")).toContainText(
     "Close with one personal reflection.",
   );
@@ -432,6 +440,23 @@ test("renders primary visual-refresh artifacts without serif typography", async 
   await expect(page.getByTestId("review-evidence-disclosure")).not.toHaveAttribute("open", "");
   await expectNoVisibleSerifTypography(page);
   await captureScreenshot(page, "visual-refresh-smoke-review-desktop.png");
+  for (const viewport of [{ width: 1360, height: 900 }, { width: 1100, height: 760 }]) {
+    await page.setViewportSize(viewport);
+    await expectNoPageHorizontalOverflow(page);
+    await captureScreenshot(page, `review-result-${viewport.width}x${viewport.height}.png`);
+    await page.locator("body").click({ position: { x: 1, y: 1 } });
+    await page.keyboard.press("ControlOrMeta+Home");
+    let guideFocused = false;
+    for (let step = 0; step < 60 && !guideFocused; step += 1) {
+      await page.keyboard.press("Tab");
+      guideFocused = await page.evaluate(() =>
+        document.activeElement?.getAttribute("href") === "/guide" &&
+        Boolean(document.activeElement?.closest('[data-testid="review-result-estimate"]')));
+    }
+    expect(guideFocused).toBe(true);
+    await expect(estimate.getByRole("link", { name: "Read the scoring Guide" })).toBeFocused();
+  }
+  await page.setViewportSize(desktopViewport);
   await expectMobileRouteAudit(page, "visual-refresh-smoke-review-mobile.png");
 
   await page.getByTestId("review-action-try-again").click();

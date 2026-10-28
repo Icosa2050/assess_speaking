@@ -9,12 +9,6 @@
   min-width: 0;
 }
 
-.coachAside {
-  align-self: start;
-  justify-self: start;
-  min-width: 0;
-}
-
 .coachTakeaway {
   margin: 0;
   color: #10201c;
@@ -34,15 +28,4 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
-}
-
-@media (min-width: 820px) {
-  .coachCardGrid {
-    grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
-    align-items: start;
-  }
-
-  .coachAside {
-    justify-self: end;
-  }
 }

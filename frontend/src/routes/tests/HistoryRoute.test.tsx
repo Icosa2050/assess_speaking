@@ -137,6 +137,7 @@ const detailPayload = (sessionId: string, options: { review?: boolean; topicPass
   },
   notes: `Notes for ${sessionId}`,
   transcript_full: `Transcript for ${sessionId}`,
+  metrics: { duration_sec: 120 },
   report: {
     session_id: sessionId,
     input: {
@@ -152,6 +153,7 @@ const detailPayload = (sessionId: string, options: { review?: boolean; topicPass
     checks: {
       language_pass: true,
       topic_pass: options.topicPass ?? true,
+      content_validity_pass: true,
       duration_pass: true,
       min_words_pass: true,
     },
@@ -411,11 +413,14 @@ describe("History route", () => {
       expect(screen.getByTestId("practice-progress")).toHaveTextContent("Stay on topic");
     });
     await waitFor(() => {
-      expect(screen.getByTestId("history-detail-digest-coach-summary")).toHaveTextContent(
-        "Coach summary for s3",
-      );
+      expect(screen.getByTestId("history-detail-caption")).toHaveTextContent("Showing saved report s3");
     });
-    expect(screen.getByTestId("history-detail-caption")).toHaveTextContent("Showing saved report s3");
+    // The saved English attempt failed its topic check, so its legacy coaching
+    // cannot be presented as assessable feedback after the filter switches.
+    expect(screen.queryByTestId("history-detail-digest-coach-summary")).not.toBeInTheDocument();
+    expect(screen.getByTestId("history-detail-digest-priority")).not.toHaveTextContent("Add one more concrete detail");
+    expect(screen.getByTestId("history-detail-digest-next-focus")).not.toHaveTextContent("Sharpen the structure");
+    expect(screen.getByTestId("history-detail-digest-next-exercise")).not.toHaveTextContent("Repeat the story");
     expect(screen.getByTestId("review-requires-human-review")).toBeVisible();
   });
 

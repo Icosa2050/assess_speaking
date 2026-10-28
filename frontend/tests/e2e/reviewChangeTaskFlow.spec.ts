@@ -34,6 +34,7 @@ const reviewPayload = {
   },
   notes: "Review change task notes",
   transcript_full: "Sono andato a Roma e poi ho visitato il centro con amici.",
+  metrics: { duration_sec: 120 },
   report: {
     session_id: "review-change-task-session",
     transcript_preview: "Sono andato a Roma e poi ho visitato il centro.",
@@ -155,6 +156,7 @@ test.describe("review change-task browser flow", () => {
 
     await expect(page).toHaveURL(/\/review$/);
     await expect(page.getByTestId("review-next-step-card")).toBeVisible();
+    await expect(page.getByTestId("review-estimate-text")).toHaveText("3.8/5");
 
     await page.getByTestId("review-action-new-setup").click();
 

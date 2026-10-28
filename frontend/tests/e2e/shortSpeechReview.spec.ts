@@ -6,6 +6,7 @@ for (const eligible of [false, true]) {
       content_validity_pass: eligible ? true : null, duration_pass: eligible, min_words_pass: eligible };
     const payload = {
       meta: { learning_language: "en" }, transcript_full: eligible ? "A synthetic connected response." : "bla bla bla",
+      metrics: { duration_sec: eligible ? 120 : 10 },
       // Simulates an old saved report with incorrectly awarded passes.
       baseline_comparison: { level: "B1", valid: true, passed: true, targets: {
         wpm: { expected: "≥80", actual: 80, ok: true, status: "pass" },
@@ -41,7 +42,10 @@ for (const eligible of [false, true]) {
       await expect(baseline).not.toContainText("Pass");
       await expect(page.getByText(/Not enough speech to assess/)).toBeVisible();
       await expect(page.getByTestId("history-detail-digest-score")).not.toContainText("3.5");
-      await expect(page.getByTestId("review-metric-score-overall")).not.toContainText("3.5");
+      await expect(page.getByTestId("review-metric-score-overall")).not.toContainText(/\b[1-5]\.\d\b/);
+      await expect(page.getByTestId("review-estimate-text")).toHaveCount(0);
+      await expect(page.getByTestId("review-provisional-cefr")).toHaveCount(0);
+      await expect(page.getByTestId("review-metric-score-overall")).toContainText("No estimate");
       await expect(page.getByText("You spoke in the required language.", { exact: true })).toHaveCount(0);
       await expect(page.getByText("Verified language", { exact: true })).toHaveCount(0);
     }
