@@ -3,12 +3,12 @@
 .heading h2 { margin: 0; font-size: 1.2rem; }
 .count { border-radius: 99px; background: #e9f2ed; padding: .3rem .65rem; font-weight: 700; }
 .hint { color: #496459; font-size: .875rem; line-height: 1.5; }
-.list { display: grid; gap: .75rem; list-style: none; margin: 0; padding: .25rem; max-height: 70vh; overflow-y: auto; }
+.list { display: grid; gap: .75rem; list-style: none; margin: 0; padding: .5rem; max-height: 70vh; overflow-y: auto; }
 .card { display: grid; gap: .5rem; width: 100%; min-width: 0; text-align: left; font: inherit; color: inherit; padding: 1rem; border: 1px solid #d2e2dc; border-radius: 10px; background: #fff; overflow-wrap: anywhere; }
 button.card { cursor: pointer; }
 button.card:hover { border-color: #468572; background: #f4f9f6; }
 .card[data-selected="true"] { background: #edf6ef; border-color: #287258; box-shadow: inset 3px 0 #287258; }
-.card:focus-visible { outline: 3px solid #31816e; outline-offset: -3px; }
+.card:focus-visible { outline: var(--focus-width) solid var(--color-focus); outline-offset: var(--focus-offset); }
 .meta, .learner { color: #496459; font-size: .8rem; line-height: 1.5; }
 .topic { font-size: 1rem; font-weight: 750; line-height: 1.4; }
 .metrics { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; font-size: .8rem; }

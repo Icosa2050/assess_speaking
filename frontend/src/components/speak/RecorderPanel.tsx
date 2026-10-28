@@ -5,6 +5,8 @@ import { microphoneConstraints, microphoneErrorStatus, type MicrophoneStatus } f
 import { capturedAudioSeconds, preferredRecordingMimeType } from "@/lib/setup/audioCapture";
 import { MIN_CAPTURE_SECONDS, MIN_REVIEW_SECONDS } from "@/lib/recordingPolicy";
 import { Icon } from "@/components/ui/Icon";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import type { RecordingInputMethod } from "@/lib/state/sessionDraft";
 
 import styles from "./RecorderPanel.module.css";
@@ -54,41 +56,6 @@ const recordingErrorMessage = (translate: Translate, error: unknown): string => 
   return translate("speak.recording_failed");
 };
 
-const cardStyle = {
-  display: "grid",
-  gap: "0.875rem",
-  padding: "1.35rem",
-  border: "1px solid rgba(15, 118, 110, 0.22)",
-  borderRadius: "8px",
-  backgroundColor: "rgba(250, 253, 252, 0.98)",
-  boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
-} as const;
-
-const modeButtonStyle = (active: boolean) =>
-  ({
-    minHeight: "40px",
-    padding: "0.625rem 0.875rem",
-    borderRadius: "8px",
-    border: active
-      ? "1px solid rgba(15, 118, 110, 0.28)"
-      : "1px solid rgba(18, 61, 55, 0.12)",
-    backgroundColor: active ? "#d7ebe5" : "rgba(255, 255, 255, 0.95)",
-    color: "#10201c",
-    fontWeight: 600,
-    font: "inherit",
-    cursor: "pointer",
-  }) as const;
-
-const inputStyle = {
-  minHeight: "44px",
-  padding: "0.75rem 0.875rem",
-  borderRadius: "8px",
-  border: "1px solid rgba(18, 61, 55, 0.16)",
-  backgroundColor: "#fff",
-  color: "#10201c",
-  font: "inherit",
-} as const;
-
 const hiddenFileInputStyle = {
   position: "absolute",
   width: "1px",
@@ -101,44 +68,6 @@ const hiddenFileInputStyle = {
   clip: "rect(0 0 0 0)",
   clipPath: "inset(50%)",
   whiteSpace: "nowrap",
-} as const;
-
-const actionButtonStyle = {
-  minHeight: "40px",
-  padding: "0.625rem 0.875rem",
-  borderRadius: "8px",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
-  backgroundColor: "rgba(255, 255, 255, 0.95)",
-  color: "#10201c",
-  fontWeight: 600,
-  font: "inherit",
-  cursor: "pointer",
-} as const;
-
-const primaryActionButtonStyle = {
-  ...actionButtonStyle,
-  backgroundColor: "#0f766e",
-  border: "1px solid #0f766e",
-  color: "#fff",
-} as const;
-
-const dangerActionButtonStyle = {
-  ...actionButtonStyle,
-  backgroundColor: "#b42318",
-  border: "1px solid #b42318",
-  color: "#fff",
-} as const;
-
-const uploadBoxStyle = {
-  display: "grid",
-  gap: "0.625rem",
-  padding: "0.875rem",
-  border: "1px dashed rgba(15, 118, 110, 0.34)",
-  borderRadius: "8px",
-  backgroundColor: "rgba(248, 251, 250, 0.96)",
-  color: "#10201c",
-  fontWeight: 600,
-  cursor: "pointer",
 } as const;
 
 const idleLevels = Array<number>(9).fill(0);
@@ -528,27 +457,15 @@ export const RecorderPanel = ({
               : "idle";
 
   return (
-    <section
-      style={cardStyle}
+    <Card as="section"
+      className={styles.panel}
       data-testid="speak.recording_panel"
       data-semantic-id="speak.recording_panel"
     >
-      <h2
-        style={{
-          margin: 0,
-          fontSize: "1.35rem",
-          color: "#10201c",
-        }}
-      >
+      <h2 className={styles.title}>
         {translate("speak.recording_title")}
       </h2>
-      <p
-        style={{
-          margin: 0,
-          lineHeight: 1.6,
-          color: "#33514b",
-        }}
-      >
+      <p className={styles.body}>
         {translate("speak.recording_body")}
       </p>
       <div
@@ -583,28 +500,28 @@ export const RecorderPanel = ({
           gap: "0.625rem",
         }}
       >
-        <button
+        <Button
           type="button"
           onClick={() => handleModeChange("record")}
-          className={styles.controlButton}
-          style={modeButtonStyle(inputMode === "record")}
+          className={`${styles.controlButton} ${inputMode === "record" ? styles.modeSelected : ""}`}
+          aria-pressed={inputMode === "record"}
           data-testid="speak.input_mode_record"
           data-semantic-id="speak.input_mode_record"
         >
           <Icon className={styles.controlIcon} name="microphone" size={18} />
           {translate("speak.input_method_record")}
-        </button>
-        {allowUpload && <button
+        </Button>
+        {allowUpload && <Button
           type="button"
           onClick={() => handleModeChange("upload")}
-          className={styles.controlButton}
-          style={modeButtonStyle(inputMode === "upload")}
+          className={`${styles.controlButton} ${inputMode === "upload" ? styles.modeSelected : ""}`}
+          aria-pressed={inputMode === "upload"}
           data-testid="speak.input_mode_upload"
           data-semantic-id="speak.input_mode_upload"
         >
           <Icon className={styles.controlIcon} name="upload" size={18} />
           {translate("speak.input_method_upload")}
-        </button>}
+        </Button>}
       </div>
       {inputMode === "record" ? (
         <div
@@ -615,45 +532,46 @@ export const RecorderPanel = ({
         >
           {!microphoneSetupPassed ? <div data-testid="speak.microphone_setup_required">
             <p>{translate("speak.microphone_setup_required")}</p>
-            {onSetupMicrophone ? <button type="button" data-testid="speak.microphone_setup" onClick={onSetupMicrophone}>
+            {onSetupMicrophone ? <Button type="button" data-testid="speak.microphone_setup" onClick={onSetupMicrophone}>
               {translate("runtime_setup.setup_guide_check_microphone")}
-            </button> : null}
+            </Button> : null}
           </div> : null}
-          <button
+          <Button
             type="button"
+            variant="primary"
+            size="large"
             onClick={handleStartRecording}
             disabled={!microphoneSetupPassed || recorderPhase === "requesting" || recorderPhase === "recording" || recorderPhase === "finalizing"}
             aria-pressed={recorderPhase === "recording"}
             className={styles.controlButton}
-            style={primaryActionButtonStyle}
             data-testid="speak.record_start"
             data-semantic-id="speak.record_start"
           >
             <Icon className={styles.controlIcon} name="microphone" size={18} />
             {translate("speak.recording_start")}
-          </button>
+          </Button>
           {recorderPhase === "recording" ? (
-            <button
+            <Button
               type="button"
+              variant="primary"
+              size="large"
               onClick={() => stopRecording()}
-              className={styles.controlButton}
-              style={dangerActionButtonStyle}
+              className={`${styles.controlButton} ${styles.stopControl}`}
               data-testid="speak.record_stop"
               data-semantic-id="speak.record_stop"
             >
               <Icon className={styles.controlIcon} name="stop" size={18} />
               {translate("speak.recording_stop")}
-            </button>
+            </Button>
           ) : null}
         </div>
       ) : (
         <label
           htmlFor="speak-upload-input"
           className={styles.uploadControl}
-          style={uploadBoxStyle}
         >
           <span>{translate("speak.upload")}</span>
-          <span className={styles.controlButton} style={actionButtonStyle}>
+          <span className={styles.uploadChoose}>
             <Icon className={styles.controlIcon} name="upload" size={18} />
             {translate("speak.upload_choose")}
           </span>
@@ -670,30 +588,14 @@ export const RecorderPanel = ({
         </label>
       )}
       {inputMode === "upload" ? (
-        <p
-          style={{
-            margin: 0,
-            color: "#33514b",
-            lineHeight: 1.55,
-          }}
-        >
+        <p className={styles.body}>
           {translate("speak.upload_help")}
         </p>
       ) : null}
       <p
         aria-live="polite"
-        style={{
-          margin: 0,
-          color:
-            visibleStatusTone === "success"
-              ? "#166534"
-              : visibleStatusTone === "warning"
-                ? "#9a6700"
-                : visibleStatusTone === "error"
-                  ? "#b42318"
-                  : "#33514b",
-          lineHeight: 1.55,
-        }}
+        className={styles.status}
+        data-tone={visibleStatusTone}
         data-testid="speak.recording_status"
         data-semantic-id="speak.recording_status"
       >
@@ -715,52 +617,31 @@ export const RecorderPanel = ({
       ) : null}
       {showReadyCheckpoint ? (
         <div
-          style={{
-            display: "grid",
-            gap: "0.35rem",
-            padding: "0.75rem",
-            border: "1px solid rgba(15, 118, 110, 0.16)",
-            borderRadius: "8px",
-            backgroundColor: "rgba(248, 251, 250, 0.96)",
-          }}
+          className={styles.readyCheckpoint}
           data-testid="speak.recording_ready_checkpoint"
           data-semantic-id="speak.recording_ready_checkpoint"
         >
-          <strong
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "0.4rem",
-              color: "#10201c",
-            }}
-          >
+          <strong className={styles.readyTitle}>
             <Icon name="check" size={17} />
             {translate("speak.recording_ready_checkpoint_title")}
           </strong>
-          <p
-            style={{
-              margin: 0,
-              color: "#33514b",
-              lineHeight: 1.5,
-            }}
-          >
+          <p className={styles.body}>
             {translate("speak.recording_ready_checkpoint_body")}
           </p>
         </div>
       ) : null}
       {canRemove ? (
-        <button
+        <Button
           type="button"
           onClick={onRemove}
-          style={actionButtonStyle}
           {...{
             "data-testid": "speak.remove_recording",
             "data-semantic-id": "speak.remove_recording",
           }}
         >
           {translate("speak.remove_recording")}
-        </button>
+        </Button>
       ) : null}
-    </section>
+    </Card>
   );
 };

@@ -1,0 +1,7 @@
+.panel { display: grid; justify-items: start; gap: var(--space-3); padding: var(--space-6); }
+.panel > h2, .panel > p { margin: 0; }
+.panel fieldset { display: grid; justify-items: start; gap: var(--space-3); width: 100%; min-width: 0; }
+.panel label { display: grid; gap: 6px; max-width: 100%; color: var(--color-text); font-weight: var(--weight-semibold); }
+.panel label:has(input[type="checkbox"]) { display: flex; align-items: center; }
+.panel select, .panel input[type="number"] { min-height: var(--control-height); max-width: 100%; padding: 8px 12px; border: 1px solid var(--color-border-control); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-text); }
+.panel input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--color-brand); }

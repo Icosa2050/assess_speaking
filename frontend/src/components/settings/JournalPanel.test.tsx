@@ -7,6 +7,7 @@ import { createRehearsal } from "@/lib/rehearsal/session";
 import { listArchivedRehearsals } from "@/lib/rehearsal/storage";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { JournalRecoveryNotice } from "@/components/shell/JournalRecoveryNotice";
+import controlStyles from "@/components/ui/controls.module.css";
 import { JournalPanel } from "./JournalPanel";
 
 vi.mock("@/lib/rehearsal/maintenance", async importOriginal => ({
@@ -115,7 +116,10 @@ describe("journal recovery visibility", () => {
       return {id: staged.transaction.id, attempts: 0, skipped_attempts: [], skipped_rehearsals: [], missing: [], browser: {sessions: [], recordings: []}};
     });
     fireEvent.change(input, {target: {files: [new File(["zip"], "backup.zip")]}});
-    await waitFor(() => expect(screen.getByRole("button", {name: t("journal.confirm_restore")})).toBeEnabled());
+    const confirmRestore = await screen.findByRole("button", {name: t("journal.confirm_restore")});
+    await waitFor(() => expect(confirmRestore).toBeEnabled());
+    expect(confirmRestore).toHaveClass(controlStyles.primary);
+    expect(screen.getByRole("button", {name: t("journal.cancel")})).toHaveClass(controlStyles.secondary);
     expect(screen.queryByRole("button", {name: t("journal.recover")})).not.toBeInTheDocument();
     expect(screen.queryByRole("button", {name: t("journal.rollback")})).not.toBeInTheDocument();
     expect(input).toBeDisabled();
@@ -205,10 +209,16 @@ describe("journal recovery visibility", () => {
     });
     archived.mockResolvedValue([{...rehearsal, archivedAt: "2026-10-09T00:00:00Z"}]);
     renderWithProviders(<JournalPanel locale="en" />);
-    expect(await screen.findByText(t("journal.archived_rehearsals"))).toBeVisible();
+    expect(await screen.findByRole("heading", {level: 3, name: t("journal.archived_rehearsals")})).toBeVisible();
     expect(screen.getByText(/Archived fixture/)).toBeVisible();
     expect(screen.getByRole("button", {name: t("journal.undo")})).toBeVisible();
     expect(archived).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps archived attempts in the heading outline", async () => {
+    status.mockResolvedValue({...clean, archived: ["archived-attempt"]});
+    renderWithProviders(<JournalPanel locale="en" />);
+    expect(await screen.findByRole("heading", {level: 3, name: t("journal.archived_attempts")})).toBeVisible();
   });
 
   it("keeps archived rehearsals visible when backend status cannot be loaded", async () => {

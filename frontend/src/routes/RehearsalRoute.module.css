@@ -4,7 +4,6 @@
 .page button, .page input, .page select { font: inherit; border: 1px solid #73988f; border-radius: 8px; padding: .7rem 1rem; min-height: 44px; }
 .page button { background: #0f766e; color: white; cursor: pointer; }
 .page button:disabled { opacity: .55; cursor: default; }
-.page button:focus-visible, .page a:focus-visible { outline: 3px solid #d99020; outline-offset: 3px; }
 .page label { display: grid; gap: .4rem; }
 .card { display: grid; gap: .8rem; padding: 1.4rem; border: 1px solid #cbded7; border-radius: 12px; background: #fff; }
 .eyebrow { text-transform: uppercase; letter-spacing: .09em; color: #33514b; font-weight: 700; font-size: .8rem; }

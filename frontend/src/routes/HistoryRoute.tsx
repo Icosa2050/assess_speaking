@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { HistoryDetailPanel } from "@/components/history/HistoryDetailPanel";
 import historyStyles from "./HistoryRoute.module.css";
 import { HistoryList } from "@/components/history/HistoryList";
+import { Button } from "@/components/ui/Button";
 import { PracticeProgress } from "@/components/history/PracticeProgress";
 import { measurement, retryDraft } from "@/lib/history/practiceProgress";
 import layoutStyles from "@/components/ui/layout.module.css";
@@ -37,7 +38,7 @@ const selectStyle = {
   minHeight: "44px",
   padding: "0.75rem 0.875rem",
   borderRadius: "8px",
-  border: "1px solid rgba(18, 61, 55, 0.16)",
+  border: "1px solid var(--color-border-control)",
   backgroundColor: "#fff",
   color: "#10201c",
   font: "inherit",
@@ -466,14 +467,14 @@ export const HistoryRoute = () => {
           {selectedSessionId && <div>
             {archiveConfirm && <p>{translate("journal.archive_confirm")}</p>}
             {archiveError && <p role="alert">{archiveError}</p>}
-            <button disabled={archiveBusy} onClick={() => {
+            <Button disabled={archiveBusy} loading={archiveBusy} loadingLabel={translate("journal.archive_loading")} onClick={() => {
               if (!archiveConfirm) { setArchiveConfirm(true); return; }
               setArchiveBusy(true); setArchiveError("");
               void withJournalLock(() => journalRequest(`attempts/${encodeURIComponent(selectedSessionId)}/archive`, {}), true).then(async () => {
                 setArchiveConfirm(false); await historyQuery.refetch();
               }).catch(cause => setArchiveError(cause instanceof Error ? cause.message : String(cause))).finally(() => setArchiveBusy(false));
-            }}>{translate(archiveConfirm ? "journal.archive_confirm" : "journal.archive_attempt")}</button>
-            {archiveConfirm && <button disabled={archiveBusy} onClick={() => setArchiveConfirm(false)}>{translate("journal.cancel")}</button>}
+            }}>{translate(archiveConfirm ? "journal.archive_confirm" : "journal.archive_attempt")}</Button>
+            {archiveConfirm && <Button variant="quiet" disabled={archiveBusy} onClick={() => setArchiveConfirm(false)}>{translate("journal.cancel")}</Button>}
           </div>}
           <HistoryDetailPanel
             locale={locale}

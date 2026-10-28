@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAppStore } from "@/lib/state/appStore";
 import { microphoneConstraints, microphoneErrorStatus, type MicrophoneStatus } from "@/lib/setup/microphone";
+import { Button } from "@/components/ui/Button";
+import { Select } from "@/components/ui/Field";
 import { preferredRecordingMimeType } from "@/lib/setup/audioCapture";
 import styles from "./SetupReadinessPanel.module.css";
 
@@ -176,33 +178,32 @@ export const MicrophoneTestPanel = ({ test, translate }: {
         </p>
       </div>
       <div className={styles.microphoneControls}>
-        <label htmlFor="microphone-device">{translate("runtime_setup.microphone_device")}</label>
-        <select id="microphone-device" data-testid="microphone-device" value={test.deviceId} disabled={active}
+        <Select label={translate("runtime_setup.microphone_device")} id="microphone-device" data-testid="microphone-device" value={test.deviceId} disabled={active}
           onChange={event => test.selectDevice(event.target.value)}>
           <option value="">{translate("runtime_setup.microphone_default_device")}</option>
           {test.devices.filter(device => device.deviceId).map((device, index) => (
             <option key={device.deviceId} value={device.deviceId}>{device.label || `${translate("runtime_setup.microphone_device")} ${index + 1}`}</option>
           ))}
-        </select>
+        </Select>
         <label><input type="checkbox" data-testid="microphone-processing" checked={test.voiceProcessing} disabled={active}
           onChange={event => test.changeProcessing(event.target.checked)} /> {translate("runtime_setup.microphone_processing")}</label>
         <label htmlFor="microphone-input-level">{translate("runtime_setup.microphone_test_level")}</label>
         <meter id="microphone-input-level" min={0} max={100} value={test.level}
-          style={{ width: "100%", height: "1.5rem", accentColor: test.peak >= 0.98 ? "#b42318" : "#0f766e" }} />
+          style={{ width: "100%", height: "1.5rem", accentColor: test.peak >= 0.98 ? "var(--color-recording)" : "var(--color-brand)" }} />
         <p data-testid="microphone-level-guidance">{translate(test.peak >= 0.98 ? "runtime_setup.microphone_test_clipping" : "runtime_setup.microphone_adjustment")}</p>
-        <button className={styles.rowAction} type="button" data-testid="microphone-test-start" onClick={active ? test.stop : test.start}>
+        <Button variant={active ? "secondary" : "primary"} type="button" data-testid="microphone-test-start" onClick={active ? test.stop : test.start}>
           {translate(active ? "runtime_setup.microphone_test_stop" : "runtime_setup.setup_guide_check_microphone")}
-        </button>
+        </Button>
         {test.preview ? <div>
           <p>{translate("runtime_setup.microphone_listen")}</p>
           <audio data-testid="microphone-test-playback" controls style={{ width: "100%", maxWidth: "100%" }} src={test.preview} onEnded={test.markListened} />
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.75rem" }}>
-            <button className={styles.rowAction} type="button" data-testid="microphone-test-confirm" disabled={active || test.status !== "needs_review" || !test.listened} onClick={test.confirm}>
+            <Button variant="primary" type="button" data-testid="microphone-test-confirm" disabled={active || test.status !== "needs_review" || !test.listened} onClick={test.confirm}>
               {translate("runtime_setup.microphone_confirm")}
-            </button>
-            <button className={styles.rowAction} type="button" data-testid="microphone-test-reject" disabled={active} onClick={test.reject}>
+            </Button>
+            <Button type="button" data-testid="microphone-test-reject" disabled={active} onClick={test.reject}>
               {translate("runtime_setup.microphone_reject")}
-            </button>
+            </Button>
           </div>
         </div> : null}
       </div>

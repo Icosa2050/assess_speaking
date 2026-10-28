@@ -96,6 +96,11 @@
       "e2e/visualRefreshSmoke.spec.ts",
       "",
       "renders primary visual-refresh artifacts without serif typography"
+    ],
+    [
+      "e2e/visualRefreshSmoke.spec.ts",
+      "",
+      "light routes and opt-in dark journal card stay usable at desktop sizes"
     ]
   ],
   "connections": [

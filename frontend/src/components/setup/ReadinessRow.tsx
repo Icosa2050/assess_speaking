@@ -3,6 +3,7 @@ import type {
   SetupReadinessRow as SetupReadinessRowModel,
   SetupReadinessStatus,
 } from "@/lib/setup/readiness";
+import { Button } from "@/components/ui/Button";
 
 import styles from "./SetupReadinessPanel.module.css";
 
@@ -47,7 +48,7 @@ export const ReadinessRow = ({
       </div>
       <p className={styles.rowDetail}>{translate(row.detailKey)}</p>
     </div>
-    <button
+    <Button
       type="button"
       className={styles.rowAction}
       disabled={row.disabled}
@@ -56,6 +57,6 @@ export const ReadinessRow = ({
       data-semantic-id={`runtime_setup.setup_guide.${row.key}.action`}
     >
       {translate(row.actionKey)}
-    </button>
+    </Button>
   </li>
 );

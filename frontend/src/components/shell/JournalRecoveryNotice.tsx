@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { isOpenJournalPreview, journalRecoveryStatus } from "@/lib/rehearsal/maintenance";
 import { createTranslator } from "@/lib/i18n";
 import type { UiLocale } from "@/lib/state/sessionDraft";
+import { StatusBanner } from "@/components/ui/StatusBanner";
 
 export function JournalRecoveryNotice({ locale }: { locale: UiLocale }) {
   const { pathname } = useLocation();
@@ -16,13 +17,14 @@ export function JournalRecoveryNotice({ locale }: { locale: UiLocale }) {
   }, [pathname]);
   if (!pending) return null;
   const t = createTranslator(locale);
-  if (damaged) return <aside role="status" data-testid="journal-recovery-notice">
-    <p>{t("journal.damaged_guidance")}</p>
+  if (damaged) return <div data-testid="journal-recovery-notice">
+    <StatusBanner title={t("journal.damaged_guidance")} tone="warning">
     <ul>
       <li><Link to="/settings#journal-restore">{t("journal.restore_backup")}</Link></li>
       <li><Link to="/settings#journal-diagnostics">{t("journal.diagnostics")}</Link></li>
       <li><Link to="/settings#journal-fresh">{t("journal.fresh")}</Link></li>
     </ul>
-  </aside>;
-  return <aside role="status" data-testid="journal-recovery-notice"><p>{t("journal.recovery_needed")} <Link to="/settings">{t("journal.check_recovery")}</Link></p></aside>;
+    </StatusBanner>
+  </div>;
+  return <div data-testid="journal-recovery-notice"><StatusBanner title={t("journal.recovery_needed")} action={<Link to="/settings">{t("journal.check_recovery")}</Link>} /></div>;
 }

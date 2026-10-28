@@ -5,9 +5,9 @@
 }
 
 .container {
-  max-width: 1320px;
+  max-width: var(--content-max);
   margin: 0 auto;
-  padding: 24px;
+  padding: var(--content-gutter);
 }
 
 .header {
@@ -37,15 +37,10 @@
   color: var(--color-ink-muted);
 }
 
-.navLink:focus-visible {
-  outline: 3px solid var(--color-focus-ring);
-  outline-offset: 3px;
-}
-
 .layout {
   display: grid;
-  gap: 24px;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: var(--content-gutter);
+  grid-template-columns: minmax(208px, var(--sidebar-width)) minmax(0, 1fr);
   align-items: start;
 }
 
@@ -53,9 +48,9 @@
   display: flex;
   flex-direction: column;
   padding: 1rem;
-  border: 1px solid var(--color-border-soft);
+  border: 1px solid var(--color-border-decorative);
   border-radius: var(--radius-md);
-  background-color: rgba(255, 255, 255, 0.82);
+  background-color: var(--color-surface);
   box-shadow: var(--shadow-card);
 }
 
@@ -92,33 +87,31 @@
   display: grid;
   gap: 0.5rem;
   padding-top: 0.9rem;
-  border-top: 1px solid var(--color-border-soft);
+  border-top: 1px solid var(--color-border-decorative);
 }
 
 .navLink {
   display: block;
   padding: 0.75rem 0.85rem;
-  border: 1px solid rgba(18, 61, 55, 0.08);
+  border: 1px solid var(--color-border-control);
   border-radius: var(--radius-md);
-  background-color: rgba(255, 255, 255, 0.9);
+  background-color: var(--color-surface);
   color: var(--color-ink);
   font-weight: 600;
   text-decoration: none;
   transition:
     background-color var(--motion-fast) var(--ease-standard),
-    border-color var(--motion-fast) var(--ease-standard),
-    transform var(--motion-fast) var(--ease-standard);
+    border-color var(--motion-fast) var(--ease-standard);
 }
 
 .navLink:hover {
-  border-color: rgba(15, 118, 110, 0.22);
-  background-color: rgba(239, 248, 245, 0.98);
-  transform: translateY(-1px);
+  border-color: var(--color-selected-border);
+  background-color: var(--color-surface-subtle);
 }
 
 .navLinkActive {
-  border-color: rgba(39, 106, 115, 0.28);
-  background-color: #d7ebe5;
+  border-color: var(--color-selected-border);
+  background-color: var(--color-selected);
 }
 
 .main {

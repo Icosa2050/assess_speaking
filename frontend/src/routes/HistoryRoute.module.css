@@ -8,6 +8,6 @@
 .browser { display: grid; grid-template-columns: minmax(270px, .8fr) minmax(0, 1.4fr); gap: 1rem; align-items: start; min-width: 0; }
 .detail { min-width: 0; scroll-margin-top: 1rem; overflow-wrap: anywhere; }
 .detail > section { min-width: 0; }
-.detail:focus-visible { outline: 3px solid #31816e; outline-offset: 3px; }
+.detail:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 3px; }
 @media (max-width: 1000px) { .browser { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 480px) { .filters { gap: .65rem; } .filters label { font-size: .8125rem; } }

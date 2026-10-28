@@ -159,26 +159,7 @@
 }
 
 .rowAction {
-  min-height: 42px;
-  padding: 0.65rem 0.85rem;
-  border: 1px solid rgba(39, 106, 115, 0.24);
-  border-radius: var(--radius-md);
-  background-color: #d7ebe5;
-  color: var(--color-ink);
-  cursor: pointer;
-  font: inherit;
-  font-weight: 700;
   white-space: nowrap;
-}
-
-.rowAction:disabled {
-  cursor: not-allowed;
-  opacity: 0.58;
-}
-
-.rowAction:focus-visible {
-  outline: 3px solid var(--color-focus-ring);
-  outline-offset: 3px;
 }
 
 @media (min-width: 860px) {
@@ -214,17 +195,8 @@
   min-width: 0;
 }
 
-.microphoneControls .rowAction {
-  grid-column: 1 / -1;
-}
-
 .microphoneControls select {
   width: 100%;
   min-width: 0;
   max-width: 100%;
-}
-
-.microphoneControls .rowAction {
-  max-width: 100%;
-  white-space: normal;
 }

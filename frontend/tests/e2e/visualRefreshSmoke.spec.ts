@@ -339,6 +339,20 @@ const expectNoPageHorizontalOverflow = async (page: Page) => {
   });
 };
 
+const contrastRatio = (foreground: string, background: string) => {
+  const luminance = (color: string) => {
+    const channels = color.match(/[\d.]+/g)?.slice(0, 3).map(Number);
+    if (!channels || channels.length !== 3) throw new Error(`Expected an RGB color, got ${color}`);
+    const [red, green, blue] = channels.map(value => {
+      const normalized = value / 255;
+      return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  };
+  const [lighter, darker] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+  return (lighter + 0.05) / (darker + 0.05);
+};
+
 const captureScreenshot = async (page: Page, filename: string) => {
   if (!screenshotDir) {
     return;
@@ -487,4 +501,122 @@ test("renders primary visual-refresh artifacts without serif typography", async 
   await expect(page.getByTestId("history-detail-full-report")).toHaveAttribute("open", "");
   await expect(page.getByTestId("review-summary")).toBeVisible();
   await expectMobileRouteAudit(page, "visual-refresh-smoke-history-expanded-mobile.png");
+});
+
+test("light routes and opt-in dark journal card stay usable at desktop sizes", async ({ page }) => {
+  test.setTimeout(120_000);
+  await installVisualBackend(page);
+  await page.goto("/");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(page.locator("body")).toHaveCSS("background-color", "rgb(247, 249, 247)");
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.getByTestId("home.start_new").click();
+  await page.getByTestId("setup.speaker_id").fill(speakerId);
+  await page.getByTestId("setup.recommended_start").click();
+  await page.getByTestId("setup.continue").click();
+  await expect(page).toHaveURL(/\/speak$/);
+
+  for (const viewport of [{ width: 1360, height: 900 }, { width: 1100, height: 760 }]) {
+    await page.setViewportSize(viewport);
+    await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
+    const suffix = `light-${viewport.width}x${viewport.height}.png`;
+
+    await page.getByRole("link", { name: "Practice Home" }).click();
+    const homeLink = page.getByRole("link", { name: "Practice Home" });
+    await homeLink.focus();
+    await expect(homeLink).toHaveCSS("outline-width", "3px");
+    await page.keyboard.press("Tab");
+    expect(await page.evaluate(() => document.activeElement?.tagName)).toBe("A");
+    await expectNoPageHorizontalOverflow(page);
+    await captureScreenshot(page, `migration-shell-${suffix}`);
+
+    await page.getByRole("link", { name: "Session Setup" }).click();
+    const speaker = page.getByTestId("setup.speaker_id");
+    await speaker.focus();
+    await expect(speaker).toHaveCSS("outline-width", "3px");
+    await expectNoPageHorizontalOverflow(page);
+    await captureScreenshot(page, `migration-form-${suffix}`);
+
+    await page.getByRole("link", { name: "Speak", exact: true }).click();
+    const recordMode = page.getByTestId("speak.input_mode_record");
+    await expect(recordMode).toHaveAttribute("aria-pressed", "true");
+    await recordMode.focus();
+    await expect(recordMode).toHaveCSS("outline-width", "3px");
+    await recordMode.hover();
+    await expect(recordMode).toHaveCSS("background-color", "rgb(223, 241, 236)");
+    await expect(page.getByTestId("speak.record_start")).toHaveCSS("min-height", "48px");
+    await expectNoPageHorizontalOverflow(page);
+    await captureScreenshot(page, `migration-speak-${suffix}`);
+
+    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    const journal = page.getByTestId("journal-panel");
+    await expect(journal).toBeVisible();
+    await expect(journal.getByRole("button", { name: "Create and save backup" })).toHaveCSS("min-height", "44px");
+    const restore = journal.locator("#journal-restore");
+    await restore.focus();
+    await expect(restore).toHaveCSS("outline-width", "3px");
+    await expectNoPageHorizontalOverflow(page);
+    await captureScreenshot(page, `migration-journal-${suffix}`);
+
+    await page.getByRole("link", { name: "History", exact: true }).click();
+    const archive = page.getByRole("button", { name: "Archive attempt" });
+    await expect(archive).toBeVisible();
+    await archive.focus();
+    await expect(archive).toHaveCSS("outline-width", "3px");
+    await captureScreenshot(page, `migration-archive-${suffix}`);
+    await expectNoPageHorizontalOverflow(page);
+
+    // Dark tokens are opt-in for migrated surfaces; legacy fixed-light panels
+    // are outside this preview until the remaining routes migrate.
+    await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
+    await page.getByRole("link", { name: "Session Setup" }).click();
+    const darkSpeaker = page.getByTestId("setup.speaker_id");
+    await expect(darkSpeaker).toHaveCSS("background-color", "rgb(28, 41, 37)");
+    await expect(darkSpeaker).toHaveCSS("color", "rgb(242, 248, 244)");
+    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    const darkJournal = page.getByTestId("journal-panel");
+    const panelBackground = await darkJournal.evaluate(element => getComputedStyle(element).backgroundColor);
+    const headingColor = await darkJournal.locator("h2").evaluate(element => getComputedStyle(element).color);
+    expect(panelBackground).toBe("rgb(28, 41, 37)");
+    expect(contrastRatio(headingColor, panelBackground)).toBeGreaterThanOrEqual(4.5);
+    const backup = darkJournal.getByRole("button", { name: "Create and save backup" });
+    await backup.focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await expect(backup).toBeFocused();
+    await expect(backup).toHaveCSS("outline-width", "3px");
+    const focusColor = await backup.evaluate(element => getComputedStyle(element).outlineColor);
+    expect(focusColor).toBe("rgb(206, 181, 255)");
+    expect(contrastRatio(focusColor, panelBackground)).toBeGreaterThanOrEqual(3);
+    await captureScreenshot(page, `migration-journal-dark-${viewport.width}x${viewport.height}.png`);
+    await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
+  }
+
+  await page.route("**/v1/journal/status", route => fulfillJson(route, {
+    transaction: null, archived: [], completed: [], recovery_error: "Recovery files are unavailable.",
+  }));
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Start a fresh journal" }).click();
+  const danger = page.getByRole("button", { name: "Confirm: start fresh" });
+  await danger.hover();
+  await page.mouse.down();
+  await expect(danger).toHaveCSS("background-color", "rgb(155, 37, 48)");
+  const dangerColors = await danger.evaluate(element => ({
+    foreground: getComputedStyle(element).color,
+    background: getComputedStyle(element).backgroundColor,
+  }));
+  expect(contrastRatio(dangerColors.foreground, dangerColors.background)).toBeGreaterThanOrEqual(4.5);
+  await page.mouse.move(0, 0);
+  await page.mouse.up();
+  await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
+  await danger.hover();
+  await page.mouse.down();
+  await expect(danger).toHaveCSS("background-color", "rgb(255, 180, 180)");
+  const darkDangerColors = await danger.evaluate(element => ({
+    foreground: getComputedStyle(element).color,
+    background: getComputedStyle(element).backgroundColor,
+  }));
+  expect(contrastRatio(darkDangerColors.foreground, darkDangerColors.background)).toBeGreaterThanOrEqual(4.5);
+  await page.mouse.move(0, 0);
+  await page.mouse.up();
 });

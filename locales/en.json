@@ -1069,6 +1069,7 @@
     "undo": "Undo",
     "rehearsal_archive_note": "Rehearsal archiving retains audio. Its analysed attempts remain in History.",
     "archive_attempt": "Archive attempt",
+    "archive_loading": "Archiving attempt…",
     "archive_confirm": "Confirm archive; audio and reports are retained. Undo is available in Settings.",
     "remove": "Permanently remove",
     "removal_preview": "Remove {files} files? {retained} shared or linked files will remain.",
