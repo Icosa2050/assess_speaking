@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -7,6 +7,10 @@ import { RuntimeConnectionForm } from "@/components/setup/RuntimeConnectionForm"
 import { ConnectionStatusPanel } from "@/components/setup/ConnectionStatusPanel";
 import { MicrophoneTestPanel, useMicrophoneTest } from "@/components/setup/MicrophoneTestPanel";
 import { SetupReadinessPanel } from "@/components/setup/SetupReadinessPanel";
+import { FirstRunPreview } from "@/components/setup/FirstRunPreview";
+import { Button } from "@/components/ui/Button";
+import { Card, Disclosure } from "@/components/ui/Card";
+import { StatusBanner } from "@/components/ui/StatusBanner";
 import { apiClient, ApiClientError } from "@/lib/api/client";
 import type {
   ConnectionSecretState,
@@ -18,10 +22,14 @@ import { createTranslator, semanticAttributes, SEMANTIC_IDS } from "@/lib/i18n";
 import { queryKeys } from "@/lib/query/queryClient";
 import {
   buildSetupReadinessRows,
+  canContinueWithCheck,
   resolveSetupReadinessAction,
   type SetupReadinessKey,
 } from "@/lib/setup/readiness";
+import { useCloudSpeechConnection } from "@/lib/setup/cloudSpeech";
+import { markConnectionTest, useRecentConnectionTest } from "@/lib/setup/connectionVerification";
 import { useAppStore } from "@/lib/state/appStore";
+import styles from "./SetupRoute.module.css";
 
 const cardStyle = {
   display: "grid",
@@ -153,10 +161,12 @@ const formStateColor = (tone: "success" | "warning" | "error"): string => {
 
 export const SetupRoute = () => {
   const navigate = useNavigate();
-  const { hash } = useLocation();
+  const location = useLocation();
+  const { hash } = location;
+  const returningToSpeak = (location.state as { returnTo?: string } | null)?.returnTo === "/speak";
   useEffect(() => {
-    if (hash === "#runtime-setup-microphone") {
-      document.getElementById("runtime-setup-microphone")?.scrollIntoView?.({ block: "start" });
+    if (hash === "#runtime-setup-microphone" || hash === "#runtime-setup-cloud") {
+      document.getElementById(hash.slice(1))?.scrollIntoView?.({ block: "start" });
     }
   }, [hash]);
   const queryClient = useQueryClient();
@@ -178,6 +188,9 @@ export const SetupRoute = () => {
   >("idle");
   const [formStatusMessage, setFormStatusMessage] = useState("");
   const [isBusy, setIsBusy] = useState(false);
+  const testedDraftRef = useRef<string | null>(null);
+  const [cloudOptionsOpen, setCloudOptionsOpen] = useState(hash === "#runtime-setup-cloud");
+  const [cloudPanelOpened, setCloudPanelOpened] = useState(hash === "#runtime-setup-cloud");
 
   const runtimeQuery = useQuery({
     queryKey: queryKeys.runtime,
@@ -199,22 +212,24 @@ export const SetupRoute = () => {
     queryFn: () => apiClient.getWhisperModelStatus(selectedWhisperModel),
     enabled: Boolean(selectedWhisperModel) && runtimeSettingsQuery.data?.asr_provider !== "groq",
   });
+  const savedWhisperModel = String(runtimeSettingsQuery.data?.whisper_model || "").trim();
 
   useEffect(() => {
     setCurrentPage("runtime_setup");
   }, [setCurrentPage]);
 
   useEffect(() => {
-    const nextModel = String(runtimeSettingsQuery.data?.whisper_model || "").trim();
-    if (nextModel) {
-      setSelectedWhisperModel(nextModel);
+    if (savedWhisperModel) {
+      setSelectedWhisperModel(savedWhisperModel);
     }
-  }, [runtimeSettingsQuery.data?.whisper_model]);
+  }, [savedWhisperModel]);
 
   const diagnosticsItems = diagnosticsQuery.data?.items ?? [];
   const whisperItem = findDiagnostic(diagnosticsItems, "whisper");
   const runtime = runtimeQuery.data;
   const runtimeSettings = runtimeSettingsQuery.data;
+  const cloudSpeech = useCloudSpeechConnection(runtimeSettings);
+  const connectionTestPassed = useRecentConnectionTest(runtime);
 
   const activeConnection = useMemo(() => {
     if (!runtimeSettings) {
@@ -247,16 +262,25 @@ export const SetupRoute = () => {
     diagnostics: diagnosticsItems,
     microphoneStatus: microphoneTest.status,
     microphoneSetupPassed: microphoneTest.passed,
-    diagnosticsError: diagnosticsQuery.isError,
+    diagnosticsError: diagnosticsQuery.isError && !diagnosticsQuery.data,
     diagnosticsPending: diagnosticsQuery.isPending,
     runtime,
-    runtimeError: runtimeQuery.isError,
+    runtimeError: runtimeQuery.isError && !runtimeQuery.data,
     runtimePending: runtimeQuery.isPending,
-    whisperCached: runtimeSettingsQuery.data?.asr_provider === "groq" || Boolean(whisperStatusQuery.data?.cached),
-    whisperPending: runtimeSettingsQuery.data?.asr_provider !== "groq" && whisperStatusQuery.isPending,
+    connectionTestPassed,
+    cloudSpeechSelected: cloudSpeech.selected,
+    cloudSpeechConnected: cloudSpeech.connected,
+    cloudSpeechPending: cloudSpeech.pending || runtimeSettingsQuery.isPending,
+    cloudSpeechError: cloudSpeech.error || (runtimeSettingsQuery.isError && !runtimeSettingsQuery.data),
   });
 
   const cloudAsr = runtimeSettings?.asr_provider === "groq";
+  const cloudDisclosureOpen = cloudAsr || hash === "#runtime-setup-cloud" || cloudOptionsOpen;
+  useEffect(() => {
+    if (cloudDisclosureOpen) setCloudPanelOpened(true);
+  }, [cloudDisclosureOpen]);
+  const recommendedLocalPath = !cloudAsr && (!runtime?.configured ||
+    ["ollama", "ollama_local"].includes(activeConnection?.provider_choice ?? runtime.provider));
   const cloudCopy = {
     en: ["Groq cloud transcription selected", "Configure cloud transcription"],
     it: ["Trascrizione cloud Groq selezionata", "Configura trascrizione cloud"],
@@ -264,10 +288,18 @@ export const SetupRoute = () => {
     es: ["Transcripción Groq en la nube seleccionada", "Configurar transcripción en la nube"],
     fr: ["Transcription cloud Groq sélectionnée", "Configurer la transcription cloud"],
   }[locale];
-  const readinessRows = cloudAsr ? setupReadinessRows.map(row => row.key === "speech_recognition"
-    ? {...row, detailKey: "cloud.speech", actionKey: "cloud.configure"} : row) : setupReadinessRows;
+  const truthfulRows = setupReadinessRows.map((row) => row.key === "ai_tutor" && !runtime?.configured && row.status === "ready"
+    ? { ...row, status: "setup" as const } : row);
+  const readinessRows = cloudAsr ? truthfulRows.map(row => row.key === "speech_recognition"
+    ? {...row, detailKey: row.status === "ready" ? "cloud.speech" : "first_run.cloud_speech_missing", actionKey: "cloud.configure"} : row) : truthfulRows;
   const readinessTranslate = (key: string, vars?: Record<string, string | number>) =>
     key === "cloud.speech" ? cloudCopy[0] : key === "cloud.configure" ? cloudCopy[1] : translate(key, vars);
+  const requiredRows = readinessRows.filter((row) => row.key !== "sample_check");
+  const setupReady = Boolean(runtime?.configured) &&
+    requiredRows.every((row) => row.status === "ready");
+  const setupCanContinue = Boolean(runtime?.configured) &&
+    requiredRows.filter((row) => row.key !== "microphone").every((row) => canContinueWithCheck(row.status));
+  const returnCheck = requiredRows.find((row) => row.key !== "microphone" && !canContinueWithCheck(row.status));
 
   const initialDraft = buildDraftFromConnection(activeConnection, translate);
   const formResetToken = JSON.stringify({
@@ -299,7 +331,10 @@ export const SetupRoute = () => {
           path: status.cached_path || status.model,
         }),
       );
-      await queryClient.invalidateQueries({ queryKey: ["runtime", "whisper", selectedWhisperModel] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["runtime", "whisper", selectedWhisperModel] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.diagnostics }),
+      ]);
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
       setWhisperMessage(translate("runtime_setup.whisper_download_failed", { detail }));
@@ -382,7 +417,15 @@ export const SetupRoute = () => {
     setFormStatusMessage(translate("runtime_setup.testing_connection"));
     try {
       const response = await apiClient.postRuntimeSettingsTestConnection({ connection });
+      testedDraftRef.current = JSON.stringify({ ...connection, connection_id: "" });
       setDetectedModels(response.discovered_models);
+      if (runtime?.configured && activeConnection &&
+        connection.connection_id === activeConnection.connection_id &&
+        connection.provider_choice === activeConnection.provider_choice &&
+        connection.model === activeConnection.model &&
+        connection.base_url === activeConnection.base_url) {
+        markConnectionTest(queryClient, runtime, true);
+      }
       setFormStatus("test-succeeded");
       setFormStatusMessage(
         translate("runtime_setup.test_message", {
@@ -393,6 +436,7 @@ export const SetupRoute = () => {
         }),
       );
     } catch (caught) {
+      testedDraftRef.current = null;
       const detail =
         caught instanceof ApiClientError && caught.code === "validation_error"
           ? caught.detail
@@ -400,6 +444,9 @@ export const SetupRoute = () => {
             ? caught.message
             : String(caught);
       setFormStatus("test-failed");
+      if (runtime?.configured && activeConnection && connection.connection_id === activeConnection.connection_id) {
+        markConnectionTest(queryClient, runtime, false);
+      }
       setFormStatusMessage(translate("runtime_setup.test_error", { detail }));
     } finally {
       setIsBusy(false);
@@ -429,6 +476,19 @@ export const SetupRoute = () => {
       const saved = response.connections.find(c => c.connection_id === response.active_connection_id);
       setFormStatusMessage(translate(saved?.provider_metadata.persistent === false ? "runtime_setup.save_success_session_only" : "runtime_setup.save_success"));
       await handleInvalidateRuntime();
+      const refreshedRuntime = queryClient.getQueryData<typeof runtime>(queryKeys.runtime);
+      const savedBaseUrl = saved?.base_url.replace(/\/+$/, "");
+      const sameRuntimeBase = refreshedRuntime?.base_url === saved?.base_url ||
+        (saved?.provider_choice === "ollama_local" && refreshedRuntime?.base_url === `${savedBaseUrl}/v1`);
+      if (!clearSavedSecret && saved && refreshedRuntime?.configured &&
+        queryClient.getQueryState(queryKeys.runtime)?.status === "success" &&
+        testedDraftRef.current === JSON.stringify({ ...connection, connection_id: "" }) &&
+        saved.provider_choice === connection.provider_choice && saved.model === connection.model &&
+        saved.base_url === connection.base_url && refreshedRuntime.model === saved.model &&
+        [saved.provider_key, saved.provider_choice].includes(refreshedRuntime.provider) && sameRuntimeBase) {
+        markConnectionTest(queryClient, refreshedRuntime, true);
+      }
+      testedDraftRef.current = null;
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
       setFormStatus("save-failed");
@@ -449,37 +509,29 @@ export const SetupRoute = () => {
       }}
       {...semanticAttributes(SEMANTIC_IDS.runtimeSetup.screen)}
     >
-      <section style={cardStyle}>
-        <h2
-          style={{
-            margin: 0,
-            fontSize: "1.75rem",
-            color: "#10201c",
-          }}
-        >
-          {translate("runtime_setup.title")}
-        </h2>
-        <p
-          style={{
-            margin: 0,
-            lineHeight: 1.6,
-            color: "#33514b",
-          }}
-        >
-          {translate("runtime_setup.body")}
+      {returningToSpeak ? <StatusBanner title={translate(setupCanContinue ? "first_run.continue_to_speak_title" : "first_run.speak_return_title")} tone={setupCanContinue ? "success" : "warning"}>
+        {returnCheck ? translate("first_run.speak_return_body", { check: translate(returnCheck.titleKey) }) : translate("first_run.speak_return_ready_body")}
+        {setupCanContinue ? <Button onClick={() => navigate("/speak")}>{translate("first_run.return_to_speak")}</Button> : null}
+      </StatusBanner> : null}
+      <Card as="section" className={styles.path} data-testid="runtime_setup.local_path">
+        <p className={styles.eyebrow}>{translate(recommendedLocalPath ? "first_run.local_path_eyebrow" : "first_run.current_path_eyebrow")}</p>
+        <h2>{translate(recommendedLocalPath ? "first_run.local_path_title" : "first_run.current_path_title")}</h2>
+        <p>{translate(recommendedLocalPath ? "first_run.local_path_body" : "first_run.current_path_body")}</p>
+        {recommendedLocalPath ? <ol>
+          <li>{translate("first_run.prerequisite_mac")}</li>
+          <li>{translate("first_run.prerequisite_download")}</li>
+          <li>{translate("first_run.prerequisite_microphone")}</li>
+        </ol> : null}
+        <div className={styles.pathActions}>
+          <Button variant="primary" onClick={() => void handleInvalidateRuntime()}>
+            {translate("first_run.check_readiness")}
+          </Button>
+          {setupCanContinue ? <Button onClick={() => navigate("/session-setup")}>{translate("first_run.choose_task")}</Button> : null}
+        </div>
+        <p role="status" className={styles.checkStatus}>
+          {translate(setupReady ? "first_run.checks_ready" : setupCanContinue ? "first_run.checks_configured" : requiredRows.some((row) => row.status === "loading") ? "first_run.checks_loading" : "first_run.checks_next")}
         </p>
-        {runtime?.configured ? (
-          <p
-            style={{
-              margin: 0,
-              color: "#166534",
-              fontWeight: 600,
-            }}
-          >
-            {translate("runtime_setup.current_connection_ready")}
-          </p>
-        ) : null}
-      </section>
+      </Card>
 
       <SetupReadinessPanel
         rows={readinessRows}
@@ -487,9 +539,19 @@ export const SetupRoute = () => {
         onAction={handleSetupReadinessAction}
       />
 
+      <FirstRunPreview locale={locale} />
+
       <MicrophoneTestPanel test={microphoneTest} translate={translate} />
 
-      <div id="runtime-setup-cloud"><CloudSettingsPanel locale={locale} connections={runtimeSettings?.connections ?? []}/></div>
+      <div id="runtime-setup-cloud">
+        <Disclosure title={translate("first_run.other_routes")} open={cloudDisclosureOpen} onToggle={(event) => {
+          setCloudOptionsOpen(event.currentTarget.open);
+          if (event.currentTarget.open) setCloudPanelOpened(true);
+        }}>
+          <p>{translate("first_run.other_routes_body")}</p>
+          {(cloudDisclosureOpen || cloudPanelOpened) ? <CloudSettingsPanel locale={locale} connections={runtimeSettings?.connections ?? []}/> : null}
+        </Disclosure>
+      </div>
 
       {!cloudAsr && <section
         id="runtime-setup-whisper"
@@ -526,6 +588,9 @@ export const SetupRoute = () => {
             ))}
           </select>
         </label>
+        {savedWhisperModel && selectedWhisperModel !== savedWhisperModel ? <p role="status" style={{ margin: 0, lineHeight: 1.55, color: "var(--color-warning)" }}>
+          {translate("first_run.save_speech_selection", { model: selectedWhisperModel })}
+        </p> : null}
         <p
           style={{
             margin: 0,
@@ -562,6 +627,11 @@ export const SetupRoute = () => {
       </section>}
 
       <div id="runtime-setup-connection">
+        {formStatus === "test-failed" ? (
+          <StatusBanner title={translate("first_run.connection_retry_title")} tone="warning">
+            {translate("first_run.connection_retry_body")}
+          </StatusBanner>
+        ) : null}
         <RuntimeConnectionForm
           onAccountConnected={(_id, notice) => { if (notice) setFormStatusMessage(notice); }}
           detectedModelMessage={detectedModelMessage}

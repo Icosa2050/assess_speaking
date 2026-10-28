@@ -15,7 +15,12 @@ import type {
 } from "@/lib/api/types";
 import { createTranslator } from "@/lib/i18n";
 import { MIN_REVIEW_SECONDS } from "@/lib/recordingPolicy";
+import { hasFirstTakeMilestone, recordFirstTakeMilestone } from "@/lib/history/firstTakeMilestone";
+import { StatusBanner } from "@/components/ui/StatusBanner";
 import { pollingIntervals, queryKeys } from "@/lib/query/queryClient";
+import { buildSetupReadinessRows, canContinueWithCheck } from "@/lib/setup/readiness";
+import { useCloudSpeechConnection } from "@/lib/setup/cloudSpeech";
+import { useRecentConnectionTest } from "@/lib/setup/connectionVerification";
 import {
   resolveSpeakRouteGuardTarget,
   selectAssessmentLifecycleState,
@@ -173,6 +178,27 @@ export const SpeakRoute = () => {
     queryKey: ["runtime", "settings"],
     queryFn: () => apiClient.getRuntimeSettings(),
   });
+  const diagnosticsQuery = useQuery({
+    queryKey: queryKeys.diagnostics,
+    queryFn: () => apiClient.getDiagnostics(),
+  });
+  const cloudSpeech = useCloudSpeechConnection(runtimeSettingsQuery.data);
+  const connectionTestPassed = useRecentConnectionTest(runtimeQuery.data);
+  const speakingChecks = buildSetupReadinessRows({
+    diagnostics: diagnosticsQuery.data?.items ?? [],
+    diagnosticsError: diagnosticsQuery.isError && !diagnosticsQuery.data,
+    diagnosticsPending: diagnosticsQuery.isPending,
+    runtime: runtimeQuery.data,
+    runtimeError: runtimeQuery.isError && !runtimeQuery.data,
+    runtimePending: runtimeQuery.isPending,
+    connectionTestPassed,
+    cloudSpeechSelected: cloudSpeech.selected,
+    cloudSpeechConnected: cloudSpeech.connected,
+    cloudSpeechPending: cloudSpeech.pending || (cloudSpeech.selected && runtimeSettingsQuery.isPending),
+    cloudSpeechError: cloudSpeech.error || (cloudSpeech.selected && runtimeSettingsQuery.isError && !runtimeSettingsQuery.data),
+  }).filter((row) => row.key === "speech_recognition" || row.key === "ai_tutor");
+  const speakingChecksPending = speakingChecks.some((row) => row.status === "loading");
+  const speakingChecksBlocked = speakingChecks.some((row) => !canContinueWithCheck(row.status));
 
   const effectiveWhisperModel =
     String(runtimeSettingsQuery.data?.whisper_model || "").trim() || DEFAULT_SCORING_WHISPER_MODEL;
@@ -187,8 +213,8 @@ export const SpeakRoute = () => {
       activeConnectionId: runtimeQuery.data?.configured
         ? preferences.activeConnectionId ||
           `${runtimeQuery.data.provider || "runtime"}:${runtimeQuery.data.model || "active"}`
-        : preferences.activeConnectionId,
-      setupComplete: Boolean(runtimeQuery.data?.configured) || preferences.setupComplete,
+        : "",
+      setupComplete: Boolean(runtimeQuery.data?.configured),
     }),
     [preferences, runtimeQuery.data],
   );
@@ -196,7 +222,7 @@ export const SpeakRoute = () => {
   const guardTarget = resolveSpeakRouteGuardTarget({
     draft,
     preferences: effectivePreferences,
-  });
+  }) ?? (speakingChecksBlocked && !speakingChecksPending ? "/runtime-setup" : null);
 
   useEffect(() => {
     setCurrentPage("speak");
@@ -205,6 +231,7 @@ export const SpeakRoute = () => {
   const [inputMode, setInputMode] = useState<RecordingInputMethod>(recording.inputMethod || "record");
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [recordedDurationSec, setRecordedDurationSec] = useState<number | null>(null);
+  const [firstTakeJustRecorded, setFirstTakeJustRecorded] = useState(false);
   const [previewUrl, setPreviewUrl] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
@@ -222,6 +249,7 @@ export const SpeakRoute = () => {
     setPreviewUrl("");
     setAttachedFile(null);
     setRecordedDurationSec(null);
+    setFirstTakeJustRecorded(false);
     clearRecording({ preserveInputs: true });
   };
 
@@ -258,6 +286,10 @@ export const SpeakRoute = () => {
     setPreviewUrl(nextPreviewUrl);
     setAttachedFile(file);
     setRecordedDurationSec(durationSec ?? null);
+    if (inputMode === "record" && durationSec !== undefined && !hasFirstTakeMilestone()) {
+      recordFirstTakeMilestone();
+      setFirstTakeJustRecorded(hasFirstTakeMilestone());
+    }
     updateRecording({
       status: "ready",
       assessmentState: "idle",
@@ -323,8 +355,11 @@ export const SpeakRoute = () => {
     }
   }, [lifecycleState, navigate, review.reportId]);
 
+  if (runtimeQuery.isPending || runtimeSettingsQuery.isPending || speakingChecksPending) {
+    return <p role="status">{translate("journey.loading")}</p>;
+  }
   if (guardTarget) {
-    return <Navigate replace to={guardTarget} />;
+    return <Navigate replace to={guardTarget} state={guardTarget === "/runtime-setup" ? { returnTo: "/speak" } : undefined} />;
   }
 
   const runtime = runtimeQuery.data as RuntimeResponse | undefined;
@@ -559,6 +594,14 @@ export const SpeakRoute = () => {
       </section>
 
       <SpeakStatusRail phase={confidencePhase} translate={translate} />
+
+      {firstTakeJustRecorded && recordedDurationSec !== null && inputMode === "record" ? (
+        <div data-testid="speak.first_take_milestone">
+          <StatusBanner title={translate("first_run.milestone_title")} tone="success">
+            {translate("first_run.milestone_body")}
+          </StatusBanner>
+        </div>
+      ) : null}
 
       <div
         style={{

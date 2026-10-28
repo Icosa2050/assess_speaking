@@ -191,6 +191,7 @@ describe("History route", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.removeItem("assess-speaking.first-take-recorded");
     mockedGetHistory.mockResolvedValue({ items: historyRows });
     mockedGetHistoryDetail.mockImplementation(async (sessionId: string) => ({
       payload: detailPayload(sessionId, {
@@ -216,6 +217,28 @@ describe("History route", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start your first session" }));
 
     expect(await screen.findByRole("heading", { name: "Set up today's speaking practice" })).toBeVisible();
+  });
+
+  it("shows a first-take milestone without a scored history row", async () => {
+    mockedGetHistory.mockResolvedValueOnce({ items: [] });
+    const { rerender } = renderWithProviders(<></>, { initialEntries: ["/history"], locale: "en" });
+    window.localStorage.setItem("assess-speaking.first-take-recorded", "1");
+    rerender(<AppFrame />);
+
+    expect(await screen.findByTestId("history-empty")).toBeVisible();
+    expect(screen.getByText("First take recorded on this Mac")).toBeVisible();
+    expect(screen.getByText(/A score is not available here/)).toBeVisible();
+    expect(screen.getByRole("link", { name: "Try another take" })).toHaveAttribute("href", "/session-setup");
+    expect(screen.queryByRole("button", { name: "Start your first session" })).not.toBeInTheDocument();
+  });
+
+  it("does not keep the first-take banner above saved results", async () => {
+    const { rerender } = renderWithProviders(<></>, { initialEntries: ["/history"], locale: "en" });
+    window.localStorage.setItem("assess-speaking.first-take-recorded", "1");
+    rerender(<AppFrame />);
+
+    expect(await screen.findByTestId("history-route")).toBeVisible();
+    expect(screen.queryByText("First take recorded on this Mac")).not.toBeInTheDocument();
   });
 
   it("shows all languages on refresh and preserves an explicit filter", async () => {

@@ -11,6 +11,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 import assess_speaking
+from app_core import diagnostics as startup_diagnostics
 from assess_core.schemas import CoachingSummary, RubricResult
 
 _original_assessment = assess_speaking.run_assessment
@@ -67,6 +68,11 @@ def fixture_assessment(audio, whisper_model, llm_model, **kwargs):
 
 
 assess_speaking.run_assessment = fixture_assessment
+# This launcher replaces ASR inference, so its diagnostic must describe the
+# fixture model as available too. Production diagnostics are unchanged.
+startup_diagnostics.describe_model_availability = lambda model: {
+    "cached": True, "cached_path": f"journey-fixture:{model}",
+}
 
 if __name__ == "__main__":
     import os

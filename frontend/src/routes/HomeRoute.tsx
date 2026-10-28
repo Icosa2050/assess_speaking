@@ -4,11 +4,14 @@ import { useQuery } from "@tanstack/react-query";
 
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { ProgressRing } from "@/components/ui/ProgressRing";
+import { FirstRunPreview } from "@/components/setup/FirstRunPreview";
 import { apiClient } from "@/lib/api/client";
 import { createTranslator, semanticAttributes, SEMANTIC_IDS } from "@/lib/i18n";
 import { queryKeys } from "@/lib/query/queryClient";
 import { buildSetupReadinessRows } from "@/lib/setup/readiness";
-import { selectRuntimeReadiness, useAppStore } from "@/lib/state/appStore";
+import { useCloudSpeechConnection } from "@/lib/setup/cloudSpeech";
+import { useRecentConnectionTest } from "@/lib/setup/connectionVerification";
+import { useAppStore } from "@/lib/state/appStore";
 import { hasReviewState, hasSetupDraft } from "@/lib/state/sessionDraft";
 
 import styles from "./HomeRoute.module.css";
@@ -34,7 +37,7 @@ const diagnosticsCopy = (
     case "setup":
       return {
         title: translate("home.diagnostics_next_step_title"),
-        body: translate("home.diagnostics_next_step_body"),
+        body: translate("first_run.home_next"),
       };
     case "ready":
       return {
@@ -67,7 +70,6 @@ const diagnosticsIcon = (state: DiagnosticsCardState): IconName => {
 export const HomeRoute = () => {
   const navigate = useNavigate();
   const locale = useAppStore((state) => state.preferences.uiLocale);
-  const preferences = useAppStore((state) => state.preferences);
   const draft = useAppStore((state) => state.draft);
   const microphoneStatus = useAppStore(state => state.microphoneStatus);
   const microphoneSetupPassed = useAppStore(state => state.microphoneSetupPassed);
@@ -91,55 +93,42 @@ export const HomeRoute = () => {
     queryKey: ["runtime", "settings"],
     queryFn: () => apiClient.getRuntimeSettings(),
   });
+  const cloudSpeech = useCloudSpeechConnection(settingsQuery.data);
+  const connectionTestPassed = useRecentConnectionTest(runtimeQuery.data);
 
   useEffect(() => {
     setCurrentPage("home");
   }, [setCurrentPage]);
 
   const runtimeConfigured = Boolean(runtimeQuery.data?.configured);
-  const runtimeReadiness = selectRuntimeReadiness({
-    preferences: {
-      ...preferences,
-      activeConnectionId: runtimeConfigured
-        ? preferences.activeConnectionId || `${runtimeQuery.data?.provider || "runtime"}:${runtimeQuery.data?.model || "active"}`
-        : preferences.activeConnectionId,
-      setupComplete: runtimeConfigured || preferences.setupComplete,
-    },
-  });
-
   const diagnosticsItems = diagnosticsQuery.data?.items ?? [];
   const actionableDiagnostics = diagnosticsItems.filter((item) =>
     isActionableDiagnosticStatus(item.status),
   );
-  const diagnosticsCardState: DiagnosticsCardState = (() => {
-    if (runtimeQuery.isPending || diagnosticsQuery.isPending) {
-      return "loading";
-    }
-    if (diagnosticsQuery.isError) {
-      return "unavailable";
-    }
-    if (actionableDiagnostics.length > 0) {
-      return "checks";
-    }
-    return runtimeReadiness.ready ? "ready" : "setup";
-  })();
-  const diagnosticsMessage = diagnosticsCopy(
-    diagnosticsCardState,
-    actionableDiagnostics.length,
-    translate,
-  );
   const practiceChecks = buildSetupReadinessRows({
     diagnostics: diagnosticsItems,
-    diagnosticsError: diagnosticsQuery.isError,
+    diagnosticsError: diagnosticsQuery.isError && !diagnosticsQuery.data,
     diagnosticsPending: diagnosticsQuery.isPending,
     runtime: runtimeQuery.data,
-    runtimeError: runtimeQuery.isError,
+    runtimeError: runtimeQuery.isError && !runtimeQuery.data,
     runtimePending: runtimeQuery.isPending,
-    whisperCached: settingsQuery.data?.asr_provider === "groq",
+    connectionTestPassed,
+    cloudSpeechSelected: cloudSpeech.selected,
+    cloudSpeechConnected: cloudSpeech.connected,
+    cloudSpeechPending: cloudSpeech.pending || settingsQuery.isPending,
+    cloudSpeechError: cloudSpeech.error || (settingsQuery.isError && !settingsQuery.data),
     microphoneStatus,
     microphoneSetupPassed,
   }).filter(row => row.key !== "sample_check");
-  const readyChecks = practiceChecks.filter(row => row.status === "ready").length;
+  const readyChecks = practiceChecks.filter(row => row.status === "ready" && (row.key !== "ai_tutor" || runtimeConfigured)).length;
+  const allChecksReady = readyChecks === practiceChecks.length && runtimeConfigured;
+  const diagnosticsCardState: DiagnosticsCardState = (() => {
+    if (runtimeQuery.isPending || diagnosticsQuery.isPending) return "loading";
+    if ((runtimeQuery.isError && !runtimeQuery.data) || (diagnosticsQuery.isError && !diagnosticsQuery.data)) return "unavailable";
+    if (actionableDiagnostics.length > 0) return "checks";
+    return allChecksReady ? "ready" : "setup";
+  })();
+  const diagnosticsMessage = diagnosticsCopy(diagnosticsCardState, actionableDiagnostics.length, translate);
   const practiceReadinessScore = Math.round(100 * readyChecks / practiceChecks.length);
   const practiceReadinessLabel = translate("home.practice_checks", { ready: readyChecks, total: practiceChecks.length });
   const resumeDisabled = !hasSetupDraft(draft);
@@ -166,7 +155,7 @@ export const HomeRoute = () => {
 
   return (
     <div className={styles.homeGrid}>
-      {!runtimeReadiness.ready ? (
+      {!runtimeConfigured ? (
         <section className={`${styles.card} ${styles.primaryPracticeCard}`}>
           <div className={styles.practiceIntro}>
             <div className={styles.titleBlock}>
@@ -174,8 +163,8 @@ export const HomeRoute = () => {
                 <Icon name="target" />
                 {translate("home.practice_meter_label")}
               </span>
-              <h2 className={styles.primaryTitle}>{translate("home.runtime_setup_title")}</h2>
-              <p className={styles.cardBody}>{translate("home.runtime_setup_body")}</p>
+              <h2 className={styles.primaryTitle}>{translate("first_run.local_path_title")}</h2>
+              <p className={styles.cardBody}>{translate("first_run.home_intro")}</p>
             </div>
             <ProgressRing
               className={styles.readinessMeter}
@@ -194,7 +183,7 @@ export const HomeRoute = () => {
               {...semanticAttributes(SEMANTIC_IDS.home.runtimeSetupButton)}
             >
               <Icon name="settings" />
-              {translate("home.runtime_setup_button")}
+              {translate("first_run.open_local_setup")}
             </button>
             {rehearsalAction}
           </div>
@@ -243,6 +232,8 @@ export const HomeRoute = () => {
           </div>
         </section>
       )}
+
+      <FirstRunPreview locale={locale} />
 
       <section
         className={`${styles.card} ${styles.supportCard}`}

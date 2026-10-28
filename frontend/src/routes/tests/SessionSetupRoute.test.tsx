@@ -24,12 +24,14 @@ vi.mock("@/lib/api/client", () => ({
     getDiagnostics: vi.fn(),
     getHistory: vi.fn(),
     getRuntime: vi.fn(),
+    getRuntimeSettings: vi.fn(),
   },
 }));
 
 import { apiClient } from "@/lib/api/client";
 
 const mockedGetRuntime = vi.mocked(apiClient.getRuntime);
+const mockedGetRuntimeSettings = vi.mocked(apiClient.getRuntimeSettings);
 const mockedGetDiagnostics = vi.mocked(apiClient.getDiagnostics);
 const mockedGetHistory = vi.mocked(apiClient.getHistory);
 const STORAGE_KEY = "assess-speaking.session-setup.theme-library";
@@ -61,7 +63,7 @@ describe("Session Setup route", () => {
       items: [
         {
           key: "whisper",
-          status: "warning",
+          status: "ok",
           title_key: "diagnostics.whisper_title",
           detail_key: "diagnostics.whisper_warning_detail",
           detail_args: {
@@ -72,6 +74,9 @@ describe("Session Setup route", () => {
       ],
     });
     mockedGetHistory.mockResolvedValue({ items: [] });
+    mockedGetRuntimeSettings.mockResolvedValue({
+      ui_locale: "en", whisper_model: "small", active_connection_id: "", connections: [], asr_provider: "local",
+    });
   });
 
   it("offers only profiled languages with a stored German theme and draft", async () => {
@@ -189,7 +194,9 @@ describe("Session Setup route", () => {
       "data-semantic-id",
       "setup.runtime_callout",
     );
-    expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Ready to record");
+    expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Continue to the recording step");
+    expect(screen.getByTestId("setup.runtime_callout")).not.toHaveTextContent("Ready to record");
+    expect(screen.getAllByText("Continue to the recording step")).toHaveLength(2);
 
     fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
 
@@ -202,6 +209,68 @@ describe("Session Setup route", () => {
     expect(store.getState().draft.cefrLevel).toBe("B1");
     expect(store.getState().draft.themeLabel).toBe("Il mio ultimo viaggio all'estero");
     expect(store.getState().draft.durationSec).toBe(90);
+  });
+
+  it("does not call cloud transcription ready without its selected Groq account", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true, provider: "groq", model: "test", base_url: "https://example.test",
+      requires_api_key: true, has_api_key: true,
+    });
+    mockedGetRuntimeSettings.mockResolvedValue({
+      ui_locale: "en", whisper_model: "small", active_connection_id: "cloud-connection",
+      connections: [], asr_provider: "groq",
+    });
+
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/session-setup"], locale: "en",
+      appState: {
+        microphoneStatus: "ready", microphoneSetupPassed: true,
+        preferences: { activeConnectionId: "cloud-connection", setupComplete: true },
+      },
+    });
+
+    fireEvent.change(await screen.findByLabelText("Learner name or nickname"), { target: { value: "maria" } });
+    fireEvent.click(screen.getByTestId("setup.recommended_start"));
+    await waitFor(() => expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Device setup needed"));
+    expect(screen.queryByText("Your checks are ready")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save practice and set up device" })).toBeVisible();
+  });
+
+  it("keeps a configured local tutor out of Speak when the speech model is missing", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true, provider: "ollama", model: "llama3.2:3b", base_url: "http://localhost:11434/v1",
+      requires_api_key: false, has_api_key: false,
+    });
+    mockedGetDiagnostics.mockResolvedValue({ items: [
+      { key: "whisper", status: "warning", title_key: "", detail_key: "", detail_args: {} },
+      { key: "runtime", status: "ok", title_key: "", detail_key: "", detail_args: {} },
+    ] });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/session-setup"], locale: "en" });
+
+    fireEvent.change(await screen.findByLabelText("Learner name or nickname"), { target: { value: "maria" } });
+    fireEvent.click(screen.getByTestId("setup.recommended_start"));
+    expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Device setup needed");
+    expect(screen.queryByRole("button", { name: "Start speaking" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save practice and set up device" }));
+    expect(await screen.findByTestId("runtime_setup.screen")).toBeVisible();
+  });
+
+  it("sends stale saved preferences to device setup when the backend has no runtime", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: false, provider: "", model: "", base_url: "",
+      requires_api_key: false, has_api_key: false,
+    });
+    renderWithProviders(<AppFrame />, {
+      initialEntries: ["/session-setup"], locale: "en",
+      appState: { preferences: { activeConnectionId: "old-connection", setupComplete: true } },
+    });
+
+    fireEvent.change(await screen.findByLabelText("Learner name or nickname"), { target: { value: "maria" } });
+    fireEvent.click(screen.getByTestId("setup.recommended_start"));
+    await waitFor(() => expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Device setup needed"));
+    expect(screen.queryByRole("button", { name: "Start speaking" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save practice and set up device" }));
+    expect(await screen.findByTestId("runtime_setup.screen")).toBeVisible();
   });
 
   it("keeps the recommended library theme authoritative over a populated prior draft", async () => {

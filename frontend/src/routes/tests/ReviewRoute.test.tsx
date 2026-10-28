@@ -26,6 +26,7 @@ vi.mock("@/lib/api/client", () => ({
     resumeHistory: vi.fn(),
     getDiagnostics: vi.fn(),
     getRuntime: vi.fn(),
+    getRuntimeSettings: vi.fn(),
   },
 }));
 
@@ -35,6 +36,7 @@ const mockedResumeHistory = vi.mocked(apiClient.resumeHistory);
 const mockedGetAssessmentStatus = vi.mocked(apiClient.getAssessmentStatus);
 const mockedGetDiagnostics = vi.mocked(apiClient.getDiagnostics);
 const mockedGetRuntime = vi.mocked(apiClient.getRuntime);
+const mockedGetRuntimeSettings = vi.mocked(apiClient.getRuntimeSettings);
 
 const reviewPayload = {
   meta: {
@@ -125,6 +127,9 @@ describe("Review route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedGetDiagnostics.mockResolvedValue({ items: [] });
+    mockedGetRuntimeSettings.mockResolvedValue({
+      ui_locale: "en", whisper_model: "small", active_connection_id: "conn-primary", connections: [], asr_provider: "local",
+    });
     mockedGetRuntime.mockResolvedValue({
       configured: true,
       provider: "ollama_local",

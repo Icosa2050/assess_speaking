@@ -8,13 +8,15 @@ afterEach(cleanup);
 
 describe("Groq feedback setup", () => {
   for (const locale of ["en", "it"] as const) {
-    it(`offers Groq without advanced settings and submits each model (${locale})`, () => {
+    it(`offers Groq after opening other providers and submits each model (${locale})`, () => {
       const onTest = vi.fn();
       const onSave = vi.fn();
       render(<RuntimeConnectionForm locale={locale} initialDraft={{label:"",base_url:"",provider_choice:"ollama_local",model:"local-model",api_key:"unrelated-key"}}
         initialSecretState="absent" onTest={onTest} onSave={onSave}
         detectedModels={["whisper-large-v3", "canopylabs/orpheus-v1-english"]} detectedModelMessage="Old discovery message" />);
       const provider = screen.getByTestId("runtime_connection.provider");
+      expect(within(provider).queryByRole("option", {name:/Groq/})).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("runtime_setup.advanced_providers_toggle"));
       expect(within(provider).getByRole("option", {name:/Groq/})).toBeInTheDocument();
       fireEvent.change(provider, {target:{value:"groq"}});
       expect(screen.getByTestId("runtime_connection.api_key")).toHaveValue("");

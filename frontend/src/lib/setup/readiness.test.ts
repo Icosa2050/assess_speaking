@@ -67,21 +67,105 @@ describe("buildSetupReadinessRows", () => {
 
     expect(rows.map((row) => [row.key, row.status, row.disabled])).toEqual([
       ["speech_recognition", "ready", false],
-      ["ai_tutor", "ready", false],
+      ["ai_tutor", "configured", false],
       ["microphone", "setup", false],
       ["sample_check", "setup", true],
     ]);
     expect(rows[3].actionKey).toBe("runtime_setup.setup_guide_run_sample");
   });
 
-  it("enables practice only after all three required checks are ready", () => {
+  it("does not mark a configured cloud tutor ready without its required credential", () => {
+    const rows = buildSetupReadinessRows({
+      diagnostics: [diagnostic("runtime", "ok"), diagnostic("runtime_api_key", "error")],
+      runtime: { ...configuredRuntime, requires_api_key: true, has_api_key: false },
+      whisperCached: true,
+    });
+    expect(rows[1].status).toBe("unavailable");
+    expect(rows[1].detailKey).toBe("first_run.ai_missing_key");
+    expect(rows[1].rescueKey).toBe("first_run.rescue_ai_credential");
+    expect(rows[3].disabled).toBe(true);
+  });
+
+  it("ignores a previous cloud credential error after switching to a valid local tutor", () => {
+    const rows = buildSetupReadinessRows({
+      diagnostics: [{
+        ...diagnostic("runtime_api_key", "error"),
+        detail_args: { provider: "openrouter", model: "old-model", base_url: "https://openrouter.ai/api/v1" },
+      }],
+      runtime: configuredRuntime,
+    });
+    expect(rows[1].status).toBe("configured");
+    expect(rows[1].detailKey).toBe("first_run.ai_configured");
+  });
+
+  it.each([
+    { provider: "groq", model: "current-model", base_url: "https://current.example/v1" },
+    { provider: "openrouter", model: "old-model", base_url: "https://current.example/v1" },
+    { provider: "openrouter", model: "current-model", base_url: "https://old.example/v1" },
+  ])("ignores a credential diagnostic for another runtime identity: $provider/$model/$base_url", (identity) => {
+    const rows = buildSetupReadinessRows({
+      diagnostics: [{ ...diagnostic("runtime_api_key", "error"), detail_args: identity }],
+      runtime: {
+        ...configuredRuntime, provider: "openrouter", model: "current-model",
+        base_url: "https://current.example/v1", requires_api_key: true, has_api_key: true,
+      },
+    });
+    expect(rows[1].status).toBe("ready");
+  });
+
+  it("honors a credential error for the current runtime identity", () => {
+    const runtime = {
+      ...configuredRuntime, provider: "openrouter", model: "current-model",
+      base_url: "https://current.example/v1", requires_api_key: true, has_api_key: true,
+    };
+    const rows = buildSetupReadinessRows({
+      diagnostics: [{ ...diagnostic("runtime_api_key", "error"), detail_args: {
+        provider: runtime.provider, model: runtime.model, base_url: runtime.base_url,
+      } }],
+      runtime,
+    });
+    expect(rows[1].status).toBe("unavailable");
+  });
+
+  it("allows continuation without calling an untested local tutor ready", () => {
     const rows = buildSetupReadinessRows({
       diagnostics: [diagnostic("whisper", "ok"), diagnostic("runtime", "ok")],
       runtime: configuredRuntime, whisperCached: true,
       microphoneStatus: "ready", microphoneSetupPassed: true,
     });
-    expect(rows[2].status).toBe("ready");
+    expect(rows.map((row) => row.status)).toEqual(["ready", "configured", "ready", "configured"]);
     expect(rows[3].disabled).toBe(false);
+  });
+
+  it("marks a local tutor ready only after a recent user-triggered connection test", () => {
+    const rows = buildSetupReadinessRows({
+      diagnostics: [diagnostic("whisper", "ok"), diagnostic("runtime", "ok")],
+      runtime: configuredRuntime, connectionTestPassed: true,
+      microphoneStatus: "ready", microphoneSetupPassed: true,
+    });
+    expect(rows.slice(0, 3).map((row) => row.status)).toEqual(["ready", "ready", "ready"]);
+  });
+
+  it("keeps a missing selected speech model and unselected Groq account out of Ready", () => {
+    const local = buildSetupReadinessRows({
+      diagnostics: [diagnostic("whisper", "ok")], runtime: configuredRuntime,
+      whisperChecked: true, whisperCached: false,
+    });
+    expect(local[0].status).toBe("setup");
+
+    const cloud = buildSetupReadinessRows({
+      diagnostics: [diagnostic("whisper", "ok")], runtime: configuredRuntime,
+      cloudSpeechSelected: true, cloudSpeechConnected: false,
+    });
+    expect(cloud[0].status).toBe("setup");
+  });
+
+  it("does not claim speech ready when its settings cannot be checked", () => {
+    const rows = buildSetupReadinessRows({
+      diagnostics: [diagnostic("whisper", "ok")], runtime: configuredRuntime,
+      cloudSpeechError: true,
+    });
+    expect(rows[0].status).toBe("unavailable");
   });
 
   it("shows loading rows while runtime or diagnostics are still pending", () => {

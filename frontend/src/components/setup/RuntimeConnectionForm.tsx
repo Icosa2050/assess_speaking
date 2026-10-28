@@ -70,14 +70,6 @@ const isValidOpenRouterHttpReferer = (value: string): boolean => {
 };
 
 const LOCAL_PROVIDER_CHOICES = new Set<string>(["ollama_local", "lmstudio_local"]);
-const ADVANCED_PROVIDER_CHOICES = new Set<string>([
-  "ollama_cloud",
-  "openrouter",
-  "chatgpt",
-  "xai",
-  "openai_compatible",
-]);
-
 const sectionStyle = {
   display: "grid",
   gridTemplateColumns: "minmax(0, 1fr)",
@@ -254,12 +246,12 @@ export const RuntimeConnectionForm = ({
       ? translate("settings.provider")
       : translate("runtime_setup.provider_label");
   const modelSelectEnabled = LOCAL_PROVIDER_CHOICES.has(providerChoice);
-  const selectedProviderIsAdvanced = ADVANCED_PROVIDER_CHOICES.has(providerChoice);
+  const selectedProviderIsAdvanced = providerChoice !== "ollama_local";
   const advancedProvidersVisible =
     variant === "settings" || showAdvancedProviders || selectedProviderIsAdvanced;
   const providerChoices =
     variant === "runtime-setup" && !advancedProvidersVisible
-      ? PROVIDER_CHOICES.filter((option) => LOCAL_PROVIDER_CHOICES.has(option) || option === "chatgpt" || option === "groq")
+      ? PROVIDER_CHOICES.filter((option) => option === "ollama_local")
       : PROVIDER_CHOICES;
   const providerCanUseApiKey = !LOCAL_PROVIDER_CHOICES.has(providerChoice);
   const savedSecretPresent = initialSecretState === "present";

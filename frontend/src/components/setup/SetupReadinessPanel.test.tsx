@@ -11,6 +11,13 @@ const labels: Record<string, string> = {
   "runtime_setup.setup_guide_title": "Setup Guide",
   "runtime_setup.setup_guide_body": "Confirm this device is ready for speaking practice.",
   "runtime_setup.setup_guide_anchor_title": "Ready to speak",
+  "first_run.guide_anchor_pending": "Check this Mac before recording",
+  "first_run.guide_anchor_body": "We check transcription, feedback, and microphone sound.",
+  "first_run.guide_anchor_ready_body": "Speech, feedback, and microphone checks passed.",
+  "first_run.checks_need_attention": "Checks needing attention: {count}.",
+  "first_run.configured_status": "Configured — checked when you start",
+  "first_run.ai_configured": "A tutor model is selected. Its live connection is checked when you start.",
+  "first_run.rescue_ai_tutor": "Start the local tutor app and retry the connection test.",
   "runtime_setup.setup_guide_anchor_body": "Speech recognition and the AI tutor power each practice. Microphone access is handled when you start a session.",
   "runtime_setup.setup_guide_progress_label": "{ready} of {total} core services ready",
   "runtime_setup.setup_guide_progress_status": "{ready}/{total} core services ready",
@@ -122,10 +129,10 @@ describe("SetupReadinessPanel", () => {
       />,
     );
 
-    expect(screen.getByText("Ready to speak")).toBeVisible();
+    expect(screen.getByText("Check this Mac before recording")).toBeVisible();
     expect(
       screen.getByText(
-        "Speech recognition and the AI tutor power each practice. Microphone access is handled when you start a session.",
+        "We check transcription, feedback, and microphone sound.",
       ),
     ).toBeVisible();
     expect(
@@ -133,6 +140,16 @@ describe("SetupReadinessPanel", () => {
     ).toHaveAttribute("aria-valuenow", "1");
     expect(screen.getByText("1/3 core services ready")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Ready to speak" })).not.toBeInTheDocument();
+  });
+
+  it("offers inline rescue when a required check is unavailable", () => {
+    const rows = setupRows.map((row) => row.key === "ai_tutor" ? { ...row, status: "unavailable" as const } : row);
+    render(<SetupReadinessPanel rows={rows} translate={translate} onAction={vi.fn()} />);
+
+    expect(screen.getByText("Start the local tutor app and retry the connection test.")).toBeVisible();
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByRole("status")).toHaveTextContent("Checks needing attention: 1.");
+    expect(screen.getByTestId("runtime_setup.setup_guide.ai_tutor")).toHaveAttribute("data-status", "unavailable");
   });
 
   it("keeps setup incomplete until the microphone sample is confirmed", () => {
@@ -159,6 +176,27 @@ describe("SetupReadinessPanel", () => {
       "data-status",
       "setup",
     );
+  });
+
+  it("describes completed checks in the ready anchor", () => {
+    const rows = setupRows.map((row) => row.key === "sample_check" ? row : { ...row, status: "ready" as const });
+    render(<SetupReadinessPanel rows={rows} translate={translate} onAction={vi.fn()} />);
+
+    expect(screen.getByText("Speech, feedback, and microphone checks passed.")).toBeVisible();
+    expect(screen.queryByText("We check transcription, feedback, and microphone sound.")).not.toBeInTheDocument();
+  });
+
+  it("does not call a configured local tutor ready", () => {
+    const rows: SetupReadinessRow[] = setupRows.map((row) => row.key === "ai_tutor"
+      ? { ...row, status: "configured", detailKey: "first_run.ai_configured" }
+      : row.key === "speech_recognition" || row.key === "microphone"
+        ? { ...row, status: "ready" }
+        : row);
+    render(<SetupReadinessPanel rows={rows} translate={translate} onAction={vi.fn()} />);
+
+    expect(screen.getByTestId("runtime_setup.setup_guide.ai_tutor")).toHaveTextContent("Configured — checked when you start");
+    expect(screen.getByRole("progressbar", { name: "2 of 3 core services ready" })).toHaveAttribute("aria-valuenow", "2");
+    expect(screen.queryByText("Speech, feedback, and microphone checks passed.")).not.toBeInTheDocument();
   });
 
   it("keeps the readiness rows in the input order", () => {
