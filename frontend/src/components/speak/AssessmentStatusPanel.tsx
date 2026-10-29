@@ -57,6 +57,7 @@ export const AssessmentStatusPanel = ({
   uploaded,
   pollFailed,
   canRetry,
+  retryDisabled,
   mediaMessage,
 }: {
   canCancel: boolean;
@@ -84,6 +85,7 @@ export const AssessmentStatusPanel = ({
   uploaded: boolean;
   pollFailed: boolean;
   canRetry: boolean;
+  retryDisabled: boolean;
   mediaMessage: string;
 }) => {
   const contextFields = (
@@ -267,7 +269,8 @@ export const AssessmentStatusPanel = ({
           {translate("speak.cancel_assessment")}
         </Button>
       ) : null}
-      {canRetry && <Button onClick={onRetry} data-testid="speak.retry_assessment">
+      {canRetry && <Button type="button" variant="primary" disabled={retryDisabled} onClick={onRetry}
+        data-testid="speak.retry_assessment" data-semantic-id="speak.retry_assessment">
         {translate("speak.wait_retry")}
       </Button>}
     </div>

@@ -484,6 +484,28 @@ describe("Speak route", () => {
     expect(mockedUploadAudio).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps Retry visible and disabled while a retained assessment is being resumed", async () => {
+    let releaseRetry: () => void = () => { throw new Error("Retry was not requested"); };
+    mockedCreateAssessment.mockResolvedValueOnce({ assessment_id: "asmt-1", status: "queued" })
+      .mockImplementationOnce(() => new Promise<Awaited<ReturnType<typeof apiClient.createAssessment>>>(resolve => {
+        releaseRetry = () => resolve({ assessment_id: "asmt-2", status: "queued" });
+      }));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+    fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    fireEvent.click(await screen.findByTestId("speak.cancel_assessment"));
+    fireEvent.click(await screen.findByTestId("speak.retry_assessment"));
+    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId("speak.retry_assessment")).toBeDisabled();
+    expect(screen.queryByTestId("speak.submit")).not.toBeInTheDocument();
+    expect(screen.getByTestId("speak.retry_assessment")).toHaveAttribute("data-semantic-id", "speak.retry_assessment");
+    act(() => releaseRetry());
+    await waitFor(() => expect(screen.getByTestId("speak.cancel_assessment")).toBeVisible());
+    expect(mockedCreateAssessment.mock.calls[1][0]).toMatchObject({ resume_assessment_id: "asmt-1" });
+  });
+
   it("recovers a lost accepted response with the same submission ID", async () => {
     mockedCreateAssessment.mockRejectedValueOnce(new TypeError("Failed to fetch"));
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });

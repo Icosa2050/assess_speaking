@@ -136,6 +136,11 @@
     [
       "e2e/visualRefreshSmoke.spec.ts",
       "",
+      "report finalization marks Coach complete and Finalizing current"
+    ],
+    [
+      "e2e/visualRefreshSmoke.spec.ts",
+      "",
       "renders primary visual-refresh artifacts without serif typography"
     ],
     [

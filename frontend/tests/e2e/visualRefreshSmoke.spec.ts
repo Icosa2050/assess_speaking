@@ -273,6 +273,27 @@ const attachAudio = async (page: Page) => {
   );
 };
 
+test("report finalization marks Coach complete and Finalizing current", async ({ page }) => {
+  await installVisualBackend(page);
+  await page.unroute("**/v1/assessments/*");
+  await page.route("**/v1/assessments/*", route => fulfillJson(route, {
+    assessment_id: "visual-assessment-clean", status: "running", phase: "finalizing_report", progress: 0.95,
+    created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    worker_seen_at: new Date().toISOString(), error: null,
+  }));
+  await page.goto("/");
+  await page.getByTestId("home.start_new").click();
+  await page.getByTestId("setup.speaker_id").fill("finalize-test");
+  await page.getByTestId("setup.recommended_start").click();
+  await page.getByTestId("setup.continue").click();
+  await attachAudio(page);
+  await page.getByTestId("speak.submit").click();
+  const progress = page.getByTestId("speak.assessment_progress");
+  await expect(progress.locator('li[aria-current="step"]')).toHaveText("Finalizing the report.");
+  await expect(progress.getByRole("listitem").filter({ hasText: "Coach" })).toContainText("Completed");
+  await expect(page.getByTestId("speak.retry_assessment")).toHaveCount(0);
+});
+
 test("assessment wait explains a stall and recovers without a second upload", async ({ page }) => {
   await installVisualBackend(page);
   const shots = process.env.ASSESSMENT_WAIT_SCREENSHOT_DIR;
