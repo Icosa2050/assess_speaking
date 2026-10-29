@@ -13,9 +13,10 @@ list is not evidence that the PR's required checks completed.
    Ubuntu mirror timeout before tests; the install steps retain explicit limits.
 3. If the run cannot be rerun or cancelled, or no run can be found for the head
    SHA, check [GitHub Status](https://www.githubstatus.com/) and trigger a fresh
-   PR run from a new head commit. Verify the new SHA has all seven completed
-   checks before treating the PR as green. A manual `workflow_dispatch` run is
-   useful for diagnosis but does not replace the PR's required checks.
+   PR run from a new head commit. Verify the new SHA has all seven checks
+   completed with a `success` conclusion before treating the PR as green. A
+   manual `workflow_dispatch` run is useful for diagnosis but does not replace
+   the PR's required checks.
 
 Keep the old run ID and error in the PR discussion so an Actions platform
 incident is distinguishable from a test or install failure.

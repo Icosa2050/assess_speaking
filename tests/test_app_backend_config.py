@@ -208,6 +208,31 @@ class BackendConfigTests(unittest.TestCase):
 
             self.assertEqual(candidates, sorted([old_completed, old_failed]))
 
+    def test_cleanup_removes_only_stale_atomic_job_staging_files(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8764)
+            now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+            stale = config.jobs_dir / ".asmt_old.json.abc.tmp"
+            recent = config.jobs_dir / ".asmt_active.json.def.tmp"
+            unrelated = config.jobs_dir / "custom.tmp"
+            for path in (stale, recent, unrelated):
+                path.write_text("private metadata", encoding="utf-8")
+            old_mtime = (now - timedelta(hours=25)).timestamp()
+            fresh_mtime = (now - timedelta(hours=1)).timestamp()
+            os.utime(stale, (old_mtime, old_mtime))
+            os.utime(recent, (fresh_mtime, fresh_mtime))
+            os.utime(unrelated, (old_mtime, old_mtime))
+
+            preview = execute_cleanup(config, CleanupTarget.JOBS, dry_run=True, now=now)
+            self.assertEqual(preview.deleted_file_count, 1)
+            self.assertTrue(stale.exists())
+
+            deleted = execute_cleanup(config, CleanupTarget.JOBS, now=now)
+            self.assertEqual(deleted.deleted_file_count, 1)
+            self.assertFalse(stale.exists())
+            self.assertTrue(recent.exists())
+            self.assertTrue(unrelated.exists())
+
     def test_execute_cleanup_all_safe_preserves_fresh_support_bundles_active_log_and_user_content(self):
         with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
             config = build_backend_runtime_config(
