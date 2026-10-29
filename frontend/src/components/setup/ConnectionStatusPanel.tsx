@@ -16,25 +16,25 @@ const sectionStyle = {
   display: "grid",
   gap: "0.875rem",
   padding: "1rem",
-  border: "1px solid rgba(18, 61, 55, 0.1)",
+  border: "1px solid var(--color-border-decorative)",
   borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.92)",
+  backgroundColor: "var(--color-surface)",
 } as const;
 
 const detailStyle = {
   margin: 0,
   lineHeight: 1.55,
-  color: "#33514b",
+  color: "var(--color-text-muted)",
 } as const;
 
 const statusColor = (status: string): string => {
   if (status === "ok") {
-    return "#166534";
+    return "var(--color-success)";
   }
   if (status === "warning" || status === "info") {
-    return "#9a6700";
+    return "var(--color-warning)";
   }
-  return "#b42318";
+  return "var(--color-error)";
 };
 
 const findDiagnostic = (items: DiagnosticItem[], key: string): DiagnosticItem | undefined =>
@@ -77,7 +77,7 @@ export const ConnectionStatusPanel = ({
         style={{
           margin: 0,
           fontWeight: 600,
-          color: runtime?.configured ? "#166534" : "#9a6700",
+          color: runtime?.configured ? "var(--color-success)" : "var(--color-warning)",
         }}
       >
         {readinessText}
@@ -93,36 +93,36 @@ export const ConnectionStatusPanel = ({
           }}
         >
           <div style={sectionStyle}>
-            <dt style={{ fontWeight: 600, color: "#33514b" }}>{providerLabel}</dt>
+            <dt style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>{providerLabel}</dt>
             <dd style={detailStyle}>
               {activeConnection?.provider_label || runtime?.provider || "-"}
             </dd>
           </div>
           <div style={sectionStyle}>
-            <dt style={{ fontWeight: 600, color: "#33514b" }}>{modelLabel}</dt>
+            <dt style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>{modelLabel}</dt>
             <dd style={detailStyle}>{activeConnection?.model || runtime?.model || "-"}</dd>
           </div>
           <div style={sectionStyle}>
-            <dt style={{ fontWeight: 600, color: "#33514b" }}>{baseUrlLabel}</dt>
+            <dt style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>{baseUrlLabel}</dt>
             <dd style={detailStyle}>{activeConnection?.base_url || runtime?.base_url || "-"}</dd>
           </div>
         </dl>
       ) : null}
 
       {activeConnection?.secret_state === "present" ? (
-        <p style={{ margin: 0, color: "#33514b", lineHeight: 1.55 }}>
+        <p style={{ margin: 0, color: "var(--color-text-muted)", lineHeight: 1.55 }}>
           {translate("runtime_setup.secret_saved_state")}
         </p>
       ) : null}
 
       {activeConnection?.secret_state === "missing" ? (
-        <p style={{ margin: 0, color: "#9a6700", lineHeight: 1.55 }}>
+        <p style={{ margin: 0, color: "var(--color-warning)", lineHeight: 1.55 }}>
           {translate("runtime_setup.secret_missing_state")}
         </p>
       ) : null}
 
       {activeConnection?.last_tested_at ? (
-        <p style={{ margin: 0, color: "#33514b", lineHeight: 1.55 }}>
+        <p style={{ margin: 0, color: "var(--color-text-muted)", lineHeight: 1.55 }}>
           {translate("settings.last_tested", { value: activeConnection.last_tested_at })}
         </p>
       ) : null}

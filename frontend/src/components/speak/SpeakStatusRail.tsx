@@ -16,10 +16,10 @@ const cardStyle = {
   display: "grid",
   gap: "0.875rem",
   padding: "1rem",
-  border: "1px solid rgba(15, 118, 110, 0.16)",
+  border: "1px solid var(--color-selected-border)",
   borderRadius: "8px",
-  backgroundColor: "rgba(248, 251, 250, 0.97)",
-  boxShadow: "0 14px 32px rgba(16, 32, 28, 0.045)",
+  backgroundColor: "var(--color-surface-subtle)",
+  boxShadow: "0 14px 32px var(--color-shadow-ambient)",
 } as const;
 
 const stepGridStyle = {
@@ -34,17 +34,17 @@ const stepStyle = (state: StepState) =>
     gap: "0.45rem",
     minHeight: "92px",
     padding: "0.75rem",
-    border: state === "active" ? "1px solid rgba(15, 118, 110, 0.36)" : "1px solid rgba(18, 61, 55, 0.10)",
+    border: state === "active" ? "1px solid var(--color-selected-border)" : "1px solid var(--color-border-decorative)",
     borderRadius: "8px",
     backgroundColor:
       state === "active"
-        ? "rgba(215, 235, 229, 0.78)"
+        ? "var(--color-selected)"
         : state === "attention"
-          ? "rgba(255, 251, 235, 0.94)"
+          ? "var(--color-warning-bg)"
           : state === "complete"
-            ? "rgba(255, 255, 255, 0.88)"
-            : "rgba(255, 255, 255, 0.66)",
-    color: state === "attention" ? "#6b4f00" : "#10201c",
+            ? "var(--color-surface)"
+            : "var(--color-surface)",
+    color: state === "attention" ? "var(--color-warning)" : "var(--color-text)",
   }) as const;
 
 const iconWrapStyle = (state: StepState) =>
@@ -52,12 +52,12 @@ const iconWrapStyle = (state: StepState) =>
     alignItems: "center",
     backgroundColor:
       state === "attention"
-        ? "rgba(154, 103, 0, 0.12)"
+        ? "var(--color-warning-bg)"
         : state === "active"
-          ? "rgba(15, 118, 110, 0.13)"
-          : "rgba(18, 61, 55, 0.06)",
+          ? "var(--color-selected)"
+          : "var(--color-surface)",
     borderRadius: "999px",
-    color: state === "attention" ? "#9a6700" : "#0f766e",
+    color: state === "attention" ? "var(--color-warning)" : "var(--color-brand)",
     display: "inline-flex",
     height: "2rem",
     justifyContent: "center",
@@ -156,10 +156,10 @@ export const SpeakStatusRail = ({
     data-semantic-id="speak.status_rail"
   >
     <div style={{ display: "grid", gap: "0.25rem" }}>
-      <h2 style={{ margin: 0, color: "#10201c", fontSize: "1.05rem" }}>
+      <h2 style={{ margin: 0, color: "var(--color-text)", fontSize: "1.05rem" }}>
         {translate("speak.status_rail_title")}
       </h2>
-      <p style={{ margin: 0, color: "#33514b", lineHeight: 1.5 }}>
+      <p style={{ margin: 0, color: "var(--color-text-muted)", lineHeight: 1.5 }}>
         {translate(bodyKey(phase))}
       </p>
     </div>
@@ -179,7 +179,7 @@ export const SpeakStatusRail = ({
               <Icon name={state === "complete" ? "check" : state === "attention" ? "warning" : step.icon} size={18} />
             </span>
             <span style={{ fontWeight: 750 }}>{translate(step.labelKey)}</span>
-            <span style={{ color: state === "attention" ? "#6b4f00" : "#48645e", fontSize: "0.85rem" }}>
+            <span style={{ color: state === "attention" ? "var(--color-warning)" : "var(--color-text-muted)", fontSize: "0.85rem" }}>
               {translate(stateKey(state))}
             </span>
           </li>

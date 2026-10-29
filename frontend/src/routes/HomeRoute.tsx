@@ -66,6 +66,9 @@ const diagnosticsIcon = (state: DiagnosticsCardState): IconName => {
   return "settings";
 };
 
+export const practiceReadinessPercent = (ready: number, required: number): number =>
+  required === 0 ? 100 : Math.round(100 * ready / required);
+
 export const HomeRoute = () => {
   const navigate = useNavigate();
   const locale = useAppStore((state) => state.preferences.uiLocale);
@@ -107,7 +110,7 @@ export const HomeRoute = () => {
   }).filter(row => row.key !== "sample_check");
   const requiredPracticeChecks = practiceChecks.filter(isBlockingSetupReadinessRow);
   const readyChecks = requiredPracticeChecks.filter(row => row.status === "ready").length;
-  const allChecksReady = canRecord(practiceChecks);
+  const allChecksReady = requiredPracticeChecks.length === 0 || canRecord(practiceChecks);
   const diagnosticsCardState: DiagnosticsCardState = (() => {
     if (readinessQuery.isPending || diagnosticsQuery.isPending) return "loading";
     if ((readinessQuery.isError && !readinessQuery.data) || (diagnosticsQuery.isError && !diagnosticsQuery.data)) return "unavailable";
@@ -115,7 +118,7 @@ export const HomeRoute = () => {
     return allChecksReady ? "ready" : "setup";
   })();
   const diagnosticsMessage = diagnosticsCopy(diagnosticsCardState, actionableDiagnostics.length, translate);
-  const practiceReadinessScore = Math.round(100 * readyChecks / requiredPracticeChecks.length);
+  const practiceReadinessScore = practiceReadinessPercent(readyChecks, requiredPracticeChecks.length);
   const practiceReadinessLabel = translate("home.practice_checks", { ready: readyChecks, total: requiredPracticeChecks.length });
   const resumeDisabled = !hasSetupDraft(draft);
 

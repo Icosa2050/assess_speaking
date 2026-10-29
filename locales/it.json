@@ -982,6 +982,10 @@
     "saved_success": "Il tema '{theme}' è stato salvato."
   },
   "settings": {
+    "appearance": "Aspetto",
+    "appearance_system": "Sistema",
+    "appearance_light": "Chiaro",
+    "appearance_dark": "Scuro",
     "support_native_unavailable": "Aggiorna l’app desktop per salvare i pacchetti di assistenza con una finestra nativa.",
     "support_bundle_saved": "Pacchetto di assistenza salvato.",
     "support_bundle_cancelled": "Salvataggio annullato. Puoi ancora salvare il pacchetto.",

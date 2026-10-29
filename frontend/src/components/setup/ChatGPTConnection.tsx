@@ -93,7 +93,7 @@ export function ChatGPTConnection({ connectionId = "", locale, onConnected, onTe
     try { await action(); } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setWorking(false); }
   };
-  return <section aria-label="ChatGPT" style={{ display: "grid", gap: ".85rem", padding: "1rem", background: "white", borderRadius: 8 }}>
+  return <section aria-label="ChatGPT" style={{ display: "grid", gap: ".85rem", padding: "1rem", background: "var(--color-surface)", borderRadius: 8 }}>
     <h2 style={{ margin: 0 }}>{t("chatgpt.title")}</h2>
     <p style={{ margin: 0 }}>{t("chatgpt.description")}</p>
     <p style={{ margin: 0 }}>{t("chatgpt.sharing")}</p>

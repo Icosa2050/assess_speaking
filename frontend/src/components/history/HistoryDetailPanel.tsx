@@ -17,10 +17,10 @@ const cardStyle = {
   display: "grid",
   gap: "0.875rem",
   padding: "1.25rem",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
+  border: "1px solid var(--color-border-decorative)",
   borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.94)",
-  boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
+  backgroundColor: "var(--color-surface)",
+  boxShadow: "0 18px 40px var(--color-shadow-ambient)",
 } as const;
 
 const digestGridStyle = {
@@ -35,34 +35,34 @@ const digestItemStyle = {
   minWidth: 0,
   padding: "0.875rem",
   borderRadius: "8px",
-  border: "1px solid rgba(18, 61, 55, 0.10)",
-  backgroundColor: "rgba(248, 251, 250, 0.96)",
+  border: "1px solid var(--color-border-decorative)",
+  backgroundColor: "var(--color-surface-subtle)",
 } as const;
 
 const digestLabelStyle = {
-  color: "#33514b",
+  color: "var(--color-text-muted)",
   fontSize: "0.8125rem",
   fontWeight: 750,
 } as const;
 
 const digestValueStyle = {
   margin: 0,
-  color: "#10201c",
+  color: "var(--color-text)",
   fontWeight: 750,
   lineHeight: 1.35,
   overflowWrap: "anywhere",
 } as const;
 
 const detailsStyle = {
-  border: "1px solid rgba(18, 61, 55, 0.12)",
+  border: "1px solid var(--color-border-control)",
   borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.72)",
+  backgroundColor: "var(--color-surface)",
 } as const;
 
 const detailsSummaryStyle = {
   cursor: "pointer",
   padding: "0.875rem 1rem",
-  color: "#10201c",
+  color: "var(--color-text)",
   fontWeight: 750,
 } as const;
 
@@ -90,10 +90,10 @@ const HistoryDetailDigest = ({
     data-semantic-id="history-detail-digest"
   >
     <div style={{ display: "grid", gap: "0.35rem" }}>
-      <h3 style={{ margin: 0, color: "#10201c", fontSize: "1.2rem" }}>
+      <h3 style={{ margin: 0, color: "var(--color-text)", fontSize: "1.2rem" }}>
         {translate("history.details_digest_title")}
       </h3>
-      <p style={{ margin: 0, color: "#33514b", lineHeight: 1.55 }}>
+      <p style={{ margin: 0, color: "var(--color-text-muted)", lineHeight: 1.55 }}>
         {translate("history.details_digest_body")}
       </p>
     </div>
@@ -134,7 +134,7 @@ const HistoryDetailDigest = ({
     </div>
     {summary.coachSummary ? (
       <p
-        style={{ margin: 0, color: "#10201c", lineHeight: 1.6 }}
+        style={{ margin: 0, color: "var(--color-text)", lineHeight: 1.6 }}
         data-testid="history-detail-digest-coach-summary"
         data-semantic-id="history-detail-digest-coach-summary"
       >
@@ -162,8 +162,8 @@ export const HistoryDetailPanel = ({
   if (!record) {
     return (
       <section style={cardStyle} data-testid="history-detail-unavailable" data-semantic-id="history-detail-unavailable">
-        <h2 style={{ margin: 0, fontSize: "1.35rem", color: "#10201c" }}>{translate("history.details_title")}</h2>
-        <p style={{ margin: 0, color: "#33514b", lineHeight: 1.6 }}>{translate("history.details_unavailable")}</p>
+        <h2 style={{ margin: 0, fontSize: "1.35rem", color: "var(--color-text)" }}>{translate("history.details_title")}</h2>
+        <p style={{ margin: 0, color: "var(--color-text-muted)", lineHeight: 1.6 }}>{translate("history.details_unavailable")}</p>
       </section>
     );
   }
@@ -171,8 +171,8 @@ export const HistoryDetailPanel = ({
   if (isLoading) {
     return (
       <section style={cardStyle} data-testid="history-detail-loading" data-semantic-id="history-detail-loading">
-        <h2 style={{ margin: 0, fontSize: "1.35rem", color: "#10201c" }}>{translate("history.details_title")}</h2>
-        <p style={{ margin: 0, color: "#33514b", lineHeight: 1.6 }}>{translate("review.answer_result_pending")}</p>
+        <h2 style={{ margin: 0, fontSize: "1.35rem", color: "var(--color-text)" }}>{translate("history.details_title")}</h2>
+        <p style={{ margin: 0, color: "var(--color-text-muted)", lineHeight: 1.6 }}>{translate("review.answer_result_pending")}</p>
       </section>
     );
   }
@@ -181,8 +181,8 @@ export const HistoryDetailPanel = ({
   if (hasError || !payload) {
     return (
       <section style={cardStyle} data-testid="history-detail-error" data-semantic-id="history-detail-error">
-        <h2 style={{ margin: 0, fontSize: "1.35rem", color: "#10201c" }}>{translate("history.details_title")}</h2>
-        <p style={{ margin: 0, color: "#b42318", lineHeight: 1.6 }}>{translate("history.details_error")}</p>
+        <h2 style={{ margin: 0, fontSize: "1.35rem", color: "var(--color-text)" }}>{translate("history.details_title")}</h2>
+        <p style={{ margin: 0, color: "var(--color-error)", lineHeight: 1.6 }}>{translate("history.details_error")}</p>
       </section>
     );
   }
@@ -198,9 +198,9 @@ export const HistoryDetailPanel = ({
 
   return (
     <section style={cardStyle} data-testid="history-detail-panel" data-semantic-id="history-detail-panel">
-      <h2 style={{ margin: 0, fontSize: "1.35rem", color: "#10201c" }}>{translate("history.details_title")}</h2>
+      <h2 style={{ margin: 0, fontSize: "1.35rem", color: "var(--color-text)" }}>{translate("history.details_title")}</h2>
       <p
-        style={{ margin: 0, color: "#33514b", lineHeight: 1.6 }}
+        style={{ margin: 0, color: "var(--color-text-muted)", lineHeight: 1.6 }}
         data-testid="history-detail-caption"
         data-semantic-id="history-detail-caption"
       >

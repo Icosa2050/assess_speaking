@@ -50,10 +50,10 @@ const cardStyle = {
   display: "grid",
   gap: "0.875rem",
   padding: "1.25rem",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
+  border: "1px solid var(--color-border-decorative)",
   borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.94)",
-  boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
+  backgroundColor: "var(--color-surface)",
+  boxShadow: "0 18px 40px var(--color-shadow-ambient)",
 } as const;
 
 const metricGridStyle = {
@@ -76,7 +76,7 @@ const qualityChipGridStyle = {
 
 const disclosureSummaryStyle = {
   cursor: "pointer",
-  color: "#10201c",
+  color: "var(--color-text)",
   fontWeight: 700,
 } as const;
 
@@ -91,8 +91,8 @@ const readOnlyInputStyle = {
   padding: "0.75rem 0.875rem",
   borderRadius: "8px",
   border: "1px solid var(--color-border-control)",
-  backgroundColor: "#fff",
-  color: "#10201c",
+  backgroundColor: "var(--color-surface)",
+  color: "var(--color-text)",
   font: "inherit",
 } as const;
 
@@ -522,7 +522,7 @@ export const ReviewSummary = ({
           margin: 0,
           fontSize: "0.875rem",
           fontWeight: 700,
-          color: "#0f766e",
+          color: "var(--color-brand)",
         }}
       >
         {translate("review.answers_eyebrow")}
@@ -531,7 +531,7 @@ export const ReviewSummary = ({
         style={{
           margin: 0,
           fontSize: "1.45rem",
-          color: "#10201c",
+          color: "var(--color-text)",
         }}
       >
         {translate("review.answers_title")}
@@ -539,7 +539,7 @@ export const ReviewSummary = ({
       <p
         style={{
           margin: 0,
-          color: summary.requiresHumanReview ? "#8f1f14" : "#33514b",
+          color: summary.requiresHumanReview ? "var(--color-error)" : "var(--color-text-muted)",
           lineHeight: 1.6,
           fontWeight: 600,
         }}
@@ -559,15 +559,15 @@ export const ReviewSummary = ({
           ["review-metric-llm-score", translate("review.metric_llm"), summary.llmScore !== null ? summary.llmScore.toFixed(1) : "-"],
         ].map(([testId, label, value]) => (
           <div key={testId} style={cardStyle} data-testid={testId} data-semantic-id={testId}>
-            <strong style={{ color: "#33514b" }}>{label}</strong>
-            <span style={{ color: "#10201c", fontSize: "1.25rem", fontWeight: 700 }}>{value}</span>
+            <strong style={{ color: "var(--color-text-muted)" }}>{label}</strong>
+            <span style={{ color: "var(--color-text)", fontSize: "1.25rem", fontWeight: 700 }}>{value}</span>
           </div>
         ))}
       </div>
       <p
         style={{
           margin: 0,
-          color: "#33514b",
+          color: "var(--color-text-muted)",
           lineHeight: 1.55,
         }}
         data-testid="review-metric-mode"
@@ -583,25 +583,25 @@ export const ReviewSummary = ({
           margin: 0,
           fontSize: "0.875rem",
           fontWeight: 700,
-          color: "#0f766e",
+          color: "var(--color-brand)",
         }}
       >
         {translate("review.coaching_tab")}
       </p>
-      <h2 style={{ margin: 0, fontSize: "1.35rem", color: "#10201c" }}>{translate("review.summary_title")}</h2>
+      <h2 style={{ margin: 0, fontSize: "1.35rem", color: "var(--color-text)" }}>{translate("review.summary_title")}</h2>
       {summary.generalPracticeTips && (
-        <p role="status" data-testid="review-general-practice-tips" style={{ margin: 0, color: "#6b4f00", fontWeight: 700 }}>
+        <p role="status" data-testid="review-general-practice-tips" style={{ margin: 0, color: "var(--color-warning)", fontWeight: 700 }}>
           {translate("review.general_practice_tips")}
         </p>
       )}
       {summary.transcriptUncertain && (
-        <p role="status" data-testid="review-transcript-uncertain" style={{ margin: 0, color: "#8f1f14", fontWeight: 700 }}>
+        <p role="status" data-testid="review-transcript-uncertain" style={{ margin: 0, color: "var(--color-error)", fontWeight: 700 }}>
           {translate("review.transcript_uncertain")}
         </p>
       )}
       {hideCoachSummary ? null : (
         <p
-          style={{ margin: 0, color: "#10201c", lineHeight: 1.6 }}
+          style={{ margin: 0, color: "var(--color-text)", lineHeight: 1.6 }}
           data-testid="review-coach-summary"
           data-semantic-id="review-coach-summary"
         >
@@ -610,7 +610,7 @@ export const ReviewSummary = ({
       )}
       <div style={detailGridStyle}>
         <div data-testid="review-strengths" data-semantic-id="review-strengths">
-          <strong style={{ color: "#33514b" }}>{translate("review.strengths_title")}</strong>
+          <strong style={{ color: "var(--color-text-muted)" }}>{translate("review.strengths_title")}</strong>
           {summary.strengths.length > 0 ? (
             <ul style={{ margin: "0.625rem 0 0", paddingInlineStart: "1.25rem", lineHeight: 1.55 }}>
               {summary.strengths.map((item, index) => (
@@ -620,11 +620,11 @@ export const ReviewSummary = ({
               ))}
             </ul>
           ) : (
-            <p style={{ margin: "0.625rem 0 0", color: "#33514b" }}>{translate("review.no_strengths")}</p>
+            <p style={{ margin: "0.625rem 0 0", color: "var(--color-text-muted)" }}>{translate("review.no_strengths")}</p>
           )}
         </div>
         <div data-testid="review-priorities" data-semantic-id="review-priorities">
-          <strong style={{ color: "#33514b" }}>{translate("review.priorities_title")}</strong>
+          <strong style={{ color: "var(--color-text-muted)" }}>{translate("review.priorities_title")}</strong>
           {summary.priorities.length > 0 ? (
             <ul style={{ margin: "0.625rem 0 0", paddingInlineStart: "1.25rem", lineHeight: 1.55 }}>
               {summary.priorities.map((item, index) => (
@@ -634,55 +634,55 @@ export const ReviewSummary = ({
               ))}
             </ul>
           ) : (
-            <p style={{ margin: "0.625rem 0 0", color: "#33514b" }}>{translate("review.no_priorities")}</p>
+            <p style={{ margin: "0.625rem 0 0", color: "var(--color-text-muted)" }}>{translate("review.no_priorities")}</p>
           )}
         </div>
       </div>
       {!hideNextStep && summary.nextFocus ? (
-        <p style={{ margin: 0, color: "#10201c" }} data-testid="review-next-focus" data-semantic-id="review-next-focus">
+        <p style={{ margin: 0, color: "var(--color-text)" }} data-testid="review-next-focus" data-semantic-id="review-next-focus">
           {translate("review.next_focus", { value: summary.nextFocus })}
         </p>
       ) : null}
       {!hideNextStep && summary.nextExercise ? (
-        <p style={{ margin: 0, color: "#10201c" }} data-testid="review-next-exercise" data-semantic-id="review-next-exercise">
+        <p style={{ margin: 0, color: "var(--color-text)" }} data-testid="review-next-exercise" data-semantic-id="review-next-exercise">
           {translate("review.next_exercise", { value: summary.nextExercise })}
         </p>
       ) : null}
       <div style={detailGridStyle}>
         <div data-testid="review-recurring-grammar" data-semantic-id="review-recurring-grammar">
-          <strong style={{ color: "#33514b" }}>{translate("review.recurring_grammar_title")}</strong>
-          <p style={{ margin: "0.625rem 0 0", color: "#10201c" }}>
+          <strong style={{ color: "var(--color-text-muted)" }}>{translate("review.recurring_grammar_title")}</strong>
+          <p style={{ margin: "0.625rem 0 0", color: "var(--color-text)" }}>
             {summary.recurringGrammar.join(", ") || translate("review.none")}
           </p>
         </div>
         <div data-testid="review-recurring-coherence" data-semantic-id="review-recurring-coherence">
-          <strong style={{ color: "#33514b" }}>{translate("review.recurring_coherence_title")}</strong>
-          <p style={{ margin: "0.625rem 0 0", color: "#10201c" }}>
+          <strong style={{ color: "var(--color-text-muted)" }}>{translate("review.recurring_coherence_title")}</strong>
+          <p style={{ margin: "0.625rem 0 0", color: "var(--color-text)" }}>
             {summary.recurringCoherence.join(", ") || translate("review.none")}
           </p>
         </div>
       </div>
       {summary.styleSuggestions.length > 0 && (
         <div data-testid="review-style-suggestions" style={{ display: "grid", gap: "0.625rem" }}>
-          <strong style={{ color: "#33514b" }}>{translate("review.style_suggestions_title")}</strong>
-          <p style={{ margin: 0, color: "#33514b", lineHeight: 1.55 }}>{translate("review.style_suggestions_caption")}</p>
+          <strong style={{ color: "var(--color-text-muted)" }}>{translate("review.style_suggestions_title")}</strong>
+          <p style={{ margin: 0, color: "var(--color-text-muted)", lineHeight: 1.55 }}>{translate("review.style_suggestions_caption")}</p>
           <ul style={{ margin: 0, paddingInlineStart: "1.25rem", lineHeight: 1.55 }}>
             {summary.styleSuggestions.map((item, index) => (
               <li key={`${item.original}-${index}`}>
                 <span>{item.original} → {item.suggestion}</span>
-                <p style={{ margin: "0.25rem 0 0", color: "#33514b" }}>{item.explanation}</p>
+                <p style={{ margin: "0.25rem 0 0", color: "var(--color-text-muted)" }}>{item.explanation}</p>
               </li>
             ))}
           </ul>
         </div>
       )}
       {summary.nextAttemptInstruction && (
-        <p data-testid="review-next-attempt-instruction" style={{ margin: 0, color: "#33514b", lineHeight: 1.6 }}>
+        <p data-testid="review-next-attempt-instruction" style={{ margin: 0, color: "var(--color-text-muted)", lineHeight: 1.6 }}>
           {translate("review.next_attempt_instruction", { value: summary.nextAttemptInstruction })}
         </p>
       )}
       <div data-testid="review-progress" data-semantic-id="review-progress">
-        <strong style={{ color: "#33514b" }}>{translate("review.progress_title")}</strong>
+        <strong style={{ color: "var(--color-text-muted)" }}>{translate("review.progress_title")}</strong>
         {summary.progressItems.length > 0 ? (
           <ul style={{ margin: "0.625rem 0 0", paddingInlineStart: "1.25rem", lineHeight: 1.55 }}>
             {summary.progressItems
@@ -695,15 +695,15 @@ export const ReviewSummary = ({
               ))}
           </ul>
         ) : (
-          <p style={{ margin: "0.625rem 0 0", color: "#33514b" }}>{translate("review.progress_unavailable")}</p>
+          <p style={{ margin: "0.625rem 0 0", color: "var(--color-text-muted)" }}>{translate("review.progress_unavailable")}</p>
         )}
       </div>
       {summary.baseline ? (
         <div data-testid="review-baseline" data-semantic-id="review-baseline" style={{ display: "grid", gap: "0.625rem" }}>
-          <strong style={{ color: "#33514b" }}>{translate("review.baseline_title")}</strong>
-          <p style={{ margin: 0, color: "#33514b" }}>{baselineCaption(summary, translate)}</p>
+          <strong style={{ color: "var(--color-text-muted)" }}>{translate("review.baseline_title")}</strong>
+          <p style={{ margin: 0, color: "var(--color-text-muted)" }}>{baselineCaption(summary, translate)}</p>
           {baselineNotAssessed(summary) ? (
-            <p data-testid="review-baseline-unassessed" style={{ margin: 0, color: "#33514b" }}>
+            <p data-testid="review-baseline-unassessed" style={{ margin: 0, color: "var(--color-text-muted)" }}>
               {translate("review.baseline_unassessed")}
             </p>
           ) : null}
@@ -723,13 +723,13 @@ export const ReviewSummary = ({
                     gridTemplateColumns: "minmax(140px, 1.4fr) repeat(3, minmax(0, 1fr))",
                     padding: "0.75rem",
                     borderRadius: "8px",
-                    backgroundColor: "rgba(248, 251, 250, 0.96)",
+                    backgroundColor: "var(--color-surface-subtle)",
                   }}
                 >
-                  <span style={{ color: "#10201c", fontWeight: 600 }}>{metric}</span>
-                  <span style={{ color: "#33514b" }}>{String(entry.expected ?? "-")}</span>
-                  <span style={{ color: "#33514b" }}>{String(entry.actual ?? "-")}</span>
-                  <span style={{ color: "#33514b" }}>
+                  <span style={{ color: "var(--color-text)", fontWeight: 600 }}>{metric}</span>
+                  <span style={{ color: "var(--color-text-muted)" }}>{String(entry.expected ?? "-")}</span>
+                  <span style={{ color: "var(--color-text-muted)" }}>{String(entry.actual ?? "-")}</span>
+                  <span style={{ color: "var(--color-text-muted)" }}>
                     {baselineStatus(entry, summary, translate)}
                   </span>
                 </div>
@@ -741,10 +741,10 @@ export const ReviewSummary = ({
     </section>
 
     <section style={cardStyle} data-testid="review-quality-checks" data-semantic-id="review-quality-checks">
-      <p style={{ margin: 0, fontSize: "0.875rem", fontWeight: 700, color: "#0f766e" }}>{translate("review.gates_eyebrow")}</p>
-      <h2 style={{ margin: 0, fontSize: "1.35rem", color: "#10201c" }}>{translate("review.gates_title")}</h2>
+      <p style={{ margin: 0, fontSize: "0.875rem", fontWeight: 700, color: "var(--color-brand)" }}>{translate("review.gates_eyebrow")}</p>
+      <h2 style={{ margin: 0, fontSize: "1.35rem", color: "var(--color-text)" }}>{translate("review.gates_title")}</h2>
       <p
-        style={{ margin: 0, color: "#33514b", lineHeight: 1.55, fontWeight: 650 }}
+        style={{ margin: 0, color: "var(--color-text-muted)", lineHeight: 1.55, fontWeight: 650 }}
         data-testid="review-quality-summary"
         data-semantic-id="review-quality-summary"
       >
@@ -759,10 +759,10 @@ export const ReviewSummary = ({
           <span
             key={`${testId}-chip`}
             style={{
-              border: "1px solid rgba(18, 61, 55, 0.10)",
+              border: "1px solid var(--color-border-decorative)",
               borderRadius: "8px",
-              backgroundColor: value === false ? "rgba(255, 251, 235, 0.92)" : "rgba(248, 251, 250, 0.96)",
-              color: value === false ? "#6b4f00" : "#33514b",
+              backgroundColor: value === false ? "var(--color-warning-bg)" : "var(--color-surface-subtle)",
+              color: value === false ? "var(--color-warning)" : "var(--color-text-muted)",
               fontWeight: 650,
               padding: "0.45rem 0.6rem",
             }}
@@ -793,8 +793,8 @@ export const ReviewSummary = ({
           <div style={metricGridStyle}>
             {gateItems(summary, translate).map(([testId, label, value]) => (
               <div key={testId} style={cardStyle} data-testid={testId} data-semantic-id={testId}>
-                <strong style={{ color: "#33514b" }}>{label}</strong>
-                <span style={{ color: "#10201c", fontWeight: 700 }}>{gateStatus(value, translate)}</span>
+                <strong style={{ color: "var(--color-text-muted)" }}>{label}</strong>
+                <span style={{ color: "var(--color-text)", fontWeight: 700 }}>{gateStatus(value, translate)}</span>
               </div>
             ))}
           </div>
@@ -803,8 +803,8 @@ export const ReviewSummary = ({
     </section>
 
     <section style={cardStyle} data-testid="review-reference" data-semantic-id="review-reference">
-      <p style={{ margin: 0, fontSize: "0.875rem", fontWeight: 700, color: "#0f766e" }}>{translate("review.details_tab")}</p>
-      <h2 style={{ margin: 0, fontSize: "1.35rem", color: "#10201c" }}>{translate("review.details_title")}</h2>
+      <p style={{ margin: 0, fontSize: "0.875rem", fontWeight: 700, color: "var(--color-brand)" }}>{translate("review.details_tab")}</p>
+      <h2 style={{ margin: 0, fontSize: "1.35rem", color: "var(--color-text)" }}>{translate("review.details_title")}</h2>
       <details
         data-testid="review-evidence-disclosure"
         data-semantic-id="review-evidence-disclosure"
@@ -818,7 +818,7 @@ export const ReviewSummary = ({
         </summary>
         <div style={disclosureContentStyle}>
           <div style={detailGridStyle}>
-            <label style={{ display: "grid", gap: "0.375rem", color: "#10201c", fontWeight: 600 }}>
+            <label style={{ display: "grid", gap: "0.375rem", color: "var(--color-text)", fontWeight: 600 }}>
               <span>{translate("review.label_title")}</span>
               <input
                 readOnly
@@ -829,17 +829,17 @@ export const ReviewSummary = ({
               />
             </label>
             <div style={{ display: "grid", gap: "0.375rem" }}>
-              <strong style={{ color: "#10201c" }}>{translate("review.metric_report_id")}</strong>
-              <span data-testid="review-report-id" data-semantic-id="review-report-id" style={{ color: "#33514b" }}>
+              <strong style={{ color: "var(--color-text)" }}>{translate("review.metric_report_id")}</strong>
+              <span data-testid="review-report-id" data-semantic-id="review-report-id" style={{ color: "var(--color-text-muted)" }}>
                 {summary.reportId || "-"}
               </span>
-              <strong style={{ color: "#10201c" }}>{translate("setup.learning_language")}</strong>
-              <span data-testid="review-learning-language" data-semantic-id="review-learning-language" style={{ color: "#33514b" }}>
+              <strong style={{ color: "var(--color-text)" }}>{translate("setup.learning_language")}</strong>
+              <span data-testid="review-learning-language" data-semantic-id="review-learning-language" style={{ color: "var(--color-text-muted)" }}>
                 {localizedLanguageLabel(summary.learningLanguage, translate) || "-"}
               </span>
             </div>
           </div>
-          <label style={{ display: "grid", gap: "0.375rem", color: "#10201c", fontWeight: 600 }}>
+          <label style={{ display: "grid", gap: "0.375rem", color: "var(--color-text)", fontWeight: 600 }}>
             <span>{translate("review.notes_title")}</span>
             <textarea
               readOnly
@@ -849,7 +849,7 @@ export const ReviewSummary = ({
               data-semantic-id="review-notes"
             />
           </label>
-          <label style={{ display: "grid", gap: "0.375rem", color: "#10201c", fontWeight: 600 }}>
+          <label style={{ display: "grid", gap: "0.375rem", color: "var(--color-text)", fontWeight: 600 }}>
             <span>{translate("review.transcript_title")}</span>
             <textarea
               readOnly
@@ -861,7 +861,7 @@ export const ReviewSummary = ({
           </label>
           <TranscriptFeedback transcript={summary.transcript} suggestions={summary.styleSuggestions} translate={translate} />
           <details data-testid="review-raw-payload" data-semantic-id="review-raw-payload">
-            <summary style={{ cursor: "pointer", fontWeight: 600, color: "#10201c" }}>
+            <summary style={{ cursor: "pointer", fontWeight: 600, color: "var(--color-text)" }}>
               {translate("review.raw_payload")}
             </summary>
             <pre
@@ -869,10 +869,10 @@ export const ReviewSummary = ({
                 margin: "0.75rem 0 0",
                 padding: "0.875rem",
                 borderRadius: "8px",
-                backgroundColor: "rgba(248, 251, 250, 0.96)",
+                backgroundColor: "var(--color-surface-subtle)",
                 overflowX: "auto",
                 whiteSpace: "pre-wrap",
-                color: "#10201c",
+                color: "var(--color-text)",
                 fontSize: "0.875rem",
               }}
             >

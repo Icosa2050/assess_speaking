@@ -1,4 +1,4 @@
-/* Vostavo tokens. Dark is opt-in until remaining fixed-color screens migrate. */
+/* Vostavo semantic colors. Every rendered surface inherits the selected theme. */
 :root, [data-theme="light"] {
   color-scheme: light;
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
@@ -50,6 +50,9 @@
   --color-surface: #ffffff;
   --color-surface-subtle: #edf4f0;
   --color-surface-raised: #ffffff;
+  --color-on-brand-tint: rgba(255, 255, 255, 0.13);
+  --color-on-brand-border: rgba(255, 255, 255, 0.70);
+  --color-shadow-ambient: rgba(16, 32, 28, 0.06);
   --color-scrim: rgba(0, 0, 0, 0.65);
   --color-text: #172822;
   --color-text-muted: #415850;
@@ -106,6 +109,9 @@
   --color-surface: #1c2925;
   --color-surface-subtle: #263832;
   --color-surface-raised: #263832;
+  --color-on-brand-tint: rgba(16, 37, 30, 0.13);
+  --color-on-brand-border: rgba(16, 37, 30, 0.65);
+  --color-shadow-ambient: rgba(0, 0, 0, 0.24);
   --color-scrim: rgba(0, 0, 0, 0.75);
   --color-text: #f2f8f4;
   --color-text-muted: #c6d7ce;
