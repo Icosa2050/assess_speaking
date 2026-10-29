@@ -453,6 +453,8 @@ export const SettingsRoute = () => {
         ) : null}
       </section>
 
+      <JournalPanel locale={locale} />
+
       <SavedConnectionsPanel
         connections={connections}
         locale={locale}
@@ -593,7 +595,6 @@ export const SettingsRoute = () => {
       />
       </fieldset>
 
-      <JournalPanel locale={locale} />
       <SupportPanel
         activeConnectionId={runtimeSettingsQuery.data?.active_connection_id || preferences.activeConnectionId}
         locale={locale}

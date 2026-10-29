@@ -70,15 +70,22 @@ describe("journal recovery visibility", () => {
     expect(screen.queryByRole("button", {name: t("journal.recover")})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", {name: "Start a fresh journal"}));
     expect(screen.getByRole("button", {name: "Confirm: start fresh"})).toBeEnabled();
-    expect(screen.getByText(/Saved reports, history, recordings and uploads stay in place/)).toBeVisible();
+    expect(screen.getByText(/Saved history and media remain/)).toBeVisible();
     expect(startFreshJournal).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", {name: t("journal.cancel")}));
+    expect(screen.getByRole("dialog", {name: "Start a fresh journal?"})).toBeVisible();
+    expect(document.activeElement).toBe(screen.getByRole("button", {name: "Cancel and keep current state"}));
+    expect(screen.getByText(/Kept: saved reports, history, recordings, uploads, archived attempts, and existing backup ZIPs/)).toBeVisible();
+    expect(screen.getByText(/A new recovery journal replaces the active damaged journal/)).toBeVisible();
+    expect(screen.getByRole("dialog")).toHaveAttribute("aria-describedby", "fresh-dialog-consequences");
+    fireEvent.click(screen.getByRole("button", {name: "Cancel and keep current state"}));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", {name: "Start a fresh journal"})));
     expect(startFreshJournal).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", {name: "Start a fresh journal"}));
     status.mockResolvedValue(clean);
     fireEvent.click(screen.getByRole("button", {name: "Confirm: start fresh"}));
     await waitFor(() => expect(startFreshJournal).toHaveBeenCalledOnce());
     expect(await screen.findByText(t("journal.fresh_done"))).toBeVisible();
+    expect(document.activeElement).toBe(screen.getByText(t("journal.fresh_done")));
     expect(store.getState().draft.coachingGoal).toBe("");
     expect(store.getState().draft.retryOfSessionId).toBe("");
   });
@@ -91,6 +98,50 @@ describe("journal recovery visibility", () => {
     expect(screen.getByRole("button", {name: t("journal.diagnostics")})).toBeDisabled();
     expect(screen.getByRole("button", {name: t("journal.fresh")})).toBeDisabled();
     expect(screen.getByRole("button", {name: t("journal.rollback")})).toBeEnabled();
+  });
+
+  it("announces a failed fresh start inside the dialog and permits retry", async () => {
+    status.mockResolvedValue(damaged);
+    vi.mocked(startFreshJournal).mockRejectedValueOnce(new Error("Journal disk is full"));
+    renderWithProviders(<JournalPanel locale="en" />);
+    fireEvent.click(await screen.findByRole("button", { name: t("journal.fresh") }));
+    fireEvent.click(screen.getByRole("button", { name: t("journal.confirm_fresh") }));
+    await waitFor(() => expect(screen.getByRole("dialog").querySelector('[role="alert"]')).toHaveTextContent("Journal disk is full"));
+    expect(document.activeElement).toHaveAttribute("id", "fresh-error");
+    expect(screen.getByRole("button", { name: "Cancel and keep current state" })).toBeEnabled();
+    status.mockResolvedValue(clean);
+    fireEvent.click(screen.getByRole("button", { name: t("journal.confirm_fresh") }));
+    await waitFor(() => expect(startFreshJournal).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(t("journal.fresh_done"))).toBeVisible();
+  });
+
+  it("keeps the confirmation open when Escape is pressed during fresh start", async () => {
+    status.mockResolvedValue(damaged);
+    let finish!: () => void;
+    vi.mocked(startFreshJournal).mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
+    renderWithProviders(<JournalPanel locale="en" />);
+    fireEvent.click(await screen.findByRole("button", { name: t("journal.fresh") }));
+    fireEvent.click(screen.getByRole("button", { name: t("journal.confirm_fresh") }));
+    const dialog = screen.getByRole("dialog");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel and keep current state" })).toBeDisabled());
+    fireEvent(dialog, new Event("cancel", { bubbles: false, cancelable: true }));
+    expect(dialog).toBeInTheDocument();
+    status.mockResolvedValue(clean);
+    finish();
+    expect(await screen.findByText(t("journal.fresh_done"))).toBeVisible();
+  });
+
+  it("reports a status refresh failure outside the closed dialog after fresh start succeeds", async () => {
+    status.mockResolvedValueOnce(damaged).mockRejectedValueOnce(new Error("Status offline"));
+    renderWithProviders(<JournalPanel locale="en" />);
+    fireEvent.click(await screen.findByRole("button", { name: t("journal.fresh") }));
+    fireEvent.click(screen.getByRole("button", { name: t("journal.confirm_fresh") }));
+    await waitFor(() => expect(startFreshJournal).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("A fresh journal was started");
+    expect(screen.getByRole("alert")).toHaveTextContent("Status offline");
+    expect(screen.getByTestId("journal-state")).not.toHaveTextContent("Journal damaged");
+    expect(document.activeElement).toHaveAttribute("id", "journal-error");
   });
 
   it("keeps rollback retry reachable after an intact transaction hits a disk error", async () => {
@@ -206,6 +257,7 @@ describe("journal recovery visibility", () => {
     status.mockResolvedValue(value);
     renderWithProviders(<JournalPanel locale="en" />);
     await waitFor(() => {
+    expect(screen.getByTestId("journal-state")).toHaveTextContent(value.recovery_error ? "Journal damaged" : value.transaction ? "Recovery pending" : "Journal healthy");
     expect(screen.getByLabelText(t(value.recovery_error ? "journal.restore_backup" : "journal.open"))).toHaveProperty("disabled", !exits);
     expect(screen.getByRole("button", {name: t("journal.backup")})).toHaveProperty("disabled", !backup);
     for (const key of ["journal.recover", "journal.rollback"]) {
@@ -248,5 +300,16 @@ describe("journal recovery visibility", () => {
     renderWithProviders(<JournalPanel locale="en" />);
     expect(await screen.findByText(/Retained fixture/)).toBeVisible();
     expect(screen.getByRole("alert")).toHaveTextContent("Status unavailable");
+    expect(screen.getByTestId("journal-state")).toHaveTextContent("Journal state unavailable");
+  });
+
+  it("clears the selected restore filename after cancelling a preview", async () => {
+    vi.mocked(previewLearnerRestore).mockResolvedValue({ id: "restore", attempts: 0,
+      skipped_attempts: [], skipped_rehearsals: [], missing: [], browser: { sessions: [], recordings: [] } });
+    renderWithProviders(<JournalPanel locale="en" />);
+    fireEvent.change(await screen.findByLabelText(t("journal.open")), { target: { files: [new File(["zip"], "backup.zip")] } });
+    expect(await screen.findByText("backup.zip")).toBeVisible();
+    fireEvent.click(await screen.findByRole("button", { name: t("journal.cancel") }));
+    await waitFor(() => expect(screen.queryByText("backup.zip")).not.toBeInTheDocument());
   });
 });
