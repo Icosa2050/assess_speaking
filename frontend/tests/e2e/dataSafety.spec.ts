@@ -31,12 +31,12 @@ test("damaged journal offers a safe first action and confirms start fresh withou
   await expect(panel.getByRole("heading", { name: "Your data", exact: true })).toBeFocused();
   await expect(panel.getByText("Safe to try")).toBeVisible();
   await expect(panel.getByRole("button", { name: "Export diagnostics only" })).toBeVisible();
-  await expect(panel.getByText(/Saved reports, history, recordings, and uploads stay in place/)).toBeVisible();
+  await expect(panel.getByText(/Saved history and media remain/)).toBeVisible();
   await panel.getByRole("button", { name: "Start a fresh journal" }).click();
   const dialog = page.getByRole("dialog", { name: "Start a fresh journal?" });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByText(/Kept: saved reports, history, recordings, and uploads/)).toBeVisible();
-  await expect(dialog.getByText(/Replaced: the damaged recovery journal/)).toBeVisible();
+  await expect(dialog.getByText(/Kept: saved reports, history, recordings, uploads, archived attempts, and existing backup ZIPs/)).toBeVisible();
+  await expect(dialog.getByText(/A new recovery journal replaces the active damaged journal/)).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Cancel and keep current state" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
@@ -71,6 +71,7 @@ test("a backup can be previewed before restore from the damaged view", async ({ 
   await page.unroute("**/v1/journal/status");
   await page.getByRole("region", { name: /Restore .* attempts and .* rehearsals/ }).getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByRole("button", { name: "Create and save backup" })).toBeEnabled();
+  await expect(page.getByText("backup.zip", { exact: true })).toHaveCount(0);
 });
 
 test("keyboard navigation reaches the safe action at both desktop sizes", async ({ page }) => {
@@ -86,9 +87,13 @@ test("keyboard navigation reaches the safe action at both desktop sizes", async 
     await expect(page).toHaveURL(/\/settings#your-data$/);
     await expect(page.getByRole("heading", { name: "Your data", exact: true })).toBeFocused();
     const safe = page.getByRole("button", { name: "Export diagnostics only" });
-    await safe.focus();
+    await page.keyboard.press("Tab");
     await expect(safe).toBeFocused();
     if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `after-damaged-${width}x${height}.png`) });
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "Choose a backup ZIP" })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "Start a fresh journal" })).toBeFocused();
   }
 });
 

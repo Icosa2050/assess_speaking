@@ -106,7 +106,7 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
     try {
       if (rollback) await recoverLearnerJournal(true);
       else await recoverLearnerJournal();
-    } finally { setPreview(null); await refresh(); }
+    } finally { setPreview(null); setRestoreName(""); await refresh(); }
   };
   useEffect(() => {
     let active = true;
@@ -115,11 +115,11 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
     void listArchivedRehearsals().then(value => { if (active) setArchived(value); }).catch(failed);
     return () => { active = false; controller.current?.abort(); };
   }, []);
-  const stateLabel = status?.recovery_error ? t("your_data.state_damaged") : pendingTransaction ? t("your_data.state_pending") : status ? t("your_data.state_healthy") : t("your_data.state_loading");
+  const stateLabel = status?.recovery_error ? t("your_data.state_damaged") : pendingTransaction ? t("your_data.state_pending") : status ? t("your_data.state_healthy") : error ? t("your_data.state_unavailable") : t("your_data.state_loading");
   return <Card as="section" id="your-data" className={styles.panel} data-testid="journal-panel" aria-labelledby="your-data-title">
     <header className={styles.header}><div><h2 id="your-data-title" tabIndex={-1}>{t("your_data.title")}</h2><p>{t("journal.body")}</p></div><span className={styles.state} data-testid="journal-state" aria-live="polite">{t("your_data.status_heading")}: {stateLabel}</span></header>
     {message && <p ref={messageRef} tabIndex={-1} role="status">{message}</p>}{error && <div id="journal-error" tabIndex={-1}><StatusBanner title={error} tone="error" urgent /></div>}
-    {status?.recovery_error && <StatusBanner title={status.recovery_error} tone="error" urgent />}
+    {status?.recovery_error && <><StatusBanner title={status.recovery_error} tone="error" urgent /><p>{t("journal.damaged_guidance")}</p></>}
     {status?.recovery_error && <div className={`${styles.actionGroup} ${styles.safeCard}`}>
       <span className={styles.eyebrow}>{t("your_data.safe_to_try")}</span>
       <h3>{t("journal.diagnostics")}</h3>
@@ -131,14 +131,14 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
     {diagnostics && <Button disabled={busy} onClick={() => void run(() => saveDiagnostics(diagnostics))}>{t("settings.support_bundle_save_again")}</Button>}
     <div className={`${styles.actionGroup} ${styles.actionCard}`}>
       <span className={styles.eyebrow}>{t("your_data.needs_file")}</span><h3>{t("your_data.restore_heading")}</h3><p>{t("your_data.restore_intro")}</p>
-      <Field className={styles.visuallyHidden} label={t(status?.recovery_error ? "journal.restore_backup" : "journal.open")} id="journal-restore" type="file" tabIndex={-1} accept=".zip,application/zip" disabled={busy || !!preview || activeTransaction} onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) { setRestoreName(file.name); void run(async signal => { try { setPreview(await previewLearnerRestore(file, signal)); } finally { await refresh(); } }); } }} />
+      <Field className={styles.visuallyHidden} label={t(status?.recovery_error ? "journal.restore_backup" : "journal.open")} id="journal-restore" type="file" tabIndex={-1} accept=".zip,application/zip" disabled={busy || !!preview || activeTransaction} onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) { setRestoreName(file.name); void run(async signal => { try { setPreview(await previewLearnerRestore(file, signal)); } catch (cause) { setRestoreName(""); throw cause; } finally { await refresh(); } }); } }} />
       <Button id="journal-restore-action" disabled={busy || !!preview || activeTransaction} onClick={() => document.getElementById("journal-restore")?.click()}>{t("your_data.choose_backup")}</Button>
       {restoreName && <p>{restoreName}</p>}
     </div>
     {preview && <div className={`${styles.actionGroup} ${styles.actionCard}`} role="region" aria-labelledby="journal-preview-heading"><h3 id="journal-preview-heading" tabIndex={-1}>{t("journal.preview", { attempts: preview.attempts, rehearsals: preview.browser.sessions.length })}</h3><p>{t("journal.restore_note")}</p>
       {!!(preview.skipped_attempts.length + preview.skipped_rehearsals.length) && <p>{t("journal.skipped", { count: preview.skipped_attempts.length + preview.skipped_rehearsals.length })}</p>}
       {!!preview.missing.length && <p>{t("journal.missing", { count: preview.missing.length })}</p>}
-      <Button variant="primary" disabled={busy} onClick={() => void run(async signal => { try { await commitLearnerRestore(preview, signal, progress, () => setCommitting(true)); beginNewSession(); } finally { setPreview(null); setStatus(await journalRecoveryStatus()); } setMessage(t("journal.restored")); await refresh(); })}>{t("journal.confirm_restore")}</Button>
+      <Button variant="primary" disabled={busy} onClick={() => void run(async signal => { try { await commitLearnerRestore(preview, signal, progress, () => setCommitting(true)); beginNewSession(); } finally { setPreview(null); setRestoreName(""); setStatus(await journalRecoveryStatus()); } setMessage(t("journal.restored")); await refresh(); })}>{t("journal.confirm_restore")}</Button>
       <Button disabled={busy} onClick={() => void run(async () => { await retryRecovery(true); setMessage(t("journal.cancelled")); })}>{t("journal.cancel")}</Button>
     </div>}
     {status?.recovery_error && <div className={`${styles.actionGroup} ${styles.dangerCard}`}>
@@ -146,14 +146,14 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
       <p>{t("your_data.fresh_intro")}</p>
       <Button variant="danger" id="journal-fresh" disabled={busy || activeTransaction} onClick={() => { setFreshError(""); setConfirmFresh(true); }}>{t("journal.fresh")}</Button>
     </div>}
-    {confirmFresh && <dialog ref={freshDialog} className={styles.dialog} aria-labelledby="fresh-dialog-title" onCancel={event => { event.preventDefault(); if (!busy) cancelFresh(); }}>
+    {confirmFresh && <dialog ref={freshDialog} className={styles.dialog} aria-labelledby="fresh-dialog-title" aria-describedby="fresh-dialog-consequences" onCancel={event => { event.preventDefault(); if (!busy) cancelFresh(); }}>
       <h2 id="fresh-dialog-title">{t("your_data.fresh_heading")}</h2>
-      <p>{t("your_data.fresh_kept")}</p><p>{t("your_data.fresh_replaced")}</p><p>{t("journal.fresh_note")}</p>
+      <div id="fresh-dialog-consequences"><p>{t("your_data.fresh_kept")}</p><p>{t("your_data.fresh_replaced")}</p></div>
       {freshError && <div id="fresh-error" tabIndex={-1}><StatusBanner title={freshError} tone="error" urgent /></div>}
       <div className={styles.dialogActions}>
         <Button id="fresh-cancel" variant="secondary" disabled={busy} onClick={cancelFresh}>{t("your_data.fresh_cancel")}</Button>
         <Button variant="danger" disabled={busy || activeTransaction} onClick={() => { setFreshError(""); let resetSucceeded = false; void run(async () => {
-          await startFreshJournal(); resetSucceeded = true; beginNewSession(); setConfirmFresh(false); setStatus(null);
+          await startFreshJournal(); resetSucceeded = true; beginNewSession(); setConfirmFresh(false); setStatus(null); setRestoreName("");
           await refresh(); setMessage(t("journal.fresh_done"));
         }, detail => resetSucceeded ? setError(t("your_data.fresh_refresh_failed", { detail })) : setFreshError(detail)); }}>{t("journal.confirm_fresh")}</Button>
       </div>

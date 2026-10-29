@@ -70,12 +70,13 @@ describe("journal recovery visibility", () => {
     expect(screen.queryByRole("button", {name: t("journal.recover")})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", {name: "Start a fresh journal"}));
     expect(screen.getByRole("button", {name: "Confirm: start fresh"})).toBeEnabled();
-    expect(screen.getByText(/Saved reports, history, recordings and uploads stay in place/)).toBeVisible();
+    expect(screen.getByText(/Saved history and media remain/)).toBeVisible();
     expect(startFreshJournal).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog", {name: "Start a fresh journal?"})).toBeVisible();
     expect(document.activeElement).toBe(screen.getByRole("button", {name: "Cancel and keep current state"}));
-    expect(screen.getByText(/Kept: saved reports, history, recordings, and uploads/)).toBeVisible();
-    expect(screen.getByText(/Replaced: the damaged recovery journal/)).toBeVisible();
+    expect(screen.getByText(/Kept: saved reports, history, recordings, uploads, archived attempts, and existing backup ZIPs/)).toBeVisible();
+    expect(screen.getByText(/A new recovery journal replaces the active damaged journal/)).toBeVisible();
+    expect(screen.getByRole("dialog")).toHaveAttribute("aria-describedby", "fresh-dialog-consequences");
     fireEvent.click(screen.getByRole("button", {name: "Cancel and keep current state"}));
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", {name: "Start a fresh journal"})));
     expect(startFreshJournal).not.toHaveBeenCalled();
@@ -256,7 +257,7 @@ describe("journal recovery visibility", () => {
     status.mockResolvedValue(value);
     renderWithProviders(<JournalPanel locale="en" />);
     await waitFor(() => {
-    expect(screen.getByTestId("journal-state")).toHaveTextContent(value.recovery_error ? "Journal damaged" : value.transaction ? "Restore pending" : "Journal healthy");
+    expect(screen.getByTestId("journal-state")).toHaveTextContent(value.recovery_error ? "Journal damaged" : value.transaction ? "Recovery pending" : "Journal healthy");
     expect(screen.getByLabelText(t(value.recovery_error ? "journal.restore_backup" : "journal.open"))).toHaveProperty("disabled", !exits);
     expect(screen.getByRole("button", {name: t("journal.backup")})).toHaveProperty("disabled", !backup);
     for (const key of ["journal.recover", "journal.rollback"]) {
@@ -299,5 +300,16 @@ describe("journal recovery visibility", () => {
     renderWithProviders(<JournalPanel locale="en" />);
     expect(await screen.findByText(/Retained fixture/)).toBeVisible();
     expect(screen.getByRole("alert")).toHaveTextContent("Status unavailable");
+    expect(screen.getByTestId("journal-state")).toHaveTextContent("Journal state unavailable");
+  });
+
+  it("clears the selected restore filename after cancelling a preview", async () => {
+    vi.mocked(previewLearnerRestore).mockResolvedValue({ id: "restore", attempts: 0,
+      skipped_attempts: [], skipped_rehearsals: [], missing: [], browser: { sessions: [], recordings: [] } });
+    renderWithProviders(<JournalPanel locale="en" />);
+    fireEvent.change(await screen.findByLabelText(t("journal.open")), { target: { files: [new File(["zip"], "backup.zip")] } });
+    expect(await screen.findByText("backup.zip")).toBeVisible();
+    fireEvent.click(await screen.findByRole("button", { name: t("journal.cancel") }));
+    await waitFor(() => expect(screen.queryByText("backup.zip")).not.toBeInTheDocument());
   });
 });

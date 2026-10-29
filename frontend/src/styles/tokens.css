@@ -50,6 +50,7 @@
   --color-surface: #ffffff;
   --color-surface-subtle: #edf4f0;
   --color-surface-raised: #ffffff;
+  --color-scrim: rgba(0, 0, 0, 0.65);
   --color-text: #172822;
   --color-text-muted: #415850;
   --color-text-inverse: #ffffff;
@@ -105,6 +106,7 @@
   --color-surface: #1c2925;
   --color-surface-subtle: #263832;
   --color-surface-raised: #263832;
+  --color-scrim: rgba(0, 0, 0, 0.75);
   --color-text: #f2f8f4;
   --color-text-muted: #c6d7ce;
   --color-text-inverse: #10251e;
