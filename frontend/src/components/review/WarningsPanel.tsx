@@ -4,10 +4,10 @@ const cardStyle = {
   display: "grid",
   gap: "0.875rem",
   padding: "1.25rem",
-  border: "1px solid rgba(154, 103, 0, 0.18)",
+  border: "1px solid var(--color-warning-border)",
   borderRadius: "8px",
-  backgroundColor: "rgba(255, 251, 235, 0.92)",
-  boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
+  backgroundColor: "var(--color-warning-bg)",
+  boxShadow: "0 18px 40px var(--color-shadow-ambient)",
 } as const;
 
 const listStyle = {
@@ -15,7 +15,7 @@ const listStyle = {
   gap: "0.5rem",
   margin: 0,
   paddingInlineStart: "1.25rem",
-  color: "#6b4f00",
+  color: "var(--color-warning)",
   lineHeight: 1.55,
 } as const;
 
@@ -84,7 +84,7 @@ export const WarningsPanel = ({
         <p
           style={{
             margin: 0,
-            color: "#8f1f14",
+            color: "var(--color-error)",
             fontWeight: 700,
             lineHeight: 1.55,
           }}
@@ -97,7 +97,7 @@ export const WarningsPanel = ({
 
       {warningItems.length > 0 ? (
         <div style={{ display: "grid", gap: "0.625rem" }}>
-          <strong style={{ color: "#6b4f00" }}>{translate("review.warning_label")}</strong>
+          <strong style={{ color: "var(--color-warning)" }}>{translate("review.warning_label")}</strong>
           <ul style={listStyle}>
             {warningItems.map((item, index) => (
               <li
@@ -114,7 +114,7 @@ export const WarningsPanel = ({
 
       {failedGates.length > 0 ? (
         <div style={{ display: "grid", gap: "0.625rem" }}>
-          <strong style={{ color: "#6b4f00" }} data-testid="review-failed-gates" data-semantic-id="review-failed-gates">
+          <strong style={{ color: "var(--color-warning)" }} data-testid="review-failed-gates" data-semantic-id="review-failed-gates">
             {translate("review.failed_gates_label")}
           </strong>
           <ul style={listStyle}>

@@ -46,14 +46,14 @@ const cardStyle = {
   display: "grid",
   gap: "0.875rem",
   padding: "1.25rem",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
+  border: "1px solid var(--color-border-decorative)",
   borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.94)",
-  boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
+  backgroundColor: "var(--color-surface)",
+  boxShadow: "0 18px 40px var(--color-shadow-ambient)",
 } as const;
 
 const introLinkStyle = {
-  color: "#0f766e",
+  color: "var(--color-brand)",
   fontWeight: 700,
   textDecoration: "none",
 } as const;
@@ -67,11 +67,11 @@ const summaryGridStyle = {
 const tableStyle = {
   borderCollapse: "collapse",
   minWidth: "100%",
-  color: "#10201c",
+  color: "var(--color-text)",
 } as const;
 
 const tableCellStyle = {
-  borderTop: "1px solid rgba(18, 61, 55, 0.08)",
+  borderTop: "1px solid var(--color-border-decorative)",
   padding: "0.65rem",
   textAlign: "left",
 } as const;
@@ -166,10 +166,10 @@ export const GuideRoute = () => {
       {...semanticAttributes(SEMANTIC_IDS.guide.screen)}
     >
       <section style={cardStyle}>
-        <h2 style={{ margin: 0, fontSize: "1.75rem", color: "#10201c" }}>
+        <h2 style={{ margin: 0, fontSize: "1.75rem", color: "var(--color-text)" }}>
           {translate("guide.title")}
         </h2>
-        <p style={{ margin: 0, lineHeight: 1.6, color: "#33514b" }}>
+        <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
           {translate("guide.body")}
         </p>
       </section>
@@ -185,15 +185,15 @@ export const GuideRoute = () => {
             margin: 0,
             fontSize: "0.875rem",
             fontWeight: 700,
-            color: "#0f766e",
+            color: "var(--color-brand)",
           }}
         >
           {translate("review.coaching_tab")}
         </p>
-        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
+        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
           {translate("guide.practice_support_intro")}
         </h2>
-        <p style={{ margin: 0, color: "#33514b", lineHeight: 1.6 }}>
+        <p style={{ margin: 0, color: "var(--color-text-muted)", lineHeight: 1.6 }}>
           {translate("guide.practice_support_body")}
         </p>
         <nav
@@ -213,27 +213,27 @@ export const GuideRoute = () => {
       </section>
 
       <section id="guide-summary" style={cardStyle}>
-        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
+        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
           {translate("guide.summary_title")}
         </h2>
-        <p style={{ margin: 0, lineHeight: 1.6, color: "#33514b" }}>
+        <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
           {translate("guide.summary_body")}
         </p>
         <div style={summaryGridStyle}>
           {summaryCards.map(([titleKey, bodyKey]) => (
             <article key={titleKey} style={{ display: "grid", gap: "0.35rem" }}>
-              <strong style={{ color: "#33514b" }}>{translate(titleKey)}</strong>
-              <span style={{ lineHeight: 1.5, color: "#10201c" }}>{translate(bodyKey)}</span>
+              <strong style={{ color: "var(--color-text-muted)" }}>{translate(titleKey)}</strong>
+              <span style={{ lineHeight: 1.5, color: "var(--color-text)" }}>{translate(bodyKey)}</span>
             </article>
           ))}
         </div>
       </section>
 
       <section id="guide-formula" style={cardStyle}>
-        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
+        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
           {translate("guide.formula_title")}
         </h2>
-        <ul style={{ margin: 0, paddingInlineStart: "1.25rem", color: "#33514b", lineHeight: 1.6 }}>
+        <ul style={{ margin: 0, paddingInlineStart: "1.25rem", color: "var(--color-text-muted)", lineHeight: 1.6 }}>
           <li>
             {translate("guide.formula_hybrid", {
               deterministic_weight: guideData.formula.deterministicWeightPct,
@@ -252,10 +252,10 @@ export const GuideRoute = () => {
       </section>
 
       <section id="guide-deterministic" style={cardStyle}>
-        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
+        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
           {translate("guide.deterministic_title")}
         </h2>
-        <p style={{ margin: 0, lineHeight: 1.6, color: "#33514b" }}>
+        <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
           {translate("guide.deterministic_body")}
         </p>
         <div style={{ overflowX: "auto" }}>
@@ -263,7 +263,7 @@ export const GuideRoute = () => {
             <thead>
               <tr>
                 {[translate("guide.det_column_signal"), translate("guide.det_column_target"), translate("guide.det_column_weight")].map((label) => (
-                  <th key={label} style={{ ...tableCellStyle, borderTop: 0, color: "#33514b" }}>
+                  <th key={label} style={{ ...tableCellStyle, borderTop: 0, color: "var(--color-text-muted)" }}>
                     {label}
                   </th>
                 ))}
@@ -283,10 +283,10 @@ export const GuideRoute = () => {
       </section>
 
       <section id="guide-rubric" style={cardStyle}>
-        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
+        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
           {translate("guide.rubric_title")}
         </h2>
-        <p style={{ margin: 0, lineHeight: 1.6, color: "#33514b" }}>
+        <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
           {translate("guide.rubric_body")}
         </p>
         <div style={{ overflowX: "auto" }}>
@@ -294,7 +294,7 @@ export const GuideRoute = () => {
             <thead>
               <tr>
                 {[translate("guide.rubric_column_dimension"), translate("guide.rubric_column_description")].map((label) => (
-                  <th key={label} style={{ ...tableCellStyle, borderTop: 0, color: "#33514b" }}>
+                  <th key={label} style={{ ...tableCellStyle, borderTop: 0, color: "var(--color-text-muted)" }}>
                     {label}
                   </th>
                 ))}
@@ -313,10 +313,10 @@ export const GuideRoute = () => {
       </section>
 
       <section id="guide-gates" style={cardStyle}>
-        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
+        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
           {translate("guide.gates_title")}
         </h2>
-        <p style={{ margin: 0, lineHeight: 1.6, color: "#33514b" }}>
+        <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
           {translate("guide.gates_body")}
         </p>
         <div style={{ overflowX: "auto" }}>
@@ -324,7 +324,7 @@ export const GuideRoute = () => {
             <thead>
               <tr>
                 {[translate("guide.gates_column_gate"), translate("guide.gates_column_rule")].map((label) => (
-                  <th key={label} style={{ ...tableCellStyle, borderTop: 0, color: "#33514b" }}>
+                  <th key={label} style={{ ...tableCellStyle, borderTop: 0, color: "var(--color-text-muted)" }}>
                     {label}
                   </th>
                 ))}
@@ -343,13 +343,13 @@ export const GuideRoute = () => {
       </section>
 
       <section style={cardStyle}>
-        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
+        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
           {translate("guide.cefr_title")}
         </h2>
-        <p style={{ margin: 0, lineHeight: 1.6, color: "#33514b" }}>
+        <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
           {translate("guide.cefr_body")}
         </p>
-        <p style={{ margin: 0, color: "#33514b" }}>
+        <p style={{ margin: 0, color: "var(--color-text-muted)" }}>
           {translate("guide.cefr_dimensions_caption", {
             dimensions: guideData.cefrDimensions.map((dimension) => translate(`guide.dimension_${dimension}`)).join(", "),
           })}
@@ -364,7 +364,7 @@ export const GuideRoute = () => {
                   translate("guide.cefr_column_c1"),
                   translate("guide.cefr_column_c2"),
                 ].map((label) => (
-                  <th key={label} style={{ ...tableCellStyle, borderTop: 0, color: "#33514b" }}>
+                  <th key={label} style={{ ...tableCellStyle, borderTop: 0, color: "var(--color-text-muted)" }}>
                     {label}
                   </th>
                 ))}
@@ -382,7 +382,7 @@ export const GuideRoute = () => {
             </tbody>
           </table>
         </div>
-        <p style={{ margin: 0, color: "#33514b" }}>{translate("guide.cefr_footer")}</p>
+        <p style={{ margin: 0, color: "var(--color-text-muted)" }}>{translate("guide.cefr_footer")}</p>
       </section>
     </div>
   );

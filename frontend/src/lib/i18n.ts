@@ -76,6 +76,7 @@ export const SEMANTIC_IDS = {
     activeConnectionIndicator: "settings.active_connection_indicator",
     defaultConnectionIndicator: "settings.default_connection_indicator",
     uiLocale: "settings.ui_locale",
+    appearance: "settings.appearance",
     provider: "settings.provider",
     connectionLabel: "settings.connection_label",
     model: "settings.model",

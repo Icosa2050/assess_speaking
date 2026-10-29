@@ -11,9 +11,9 @@ const sampleCardStyle = {
   display: "grid",
   gap: "0.6rem",
   padding: "1rem",
-  border: "1px solid rgba(18, 61, 55, 0.1)",
+  border: "1px solid var(--color-border-decorative)",
   borderRadius: "8px",
-  backgroundColor: "rgba(248, 251, 250, 0.96)",
+  backgroundColor: "var(--color-surface-subtle)",
 } as const;
 
 const actionButtonStyle = {
@@ -23,9 +23,9 @@ const actionButtonStyle = {
   minHeight: "40px",
   padding: "0.65rem 0.85rem",
   borderRadius: "8px",
-  border: "1px solid rgba(15, 118, 110, 0.2)",
-  backgroundColor: "#d7ebe5",
-  color: "#10201c",
+  border: "1px solid var(--color-selected-border)",
+  backgroundColor: "var(--color-selected)",
+  color: "var(--color-text)",
   font: "inherit",
   fontWeight: 600,
   cursor: "pointer",
@@ -54,7 +54,7 @@ export const SampleTrialGrid = ({
   translate: ReturnType<typeof createTranslator>;
 }) => {
   if (samples.length === 0) {
-    return <p style={{ margin: 0, color: "#33514b" }}>{translate("library.samples_empty")}</p>;
+    return <p style={{ margin: 0, color: "var(--color-text-muted)" }}>{translate("library.samples_empty")}</p>;
   }
 
   return (
@@ -69,13 +69,13 @@ export const SampleTrialGrid = ({
             key={sample.sample_id}
             style={sampleCardStyle}
           >
-            <span style={{ color: "#33514b", fontSize: "0.9rem", fontWeight: 600 }}>
+            <span style={{ color: "var(--color-text-muted)", fontSize: "0.9rem", fontWeight: 600 }}>
               {translate("library.sample_caption", {
                 language: sample.language.toUpperCase(),
                 cefr: sample.cefr.toUpperCase(),
               })}
             </span>
-            <strong style={{ color: "#10201c" }}>{title}</strong>
+            <strong style={{ color: "var(--color-text)" }}>{title}</strong>
             <button
               type="button"
               onClick={() => onPrepareSample(sample)}

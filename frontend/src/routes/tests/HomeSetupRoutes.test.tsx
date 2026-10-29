@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { queryKeys } from "@/lib/query/queryClient";
 import { readyReadiness, readinessWith } from "@/test/readinessFixtures";
+import * as setupReadiness from "@/lib/setup/readiness";
 
 vi.mock("@/lib/api/client", () => ({
   ApiClientError: class ApiClientError extends Error {
@@ -34,6 +35,7 @@ vi.mock("@/lib/api/client", () => ({
 
 import { apiClient } from "@/lib/api/client";
 import { AppFrame } from "@/App";
+import { practiceReadinessPercent } from "@/routes/HomeRoute";
 
 const mockedGetRuntime = vi.mocked(apiClient.getRuntime);
 const mockedGetDiagnostics = vi.mocked(apiClient.getDiagnostics);
@@ -52,6 +54,10 @@ const optionalTutorReadiness = () => {
 };
 
 describe("Home and Runtime Setup routes", () => {
+  it("keeps readiness complete when no checks are required", () => {
+    expect(practiceReadinessPercent(0, 0)).toBe(100);
+    expect(practiceReadinessPercent(3, 4)).toBe(75);
+  });
   afterEach(() => vi.unstubAllGlobals());
   beforeEach(() => {
     vi.clearAllMocks();
@@ -135,6 +141,26 @@ describe("Home and Runtime Setup routes", () => {
     );
     expect(screen.queryByText("See what is ready and what still needs to be set up.")).not.toBeInTheDocument();
     expect(screen.queryByTestId("home.runtime_setup_button")).not.toBeInTheDocument();
+  });
+
+  it("renders a finite, complete meter when no Home checks are required", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: true, provider: "ollama", model: "local-model", base_url: "http://localhost:11434",
+      requires_api_key: false, has_api_key: false,
+    });
+    mockedGetDiagnostics.mockResolvedValue({ items: [] });
+    const rows = vi.spyOn(setupReadiness, "buildSetupReadinessRows").mockReturnValue([]);
+    try {
+      renderWithProviders(<AppFrame />, { initialEntries: ["/"], locale: "en" });
+      const meter = await screen.findByRole("progressbar", { name: "Practice readiness" });
+      expect(meter).toHaveAttribute("aria-valuenow", "100");
+      expect(meter).toHaveTextContent("0/0");
+      expect(meter).not.toHaveTextContent("NaN");
+      expect(screen.getByText("0 of 0 checks ready")).toBeVisible();
+      expect(await screen.findByText("Ready on this device")).toBeVisible();
+    } finally {
+      rows.mockRestore();
+    }
   });
 
   it("keeps cached Home diagnostics visible after a background refresh fails", async () => {

@@ -38,11 +38,11 @@ const cardStyle = {
   display: "grid",
   gap: "0.875rem",
   padding: "1rem",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
+  border: "1px solid var(--color-border-decorative)",
   borderRadius: "8px",
   background:
-    "linear-gradient(135deg, rgba(215, 235, 229, 0.92), rgba(255, 255, 255, 0.96) 58%, rgba(240, 236, 249, 0.88))",
-  boxShadow: "0 18px 40px rgba(16, 32, 28, 0.06)",
+    "linear-gradient(135deg, var(--color-selected), var(--color-surface) 58%, var(--color-info-bg))",
+  boxShadow: "0 18px 40px var(--color-shadow-ambient)",
 } as const;
 
 const storyGridStyle = {
@@ -58,8 +58,8 @@ const scoreAnchorStyle = {
   minHeight: "7.5rem",
   padding: "0.85rem",
   borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.74)",
-  border: "1px solid rgba(18, 61, 55, 0.10)",
+  backgroundColor: "var(--color-surface)",
+  border: "1px solid var(--color-border-decorative)",
 } as const;
 
 const chipStyle = {
@@ -68,22 +68,22 @@ const chipStyle = {
   minWidth: 0,
   padding: "0.75rem",
   borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.72)",
-  border: "1px solid rgba(18, 61, 55, 0.10)",
+  backgroundColor: "var(--color-surface)",
+  border: "1px solid var(--color-border-decorative)",
 } as const;
 
 const chipLabelStyle = {
   display: "inline-flex",
   alignItems: "center",
   gap: "0.35rem",
-  color: "#33514b",
+  color: "var(--color-text-muted)",
   fontSize: "0.8125rem",
   fontWeight: 750,
 } as const;
 
 const chipValueStyle = {
   margin: 0,
-  color: "#10201c",
+  color: "var(--color-text)",
   fontWeight: 750,
   lineHeight: 1.35,
   overflowWrap: "anywhere",
@@ -235,13 +235,13 @@ export const HistoryProgressStory = ({
       style={cardStyle}
     >
       <div style={{ display: "grid", gap: "0.35rem" }}>
-        <h2 style={{ margin: 0, color: "#10201c", fontSize: "1.35rem" }}>
+        <h2 style={{ margin: 0, color: "var(--color-text)", fontSize: "1.35rem" }}>
           {translate("history.story_title")}
         </h2>
-        <p style={{ margin: 0, color: "#33514b", lineHeight: 1.55 }}>
+        <p style={{ margin: 0, color: "var(--color-text-muted)", lineHeight: 1.55 }}>
           {translate("history.story_body")}
         </p>
-        <p style={{ margin: 0, color: "#33514b", fontSize: "0.875rem", fontWeight: 650 }}>
+        <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "0.875rem", fontWeight: 650 }}>
           {latestContext}
         </p>
       </div>
@@ -256,10 +256,10 @@ export const HistoryProgressStory = ({
             <Icon name="history" size={17} />
             {translate("history.story_score_label")}
           </span>
-          <strong style={{ color: "#10201c", fontSize: "2.2rem", lineHeight: 1 }}>
+          <strong style={{ color: "var(--color-text)", fontSize: "2.2rem", lineHeight: 1 }}>
             {story.latest.scoreLabel}
           </strong>
-          <p style={{ margin: 0, color: "#33514b", fontWeight: 700 }}>
+          <p style={{ margin: 0, color: "var(--color-text-muted)", fontWeight: 700 }}>
             {scoreDeltaText(story.scoreDelta, translate)}
           </p>
         </div>

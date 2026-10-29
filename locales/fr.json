@@ -982,6 +982,10 @@
     "saved_success": "Le thème « {theme} » a été enregistré."
   },
   "settings": {
+    "appearance": "Apparence",
+    "appearance_system": "Système",
+    "appearance_light": "Clair",
+    "appearance_dark": "Sombre",
     "support_native_unavailable": "Mettez à jour l’app de bureau pour enregistrer les paquets d’assistance avec une fenêtre native.",
     "support_bundle_saved": "Paquet d’assistance enregistré.",
     "support_bundle_cancelled": "Enregistrement annulé. Le paquet reste disponible.",

@@ -371,8 +371,8 @@ export const HistoryRoute = () => {
   if (historyQuery.isError) {
     return (
       <section style={cardStyle} data-testid="history-error" data-semantic-id="history-error">
-        <h2 style={{ margin: 0, fontSize: "1.5rem", color: "#10201c" }}>{translate("history.title")}</h2>
-        <p style={{ margin: 0, color: "#b42318", lineHeight: 1.6 }}>{translate("history.error_loading")}</p>
+        <h2 style={{ margin: 0, fontSize: "1.5rem", color: "var(--color-text)" }}>{translate("history.title")}</h2>
+        <p style={{ margin: 0, color: "var(--color-error)", lineHeight: 1.6 }}>{translate("history.error_loading")}</p>
       </section>
     );
   }
@@ -385,8 +385,8 @@ export const HistoryRoute = () => {
             {translate("first_run.milestone_unscored")}
           </StatusBanner>
         </section> : <section style={cardStyle} data-testid="history-empty" data-semantic-id="history-empty">
-          <h2 style={{ margin: 0, fontSize: "1.5rem", color: "#10201c" }}>{translate("history.empty_title")}</h2>
-          <p style={{ margin: 0, color: "#33514b", lineHeight: 1.6 }}>{translate("history.empty_body")}</p>
+          <h2 style={{ margin: 0, fontSize: "1.5rem", color: "var(--color-text)" }}>{translate("history.empty_title")}</h2>
+          <p style={{ margin: 0, color: "var(--color-text-muted)", lineHeight: 1.6 }}>{translate("history.empty_body")}</p>
           <button
             type="button"
             onClick={() => navigate("/session-setup")}

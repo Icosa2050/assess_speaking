@@ -78,9 +78,9 @@ const sectionStyle = {
   maxWidth: "100%",
   overflowWrap: "anywhere",
   padding: "1rem",
-  border: "1px solid rgba(18, 61, 55, 0.1)",
+  border: "1px solid var(--color-border-decorative)",
   borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.92)",
+  backgroundColor: "var(--color-surface)",
 } as const;
 
 const fieldStyle = {
@@ -98,8 +98,8 @@ const inputStyle = {
   border: "1px solid var(--color-border-control)",
   padding: "0.7rem 0.8rem",
   font: "inherit",
-  color: "#10201c",
-  backgroundColor: "rgba(255, 255, 255, 0.96)",
+  color: "var(--color-text)",
+  backgroundColor: "var(--color-surface)",
 } as const;
 
 const actionButtonStyle = {
@@ -109,9 +109,9 @@ const actionButtonStyle = {
   minHeight: "44px",
   padding: "0.75rem 1rem",
   borderRadius: "8px",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
-  backgroundColor: "rgba(255, 255, 255, 0.95)",
-  color: "#10201c",
+  border: "1px solid var(--color-border-control)",
+  backgroundColor: "var(--color-surface)",
+  color: "var(--color-text)",
   fontWeight: 600,
   font: "inherit",
 } as const;
@@ -139,7 +139,7 @@ const providerHint = (
 
 const formStateColor = (state: RuntimeConnectionFormState): string => {
   if (state === "saved" || state === "test-succeeded") {
-    return "#166534";
+    return "var(--color-success)";
   }
   if (
     state === "test-failed" ||
@@ -147,12 +147,12 @@ const formStateColor = (state: RuntimeConnectionFormState): string => {
     state === "default-failed" ||
     state === "delete-failed"
   ) {
-    return "#b42318";
+    return "var(--color-error)";
   }
   if (state === "testing" || state === "saving" || state === "editing") {
-    return "#9a6700";
+    return "var(--color-warning)";
   }
-  return "#33514b";
+  return "var(--color-text-muted)";
 };
 
 type RuntimeConnectionFormProps = {
@@ -339,17 +339,17 @@ export const RuntimeConnectionForm = ({
       <section style={sectionStyle}>
         {variant === "runtime-setup" ? (
           <>
-            <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
+            <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
               {translate("runtime_setup.section_provider")}
             </h2>
-            <p style={{ margin: 0, lineHeight: 1.6, color: "#33514b" }}>
+            <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
               {translate("runtime_setup.local_first_intro")}
             </p>
           </>
         ) : null}
 
         <label style={fieldStyle}>
-          <span style={{ fontWeight: 600, color: "#33514b" }}>{providerFieldLabel}</span>
+          <span style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>{providerFieldLabel}</span>
           <select
             value={providerChoice}
             onChange={(event) => handleProviderChange(event.target.value)}
@@ -367,7 +367,7 @@ export const RuntimeConnectionForm = ({
           </select>
         </label>
 
-        <p style={{ margin: 0, lineHeight: 1.55, color: "#33514b" }}>
+        <p style={{ margin: 0, lineHeight: 1.55, color: "var(--color-text-muted)" }}>
           {providerHint(translate, providerChoice)}
         </p>
 
@@ -389,13 +389,13 @@ export const RuntimeConnectionForm = ({
         {providerChoice === "xai" ? <a href="https://console.x.ai" target="_blank" rel="noopener noreferrer">{translate("chatgpt.xai_console")}</a> : null}
 
         {providerChoice === "ollama_cloud" ? (
-          <p style={{ margin: 0, lineHeight: 1.55, color: "#33514b" }}>
+          <p style={{ margin: 0, lineHeight: 1.55, color: "var(--color-text-muted)" }}>
             {translate("runtime_setup.ollama_cloud_note")}
           </p>
         ) : null}
 
         {providerChoice === "openai_compatible" ? (
-          <p style={{ margin: 0, lineHeight: 1.55, color: "#33514b" }}>
+          <p style={{ margin: 0, lineHeight: 1.55, color: "var(--color-text-muted)" }}>
             {translate("runtime_setup.openai_compatible_note")}
           </p>
         ) : null}
@@ -409,13 +409,13 @@ export const RuntimeConnectionForm = ({
       ) : <>
       <section style={sectionStyle}>
         {variant === "runtime-setup" ? (
-          <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
+          <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
             {translate("runtime_setup.section_connection")}
           </h2>
         ) : null}
 
         <label style={fieldStyle}>
-          <span style={{ fontWeight: 600, color: "#33514b" }}>
+          <span style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>
             {translate(`${copyRoot}.connection_label`)}
           </span>
           <input
@@ -428,7 +428,7 @@ export const RuntimeConnectionForm = ({
         </label>
 
         <label style={fieldStyle}>
-          <span style={{ fontWeight: 600, color: "#33514b" }}>
+          <span style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>
             {translate(`${copyRoot}.model`)}
           </span>
           {providerChoice === "groq" ? (
@@ -460,7 +460,7 @@ export const RuntimeConnectionForm = ({
 
         {providerChoice !== "groq" && detectedModels.length > 0 ? (
           <label style={fieldStyle}>
-            <span style={{ fontWeight: 600, color: "#33514b" }}>
+            <span style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>
               {translate("runtime_setup.detected_local_models_label")}
             </span>
             <select
@@ -484,15 +484,15 @@ export const RuntimeConnectionForm = ({
         ) : null}
 
         {providerChoice === "groq" ? (
-          <p style={{ margin: 0, lineHeight: 1.55, color: "#33514b" }}>{translate("runtime_setup.groq_models.help")}</p>
+          <p style={{ margin: 0, lineHeight: 1.55, color: "var(--color-text-muted)" }}>{translate("runtime_setup.groq_models.help")}</p>
         ) : null}
 
         {providerChoice !== "groq" && detectedModelMessage ? (
-          <p style={{ margin: 0, lineHeight: 1.55, color: "#33514b" }}>{detectedModelMessage}</p>
+          <p style={{ margin: 0, lineHeight: 1.55, color: "var(--color-text-muted)" }}>{detectedModelMessage}</p>
         ) : null}
 
         <label style={fieldStyle}>
-          <span style={{ fontWeight: 600, color: "#33514b" }}>
+          <span style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>
             {translate(`${copyRoot}.base_url`)}
           </span>
           <input
@@ -520,7 +520,7 @@ export const RuntimeConnectionForm = ({
 
         {showApiKeyField ? (
           <label style={fieldStyle}>
-            <span style={{ fontWeight: 600, color: "#33514b" }}>
+            <span style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>
               {translate(`${copyRoot}.api_key`)}
             </span>
             <input
@@ -536,7 +536,7 @@ export const RuntimeConnectionForm = ({
         {providerChoice === "openrouter" ? (
           <>
             <label style={fieldStyle}>
-              <span style={{ fontWeight: 600, color: "#33514b" }}>
+              <span style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>
                 {translate(`${copyRoot}.openrouter_http_referer`)}
               </span>
               <input
@@ -553,7 +553,7 @@ export const RuntimeConnectionForm = ({
             </label>
 
             <label style={fieldStyle}>
-              <span style={{ fontWeight: 600, color: "#33514b" }}>
+              <span style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>
                 {translate(`${copyRoot}.openrouter_app_title`)}
               </span>
               <input
@@ -576,7 +576,7 @@ export const RuntimeConnectionForm = ({
         >
           {clearStage === "confirming" ? (
             <>
-              <p style={{ margin: 0, lineHeight: 1.55, color: "#9a6700" }}>
+              <p style={{ margin: 0, lineHeight: 1.55, color: "var(--color-warning)" }}>
                 {translate(`${copyRoot}.clear_saved_key_confirm`)}
               </p>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem" }}>
@@ -600,7 +600,7 @@ export const RuntimeConnectionForm = ({
             </>
           ) : clearStage === "undo" ? (
             <>
-              <p style={{ margin: 0, lineHeight: 1.55, color: "#9a6700" }}>
+              <p style={{ margin: 0, lineHeight: 1.55, color: "var(--color-warning)" }}>
                 {translate(`${copyRoot}.secret_clear_pending`)}
               </p>
               <button
@@ -614,7 +614,7 @@ export const RuntimeConnectionForm = ({
             </>
           ) : initialSecretState === "present" ? (
             <>
-              <p style={{ margin: 0, lineHeight: 1.55, color: "#33514b" }}>
+              <p style={{ margin: 0, lineHeight: 1.55, color: "var(--color-text-muted)" }}>
                 {translate(`${copyRoot}.secret_saved_state`)}
               </p>
               {variant === "runtime-setup" && providerCanUseApiKey && !replaceSecret ? (
@@ -627,13 +627,13 @@ export const RuntimeConnectionForm = ({
                   {translate("runtime_setup.replace_saved_key")}
                 </button>
               ) : showApiKeyField ? (
-                <p style={{ margin: 0, lineHeight: 1.55, color: "#33514b" }}>
+                <p style={{ margin: 0, lineHeight: 1.55, color: "var(--color-text-muted)" }}>
                   {translate(`${copyRoot}.secret_keep_blank_hint`)}
                 </p>
               ) : null}
             </>
           ) : initialSecretState === "missing" ? (
-            <p style={{ margin: 0, lineHeight: 1.55, color: "#9a6700" }}>
+            <p style={{ margin: 0, lineHeight: 1.55, color: "var(--color-warning)" }}>
               {translate(`${copyRoot}.secret_missing_state`)}
             </p>
           ) : null}
@@ -654,10 +654,10 @@ export const RuntimeConnectionForm = ({
       <section style={sectionStyle}>
         {variant === "runtime-setup" ? (
           <>
-            <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
+            <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
               {translate("runtime_setup.section_actions")}
             </h2>
-            <p style={{ margin: 0, lineHeight: 1.6, color: "#33514b" }}>
+            <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
               {translate("runtime_setup.actions_body")}
             </p>
           </>

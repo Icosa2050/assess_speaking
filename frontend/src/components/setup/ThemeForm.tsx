@@ -11,17 +11,17 @@ const sectionStyle = {
   display: "grid",
   gap: "1rem",
   padding: "1.25rem",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
+  border: "1px solid var(--color-border-decorative)",
   borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.94)",
-  boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
+  backgroundColor: "var(--color-surface)",
+  boxShadow: "0 18px 40px var(--color-shadow-ambient)",
 } as const;
 
 const labelStyle = {
   display: "grid",
   gap: "0.375rem",
   minWidth: 0,
-  color: "#10201c",
+  color: "var(--color-text)",
   fontWeight: 600,
 } as const;
 
@@ -32,8 +32,8 @@ const controlStyle = {
   padding: "0.75rem 0.875rem",
   borderRadius: "8px",
   border: "1px solid var(--color-border-control)",
-  backgroundColor: "#fff",
-  color: "#10201c",
+  backgroundColor: "var(--color-surface)",
+  color: "var(--color-text)",
   font: "inherit",
 } as const;
 
@@ -41,7 +41,7 @@ const checkboxRowStyle = {
   display: "flex",
   alignItems: "start",
   gap: "0.625rem",
-  color: "#10201c",
+  color: "var(--color-text)",
 } as const;
 
 const fieldsetStyle = {
@@ -53,25 +53,25 @@ const fieldsetStyle = {
   margin: 0,
   padding: "0.25rem 0 0.25rem 0.875rem",
   border: "0",
-  borderLeft: "3px solid rgba(15, 118, 110, 0.18)",
+  borderLeft: "3px solid var(--color-selected-border)",
 } as const;
 
 const legendStyle = {
   padding: 0,
   marginBottom: "0.125rem",
-  color: "#10201c",
+  color: "var(--color-text)",
   fontWeight: 700,
 } as const;
 
 const groupBodyStyle = {
   margin: 0,
-  color: "#48645e",
+  color: "var(--color-text-muted)",
   lineHeight: 1.5,
 } as const;
 
 const helperTextStyle = {
   margin: 0,
-  color: "#48645e",
+  color: "var(--color-text-muted)",
   fontSize: "0.92rem",
   lineHeight: 1.45,
 } as const;
@@ -81,8 +81,8 @@ const stepperStyle = {
   gap: "0.75rem",
   padding: "0.875rem",
   borderRadius: "8px",
-  backgroundColor: "rgba(239, 248, 245, 0.96)",
-  border: "1px solid rgba(15, 118, 110, 0.12)",
+  backgroundColor: "var(--color-surface-subtle)",
+  border: "1px solid var(--color-selected-border)",
 } as const;
 
 const stepListStyle = {
@@ -103,8 +103,8 @@ const secondaryButtonStyle = {
   padding: "0.75rem 0.95rem",
   borderRadius: "8px",
   border: "1px solid var(--color-border-control)",
-  backgroundColor: "#fff",
-  color: "#10201c",
+  backgroundColor: "var(--color-surface)",
+  color: "var(--color-text)",
   fontWeight: 700,
   font: "inherit",
   cursor: "pointer",
@@ -114,9 +114,9 @@ const primaryButtonStyle = {
   minHeight: "44px",
   padding: "0.875rem 1rem",
   borderRadius: "8px",
-  border: "1px solid rgba(15, 118, 110, 0.2)",
-  backgroundColor: "#d7ebe5",
-  color: "#10201c",
+  border: "1px solid var(--color-selected-border)",
+  backgroundColor: "var(--color-selected)",
+  color: "var(--color-text)",
   fontWeight: 700,
   font: "inherit",
   cursor: "pointer",
@@ -222,9 +222,9 @@ export const ThemeForm = ({
       minHeight: "44px",
       padding: "0.7rem 0.8rem",
       borderRadius: "8px",
-      border: active ? "1px solid rgba(15, 118, 110, 0.38)" : "1px solid rgba(18, 61, 55, 0.12)",
-      backgroundColor: active ? "#d7ebe5" : "rgba(255, 255, 255, 0.86)",
-      color: "#10201c",
+      border: active ? "1px solid var(--color-selected-border)" : "1px solid var(--color-border-control)",
+      backgroundColor: active ? "var(--color-selected)" : "var(--color-surface)",
+      color: "var(--color-text)",
       cursor: "pointer",
       font: "inherit",
       fontWeight: 700,
@@ -261,7 +261,7 @@ export const ThemeForm = ({
         style={{
           margin: 0,
           fontSize: "1.5rem",
-          color: "#10201c",
+          color: "var(--color-text)",
         }}
       >
         {translate("setup.title")}
@@ -270,7 +270,7 @@ export const ThemeForm = ({
         style={{
           margin: 0,
           lineHeight: 1.6,
-          color: "#33514b",
+          color: "var(--color-text-muted)",
         }}
       >
         {translate("setup.body")}
@@ -284,7 +284,7 @@ export const ThemeForm = ({
           style={{
             margin: 0,
             paddingLeft: "1.125rem",
-            color: "#b42318",
+            color: "var(--color-error)",
             display: "grid",
             gap: "0.375rem",
           }}
@@ -448,7 +448,7 @@ export const ThemeForm = ({
                 onAdvancedTopicOpenChange(!advancedTopicOpen);
               }}
               style={{
-                color: "#10201c",
+                color: "var(--color-text)",
                 cursor: "pointer",
                 fontWeight: 700,
               }}

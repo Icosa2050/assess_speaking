@@ -3,6 +3,7 @@ import { useStore } from "zustand";
 import { createStore, type StoreApi } from "zustand/vanilla";
 
 import type { MicrophoneStatus } from "@/lib/setup/microphone";
+import { persistAppearance, type Appearance } from "./appearance";
 import { clearRetryDraft, persistRetryDraft, readRetryDraft } from "./retryBriefStorage";
 
 import { detectPreferredUiLocale, resolveUiLocale } from "@/lib/i18n";
@@ -56,6 +57,7 @@ export interface AppStoreActions {
   setMicrophoneVoiceProcessing: (enabled: boolean) => void;
   invalidateMicrophoneSetup: () => void;
   setUiLocale: (locale: string) => void;
+  setAppearance: (appearance: Appearance) => void;
   setActiveConnectionId: (connectionId: string) => void;
   setSetupComplete: (setupComplete: boolean) => void;
   setCurrentPage: (pageId: string) => void;
@@ -125,6 +127,10 @@ export const createAppStore = (seed: AppStoreSeed = {}): AppStoreApi => {
           uiLocale: resolveUiLocale(locale),
         },
       })),
+    setAppearance: (appearance) => {
+      persistAppearance(appearance);
+      set((state) => ({ preferences: { ...state.preferences, appearance } }));
+    },
     setActiveConnectionId: (connectionId) =>
       set((state) => ({
         preferences: {

@@ -4,10 +4,10 @@ const cardStyle = {
   display: "grid",
   gap: "0.875rem",
   padding: "1.25rem",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
+  border: "1px solid var(--color-border-decorative)",
   borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.94)",
-  boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
+  backgroundColor: "var(--color-surface)",
+  boxShadow: "0 18px 40px var(--color-shadow-ambient)",
 } as const;
 
 const detailGridStyle = {
@@ -20,16 +20,16 @@ const detailItemStyle = {
   display: "grid",
   gap: "0.25rem",
   padding: "0.75rem 0",
-  borderTop: "1px solid rgba(18, 61, 55, 0.1)",
+  borderTop: "1px solid var(--color-border-decorative)",
 } as const;
 
 const briefQuoteStyle = {
   margin: 0,
   padding: "1rem",
-  borderLeft: "4px solid rgba(15, 118, 110, 0.4)",
+  borderLeft: "4px solid var(--color-selected-border)",
   borderRadius: "0 8px 8px 0",
-  backgroundColor: "rgba(239, 248, 245, 0.98)",
-  color: "#10201c",
+  backgroundColor: "var(--color-surface-subtle)",
+  color: "var(--color-text)",
   fontSize: "1.05rem",
   lineHeight: 1.55,
   fontWeight: 600,
@@ -39,7 +39,7 @@ const receiptCardStyle = {
   ...cardStyle,
   gap: "0.75rem",
   boxShadow: "none",
-  backgroundColor: "rgba(255, 255, 255, 0.84)",
+  backgroundColor: "var(--color-surface)",
 } as const;
 
 const semanticAttributes = (id: string): Record<string, string> => ({
@@ -80,7 +80,7 @@ export const PracticeBriefCard = ({
         style={{
           margin: 0,
           fontSize: "1.35rem",
-          color: "#10201c",
+          color: "var(--color-text)",
         }}
       >
         {translate("setup.preview_title")}
@@ -88,7 +88,7 @@ export const PracticeBriefCard = ({
       <p
         style={{
           margin: 0,
-          color: "#33514b",
+          color: "var(--color-text-muted)",
           fontWeight: 600,
         }}
       >
@@ -103,7 +103,7 @@ export const PracticeBriefCard = ({
           >
             <strong
               style={{
-                color: "#10201c",
+                color: "var(--color-text)",
               }}
             >
               {translate("setup.success_focus_title")}
@@ -114,7 +114,7 @@ export const PracticeBriefCard = ({
                 paddingLeft: "1.125rem",
                 display: "grid",
                 gap: "0.375rem",
-                color: "#33514b",
+                color: "var(--color-text-muted)",
               }}
             >
               {successFocus.map((item, index) => (
@@ -127,7 +127,7 @@ export const PracticeBriefCard = ({
         <p
           style={{
             margin: 0,
-            color: "#33514b",
+            color: "var(--color-text-muted)",
             lineHeight: 1.6,
           }}
         >
@@ -145,7 +145,7 @@ export const PracticeBriefCard = ({
         style={{
           margin: 0,
           fontSize: "1.35rem",
-          color: "#10201c",
+          color: "var(--color-text)",
         }}
       >
         {translate("setup.selection_title")}
@@ -155,14 +155,14 @@ export const PracticeBriefCard = ({
           <div key={`${detail.label}-${index}`} style={detailItemStyle}>
             <strong
               style={{
-                color: "#48645e",
+                color: "var(--color-text-muted)",
               }}
             >
               {detail.label}
             </strong>
             <span
               style={{
-                color: "#10201c",
+                color: "var(--color-text)",
               }}
             >
               {detail.value}
@@ -174,7 +174,7 @@ export const PracticeBriefCard = ({
         <p
           style={{
             margin: 0,
-            color: "#33514b",
+            color: "var(--color-text-muted)",
             lineHeight: 1.6,
           }}
         >
@@ -188,14 +188,14 @@ export const PracticeBriefCard = ({
             gap: "0.35rem",
             padding: "0.875rem",
             borderRadius: "8px",
-            border: "1px solid rgba(15, 118, 110, 0.14)",
-            backgroundColor: "rgba(239, 248, 245, 0.96)",
+            border: "1px solid var(--color-selected-border)",
+            backgroundColor: "var(--color-surface-subtle)",
           }}
           {...semanticAttributes("setup.runtime_callout")}
         >
           <strong
             style={{
-              color: "#10201c",
+              color: "var(--color-text)",
             }}
           >
             {runtimeCalloutTitle}
@@ -203,7 +203,7 @@ export const PracticeBriefCard = ({
           <p
             style={{
               margin: 0,
-              color: "#33514b",
+              color: "var(--color-text-muted)",
               lineHeight: 1.5,
             }}
           >
@@ -214,7 +214,7 @@ export const PracticeBriefCard = ({
       <p
         style={{
           margin: 0,
-          color: "#33514b",
+          color: "var(--color-text-muted)",
           lineHeight: 1.6,
         }}
       >
