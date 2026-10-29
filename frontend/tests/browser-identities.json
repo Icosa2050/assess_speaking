@@ -108,7 +108,19 @@
       "e2e/reviewHistoryFlow.spec.ts",
       "",
       "review and history replacement flow",
+      "History chart table and focus outline are reachable at desktop and narrow widths"
+    ],
+    [
+      "e2e/reviewHistoryFlow.spec.ts",
+      "",
+      "review and history replacement flow",
       "keeps empty Review and History states actionable"
+    ],
+    [
+      "e2e/reviewHistoryFlow.spec.ts",
+      "",
+      "review and history replacement flow",
+      "labels one and several unscored History takes without implying a score"
     ],
     [
       "e2e/reviewHistoryFlow.spec.ts",

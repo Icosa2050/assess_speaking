@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import type { ReviewState } from "@/lib/state/sessionDraft";
+import { TranscriptFeedback } from "./TranscriptFeedback";
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
 
@@ -858,6 +859,7 @@ export const ReviewSummary = ({
               data-semantic-id="review-transcript"
             />
           </label>
+          <TranscriptFeedback transcript={summary.transcript} suggestions={summary.styleSuggestions} translate={translate} />
           <details data-testid="review-raw-payload" data-semantic-id="review-raw-payload">
             <summary style={{ cursor: "pointer", fontWeight: 600, color: "#10201c" }}>
               {translate("review.raw_payload")}

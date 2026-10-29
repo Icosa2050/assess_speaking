@@ -99,6 +99,27 @@
     "milestone_unscored": "A recording on this Mac counts as progress. A score is not available here; try another take when you are ready.",
     "milestone_next": "Try another take"
   },
+  "history_slice10": {
+    "chart_table_caption": "Chart data: {metric}",
+    "chart_table_date": "Date and time",
+    "chart_table_task": "Practice task",
+    "annotation_intro": "Annotated copy of the transcript. Select an underlined phrase to read its suggestion. Every available non-overlapping occurrence is marked.",
+    "annotation_label": "Feedback for “{phrase}”",
+    "annotation_suggestion": "Suggestion: {suggestion}.",
+    "unverified_comparison": "Earlier take is not verified for comparison. Both takes remain in your saved reviews.",
+    "since_verified_previous": "Score change from verified previous take: {delta}",
+    "chart_one_context": "One take shown. No verified score comparison is available.",
+    "chart_points_summary": "{count} takes in the data table; {points} plotted points, from {first} to {last}.",
+    "no_estimate": "No estimate for this take. Your recording still counts as practice.",
+    "unscored_comparison": "This take has no estimate, so no score comparison is shown.",
+    "comparison_loading": "Checking whether a score comparison is available…",
+    "comparison_error": "Comparison unavailable while this saved report cannot be loaded.",
+    "chart_point_summary": "{count} takes in the data table; 1 plotted point: {first}.",
+    "chart_one_take_summary": "1 take in the data table; 1 plotted point: {first}.",
+    "unscored_activity_title": "Practice recorded without a score",
+    "chart_selected": "Selected",
+    "out_of_five": "out of 5"
+  },
   "home": {
     "practice_checks": "{ready} of {total} checks ready",
     "title": "Vostavo",

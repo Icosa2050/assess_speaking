@@ -22,14 +22,25 @@ import type { HistoryRow } from "@/lib/api/types";
 
 const ALL_HISTORY_LANGUAGES = "__all__";
 
+export const verifiedComparisonParentId = (payload: unknown): string | null => {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const report = (payload as Record<string, unknown>).report;
+  if (!report || typeof report !== "object" || Array.isArray(report)) return null;
+  const delta = (report as Record<string, unknown>).progress_delta;
+  if (!delta || typeof delta !== "object" || Array.isArray(delta)) return null;
+  const record = delta as Record<string, unknown>;
+  return record.comparison_verified === true && typeof record.previous_session_id === "string" && record.previous_session_id.trim()
+    ? record.previous_session_id : null;
+};
+
 const cardStyle = {
   display: "grid",
   gap: "0.875rem",
   padding: "1.25rem",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
-  borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.94)",
-  boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
+  border: "var(--border-width) solid var(--color-border-decorative)",
+  borderRadius: "var(--radius-card)",
+  backgroundColor: "var(--color-surface)",
+  boxShadow: "var(--shadow-card)",
 } as const;
 
 const routeGridStyle = {
@@ -39,10 +50,10 @@ const routeGridStyle = {
 const selectStyle = {
   minHeight: "44px",
   padding: "0.75rem 0.875rem",
-  borderRadius: "8px",
+  borderRadius: "var(--radius-control)",
   border: "1px solid var(--color-border-control)",
-  backgroundColor: "#fff",
-  color: "#10201c",
+  backgroundColor: "var(--color-surface)",
+  color: "var(--color-text)",
   font: "inherit",
 } as const;
 
@@ -52,10 +63,10 @@ const primaryButtonStyle = {
   justifyContent: "center",
   minHeight: "44px",
   padding: "0.75rem 1rem",
-  borderRadius: "8px",
-  border: "1px solid rgba(15, 118, 110, 0.2)",
-  backgroundColor: "#d7ebe5",
-  color: "#10201c",
+  borderRadius: "var(--radius-control)",
+  border: "var(--border-width) solid var(--color-brand)",
+  backgroundColor: "var(--color-brand)",
+  color: "var(--color-on-brand)",
   fontWeight: 600,
   font: "inherit",
   cursor: "pointer",
@@ -401,6 +412,7 @@ export const HistoryRoute = () => {
   const selectedPractice = selectedSessionId
     ? practiceRows.find((row) => row.session_id === selectedSessionId) ?? null
     : null;
+  const verifiedPreviousId = verifiedComparisonParentId(detailQuery.data?.payload);
 
   return (
     <div
@@ -439,6 +451,11 @@ export const HistoryRoute = () => {
           {scopeCaption({ count: filteredRecords.length, selectedLanguage, speakerScope, translate })}
         </p>
       </section>
+      {!historyQuery.isPending && filteredRecords.length > 0 && !filteredRecords.some(row => row.finalScore !== null) && <StatusBanner
+        title={translate(filteredRecords.length === 1 ? "first_run.milestone_title" : "history_slice10.unscored_activity_title")}
+        tone="success"
+        action={<Link to="/session-setup">{translate("first_run.milestone_next")}</Link>}
+      >{translate("first_run.milestone_unscored")}</StatusBanner>}
       {historyQuery.isPending ? <p role="status">{translate("journey.loading")}</p> :
         filteredRecords.length === 0 ? <section style={cardStyle} data-testid="history-empty-filtered">
           <p>{translate("history.empty_filtered")}</p>
@@ -450,6 +467,8 @@ export const HistoryRoute = () => {
         rows={practiceRows}
         selected={selectedPractice}
         locale={locale}
+        verifiedPreviousId={verifiedPreviousId}
+        comparisonState={detailQuery.isPending ? "loading" : detailQuery.isError ? "error" : "ready"}
         onSelect={setSelectedSessionId}
         onRetry={(row) => {
           const savedDraft = retryDraft(row);

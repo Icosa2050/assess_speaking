@@ -1,18 +1,20 @@
-.panel { min-width: 0; padding: 1.25rem; background: #fff; border: 1px solid #d2e2dc; border-radius: 12px; color: #163c33; }
-.heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
-.heading h2 { margin: 0; font-size: 1.2rem; }
-.count { border-radius: 99px; background: #e9f2ed; padding: .3rem .65rem; font-weight: 700; }
-.hint { color: #496459; font-size: .875rem; line-height: 1.5; }
-.list { display: grid; gap: .75rem; list-style: none; margin: 0; padding: .5rem; max-height: 70vh; overflow-y: auto; }
-.card { display: grid; gap: .5rem; width: 100%; min-width: 0; text-align: left; font: inherit; color: inherit; padding: 1rem; border: 1px solid #d2e2dc; border-radius: 10px; background: #fff; overflow-wrap: anywhere; }
-button.card { cursor: pointer; }
-button.card:hover { border-color: #468572; background: #f4f9f6; }
-.card[data-selected="true"] { background: #edf6ef; border-color: #287258; box-shadow: inset 3px 0 #287258; }
+.panel { min-width: 0; padding: var(--space-6); background: var(--color-surface); border: var(--border-width) solid var(--color-border-decorative); border-radius: var(--radius-card); color: var(--color-text); }
+.heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.heading h2 { margin: 0; font-size: var(--font-size-title); }
+.count { border-radius: var(--radius-pill); background: var(--color-surface-subtle); padding: var(--space-1) var(--space-2); font-weight: var(--weight-bold); }
+.hint { color: var(--color-text-muted); font-size: var(--font-size-compact); line-height: var(--line-height-compact); }
+.list { display: grid; gap: var(--space-3); list-style: none; margin: 0; padding: var(--space-1); max-height: 70vh; overflow-y: auto; }
+.item { min-width: 0; }
+.topic { margin: 0; font-size: inherit; font-weight: inherit; }
+.topicText { font-size: var(--font-size-title); font-weight: var(--weight-bold); line-height: var(--line-height-title); overflow-wrap: anywhere; }
+.card { display: grid; gap: var(--space-2); width: 100%; min-width: 0; text-align: left; font: inherit; color: inherit; padding: var(--space-2); border: var(--border-width) solid var(--color-border-control); border-radius: var(--radius-control); background: var(--color-surface); overflow-wrap: anywhere; }
+button.card { cursor: pointer; min-height: var(--control-height); }
+button.card:hover { background: var(--color-surface-subtle); }
+.card[data-selected="true"] { background: var(--color-selected); border-color: var(--color-selected-border); }
 .card:focus-visible { outline: var(--focus-width) solid var(--color-focus); outline-offset: var(--focus-offset); }
-.meta, .learner { color: #496459; font-size: .8rem; line-height: 1.5; }
-.topic { font-size: 1rem; font-weight: 750; line-height: 1.4; }
-.metrics { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; font-size: .8rem; }
-.score { background: #e5efea; border-radius: 6px; padding: .3rem .5rem; font-weight: 700; }
-.focus { color: #496459; font-size: .875rem; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.action { font-size: .8rem; font-weight: 700; color: #22654f; margin-top: .25rem; }
+.meta, .learner { color: var(--color-text-muted); font-size: var(--font-size-compact); line-height: var(--line-height-compact); }
+.metrics { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: var(--font-size-compact); }
+.score { background: var(--color-brand-tint); border: var(--border-width) solid var(--color-border-control); border-radius: var(--radius-control); padding: var(--space-1) var(--space-2); font-weight: var(--weight-bold); }
+.focus { color: var(--color-text-muted); font-size: var(--font-size-compact); line-height: var(--line-height-compact); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.action { font-size: var(--font-size-compact); font-weight: var(--weight-bold); color: var(--color-brand); }
 @media (max-width: 1000px) { .list { max-height: 55vh; } }
