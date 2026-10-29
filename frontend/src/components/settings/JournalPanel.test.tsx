@@ -72,13 +72,19 @@ describe("journal recovery visibility", () => {
     expect(screen.getByRole("button", {name: "Confirm: start fresh"})).toBeEnabled();
     expect(screen.getByText(/Saved reports, history, recordings and uploads stay in place/)).toBeVisible();
     expect(startFreshJournal).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", {name: t("journal.cancel")}));
+    expect(screen.getByRole("dialog", {name: "Start a fresh journal?"})).toBeVisible();
+    expect(document.activeElement).toBe(screen.getByRole("button", {name: "Cancel and keep current state"}));
+    expect(screen.getByText(/Kept: saved reports, history, recordings, and uploads/)).toBeVisible();
+    expect(screen.getByText(/Replaced: the damaged recovery journal/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", {name: "Cancel and keep current state"}));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", {name: "Start a fresh journal"})));
     expect(startFreshJournal).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", {name: "Start a fresh journal"}));
     status.mockResolvedValue(clean);
     fireEvent.click(screen.getByRole("button", {name: "Confirm: start fresh"}));
     await waitFor(() => expect(startFreshJournal).toHaveBeenCalledOnce());
     expect(await screen.findByText(t("journal.fresh_done"))).toBeVisible();
+    expect(document.activeElement).toBe(screen.getByText(t("journal.fresh_done")));
     expect(store.getState().draft.coachingGoal).toBe("");
     expect(store.getState().draft.retryOfSessionId).toBe("");
   });
@@ -206,6 +212,7 @@ describe("journal recovery visibility", () => {
     status.mockResolvedValue(value);
     renderWithProviders(<JournalPanel locale="en" />);
     await waitFor(() => {
+    expect(screen.getByTestId("journal-state")).toHaveTextContent(value.recovery_error ? "Journal damaged" : value.transaction ? "Restore pending" : "Journal healthy");
     expect(screen.getByLabelText(t(value.recovery_error ? "journal.restore_backup" : "journal.open"))).toHaveProperty("disabled", !exits);
     expect(screen.getByRole("button", {name: t("journal.backup")})).toHaveProperty("disabled", !backup);
     for (const key of ["journal.recover", "journal.rollback"]) {

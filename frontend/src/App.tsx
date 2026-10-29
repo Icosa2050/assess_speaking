@@ -115,7 +115,7 @@ export const AppFrame = () => {
         {
           id: "preferences",
           label: translate("nav.preferences"),
-          items: [item("/guide", translate("nav.how_scores_work")), item("/settings")],
+          items: [item("/guide", translate("nav.how_scores_work")), item("/settings#your-data", translate("your_data.title")), item("/settings")],
         },
       ];
     },

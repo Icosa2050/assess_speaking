@@ -21,6 +21,8 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
   const beginNewSession = useAppStore((state) => state.beginNewSession);
   const cache = useQueryClient();
   const controller = useRef<AbortController | null>(null);
+  const freshDialog = useRef<HTMLDialogElement>(null);
+  const messageRef = useRef<HTMLParagraphElement>(null);
   const [confirmFresh, setConfirmFresh] = useState(false);
   const [diagnostics, setDiagnostics] = useState<SupportBundleCreateResponse | null>(null);
   const [committing, setCommitting] = useState(false);
@@ -28,6 +30,7 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [allowMissing, setAllowMissing] = useState(false);
+  const [restoreName, setRestoreName] = useState("");
   const [backup, setBackup] = useState<BackupResult | null>(null);
   const [preview, setPreview] = useState<RestorePreview | null>(null);
   const [status, setStatus] = useState<JournalStatus | null>(null);
@@ -70,6 +73,17 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
     }
   };
   useEffect(() => preview ? ownJournalPreview(preview.id) : undefined, [preview?.id]);
+  useEffect(() => { if (preview) document.getElementById("journal-preview-heading")?.focus(); }, [preview]);
+  useEffect(() => { if (message && !busy) messageRef.current?.focus(); }, [message, busy]);
+  useEffect(() => {
+    const dialog = freshDialog.current;
+    if (!dialog || !confirmFresh) return;
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    else dialog.setAttribute("open", "");
+    document.getElementById("fresh-cancel")?.focus();
+    return () => { if (typeof dialog.close === "function" && dialog.open) dialog.close(); };
+  }, [confirmFresh]);
+  const cancelFresh = () => { setConfirmFresh(false); window.setTimeout(() => document.getElementById("journal-fresh")?.focus(), 0); };
   const pendingTransaction = !!status?.transaction && status.transaction.phase !== "recovery_error";
   const activeTransaction = pendingTransaction && !status?.recovery_retryable;
   const refresh = async () => { setStatus(await journalRecoveryStatus()); setArchived(await listArchivedRehearsals()); };
@@ -86,37 +100,53 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
     void listArchivedRehearsals().then(value => { if (active) setArchived(value); }).catch(failed);
     return () => { active = false; controller.current?.abort(); };
   }, []);
-  return <Card as="section" className={styles.panel} data-testid="journal-panel">
-    <h2>{t("journal.title")}</h2><p>{t("journal.body")}</p><p>{t("journal.limit")}</p>
-    {message && <p role="status">{message}</p>}{error && <StatusBanner title={error} tone="error" urgent />}
-    {status?.recovery_error && <div className={styles.actionGroup}>
-      <StatusBanner title={status.recovery_error} tone="error" urgent />
-      <p>{t("journal.damaged_guidance")}</p>
-      <p>{t("journal.diagnostics_note")}</p>
+  const stateLabel = status?.recovery_error ? t("your_data.state_damaged") : pendingTransaction ? t("your_data.state_pending") : status ? t("your_data.state_healthy") : t("your_data.state_loading");
+  return <Card as="section" id="your-data" className={styles.panel} data-testid="journal-panel" aria-labelledby="your-data-title">
+    <header className={styles.header}><div><h2 id="your-data-title" tabIndex={-1}>{t("your_data.title")}</h2><p>{t("journal.body")}</p></div><span className={styles.state} data-testid="journal-state" aria-live="polite">{t("your_data.status_heading")}: {stateLabel}</span></header>
+    {message && <p ref={messageRef} tabIndex={-1} role="status">{message}</p>}{error && <StatusBanner title={error} tone="error" urgent />}
+    {status?.recovery_error && <StatusBanner title={status.recovery_error} tone="error" urgent />}
+    {status?.recovery_error && <div className={`${styles.actionGroup} ${styles.safeCard}`}>
+      <span className={styles.eyebrow}>{t("your_data.safe_to_try")}</span>
+      <h3>{t("journal.diagnostics")}</h3>
+      <p>{t("your_data.safe_note")}</p><p>{t("journal.diagnostics_note")}</p>
       <Button variant="primary" id="journal-diagnostics" disabled={busy || activeTransaction} onClick={() => void run(async () => {
         const result = await exportJournalDiagnostics(); setDiagnostics(result); await saveDiagnostics(result);
       })}>{t("journal.diagnostics")}</Button>
-      <Button variant="quiet" id="journal-fresh" disabled={busy || activeTransaction} onClick={() => setConfirmFresh(true)}>{t("journal.fresh")}</Button>
-      {confirmFresh && <div className={styles.actionGroup} role="group" aria-label={t("journal.confirm_fresh")}>
-        <p>{t("journal.fresh_note")}</p>
-        <Button variant="danger" disabled={busy || activeTransaction} onClick={() => void run(async () => {
-          await startFreshJournal(); beginNewSession(); setConfirmFresh(false); await refresh(); setMessage(t("journal.fresh_done"));
-        })}>{t("journal.confirm_fresh")}</Button>
-        <Button variant="secondary" disabled={busy} onClick={() => setConfirmFresh(false)}>{t("journal.cancel")}</Button>
-      </div>}
     </div>}
     {diagnostics && <Button disabled={busy} onClick={() => void run(() => saveDiagnostics(diagnostics))}>{t("settings.support_bundle_save_again")}</Button>}
-    <label><input type="checkbox" checked={allowMissing} onChange={e => setAllowMissing(e.target.checked)} disabled={busy} /> {t("journal.allow_missing")}</label>
-    <Button variant="primary" disabled={busy || !!preview || activeTransaction || !!status?.recovery_error} onClick={() => void run(async signal => { const result = await createLearnerBackup(allowMissing, progress, signal); setBackup(result); await save(result); })}>{t("journal.backup")}</Button>
-    {backup && <Button disabled={busy} onClick={() => void run(() => save(backup))}>{t("journal.save_again")}</Button>}
-    {!!backup?.missing.length && <p>{t("journal.missing", { count: backup.missing.length })}</p>}
-    <Field label={t(status?.recovery_error ? "journal.restore_backup" : "journal.open")} id="journal-restore" type="file" accept=".zip,application/zip" disabled={busy || !!preview || activeTransaction} onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void run(async signal => { try { setPreview(await previewLearnerRestore(file, signal)); } finally { await refresh(); } }); }} />
-    {preview && <div className={styles.actionGroup}><p>{t("journal.preview", { attempts: preview.attempts, rehearsals: preview.browser.sessions.length })}</p><p>{t("journal.restore_note")}</p>
+    <div className={`${styles.actionGroup} ${styles.actionCard}`}>
+      <span className={styles.eyebrow}>{t("your_data.needs_file")}</span><h3>{t("your_data.restore_heading")}</h3><p>{t("your_data.restore_intro")}</p>
+      <Field className={styles.visuallyHidden} label={t(status?.recovery_error ? "journal.restore_backup" : "journal.open")} id="journal-restore" type="file" tabIndex={-1} accept=".zip,application/zip" disabled={busy || !!preview || activeTransaction} onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) { setRestoreName(file.name); void run(async signal => { try { setPreview(await previewLearnerRestore(file, signal)); } finally { await refresh(); } }); } }} />
+      <Button disabled={busy || !!preview || activeTransaction} onClick={() => document.getElementById("journal-restore")?.click()}>{t("your_data.choose_backup")}</Button>
+      {restoreName && <p>{restoreName}</p>}
+    </div>
+    {preview && <div className={`${styles.actionGroup} ${styles.actionCard}`} role="region" aria-labelledby="journal-preview-heading"><h3 id="journal-preview-heading" tabIndex={-1}>{t("journal.preview", { attempts: preview.attempts, rehearsals: preview.browser.sessions.length })}</h3><p>{t("journal.restore_note")}</p>
       {!!(preview.skipped_attempts.length + preview.skipped_rehearsals.length) && <p>{t("journal.skipped", { count: preview.skipped_attempts.length + preview.skipped_rehearsals.length })}</p>}
       {!!preview.missing.length && <p>{t("journal.missing", { count: preview.missing.length })}</p>}
       <Button variant="primary" disabled={busy} onClick={() => void run(async signal => { try { await commitLearnerRestore(preview, signal, progress, () => setCommitting(true)); beginNewSession(); } finally { setPreview(null); setStatus(await journalRecoveryStatus()); } setMessage(t("journal.restored")); await refresh(); })}>{t("journal.confirm_restore")}</Button>
       <Button disabled={busy} onClick={() => void run(async () => { await retryRecovery(true); setMessage(t("journal.cancelled")); })}>{t("journal.cancel")}</Button>
     </div>}
+    {status?.recovery_error && <div className={`${styles.actionGroup} ${styles.dangerCard}`}>
+      <span className={styles.eyebrow}>{t("your_data.changes_data")}</span><h3>{t("journal.fresh")}</h3>
+      <p>{t("your_data.fresh_intro")}</p>
+      <Button variant="danger" id="journal-fresh" disabled={busy || activeTransaction} onClick={() => setConfirmFresh(true)}>{t("journal.fresh")}</Button>
+    </div>}
+    {confirmFresh && <dialog ref={freshDialog} className={styles.dialog} aria-labelledby="fresh-dialog-title" onCancel={event => { event.preventDefault(); cancelFresh(); }}>
+      <h2 id="fresh-dialog-title">{t("your_data.fresh_heading")}</h2>
+      <p>{t("your_data.fresh_kept")}</p><p>{t("your_data.fresh_replaced")}</p><p>{t("journal.fresh_note")}</p>
+      <div className={styles.dialogActions}>
+        <Button id="fresh-cancel" variant="secondary" disabled={busy} onClick={cancelFresh}>{t("your_data.fresh_cancel")}</Button>
+        <Button variant="danger" disabled={busy || activeTransaction} onClick={() => void run(async () => {
+          await startFreshJournal(); beginNewSession(); setConfirmFresh(false); await refresh(); setMessage(t("journal.fresh_done"));
+        })}>{t("journal.confirm_fresh")}</Button>
+      </div>
+    </dialog>}
+    <div className={`${styles.actionGroup} ${styles.actionCard}`}><h3>{t("your_data.backup_heading")}</h3><p>{t("journal.limit")}</p>
+      <label><input type="checkbox" checked={allowMissing} onChange={e => setAllowMissing(e.target.checked)} disabled={busy} /> {t("journal.allow_missing")}</label>
+      <Button variant="primary" disabled={busy || !!preview || activeTransaction || !!status?.recovery_error} onClick={() => void run(async signal => { const result = await createLearnerBackup(allowMissing, progress, signal); setBackup(result); await save(result); })}>{t("journal.backup")}</Button>
+      {backup && <Button disabled={busy} onClick={() => void run(() => save(backup))}>{t("journal.save_again")}</Button>}
+      {!!backup?.missing.length && <p>{t("journal.missing", { count: backup.missing.length })}</p>}
+    </div>
     {busy && !committing && <Button onClick={() => controller.current?.abort()}>{t("journal.cancel")}</Button>}
     <Button disabled={busy} onClick={() => void run(refresh)}>{t("journal.check_recovery")}</Button>
     {pendingTransaction && status?.transaction?.id !== preview?.id && <div className={styles.actionGroup}><p>{t("journal.recovery_needed")}</p>

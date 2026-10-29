@@ -1169,6 +1169,28 @@
     "chart_summary": "{count} vergleichbare Versuche, von {first} bis {last}.",
     "loading": "Dein Übungsverlauf wird geladen…"
   },
+  "your_data": {
+    "title": "Ihre Daten",
+    "open_recovery": "Datenwiederherstellung öffnen",
+    "state_healthy": "Journal intakt",
+    "state_damaged": "Journal beschädigt",
+    "state_pending": "Wiederherstellung ausstehend",
+    "state_loading": "Journalstatus wird geprüft…",
+    "safe_to_try": "Sicherer erster Schritt",
+    "needs_file": "Datei erforderlich",
+    "changes_data": "Ändert Daten",
+    "safe_note": "Der Diagnoseexport ändert weder Journal noch Verlauf oder Medien.",
+    "restore_intro": "Wählen Sie eine Sicherungs-ZIP, um den Inhalt vor der Wiederherstellung zu prüfen.",
+    "choose_backup": "Sicherungs-ZIP auswählen",
+    "fresh_intro": "Ein Neustart legt das beschädigte Wiederherstellungsjournal beiseite und erstellt ein neues. Gespeicherte Berichte, Verlauf, Aufnahmen und Uploads bleiben erhalten. Unfertige Wiederherstellungsdaten und Rollback-Snapshots werden ersetzt.",
+    "fresh_heading": "Neues Journal beginnen?",
+    "fresh_kept": "Bleibt erhalten: gespeicherte Berichte, Verlauf, Aufnahmen und Uploads.",
+    "fresh_replaced": "Wird ersetzt: das beschädigte Wiederherstellungsjournal, ausstehende Browser-Wiederherstellungsdaten und Rollback-Snapshots. Unfertige Änderungen können nicht mehr automatisch zurückgesetzt werden.",
+    "fresh_cancel": "Abbrechen und aktuellen Zustand behalten",
+    "backup_heading": "Daten sichern",
+    "restore_heading": "Aus Sicherung wiederherstellen",
+    "status_heading": "Aktueller Zustand"
+  },
   "journal": {
     "title": "Lernsicherung und Wiederherstellung",
     "body": "Sichern Sie Berichte, Aufnahmen und Proben dieses Browserprofils. Die Wiederherstellung ergänzt neue Versuche und erhält archivierte Einträge.",

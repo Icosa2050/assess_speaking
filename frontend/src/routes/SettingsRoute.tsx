@@ -198,6 +198,14 @@ export const SettingsRoute = () => {
   }, [setCurrentPage]);
 
   useEffect(() => {
+    const target = ({ "#your-data": "your-data-title", "#journal-diagnostics": "journal-diagnostics", "#journal-restore": "journal-restore", "#journal-fresh": "journal-fresh" } as Record<string, string>)[location.hash];
+    if (!target) return;
+    const element = document.getElementById(target);
+    element?.scrollIntoView?.({ block: "start" });
+    element?.focus();
+  }, [location.hash]);
+
+  useEffect(() => {
     if (!runtimeSettingsQuery.data) {
       if (runtimeSettingsQuery.isError && selectedConnectionId === null) {
         setSelectedConnectionId("__new__");
@@ -453,6 +461,8 @@ export const SettingsRoute = () => {
         ) : null}
       </section>
 
+      <JournalPanel locale={locale} />
+
       <SavedConnectionsPanel
         connections={connections}
         locale={locale}
@@ -593,7 +603,6 @@ export const SettingsRoute = () => {
       />
       </fieldset>
 
-      <JournalPanel locale={locale} />
       <SupportPanel
         activeConnectionId={runtimeSettingsQuery.data?.active_connection_id || preferences.activeConnectionId}
         locale={locale}

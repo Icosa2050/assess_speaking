@@ -1169,6 +1169,28 @@
     "chart_summary": "{count} essais comparables, de {first} à {last}.",
     "loading": "Chargement de ton parcours…"
   },
+  "your_data": {
+    "title": "Vos données",
+    "open_recovery": "Ouvrir la récupération des données",
+    "state_healthy": "Journal intact",
+    "state_damaged": "Journal endommagé",
+    "state_pending": "Restauration en attente",
+    "state_loading": "Vérification du journal…",
+    "safe_to_try": "Sans risque",
+    "needs_file": "Fichier nécessaire",
+    "changes_data": "Modifie les données",
+    "safe_note": "Exporter les diagnostics ne modifie ni le journal, ni l’historique, ni les médias.",
+    "restore_intro": "Choisissez une archive ZIP pour examiner son contenu avant la restauration.",
+    "choose_backup": "Choisir une archive ZIP",
+    "fresh_intro": "Repartir à zéro met de côté le journal de récupération endommagé et en crée un nouveau. Les rapports, l’historique, les enregistrements et les fichiers envoyés restent en place. Les données de restauration en attente et les instantanés d’annulation sont remplacés.",
+    "fresh_heading": "Créer un nouveau journal ?",
+    "fresh_kept": "Conservés : rapports, historique, enregistrements et fichiers envoyés.",
+    "fresh_replaced": "Remplacés : journal de récupération endommagé, données de restauration du navigateur en attente et instantanés d’annulation. Les modifications inachevées ne pourront plus être annulées automatiquement.",
+    "fresh_cancel": "Annuler et conserver l’état actuel",
+    "backup_heading": "Sauvegarder vos données",
+    "restore_heading": "Restaurer une sauvegarde",
+    "status_heading": "État actuel"
+  },
   "journal": {
     "title": "Sauvegarde et récupération",
     "body": "Sauvegardez les rapports, enregistrements et répétitions de ce profil de navigateur. La restauration ajoute de nouveaux essais et conserve les éléments archivés.",

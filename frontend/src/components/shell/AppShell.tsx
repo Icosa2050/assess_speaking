@@ -63,6 +63,7 @@ const routeIcons: Record<string, IconName> = {
   "/library": "guide",
   "/guide": "guide",
   "/settings": "settings",
+  "/settings#your-data": "settings",
 };
 
 export const AppShell = ({
@@ -100,14 +101,14 @@ export const AppShell = ({
     <NavLink
       key={route.href}
       to={route.href}
-      state={route.href === "/settings"
+      state={route.href.startsWith("/settings")
         ? location.pathname === "/settings"
           ? location.state
           : { from: location.pathname.slice(1) || "home" }
         : route.href === "/" || route.href === "/guide"
           ? { from: location.pathname }
         : undefined}
-      className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ""} ${route.href === "/" && location.pathname !== "/" && isPracticePath(location.pathname) ? styles.navLinkSectionActive : ""}`}
+      className={({ isActive }) => `${styles.navLink} ${isActive && (route.href !== "/settings" || !location.hash) && (route.href !== "/settings#your-data" || location.hash === "#your-data") ? styles.navLinkActive : ""} ${route.href === "/" && location.pathname !== "/" && isPracticePath(location.pathname) ? styles.navLinkSectionActive : ""}`}
       {...routeSemanticAttributes(route.href)}
     >
       {routeIcons[route.href] ? <Icon name={routeIcons[route.href]} size={20} /> : null}

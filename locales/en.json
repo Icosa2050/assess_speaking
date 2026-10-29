@@ -1169,6 +1169,28 @@
     "chart_summary": "{count} comparable attempts, from {first} to {last}.",
     "loading": "Loading your practice journey…"
   },
+  "your_data": {
+    "title": "Your data",
+    "open_recovery": "Open Your data recovery",
+    "state_healthy": "Journal healthy",
+    "state_damaged": "Journal damaged",
+    "state_pending": "Restore pending",
+    "state_loading": "Checking journal state…",
+    "safe_to_try": "Safe to try",
+    "needs_file": "Needs a file",
+    "changes_data": "Changes data",
+    "safe_note": "Exporting diagnostics does not change your journal, history, or media.",
+    "restore_intro": "Choose a backup ZIP to preview its contents before restoring.",
+    "choose_backup": "Choose a backup ZIP",
+    "fresh_intro": "Starting fresh sets aside the damaged recovery journal and begins a new one. Saved reports, history, recordings, and uploads stay in place. Unfinished restore data and rollback snapshots are replaced.",
+    "fresh_heading": "Start a fresh journal?",
+    "fresh_kept": "Kept: saved reports, history, recordings, and uploads.",
+    "fresh_replaced": "Replaced: the damaged recovery journal, pending browser restore data, and rollback snapshots. Unfinished changes cannot be rolled back automatically.",
+    "fresh_cancel": "Cancel and keep current state",
+    "backup_heading": "Back up your data",
+    "restore_heading": "Restore from a backup",
+    "status_heading": "Current state"
+  },
   "journal": {
     "title": "Learner backup and recovery",
     "body": "Back up reports, recordings and rehearsals from this browser profile. Restore adds new attempts and preserves archived items.",

@@ -1169,6 +1169,28 @@
     "chart_summary": "{count} intentos comparables, de {first} a {last}.",
     "loading": "Cargando tu recorrido de práctica…"
   },
+  "your_data": {
+    "title": "Tus datos",
+    "open_recovery": "Abrir recuperación de datos",
+    "state_healthy": "Diario en buen estado",
+    "state_damaged": "Diario dañado",
+    "state_pending": "Restauración pendiente",
+    "state_loading": "Comprobando el estado del diario…",
+    "safe_to_try": "Opción segura",
+    "needs_file": "Requiere un archivo",
+    "changes_data": "Cambia datos",
+    "safe_note": "Exportar diagnósticos no modifica el diario, el historial ni los archivos multimedia.",
+    "restore_intro": "Elige un ZIP de copia de seguridad para ver su contenido antes de restaurar.",
+    "choose_backup": "Elegir copia ZIP",
+    "fresh_intro": "Empezar de nuevo aparta el diario de recuperación dañado y crea uno nuevo. Los informes, el historial, las grabaciones y los archivos subidos permanecen. Se sustituyen los datos de restauración pendientes y las instantáneas de reversión.",
+    "fresh_heading": "¿Empezar un diario nuevo?",
+    "fresh_kept": "Se conserva: informes, historial, grabaciones y archivos subidos.",
+    "fresh_replaced": "Se sustituye: el diario de recuperación dañado, los datos de restauración pendientes del navegador y las instantáneas de reversión. Los cambios incompletos ya no se pueden revertir automáticamente.",
+    "fresh_cancel": "Cancelar y conservar el estado actual",
+    "backup_heading": "Haz una copia de tus datos",
+    "restore_heading": "Restaurar desde una copia",
+    "status_heading": "Estado actual"
+  },
   "journal": {
     "title": "Copia de seguridad y recuperación",
     "body": "Guarda informes, grabaciones y ensayos de este perfil del navegador. La restauración añade intentos nuevos y conserva los archivados.",
