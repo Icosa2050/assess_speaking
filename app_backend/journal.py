@@ -336,19 +336,27 @@ class Journal:
             self.save(state)
             return state
 
-    def start_fresh(self, confirmed, browser_transaction=None):
+    def start_fresh(self, confirmed, browser_transaction=None, fresh_request=None):
         if browser_transaction is not None and (not isinstance(browser_transaction, str) or not re.fullmatch("[0-9a-f]{32}", browser_transaction)):
             raise JournalError("Invalid browser recovery identity.")
+        if fresh_request is not None and (not isinstance(fresh_request, str) or not re.fullmatch("[0-9a-f]{32}", fresh_request)):
+            raise JournalError("Invalid fresh-start identity.")
         if confirmed is not True:
             raise JournalError('Confirm starting a fresh journal. Saved history and media will be retained.')
         with self.recovery_exit():
             if not self.recovery_error:
                 raise JournalError('The journal is not damaged.')
             self._quarantine_recovery()
-            if browser_transaction:
+            if browser_transaction or fresh_request:
                 # Publish before declaring the backend healthy. A lost response
                 # or failed IDB cleanup must never turn into a browser rollback.
-                private_json(self.directory / 'completed.json', list(dict.fromkeys([*self.completed(), browser_transaction])))
+                # The request identity also proves which reset completed.
+                receipts = [*self.completed()]
+                if browser_transaction:
+                    receipts.append(browser_transaction)
+                if fresh_request:
+                    receipts.append(fresh_request)
+                private_json(self.directory / 'completed.json', list(dict.fromkeys(receipts)))
             self.recovery_marker.unlink()
             self.recovery_error = None
             return {'phase': 'fresh'}
