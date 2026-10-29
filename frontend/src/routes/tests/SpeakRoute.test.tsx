@@ -841,7 +841,9 @@ describe("Speak route", () => {
     await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
     const panel = screen.getByTestId("speak.recording_panel");
 
-    mockedGetReadiness.mockResolvedValue(readinessWith("ai_tutor", "local_service_unreachable", "unavailable"));
+    const failedReadiness = readinessWith("ai_tutor", "local_service_unreachable", "unavailable");
+    failedReadiness.checks[0] = { ...failedReadiness.checks[0], state: "needs_setup", reason: "model_not_cached", blocking: false };
+    mockedGetReadiness.mockResolvedValue(failedReadiness);
     await act(async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.readiness }); });
 
     expect(queryClient.getQueryState(queryKeys.readiness)?.status).toBe("success");
@@ -849,6 +851,7 @@ describe("Speak route", () => {
     expect(screen.getByRole("button", { name: "Remove recording" })).toBeVisible();
     await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeDisabled());
     expect(screen.getByTestId("speak.readiness_changed")).toHaveTextContent("Start the local tutor app");
+    expect(screen.getByTestId("speak.readiness_changed")).not.toHaveTextContent("The selected speech model is not cached.");
 
     mockedGetReadiness.mockResolvedValue(readyReadiness);
     await act(async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.readiness }); });

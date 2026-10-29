@@ -25,6 +25,7 @@ import {
   canEnterSpeak,
   canRecord,
   canContinueWithCheck,
+  isBlockingSetupReadinessRow,
   resolveSetupReadinessAction,
   type SetupReadinessKey,
 } from "@/lib/setup/readiness";
@@ -265,7 +266,10 @@ export const SetupRoute = () => {
     microphoneSetupPassed: microphoneTest.passed,
   });
 
-  const cloudAsr = runtimeSettings?.asr_provider === "groq";
+  const readinessSpeechProvider = readinessQuery.data?.checks.find((check) => check.key === "speech_recognition")?.detail_args.provider;
+  const cloudAsr = readinessSpeechProvider
+    ? readinessSpeechProvider === "groq"
+    : runtimeSettings?.asr_provider === "groq";
   const cloudDisclosureOpen = cloudAsr || hash === "#runtime-setup-cloud" || cloudOptionsOpen;
   useEffect(() => {
     if (cloudDisclosureOpen) setCloudPanelOpened(true);
@@ -275,7 +279,7 @@ export const SetupRoute = () => {
   const requiredRows = readinessRows.filter((row) => row.key !== "sample_check");
   const setupReady = canRecord(requiredRows);
   const setupCanContinue = canEnterSpeak(requiredRows);
-  const returnCheck = requiredRows.find((row) => row.key !== "microphone" && !canContinueWithCheck(row.status));
+  const returnCheck = requiredRows.find((row) => row.key !== "microphone" && isBlockingSetupReadinessRow(row) && !canContinueWithCheck(row.status));
 
   const initialDraft = buildDraftFromConnection(activeConnection, translate);
   const formResetToken = JSON.stringify({
@@ -485,7 +489,7 @@ export const SetupRoute = () => {
           {setupCanContinue ? <Button onClick={() => navigate("/session-setup")}>{translate("first_run.choose_task")}</Button> : null}
         </div>
         <p role="status" className={styles.checkStatus}>
-          {translate(setupReady ? "first_run.checks_ready" : setupCanContinue ? "first_run.continue_to_speak_body" : requiredRows.some((row) => row.status === "loading") ? "first_run.checks_loading" : "first_run.checks_next")}
+          {translate(setupReady ? "first_run.checks_ready" : setupCanContinue ? "first_run.continue_to_speak_body" : requiredRows.some((row) => isBlockingSetupReadinessRow(row) && row.status === "loading") ? "first_run.checks_loading" : "first_run.checks_next")}
         </p>
       </Card>
 
@@ -505,6 +509,11 @@ export const SetupRoute = () => {
           if (event.currentTarget.open) setCloudPanelOpened(true);
         }}>
           <p>{translate("first_run.other_routes_body")}</p>
+          {cloudAsr && runtimeSettingsQuery.isError && !runtimeSettings ? (
+            <StatusBanner title={translate("first_run.cloud_settings_unavailable")} tone="warning">
+              <Button onClick={() => void runtimeSettingsQuery.refetch()}>{translate("first_run.retry_saved_settings")}</Button>
+            </StatusBanner>
+          ) : null}
           {(cloudDisclosureOpen || cloudPanelOpened) ? <CloudSettingsPanel locale={locale} connections={runtimeSettings?.connections ?? []}/> : null}
         </Disclosure>
       </div>

@@ -232,6 +232,19 @@ describe("Settings route", () => {
     expect(mockedGetReadiness).toHaveBeenCalled();
   });
 
+  it("hides setup guidance when backend readiness is ready", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: false, provider: "ollama_local", model: "", base_url: "http://localhost:11434",
+      requires_api_key: false, has_api_key: false,
+    });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/settings"], locale: "en" });
+
+    expect(await screen.findByTestId("settings.return")).toBeVisible();
+    await waitFor(() => expect(mockedGetReadiness).toHaveBeenCalled());
+    await waitFor(() => expect(mockedGetRuntime).toHaveBeenCalled());
+    expect(screen.queryByText("Practice setup needs attention. Open Setup to resolve the failing check.")).not.toBeInTheDocument();
+  });
+
   it("returns to Review after opening Settings from the navigation", async () => {
     renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en" });
     expect(await screen.findByTestId("review-guard-missing-review")).toBeVisible();

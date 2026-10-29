@@ -44,6 +44,13 @@ const mockedPostWhisperModelDownload = vi.mocked(apiClient.postWhisperModelDownl
 const mockedPostRuntimeSettingsTestConnection = vi.mocked(apiClient.postRuntimeSettingsTestConnection);
 const mockedPutRuntimeSettings = vi.mocked(apiClient.putRuntimeSettings);
 
+const optionalTutorReadiness = () => {
+  const response = readinessWith("ai_tutor", "not_configured");
+  response.ready = true;
+  response.checks[1].blocking = false;
+  return response;
+};
+
 describe("Home and Runtime Setup routes", () => {
   afterEach(() => vi.unstubAllGlobals());
   beforeEach(() => {
@@ -708,6 +715,66 @@ describe("Home and Runtime Setup routes", () => {
     expect(screen.getByTestId("runtime_setup.setup_guide.speech_recognition.action")).toHaveTextContent("Manage cloud transcription");
     expect(screen.getByText("All required checks passed. You can choose a task.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Choose a practice task" })).toBeEnabled();
+  });
+
+  it("opens cloud rescue when Groq readiness is known but saved settings fail", async () => {
+    const cloudReady = structuredClone(readyReadiness);
+    cloudReady.checks[0].detail_args = { provider: "groq", model: "whisper-large-v3" };
+    mockedGetReadiness.mockResolvedValue(cloudReady);
+    mockedGetRuntimeSettings.mockRejectedValue(new Error("settings offline"));
+    mockedGetRuntime.mockResolvedValue({
+      configured: true, provider: "ollama", model: "test", base_url: "http://localhost:11434",
+      requires_api_key: false, has_api_key: false,
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      settings: { version: 1, asr_provider: "groq", asr_connection_id: "", asr_model: "whisper-large-v3",
+        openrouter_modes: {}, fallback_connection_id: "", paid_fallback_enabled: false,
+        monthly_budget_usd: 5, max_output_tokens: 4096 },
+      spending: { spent_usd: 0, reserved_usd: 0, unresolved_requests: [] },
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+
+    renderWithProviders(<AppFrame />, { initialEntries: ["/runtime-setup"], locale: "en" });
+    const speech = await screen.findByTestId("runtime_setup.setup_guide.speech_recognition");
+    await waitFor(() => expect(speech).toHaveAttribute("data-status", "ready"));
+    expect(screen.getByTestId("runtime_setup.setup_guide.speech_recognition.action")).toHaveTextContent("Manage cloud transcription");
+    expect(await screen.findByText("Saved cloud connections could not be loaded. Retry saved settings before changing Groq transcription.")).toBeVisible();
+    const cloud = document.getElementById("runtime-setup-cloud");
+    expect(cloud?.querySelector("details")).toHaveAttribute("open");
+    const scrollCloud = vi.fn();
+    cloud!.scrollIntoView = scrollCloud;
+    const whisper = document.getElementById("runtime-setup-whisper");
+    if (whisper) whisper.scrollIntoView = vi.fn();
+    fireEvent.click(screen.getByTestId("runtime_setup.setup_guide.speech_recognition.action"));
+    expect(scrollCloud).toHaveBeenCalledWith({ block: "start", behavior: "smooth" });
+    expect(document.getElementById("runtime-setup-whisper")).toBeNull();
+    expect(screen.getByRole("button", { name: "Retry saved settings" })).toBeVisible();
+  });
+
+  it("counts only required checks in Home progress when an optional check needs setup", async () => {
+    mockedGetReadiness.mockResolvedValue(optionalTutorReadiness());
+    mockedGetRuntime.mockResolvedValue({
+      configured: true, provider: "ollama", model: "test", base_url: "http://localhost:11434",
+      requires_api_key: false, has_api_key: false,
+    });
+    mockedGetDiagnostics.mockResolvedValue({ items: [] });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/"], locale: "en",
+      appState: { microphoneStatus: "ready", microphoneSetupPassed: true } });
+
+    expect(await screen.findByText("Ready on this device")).toBeVisible();
+    expect(screen.getByRole("progressbar", { name: "Practice readiness" })).toHaveAttribute("aria-valuenow", "100");
+    expect(screen.getByText("4 of 4 checks ready")).toBeVisible();
+  });
+
+  it("offers Speak return without calling an optional check a blocker", async () => {
+    mockedGetReadiness.mockResolvedValue(optionalTutorReadiness());
+    renderWithProviders(<AppFrame />, {
+      initialEntries: [{ pathname: "/runtime-setup", state: { returnTo: "/speak" } }],
+      locale: "en", appState: { microphoneStatus: "ready", microphoneSetupPassed: true },
+    });
+
+    expect(await screen.findByRole("button", { name: "Return to the recording step" })).toBeVisible();
+    expect(screen.getByText("The speaking checks now allow you to continue. Test your microphone before recording.")).toBeVisible();
+    expect(screen.queryByText(/check needs attention before you can continue/)).not.toBeInTheDocument();
   });
 
   it("refreshes backend readiness across Setup and Home after a local connection test", async () => {

@@ -34,6 +34,7 @@ const backendKeys: ReadinessCheck["key"][] = [
 ];
 
 export const isCoreSetupReadinessKey = (key: SetupReadinessKey): boolean => key !== "sample_check";
+export const isBlockingSetupReadinessRow = (row: SetupReadinessRow): boolean => row.blocking !== false;
 export const canContinueWithCheck = (status: SetupReadinessStatus): boolean => status === "ready";
 
 // The recording page performs its own microphone test. Backend prerequisites

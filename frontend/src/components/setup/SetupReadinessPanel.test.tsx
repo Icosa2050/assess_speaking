@@ -14,6 +14,7 @@ const labels: Record<string, string> = {
   "first_run.guide_anchor_pending": "Check this Mac before recording",
   "first_run.guide_anchor_body": "We check transcription, feedback, and microphone sound.",
   "first_run.guide_anchor_ready_body": "Speech, feedback, and microphone checks passed.",
+  "first_run.guide_anchor_required_ready_body": "Required checks passed. Optional checks can still be reviewed below.",
   "first_run.checks_need_attention": "Checks needing attention: {count}.",
   "first_run.rescue_ai_tutor": "Start the local tutor app and retry the connection test.",
   "runtime_setup.setup_guide_anchor_body": "Speech recognition and the AI tutor power each practice. Microphone access is handled when you start a session.",
@@ -36,6 +37,7 @@ const labels: Record<string, string> = {
   "runtime_setup.setup_guide_status_ready": "Ready",
   "runtime_setup.setup_guide_status_setup": "Needs setup",
   "runtime_setup.setup_guide_status_unavailable": "Unavailable",
+  "first_run.readiness_optional": "Optional",
 };
 
 const translate = (key: string, vars?: Record<string, string | number>): string => {
@@ -182,6 +184,18 @@ describe("SetupReadinessPanel", () => {
 
     expect(screen.getByText("Speech, feedback, and microphone checks passed.")).toBeVisible();
     expect(screen.queryByText("We check transcription, feedback, and microphone sound.")).not.toBeInTheDocument();
+  });
+
+  it("excludes a nonblocking setup check from progress and labels it optional", () => {
+    const rows = setupRows.map((row) => row.key === "ai_tutor"
+      ? { ...row, blocking: false }
+      : row.key === "sample_check" ? row : { ...row, status: "ready" as const });
+    render(<SetupReadinessPanel rows={rows} translate={translate} onAction={vi.fn()} />);
+
+    expect(screen.getByRole("progressbar", { name: "2 of 2 core services ready" })).toHaveAttribute("aria-valuenow", "2");
+    expect(screen.getByText("Required checks passed. Optional checks can still be reviewed below.")).toBeVisible();
+    expect(screen.getByTestId("runtime_setup.setup_guide.ai_tutor")).toHaveTextContent("Optional");
+    expect(screen.queryByText("Checks needing attention: 1.")).not.toBeInTheDocument();
   });
 
   it("shows a backend failure as Needs setup with rescue copy", () => {

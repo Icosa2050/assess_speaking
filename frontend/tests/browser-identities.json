@@ -109,6 +109,11 @@
       "ready Groq speech shows cloud processing copy and cloud settings action"
     ],
     [
+      "e2e/readinessContract.spec.ts",
+      "",
+      "Groq readiness opens cloud rescue when saved settings are unavailable"
+    ],
+    [
       "e2e/reviewChangeTaskFlow.spec.ts",
       "",
       "review change-task browser flow",

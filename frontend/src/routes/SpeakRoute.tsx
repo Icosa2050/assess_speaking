@@ -21,7 +21,7 @@ import { MIN_REVIEW_SECONDS } from "@/lib/recordingPolicy";
 import { hasFirstTakeMilestone, recordFirstTakeMilestone } from "@/lib/history/firstTakeMilestone";
 import { StatusBanner } from "@/components/ui/StatusBanner";
 import { pollingIntervals, queryKeys } from "@/lib/query/queryClient";
-import { buildSetupReadinessRows, canEnterSpeak } from "@/lib/setup/readiness";
+import { buildSetupReadinessRows, canEnterSpeak, isBlockingSetupReadinessRow } from "@/lib/setup/readiness";
 import { useReadiness } from "@/lib/setup/useReadiness";
 import {
   selectAssessmentLifecycleState,
@@ -241,7 +241,7 @@ export const SpeakRoute = () => {
   const guardTarget = !hasSetupDraft(draft) ? "/session-setup"
     : readinessBlocked && !ownsTake ? "/runtime-setup" : null;
   const blockedReadinessCheck = speakingChecks.find((row) =>
-    row.key !== "microphone" && row.key !== "sample_check" && row.status !== "ready");
+    row.key !== "microphone" && row.key !== "sample_check" && isBlockingSetupReadinessRow(row) && row.status !== "ready");
 
   const clearAttachment = () => {
     savedUpload.current = null;

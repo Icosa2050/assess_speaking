@@ -44,7 +44,10 @@ export const ReadinessRow = ({
     <div className={styles.rowText}>
       <div className={styles.rowHeader}>
         <h3 className={styles.rowTitle}>{translate(row.titleKey)}</h3>
-        <span className={styles.statusLabel}>{translate(statusLabelKey(row.status))}</span>
+        <span className={styles.statusLabel}>
+          {row.blocking === false && row.status !== "ready" ? `${translate("first_run.readiness_optional")} · ` : ""}
+          {translate(statusLabelKey(row.status))}
+        </span>
       </div>
       <p className={styles.rowDetail}>{translate(row.detailKey)}</p>
       {row.rescueKey ? (

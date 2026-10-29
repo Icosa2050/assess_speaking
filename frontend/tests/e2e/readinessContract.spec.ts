@@ -54,3 +54,24 @@ test("ready Groq speech shows cloud processing copy and cloud settings action", 
   await expect(speech).not.toContainText("on this device");
   await expect(page.getByTestId("runtime_setup.setup_guide.speech_recognition.action")).toHaveText("Manage cloud transcription");
 });
+
+test("Groq readiness opens cloud rescue when saved settings are unavailable", async ({ page }) => {
+  const checks = readyReadiness.checks.map((check) => check.key === "speech_recognition"
+    ? { ...check, detail_args: { provider: "groq", model: "whisper-large-v3" } } : check);
+  await page.route("**/v1/readiness", (route) => route.fulfill({ json: { ready: true, checks } }));
+  await page.route("**/v1/runtime/settings", (route) => route.fulfill({ status: 503, json: { detail: "offline" } }));
+  await page.addInitScript(() => {
+    Element.prototype.scrollIntoView = function () { this.setAttribute("data-scrolled", "true"); };
+  });
+
+  await page.goto("/runtime-setup");
+  const speech = page.getByTestId("runtime_setup.setup_guide.speech_recognition");
+  await expect(speech).toHaveAttribute("data-status", "ready");
+  await expect(speech).toContainText("Groq cloud transcription is selected");
+  await expect(page.getByText("Saved cloud connections could not be loaded. Retry saved settings before changing Groq transcription.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator("#runtime-setup-cloud details")).toHaveAttribute("open", "");
+  await speech.getByRole("button", { name: "Manage cloud transcription" }).click();
+  await expect(page.locator("#runtime-setup-cloud")).toHaveAttribute("data-scrolled", "true");
+  await expect(page.locator("#runtime-setup-whisper")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Retry saved settings" })).toBeVisible();
+});

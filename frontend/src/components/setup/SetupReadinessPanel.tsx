@@ -2,7 +2,7 @@ import type {
   SetupReadinessKey,
   SetupReadinessRow as SetupReadinessRowModel,
 } from "@/lib/setup/readiness";
-import { isCoreSetupReadinessKey } from "@/lib/setup/readiness";
+import { isBlockingSetupReadinessRow, isCoreSetupReadinessKey } from "@/lib/setup/readiness";
 import { Icon } from "@/components/ui/Icon";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 
@@ -20,7 +20,8 @@ export const SetupReadinessPanel = ({
   rows,
   translate,
 }: SetupReadinessPanelProps) => {
-  const progressRows = rows.filter((row) => isCoreSetupReadinessKey(row.key));
+  const progressRows = rows.filter((row) => isCoreSetupReadinessKey(row.key) && isBlockingSetupReadinessRow(row));
+  const hasOptionalSetup = rows.some((row) => !isBlockingSetupReadinessRow(row) && row.status !== "ready");
   const totalCount = progressRows.length;
   const readyCount = progressRows.filter((row) => row.status === "ready").length;
   const hasRows = totalCount > 0;
@@ -65,7 +66,9 @@ export const SetupReadinessPanel = ({
         />
         <div className={styles.anchorCopy}>
           <p className={styles.anchorTitle}>{translate(allReady ? "runtime_setup.setup_guide_anchor_title" : "first_run.guide_anchor_pending")}</p>
-          <p className={styles.anchorBody}>{translate(allReady ? "first_run.guide_anchor_ready_body" : "first_run.guide_anchor_body")}</p>
+          <p className={styles.anchorBody}>{translate(allReady
+            ? hasOptionalSetup ? "first_run.guide_anchor_required_ready_body" : "first_run.guide_anchor_ready_body"
+            : "first_run.guide_anchor_body")}</p>
         </div>
       </div>
       {unavailableCount > 0 ? (

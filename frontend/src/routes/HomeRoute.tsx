@@ -8,7 +8,7 @@ import { FirstRunPreview } from "@/components/setup/FirstRunPreview";
 import { apiClient } from "@/lib/api/client";
 import { createTranslator, semanticAttributes, SEMANTIC_IDS } from "@/lib/i18n";
 import { queryKeys } from "@/lib/query/queryClient";
-import { buildSetupReadinessRows, canRecord } from "@/lib/setup/readiness";
+import { buildSetupReadinessRows, canRecord, isBlockingSetupReadinessRow } from "@/lib/setup/readiness";
 import { useReadiness } from "@/lib/setup/useReadiness";
 import { useAppStore } from "@/lib/state/appStore";
 import { hasReviewState, hasSetupDraft } from "@/lib/state/sessionDraft";
@@ -105,7 +105,8 @@ export const HomeRoute = () => {
     readinessPending: readinessQuery.isPending,
     microphoneStatus, microphoneSetupPassed,
   }).filter(row => row.key !== "sample_check");
-  const readyChecks = practiceChecks.filter(row => row.status === "ready").length;
+  const requiredPracticeChecks = practiceChecks.filter(isBlockingSetupReadinessRow);
+  const readyChecks = requiredPracticeChecks.filter(row => row.status === "ready").length;
   const allChecksReady = canRecord(practiceChecks);
   const diagnosticsCardState: DiagnosticsCardState = (() => {
     if (readinessQuery.isPending || diagnosticsQuery.isPending) return "loading";
@@ -114,8 +115,8 @@ export const HomeRoute = () => {
     return allChecksReady ? "ready" : "setup";
   })();
   const diagnosticsMessage = diagnosticsCopy(diagnosticsCardState, actionableDiagnostics.length, translate);
-  const practiceReadinessScore = Math.round(100 * readyChecks / practiceChecks.length);
-  const practiceReadinessLabel = translate("home.practice_checks", { ready: readyChecks, total: practiceChecks.length });
+  const practiceReadinessScore = Math.round(100 * readyChecks / requiredPracticeChecks.length);
+  const practiceReadinessLabel = translate("home.practice_checks", { ready: readyChecks, total: requiredPracticeChecks.length });
   const resumeDisabled = !hasSetupDraft(draft);
 
   const handleStartNew = () => {
@@ -157,7 +158,7 @@ export const HomeRoute = () => {
               showStatus
               status={practiceReadinessLabel}
               value={practiceReadinessScore}
-              valueLabel={`${readyChecks}/${practiceChecks.length}`}
+              valueLabel={`${readyChecks}/${requiredPracticeChecks.length}`}
             />
           </div>
           <div className={styles.actionRow}>
@@ -190,7 +191,7 @@ export const HomeRoute = () => {
               showStatus
               status={practiceReadinessLabel}
               value={practiceReadinessScore}
-              valueLabel={`${readyChecks}/${practiceChecks.length}`}
+              valueLabel={`${readyChecks}/${requiredPracticeChecks.length}`}
             />
           </div>
           <div className={`${styles.actionRow} ${styles.primaryActionRow}`}>
