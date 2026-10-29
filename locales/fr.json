@@ -477,7 +477,7 @@
     "wait_stalled_announcement": "Toujours en cours : {phase}.",
     "wait_stalled_title": "Toujours en cours",
     "wait_stalled_upload_body": "L'envoi n'a pas été mis à jour depuis un moment. L'enregistrement reste sélectionné sur cet appareil. Annulez l'envoi et réessayez.",
-    "wait_stalled_body": "Cette étape n'a pas été mise à jour depuis un moment. Vous pouvez annuler ou réessayer avec l'audio conservé.",
+    "wait_stalled_body": "Cette étape n'a pas été mise à jour depuis un moment. Vous pouvez annuler puis réessayer avec l'audio conservé une fois l'évaluation arrêtée.",
     "wait_status_failed": "Impossible d'actualiser la progression : {detail}. L'évaluation peut encore être en cours ; vous pouvez attendre ou annuler.",
     "wait_cancel_failed": "L'annulation a échoué : {detail}. L'évaluation peut encore être en cours. Vous pouvez attendre ou réessayer d'annuler.",
     "wait_retry": "Réessayer l’évaluation",

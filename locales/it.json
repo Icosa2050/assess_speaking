@@ -477,7 +477,7 @@
     "wait_stalled_announcement": "Ancora in corso: {phase}.",
     "wait_stalled_title": "Ancora al lavoro",
     "wait_stalled_upload_body": "Il caricamento non si aggiorna da un po'. La registrazione resta selezionata su questo dispositivo. Annulla il caricamento e riprova.",
-    "wait_stalled_body": "Questa fase non si aggiorna da un po'. Puoi annullare o riprovare con l'audio conservato.",
+    "wait_stalled_body": "Questa fase non si aggiorna da un po'. Puoi annullare e, una volta fermata, riprovare con l'audio conservato.",
     "wait_status_failed": "Impossibile aggiornare l'avanzamento: {detail}. La valutazione potrebbe essere ancora in corso; puoi attendere o annullare.",
     "wait_cancel_failed": "Annullamento non riuscito: {detail}. La valutazione potrebbe essere ancora in corso. Puoi attendere o riprovare ad annullare.",
     "wait_retry": "Riprova la valutazione",

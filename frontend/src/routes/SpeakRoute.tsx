@@ -249,19 +249,12 @@ export const SpeakRoute = () => {
   const [uploadUpdatedAt, setUploadUpdatedAt] = useState<number | null>(null);
   const [cancelError, setCancelError] = useState("");
   const [pollError, setPollError] = useState("");
-  const [clock, setClock] = useState(() => Date.now());
   const uploadController = useRef<AbortController | null>(null);
   const submittingRef = useRef(false);
   const retryingRef = useRef(false);
   const submission = useRef<{ signature: string; requestId: string } | null>(null);
   const savedUpload = useRef<{ file: File; audioId: string } | null>(null);
   const previewUrlRef = useRef("");
-
-  useEffect(() => {
-    if (lifecycleState !== "queued" && lifecycleState !== "running") return;
-    const timer = window.setInterval(() => setClock(Date.now()), 5000);
-    return () => window.clearInterval(timer);
-  }, [lifecycleState]);
 
   const clearAttachment = () => {
     savedUpload.current = null;
@@ -479,9 +472,6 @@ export const SpeakRoute = () => {
               ? translate("speak.handoff_ready")
               : translate("speak.handoff_idle");
 
-  const lastUpdateAt = Date.parse(assessmentStatusQuery.data?.updated_at || assessmentStatusQuery.data?.created_at || "");
-  const stalled = (lifecycleState === "queued" || lifecycleState === "running") &&
-    Number.isFinite(lastUpdateAt) && clock - lastUpdateAt >= 120_000;
   const uploaded = Boolean(savedUpload.current || recording.job.assessmentId);
   const mediaMessage = recording.job.assessmentId
     ? translate("speak.wait_media_retained")
@@ -600,24 +590,12 @@ export const SpeakRoute = () => {
   };
 
   const handleRetry = async () => {
-    if (retryingRef.current || submittingRef.current || !attachedFile) return;
+    if (retryingRef.current || submittingRef.current || !attachedFile ||
+        (lifecycleState !== "failed" && lifecycleState !== "cancelled")) return;
     retryingRef.current = true;
     setCancelError("");
     try {
-      if (lifecycleState === "queued" || lifecycleState === "running") {
-        const stopped = await apiClient.cancelAssessment(recording.job.assessmentId);
-        if (stopped.status === "completed") {
-          await assessmentStatusQuery.refetch();
-          return;
-        }
-        if (stopped.status !== "cancelled" && stopped.status !== "failed") return;
-        setPollError("");
-        setRecordingJob({ assessmentId: stopped.assessment_id, status: stopped.status,
-          phase: stopped.phase, progress: stopped.progress, error: "", reportPath: stopped.report_path ?? "" });
-      }
       await handleSubmit(recording.job.assessmentId || undefined);
-    } catch (error) {
-      setCancelError(error instanceof ApiClientError ? error.detail : String(error));
     } finally {
       retryingRef.current = false;
     }
@@ -772,7 +750,7 @@ export const SpeakRoute = () => {
           uploadUpdatedAt={uploadUpdatedAt}
           uploading={uploadProgress !== null}
           uploaded={uploaded}
-          canRetry={Boolean(attachedFile) && !shortRecording && Boolean(sharingQuery.data?.available) && !isSubmitting && (stalled || lifecycleState === "failed" || lifecycleState === "cancelled")}
+          canRetry={Boolean(attachedFile) && !shortRecording && Boolean(sharingQuery.data?.available) && !isSubmitting && (lifecycleState === "failed" || lifecycleState === "cancelled")}
           mediaMessage={mediaMessage}
           canCancel={uploadProgress !== null || lifecycleState === "queued" || lifecycleState === "running"}
           contextMode={assessmentContextMode}

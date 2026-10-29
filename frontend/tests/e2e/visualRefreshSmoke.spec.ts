@@ -320,19 +320,21 @@ test("assessment wait explains a stall and recovers without a second upload", as
   await expect(page.getByTestId("speak.media_state")).toContainText("Audio uploaded and retained");
   await expect(page.getByTestId("speak.wait_time")).toContainText("Last update 3 min");
   await expect(page.getByTestId("speak.cancel_assessment")).toBeVisible();
-  await expect(page.getByTestId("speak.retry_assessment")).toBeVisible();
+  await expect(page.getByTestId("speak.retry_assessment")).toHaveCount(0);
   await page.getByTestId("speak.status_panel").scrollIntoViewIfNeeded();
-  await expect(page.getByTestId("speak.retry_assessment")).toBeInViewport();
+  await expect(page.getByTestId("speak.cancel_assessment")).toBeInViewport();
   if (shots) {
     mkdirSync(shots, { recursive: true });
     await page.screenshot({ path: path.join(shots, "after-assessment-stall-1360x900.png") });
   }
   await page.setViewportSize({ width: 1100, height: 760 });
-  await expect(page.getByTestId("speak.retry_assessment")).toBeVisible();
+  await expect(page.getByTestId("speak.cancel_assessment")).toBeVisible();
   await page.getByTestId("speak.status_panel").scrollIntoViewIfNeeded();
-  await expect(page.getByTestId("speak.retry_assessment")).toBeInViewport();
+  await expect(page.getByTestId("speak.cancel_assessment")).toBeInViewport();
   if (shots) await page.screenshot({ path: path.join(shots, "after-assessment-stall-1100x760.png") });
 
+  await page.getByTestId("speak.cancel_assessment").click();
+  await expect(page.getByTestId("speak.assessment_progress")).toHaveCount(0);
   await page.getByTestId("speak.retry_assessment").click();
   await expect(page.getByTestId("speak.status_panel")).toContainText("Model request failed");
   await page.getByTestId("speak.retry_assessment").click();

@@ -477,7 +477,7 @@
     "wait_stalled_announcement": "Still working on {phase}.",
     "wait_stalled_title": "Still working",
     "wait_stalled_upload_body": "Upload has had no update for a while. Your recording remains selected on this device. Cancel the upload and try again.",
-    "wait_stalled_body": "This step has had no update for a while. You can cancel or retry using the retained audio.",
+    "wait_stalled_body": "This step has had no update for a while. You can cancel it; once it stops, retry with the retained audio.",
     "wait_status_failed": "Could not refresh progress: {detail}. The assessment may still be running; you can keep watching or try Cancel.",
     "wait_cancel_failed": "Cancellation did not finish: {detail}. The assessment may still be running. You can keep watching or try Cancel again.",
     "wait_retry": "Retry assessment",

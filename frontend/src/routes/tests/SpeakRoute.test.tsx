@@ -397,11 +397,11 @@ describe("Speak route", () => {
     await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Your assessment is running"));
   });
 
-  it("cancels a stalled job before one retry with the retained audio", async () => {
+  it("explains a stall and retries only after cancellation with retained audio", async () => {
     mockedGetAssessmentStatus.mockResolvedValue({ assessment_id: "asmt-1", status: "running",
-      phase: "scoring_rubric", progress: 0, created_at: new Date(Date.now() - 180_000).toISOString(),
-      updated_at: new Date(Date.now() - 180_000).toISOString(),
-      phase_started_at: new Date(Date.now() - 180_000).toISOString() });
+      phase: "scoring_rubric", progress: 0, created_at: new Date(Date.now() - 150_000).toISOString(),
+      updated_at: new Date(Date.now() - 150_000).toISOString(),
+      phase_started_at: new Date(Date.now() - 150_000).toISOString() });
     mockedCreateAssessment.mockResolvedValueOnce({ assessment_id: "asmt-1", status: "queued" })
       .mockResolvedValueOnce({ assessment_id: "asmt-2", status: "queued" });
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
@@ -409,8 +409,11 @@ describe("Speak route", () => {
     fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
     await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
     fireEvent.click(screen.getByTestId("speak.submit"));
-    const retry = await screen.findByTestId("speak.retry_assessment");
+    await waitFor(() => expect(screen.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "true"));
+    expect(screen.queryByTestId("speak.retry_assessment")).not.toBeInTheDocument();
     expect(screen.getByTestId("speak.media_state")).toHaveTextContent("Audio uploaded and retained");
+    fireEvent.click(screen.getByTestId("speak.cancel_assessment"));
+    const retry = await screen.findByTestId("speak.retry_assessment");
     fireEvent.click(retry);
     fireEvent.click(retry);
     await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(2));
@@ -422,7 +425,7 @@ describe("Speak route", () => {
     expect(mockedCreateAssessment.mock.calls[1][0].request_id).not.toBe(mockedCreateAssessment.mock.calls[0][0].request_id);
   });
 
-  it("keeps monitoring a stalled job when retry cancellation fails", async () => {
+  it("keeps monitoring a stalled job when cancellation fails", async () => {
     mockedGetAssessmentStatus.mockResolvedValue({ assessment_id: "asmt-1", status: "running",
       phase: "scoring_rubric", progress: 0, created_at: new Date(Date.now() - 180_000).toISOString(),
       updated_at: new Date(Date.now() - 180_000).toISOString() });
@@ -432,7 +435,9 @@ describe("Speak route", () => {
     fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
     await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
     fireEvent.click(screen.getByTestId("speak.submit"));
-    fireEvent.click(await screen.findByTestId("speak.retry_assessment"));
+    await waitFor(() => expect(screen.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "true"));
+    expect(screen.queryByTestId("speak.retry_assessment")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("speak.cancel_assessment"));
     await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Cancellation did not finish: Connection lost"));
     expect(store.getState().recording.job.assessmentId).toBe("asmt-1");
     expect(screen.getByTestId("speak.cancel_assessment")).toBeVisible();
