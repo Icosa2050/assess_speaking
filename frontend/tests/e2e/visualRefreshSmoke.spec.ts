@@ -279,6 +279,7 @@ test("assessment wait explains a stall and recovers without a second upload", as
   let uploads = 0;
   let cancels = 0;
   let workerFresh = true;
+  let phaseAgeMs = 180_000;
   let currentId = "";
   let state: "stalled" | "failed" | "running" | "cancelled" = "stalled";
   const requests: Record<string, unknown>[] = [];
@@ -298,7 +299,7 @@ test("assessment wait explains a stall and recovers without a second upload", as
     return fulfillJson(route, { assessment_id: currentId, status: "cancelled", phase: "cancelled", last_phase: "scoring_rubric", progress: 1 });
   });
   await page.route("**/v1/assessments/*", route => {
-    const old = new Date(Date.now() - 240_000).toISOString();
+    const old = new Date(Date.now() - phaseAgeMs).toISOString();
     const recent = new Date().toISOString();
     const stopped = state === "failed" || state === "cancelled";
     return fulfillJson(route, { assessment_id: currentId, status: state === "stalled" ? "running" : state,
@@ -320,6 +321,10 @@ test("assessment wait explains a stall and recovers without a second upload", as
   await page.getByTestId("setup.continue").click();
   await attachAudio(page);
   await page.getByTestId("speak.submit").click();
+  await expect(page.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "false");
+  await expect(page.getByTestId("speak.wait_time")).toContainText("Last progress update 3 min");
+  await expect(page.getByTestId("speak.cancel_assessment")).toBeVisible();
+  phaseAgeMs = 240_000;
   await expect(page.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "true");
   await expect(page.getByTestId("speak.media_state")).toContainText("Audio uploaded and retained");
   await expect(page.getByTestId("speak.wait_time")).toContainText("Last progress update 4 min");
