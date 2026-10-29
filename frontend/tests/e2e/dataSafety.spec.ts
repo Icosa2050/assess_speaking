@@ -55,10 +55,12 @@ test("damaged journal offers a safe first action and confirms start fresh withou
 
 test("a lost fresh-start reply reports the backend-applied reset after reconciliation", async ({ page }) => {
   let fresh = false;
+  let requestId = "";
   let requests = 0;
-  await page.route("**/v1/journal/status", route => route.fulfill({json: fresh ? {...damaged, recovery_error: null} : damaged}));
+  await page.route("**/v1/journal/status", route => route.fulfill({json: fresh ? {...damaged, recovery_error: null, completed: [requestId]} : damaged}));
   await page.route("**/v1/journal/start-fresh", route => {
     requests += 1;
+    requestId = route.request().postDataJSON().fresh_request;
     fresh = true;
     return route.abort("failed");
   });
@@ -72,6 +74,26 @@ test("a lost fresh-start reply reports the backend-applied reset after reconcili
   await expect(panel.getByTestId("journal-state")).toContainText("Journal healthy");
   await expect(panel.getByRole("alert")).toHaveCount(0);
   expect(requests).toBe(1);
+});
+
+test("a rejected fresh start preserves an unrelated pending restore", async ({page}) => {
+  let pending = false;
+  await page.route("**/v1/journal/status", route => route.fulfill({json: pending
+    ? {...damaged, recovery_error: null, transaction: {id: "other", phase: "backend_staged"}}
+    : damaged}));
+  await page.route("**/v1/journal/start-fresh", route => {
+    pending = true;
+    return route.fulfill({status: 409, json: {detail: {detail: "The journal is not damaged."}}});
+  });
+  await page.goto("/settings");
+  const panel = page.getByTestId("journal-panel");
+  await expect(panel.getByTestId("journal-state")).toContainText("Journal damaged");
+  await panel.getByRole("button", {name: "Start a fresh journal"}).click();
+  await page.getByRole("dialog", {name: "Start a fresh journal?"}).getByRole("button", {name: "Confirm: start fresh"}).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(panel.getByTestId("journal-state")).toContainText("Recovery pending");
+  await expect(panel.getByRole("alert")).toContainText("The journal is not damaged.");
+  await expect(panel.getByText("A fresh recovery journal is ready. You can practise again.")).toHaveCount(0);
 });
 
 for (const action of ["Export diagnostics only", "Start a fresh journal"]) {

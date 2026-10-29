@@ -172,21 +172,32 @@ export async function journalRecoveryStatus(): Promise<JournalStatus> {
   return local && !status.transaction && !status.recovery_error ? { ...status, transaction: { id: local.id, phase: "browser_recovery" } } : status;
 }
 
-export async function startFreshJournal(): Promise<void> {
+export async function startFreshJournal(requestId: string, onAttempt: (browserTransaction?: string) => void = () => {}): Promise<void> {
   await withJournalLock(async access => {
     const local = await rehearsalMaintenance();
-    await journalRequest("start-fresh", { confirmed: true, browser_transaction: local?.id });
+    onAttempt(local?.id);
+    await journalRequest("start-fresh", { confirmed: true, browser_transaction: local?.id, fresh_request: requestId });
     await clearRehearsalMaintenance(access);
   }, true);
   clearRetryDraft();
 }
 
-export async function finishFreshJournalCleanup(): Promise<void> {
-  try {
-    await withJournalLock(access => clearRehearsalMaintenance(access), true);
-  } finally {
-    clearRetryDraft();
-  }
+export async function reconcileFreshJournal(requestId: string, browserTransaction?: string): Promise<{
+  applied: boolean; status: JournalStatus; pendingRecovery: boolean; cleanupError?: string;
+}> {
+  return withJournalLock(async access => {
+    const status = await journalStatus();
+    const local = await rehearsalMaintenance();
+    const visibleStatus = local && !status.transaction && !status.recovery_error
+      ? { ...status, transaction: { id: local.id, phase: "browser_recovery" } } : status;
+    if (!status.completed.includes(requestId) || status.recovery_error) return { applied: false, status: visibleStatus, pendingRecovery: false };
+    if (status.transaction || local?.id !== browserTransaction) return { applied: true, status: visibleStatus, pendingRecovery: true };
+    let cleanupError: string | undefined;
+    try { if (local) await clearRehearsalMaintenance(access); }
+    catch (cause) { cleanupError = cause instanceof Error ? cause.message : String(cause); }
+    finally { clearRetryDraft(); }
+    return { applied: true, status, pendingRecovery: false, cleanupError };
+  }, true);
 }
 
 export async function exportJournalDiagnostics(): Promise<import("@/lib/api/types").SupportBundleCreateResponse> {

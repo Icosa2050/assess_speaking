@@ -1214,6 +1214,8 @@
     "fresh_intro": "Il registro di recupero danneggiato viene messo da parte e ne viene creato uno nuovo. La cronologia e i file multimediali salvati rimangono; i dati di ripristino del browser in sospeso vengono dimenticati.",
     "fresh_heading": "Creare un nuovo registro?",
     "fresh_refresh_failed": "È stato creato un nuovo registro, ma questa schermata non è stata aggiornata completamente: {detail}. Controlla di nuovo il recupero.",
+    "fresh_outcome_unverified": "Il registro è attualmente integro, ma questa richiesta di nuovo inizio non è stata confermata: {detail}. Controlla il recupero prima di riprovare.",
+    "fresh_followup_pending": "È stato creato un nuovo registro, ma ora è in sospeso un altro recupero. Controlla il recupero prima di continuare.",
     "restore_refresh_failed": "Il backup è stato ripristinato, ma questa schermata non è stata aggiornata completamente: {detail}. Controlla di nuovo il recupero.",
     "fresh_kept": "Rimangono: report, cronologia, registrazioni, caricamenti, tentativi archiviati e backup ZIP esistenti.",
     "fresh_replaced": "Un nuovo registro di recupero sostituisce il registro danneggiato attivo. I suoi file di transazione e le istantanee di rollback restano conservati in quarantena; i dati di ripristino del browser in sospeso vengono dimenticati. Le modifiche incomplete non potranno più essere annullate automaticamente.",

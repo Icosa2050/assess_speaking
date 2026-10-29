@@ -7,7 +7,7 @@ import { createTranslator } from "@/lib/i18n";
 import type { UiLocale } from "@/lib/state/sessionDraft";
 import { useAppStore } from "@/lib/state/appStore";
 import { isDesktopRuntime, readDesktopRuntimeBridge } from "@/lib/runtime/desktopBridge";
-import { ownJournalPreview, startFreshJournal, finishFreshJournalCleanup, exportJournalDiagnostics, attemptRemoval, rehearsalRemoval, createLearnerBackup, previewLearnerRestore, commitLearnerRestore, recoverLearnerJournal, journalRecoveryStatus, journalStatus, journalRequest, journalBlob, type BackupResult, type RestorePreview, type JournalStatus } from "@/lib/rehearsal/maintenance";
+import { ownJournalPreview, startFreshJournal, reconcileFreshJournal, exportJournalDiagnostics, attemptRemoval, rehearsalRemoval, createLearnerBackup, previewLearnerRestore, commitLearnerRestore, recoverLearnerJournal, journalRecoveryStatus, journalStatus, journalRequest, journalBlob, type BackupResult, type RestorePreview, type JournalStatus } from "@/lib/rehearsal/maintenance";
 import { listArchivedRehearsals, undoRehearsalArchive } from "@/lib/rehearsal/storage";
 import type { Rehearsal } from "@/lib/rehearsal/session";
 import { Button } from "@/components/ui/Button";
@@ -160,20 +160,46 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
       {freshError && <div id="fresh-error" tabIndex={-1}><StatusBanner title={freshError} tone="error" urgent /></div>}
       <div className={styles.dialogActions}>
         <Button id="fresh-cancel" variant="secondary" disabled={busy} onClick={cancelFresh}>{t("your_data.fresh_cancel")}</Button>
-        <Button variant="danger" disabled={busy || activeTransaction} onClick={() => { setFreshError(""); let resetSucceeded = false; void run(async () => {
-          await startFreshJournal(); resetSucceeded = true; beginNewSession(); setConfirmFresh(false); setStatus(null); setRestoreName("");
-          await refresh(); setMessage(t("journal.fresh_done"));
+        <Button variant="danger" disabled={busy || activeTransaction} onClick={() => {
+          setFreshError("");
+          const requestId = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("");
+          let browserTransaction: string | undefined;
+          let resetSucceeded = false;
+          void run(async () => {
+            await startFreshJournal(requestId, id => { browserTransaction = id; }); resetSucceeded = true; beginNewSession(); setConfirmFresh(false); setStatus(null); setRestoreName("");
+            await refresh(); setMessage(t("journal.fresh_done"));
           }, async detail => {
-            if (!resetSucceeded) {
+            if (resetSucceeded) { setError(t("your_data.fresh_refresh_failed", { detail })); return; }
+            let result: Awaited<ReturnType<typeof reconcileFreshJournal>>;
+            try { result = await reconcileFreshJournal(requestId, browserTransaction); }
+            catch {
               try {
-                if ((await journalStatus()).recovery_error) { setFreshError(detail); return; }
-              } catch { setFreshError(detail); return; }
-              resetSucceeded = true;
-              beginNewSession(); setConfirmFresh(false); setStatus(null); setRestoreName("");
-              try { await finishFreshJournalCleanup(); await refresh(); setMessage(t("journal.fresh_done")); return; }
-              catch (cause) { detail = cause instanceof Error ? cause.message : String(cause); }
+                const current = await journalStatus();
+                if (current.completed.includes(requestId) && !current.recovery_error) {
+                  beginNewSession(); setConfirmFresh(false); setStatus(current); setRestoreName("");
+                  setError(current.transaction ? t("your_data.fresh_followup_pending") : t("your_data.fresh_refresh_failed", { detail }));
+                  return;
+                }
+                if (!current.recovery_error && !current.transaction) {
+                  setConfirmFresh(false); setStatus(current); setError(t("your_data.fresh_outcome_unverified", { detail })); return;
+                }
+                if (current.transaction) { setConfirmFresh(false); setStatus(current); setError(detail); return; }
+              } catch { /* Keep the original error when status is unavailable. */ }
+              setFreshError(detail); return;
             }
-            setError(t("your_data.fresh_refresh_failed", { detail }));
+            if (!result.applied) {
+              setStatus(result.status);
+              if (result.status.transaction) { setConfirmFresh(false); setError(detail); }
+              else if (!result.status.recovery_error) { setConfirmFresh(false); setError(t("your_data.fresh_outcome_unverified", { detail })); }
+              else setFreshError(detail);
+              return;
+            }
+            beginNewSession(); setConfirmFresh(false); setRestoreName("");
+            if (result.pendingRecovery) { setStatus(result.status); setError(t("your_data.fresh_followup_pending")); return; }
+            setStatus(null);
+            if (result.cleanupError) { setError(t("your_data.fresh_refresh_failed", { detail: result.cleanupError })); return; }
+            try { await refresh(); setMessage(t("journal.fresh_done")); }
+            catch (cause) { setError(t("your_data.fresh_refresh_failed", { detail: cause instanceof Error ? cause.message : String(cause) })); }
           }); }}>{t("journal.confirm_fresh")}</Button>
       </div>
     </dialog>}

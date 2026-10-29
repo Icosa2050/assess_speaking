@@ -1214,6 +1214,8 @@
     "fresh_intro": "Das beschädigte Wiederherstellungsjournal wird beiseitegelegt und ein neues erstellt. Gespeicherter Verlauf und Medien bleiben erhalten; ausstehende Browser-Wiederherstellungsdaten werden verworfen.",
     "fresh_heading": "Neues Journal beginnen?",
     "fresh_refresh_failed": "Ein neues Journal wurde erstellt, aber diese Ansicht konnte nicht vollständig aktualisiert werden: {detail}. Prüfen Sie die Wiederherstellung erneut.",
+    "fresh_outcome_unverified": "Das Journal ist derzeit intakt, aber diese Anfrage zum Neustart konnte nicht bestätigt werden: {detail}. Prüfe die Wiederherstellung, bevor du es erneut versuchst.",
+    "fresh_followup_pending": "Ein neues Journal wurde erstellt, aber eine weitere Wiederherstellung steht jetzt aus. Prüfe die Wiederherstellung, bevor du fortfährst.",
     "restore_refresh_failed": "Die Sicherung wurde wiederhergestellt, aber diese Ansicht konnte nicht vollständig aktualisiert werden: {detail}. Prüfen Sie die Wiederherstellung erneut.",
     "fresh_kept": "Bleibt erhalten: gespeicherte Berichte, Verlauf, Aufnahmen, Uploads, archivierte Versuche und vorhandene Sicherungs-ZIPs.",
     "fresh_replaced": "Ein neues Wiederherstellungsjournal ersetzt das aktive beschädigte Journal. Dessen Transaktionsdateien und Rollback-Snapshots bleiben in Quarantäne erhalten; ausstehende Browser-Wiederherstellungsdaten werden verworfen. Unfertige Änderungen können nicht mehr automatisch zurückgesetzt werden.",

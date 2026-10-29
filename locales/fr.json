@@ -1214,6 +1214,8 @@
     "fresh_intro": "Le journal de récupération endommagé est mis de côté et un nouveau est créé. L’historique et les médias enregistrés restent en place ; les données de restauration du navigateur en attente sont oubliées.",
     "fresh_heading": "Créer un nouveau journal ?",
     "fresh_refresh_failed": "Un nouveau journal a été créé, mais cette vue n’a pas pu être mise à jour complètement : {detail}. Vérifiez à nouveau la récupération.",
+    "fresh_outcome_unverified": "Le journal est actuellement sain, mais cette demande de nouveau départ n’a pas pu être confirmée : {detail}. Vérifiez la récupération avant de réessayer.",
+    "fresh_followup_pending": "Un nouveau journal a été créé, mais une autre récupération est maintenant en attente. Vérifiez la récupération avant de continuer.",
     "restore_refresh_failed": "La sauvegarde a été restaurée, mais cette vue n’a pas pu être mise à jour complètement : {detail}. Vérifiez à nouveau la récupération.",
     "fresh_kept": "Conservés : rapports, historique, enregistrements, fichiers envoyés, tentatives archivées et archives ZIP de sauvegarde existantes.",
     "fresh_replaced": "Un nouveau journal de récupération remplace le journal endommagé actif. Ses fichiers de transaction et instantanés d’annulation sont conservés en quarantaine ; les données de restauration du navigateur en attente sont oubliées. Les modifications inachevées ne pourront plus être annulées automatiquement.",

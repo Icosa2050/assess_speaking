@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "@/lib/i18n";
-import { commitLearnerRestore, finishFreshJournalCleanup, journalRecoveryStatus, journalStatus, previewLearnerRestore, recoverLearnerJournal, startFreshJournal, type JournalStatus } from "@/lib/rehearsal/maintenance";
+import { commitLearnerRestore, reconcileFreshJournal, journalRecoveryStatus, journalStatus, previewLearnerRestore, recoverLearnerJournal, startFreshJournal, type JournalStatus } from "@/lib/rehearsal/maintenance";
 import { createRehearsal } from "@/lib/rehearsal/session";
 import { listArchivedRehearsals } from "@/lib/rehearsal/storage";
 import { renderWithProviders } from "@/test/renderWithProviders";
@@ -15,7 +15,7 @@ vi.mock("@/lib/rehearsal/maintenance", async importOriginal => ({
   journalRecoveryStatus: vi.fn(),
   journalStatus: vi.fn(),
   startFreshJournal: vi.fn(),
-  finishFreshJournalCleanup: vi.fn(),
+  reconcileFreshJournal: vi.fn(),
   recoverLearnerJournal: vi.fn(),
   previewLearnerRestore: vi.fn(),
   commitLearnerRestore: vi.fn(),
@@ -36,6 +36,7 @@ describe("journal recovery visibility", () => {
     vi.resetAllMocks();
     status.mockResolvedValue(clean);
     vi.mocked(journalStatus).mockResolvedValue(damaged);
+    vi.mocked(reconcileFreshJournal).mockResolvedValue({applied: false, status: damaged, pendingRecovery: false});
     archived.mockResolvedValue([]);
   });
 
@@ -159,9 +160,9 @@ describe("journal recovery visibility", () => {
     expect(document.activeElement).toHaveAttribute("id", "journal-error");
   });
 
-  it("reconciles a lost fresh-start reply with the healthy backend and finishes browser cleanup", async () => {
+  it("reconciles a lost fresh-start reply when the backend confirms this request", async () => {
     status.mockResolvedValueOnce(damaged).mockResolvedValue(clean);
-    vi.mocked(journalStatus).mockResolvedValue(clean);
+    vi.mocked(reconcileFreshJournal).mockResolvedValueOnce({applied: true, status: clean, pendingRecovery: false});
     vi.mocked(startFreshJournal).mockRejectedValueOnce(new Error("Response lost"));
     renderWithProviders(<JournalPanel locale="en" />);
     fireEvent.click(await screen.findByRole("button", {name: t("journal.fresh")}));
@@ -169,15 +170,15 @@ describe("journal recovery visibility", () => {
     expect(await screen.findByText(t("journal.fresh_done"))).toBeVisible();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.getByTestId("journal-state")).toHaveTextContent(t("your_data.state_healthy"));
-    expect(finishFreshJournalCleanup).toHaveBeenCalledOnce();
+    expect(reconcileFreshJournal).toHaveBeenCalledOnce();
+    expect(vi.mocked(reconcileFreshJournal).mock.calls[0][0]).toMatch(/^[0-9a-f]{32}$/);
     expect(startFreshJournal).toHaveBeenCalledOnce();
   });
 
   it("reports a backend-applied fresh start when browser cleanup still fails", async () => {
     status.mockResolvedValueOnce(damaged);
-    vi.mocked(journalStatus).mockResolvedValue(clean);
+    vi.mocked(reconcileFreshJournal).mockResolvedValueOnce({applied: true, status: clean, pendingRecovery: false, cleanupError: "IndexedDB blocked"});
     vi.mocked(startFreshJournal).mockRejectedValueOnce(new Error("IndexedDB blocked"));
-    vi.mocked(finishFreshJournalCleanup).mockRejectedValueOnce(new Error("IndexedDB blocked"));
     renderWithProviders(<JournalPanel locale="en" />);
     fireEvent.click(await screen.findByRole("button", {name: t("journal.fresh")}));
     fireEvent.click(screen.getByRole("button", {name: t("journal.confirm_fresh")}));
@@ -185,7 +186,34 @@ describe("journal recovery visibility", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("A fresh journal was started");
     expect(screen.getByRole("alert")).toHaveTextContent("IndexedDB blocked");
     expect(screen.getByTestId("journal-state")).not.toHaveTextContent(t("your_data.state_damaged"));
-    expect(finishFreshJournalCleanup).toHaveBeenCalledOnce();
+    expect(reconcileFreshJournal).toHaveBeenCalledOnce();
+  });
+
+  it("preserves an unrelated pending restore after a rejected reset", async () => {
+    const pending = {...clean, transaction: {id: "other", phase: "backend_staged"}};
+    vi.mocked(reconcileFreshJournal).mockResolvedValueOnce({applied: false, status: pending, pendingRecovery: false});
+    vi.mocked(startFreshJournal).mockRejectedValueOnce(new Error("The journal is not damaged"));
+    status.mockResolvedValueOnce(damaged);
+    renderWithProviders(<JournalPanel locale="en" />);
+    fireEvent.click(await screen.findByRole("button", {name: t("journal.fresh")}));
+    fireEvent.click(screen.getByRole("button", {name: t("journal.confirm_fresh")}));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("The journal is not damaged");
+    expect(screen.getByTestId("journal-state")).toHaveTextContent(t("your_data.state_pending"));
+    expect(screen.queryByText(t("journal.fresh_done"))).not.toBeInTheDocument();
+  });
+
+  it("reports a healthy journal without claiming an unconfirmed reset", async () => {
+    vi.mocked(reconcileFreshJournal).mockResolvedValueOnce({applied: false, status: clean, pendingRecovery: false});
+    vi.mocked(startFreshJournal).mockRejectedValueOnce(new Error("Response lost"));
+    status.mockResolvedValueOnce(damaged);
+    renderWithProviders(<JournalPanel locale="en" />);
+    fireEvent.click(await screen.findByRole("button", {name: t("journal.fresh")}));
+    fireEvent.click(screen.getByRole("button", {name: t("journal.confirm_fresh")}));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("The journal is currently healthy");
+    expect(screen.getByTestId("journal-state")).toHaveTextContent(t("your_data.state_healthy"));
+    expect(screen.queryByText(t("journal.fresh_done"))).not.toBeInTheDocument();
   });
 
   it("keeps rollback retry reachable after an intact transaction hits a disk error", async () => {

@@ -23,6 +23,11 @@
     [
       "e2e/dataSafety.spec.ts",
       "",
+      "a rejected fresh start preserves an unrelated pending restore"
+    ],
+    [
+      "e2e/dataSafety.spec.ts",
+      "",
       "recovery notice retries focus on Export diagnostics only when repair enables it"
     ],
     [

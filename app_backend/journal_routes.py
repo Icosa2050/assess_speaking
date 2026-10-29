@@ -64,7 +64,7 @@ def install_journal_routes(app, config):
 
     @app.post('/v1/journal/start-fresh', tags=['local-support'])
     def start_fresh(body: dict):
-        return journal.start_fresh(body.get('confirmed'), body.get('browser_transaction'))
+        return journal.start_fresh(body.get('confirmed'), body.get('browser_transaction'), body.get('fresh_request'))
 
     @app.post('/v1/journal/diagnostics', tags=['local-support'])
     def diagnostics():
