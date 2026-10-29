@@ -130,6 +130,19 @@ describe("journal recovery visibility", () => {
     expect(await screen.findByText(t("journal.fresh_done"))).toBeVisible();
   });
 
+  it("reports a status refresh failure outside the closed dialog after fresh start succeeds", async () => {
+    status.mockResolvedValueOnce(damaged).mockRejectedValueOnce(new Error("Status offline"));
+    renderWithProviders(<JournalPanel locale="en" />);
+    fireEvent.click(await screen.findByRole("button", { name: t("journal.fresh") }));
+    fireEvent.click(screen.getByRole("button", { name: t("journal.confirm_fresh") }));
+    await waitFor(() => expect(startFreshJournal).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("A fresh journal was started");
+    expect(screen.getByRole("alert")).toHaveTextContent("Status offline");
+    expect(screen.getByTestId("journal-state")).not.toHaveTextContent("Journal damaged");
+    expect(document.activeElement).toHaveAttribute("id", "journal-error");
+  });
+
   it("keeps rollback retry reachable after an intact transaction hits a disk error", async () => {
     const retryable = {...damaged, recovery_retryable: true, transaction: {id: "a".repeat(32), phase: "rolling_back"}};
     status.mockResolvedValue(retryable);

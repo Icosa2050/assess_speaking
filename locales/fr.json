@@ -1184,6 +1184,7 @@
     "choose_backup": "Choisir une archive ZIP",
     "fresh_intro": "Repartir à zéro met de côté le journal de récupération endommagé et en crée un nouveau. Les rapports, l’historique, les enregistrements et les fichiers envoyés restent en place. Les données de restauration en attente et les instantanés d’annulation sont remplacés.",
     "fresh_heading": "Créer un nouveau journal ?",
+    "fresh_refresh_failed": "Un nouveau journal a été créé, mais cette vue n’a pas pu être mise à jour complètement : {detail}. Vérifiez à nouveau la récupération.",
     "fresh_kept": "Conservés : rapports, historique, enregistrements et fichiers envoyés.",
     "fresh_replaced": "Remplacés : journal de récupération endommagé, données de restauration du navigateur en attente et instantanés d’annulation. Les modifications inachevées ne pourront plus être annulées automatiquement.",
     "fresh_cancel": "Annuler et conserver l’état actuel",

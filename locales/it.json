@@ -1184,6 +1184,7 @@
     "choose_backup": "Scegli un backup ZIP",
     "fresh_intro": "Ricominciare mette da parte il registro di recupero danneggiato e ne crea uno nuovo. Report, cronologia, registrazioni e caricamenti salvati rimangono. I dati di ripristino in sospeso e le istantanee di rollback vengono sostituiti.",
     "fresh_heading": "Creare un nuovo registro?",
+    "fresh_refresh_failed": "È stato creato un nuovo registro, ma questa schermata non è stata aggiornata completamente: {detail}. Controlla di nuovo il recupero.",
     "fresh_kept": "Rimangono: report, cronologia, registrazioni e caricamenti salvati.",
     "fresh_replaced": "Vengono sostituiti: il registro di recupero danneggiato, i dati di ripristino del browser in sospeso e le istantanee di rollback. Le modifiche incomplete non potranno più essere annullate automaticamente.",
     "fresh_cancel": "Annulla e conserva lo stato attuale",

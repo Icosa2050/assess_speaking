@@ -1184,6 +1184,7 @@
     "choose_backup": "Elegir copia ZIP",
     "fresh_intro": "Empezar de nuevo aparta el diario de recuperación dañado y crea uno nuevo. Los informes, el historial, las grabaciones y los archivos subidos permanecen. Se sustituyen los datos de restauración pendientes y las instantáneas de reversión.",
     "fresh_heading": "¿Empezar un diario nuevo?",
+    "fresh_refresh_failed": "Se ha iniciado un diario nuevo, pero esta vista no se pudo actualizar por completo: {detail}. Vuelve a comprobar la recuperación.",
     "fresh_kept": "Se conserva: informes, historial, grabaciones y archivos subidos.",
     "fresh_replaced": "Se sustituye: el diario de recuperación dañado, los datos de restauración pendientes del navegador y las instantáneas de reversión. Los cambios incompletos ya no se pueden revertir automáticamente.",
     "fresh_cancel": "Cancelar y conservar el estado actual",

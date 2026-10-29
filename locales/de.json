@@ -1184,6 +1184,7 @@
     "choose_backup": "Sicherungs-ZIP auswählen",
     "fresh_intro": "Ein Neustart legt das beschädigte Wiederherstellungsjournal beiseite und erstellt ein neues. Gespeicherte Berichte, Verlauf, Aufnahmen und Uploads bleiben erhalten. Unfertige Wiederherstellungsdaten und Rollback-Snapshots werden ersetzt.",
     "fresh_heading": "Neues Journal beginnen?",
+    "fresh_refresh_failed": "Ein neues Journal wurde erstellt, aber diese Ansicht konnte nicht vollständig aktualisiert werden: {detail}. Prüfen Sie die Wiederherstellung erneut.",
     "fresh_kept": "Bleibt erhalten: gespeicherte Berichte, Verlauf, Aufnahmen und Uploads.",
     "fresh_replaced": "Wird ersetzt: das beschädigte Wiederherstellungsjournal, ausstehende Browser-Wiederherstellungsdaten und Rollback-Snapshots. Unfertige Änderungen können nicht mehr automatisch zurückgesetzt werden.",
     "fresh_cancel": "Abbrechen und aktuellen Zustand behalten",

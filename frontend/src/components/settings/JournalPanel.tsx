@@ -80,6 +80,7 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
   useEffect(() => { if (preview) document.getElementById("journal-preview-heading")?.focus(); }, [preview]);
   useEffect(() => { if (message && !busy) messageRef.current?.focus(); }, [message, busy]);
   useEffect(() => { if (freshError) document.getElementById("fresh-error")?.focus(); }, [freshError]);
+  useEffect(() => { if (error && !confirmFresh) document.getElementById("journal-error")?.focus(); }, [error, confirmFresh]);
   useEffect(() => {
     const dialog = freshDialog.current;
     if (!dialog || !confirmFresh) return;
@@ -117,7 +118,7 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
   const stateLabel = status?.recovery_error ? t("your_data.state_damaged") : pendingTransaction ? t("your_data.state_pending") : status ? t("your_data.state_healthy") : t("your_data.state_loading");
   return <Card as="section" id="your-data" className={styles.panel} data-testid="journal-panel" aria-labelledby="your-data-title">
     <header className={styles.header}><div><h2 id="your-data-title" tabIndex={-1}>{t("your_data.title")}</h2><p>{t("journal.body")}</p></div><span className={styles.state} data-testid="journal-state" aria-live="polite">{t("your_data.status_heading")}: {stateLabel}</span></header>
-    {message && <p ref={messageRef} tabIndex={-1} role="status">{message}</p>}{error && <StatusBanner title={error} tone="error" urgent />}
+    {message && <p ref={messageRef} tabIndex={-1} role="status">{message}</p>}{error && <div id="journal-error" tabIndex={-1}><StatusBanner title={error} tone="error" urgent /></div>}
     {status?.recovery_error && <StatusBanner title={status.recovery_error} tone="error" urgent />}
     {status?.recovery_error && <div className={`${styles.actionGroup} ${styles.safeCard}`}>
       <span className={styles.eyebrow}>{t("your_data.safe_to_try")}</span>
@@ -151,9 +152,10 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
       {freshError && <div id="fresh-error" tabIndex={-1}><StatusBanner title={freshError} tone="error" urgent /></div>}
       <div className={styles.dialogActions}>
         <Button id="fresh-cancel" variant="secondary" disabled={busy} onClick={cancelFresh}>{t("your_data.fresh_cancel")}</Button>
-        <Button variant="danger" disabled={busy || activeTransaction} onClick={() => { setFreshError(""); void run(async () => {
-          await startFreshJournal(); beginNewSession(); setConfirmFresh(false); await refresh(); setMessage(t("journal.fresh_done"));
-        }, setFreshError); }}>{t("journal.confirm_fresh")}</Button>
+        <Button variant="danger" disabled={busy || activeTransaction} onClick={() => { setFreshError(""); let resetSucceeded = false; void run(async () => {
+          await startFreshJournal(); resetSucceeded = true; beginNewSession(); setConfirmFresh(false); setStatus(null);
+          await refresh(); setMessage(t("journal.fresh_done"));
+        }, detail => resetSucceeded ? setError(t("your_data.fresh_refresh_failed", { detail })) : setFreshError(detail)); }}>{t("journal.confirm_fresh")}</Button>
       </div>
     </dialog>}
     <div className={`${styles.actionGroup} ${styles.actionCard}`}><h3>{t("your_data.backup_heading")}</h3><p>{t("journal.limit")}</p>

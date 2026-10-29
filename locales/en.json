@@ -1184,6 +1184,7 @@
     "choose_backup": "Choose a backup ZIP",
     "fresh_intro": "Starting fresh sets aside the damaged recovery journal and begins a new one. Saved reports, history, recordings, and uploads stay in place. Unfinished restore data and rollback snapshots are replaced.",
     "fresh_heading": "Start a fresh journal?",
+    "fresh_refresh_failed": "A fresh journal was started, but this view could not finish updating: {detail}. Check recovery again.",
     "fresh_kept": "Kept: saved reports, history, recordings, and uploads.",
     "fresh_replaced": "Replaced: the damaged recovery journal, pending browser restore data, and rollback snapshots. Unfinished changes cannot be rolled back automatically.",
     "fresh_cancel": "Cancel and keep current state",
