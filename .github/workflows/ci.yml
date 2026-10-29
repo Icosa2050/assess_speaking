@@ -29,6 +29,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Run backend rollout quality checks
         run: python scripts/check_quality.py
@@ -80,6 +82,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - name: Install isolated fixture dependencies
         timeout-minutes: 5
         run: |
@@ -92,13 +96,28 @@ jobs:
           python scripts/run_bounded_check.py 90 npm --prefix frontend run typecheck
           python scripts/run_bounded_check.py 90 npm --prefix frontend test
           python scripts/run_bounded_check.py 90 npm --prefix frontend run build
+      - name: Bound apt mirror requests
+        timeout-minutes: 1
+        run: |
+          sudo tee /etc/apt/apt.conf.d/99vostavo-ci >/dev/null <<'APT'
+          Acquire::Retries "3";
+          Acquire::http::Timeout "20";
+          Acquire::https::Timeout "20";
+          DPkg::Lock::Timeout "30";
+          APT
+          apt-config dump | grep -E 'Acquire::(Retries|http::Timeout|https::Timeout)|DPkg::Lock::Timeout'
       - name: Install fixture browser and media dependencies
         timeout-minutes: 8
         working-directory: frontend
         run: python ../scripts/run_bounded_check.py 420 npm exec --no -- playwright install --with-deps ${{ matrix.browser }}
       - name: Install audio decoding tools
         timeout-minutes: 8
-        run: python scripts/run_bounded_check.py 420 sudo apt-get install -y --no-install-recommends ffmpeg
+        run: |
+          if command -v ffmpeg >/dev/null 2>&1; then
+            ffmpeg -version | head -n 1
+          else
+            python scripts/run_bounded_check.py 420 sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
       - name: Run mandatory browser identities
         timeout-minutes: 32
         env:
@@ -136,8 +155,20 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Bound apt mirror requests
+        timeout-minutes: 1
+        run: |
+          sudo tee /etc/apt/apt.conf.d/99vostavo-ci >/dev/null <<'APT'
+          Acquire::Retries "3";
+          Acquire::http::Timeout "20";
+          Acquire::https::Timeout "20";
+          DPkg::Lock::Timeout "30";
+          APT
+          apt-config dump | grep -E 'Acquire::(Retries|http::Timeout|https::Timeout)|DPkg::Lock::Timeout'
+
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgl1 libglib2.0-0 ffmpeg
+        timeout-minutes: 8
+        run: python scripts/run_bounded_check.py 420 bash -c 'sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglib2.0-0 ffmpeg'
 
       - name: Install project dependencies
         run: |

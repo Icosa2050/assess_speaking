@@ -17,6 +17,7 @@ from app_backend.jobs import prunable_job_metadata_files, unreferenced_job_stage
 from app_core.cloud_policy import locked_file
 
 logger = logging.getLogger(__name__)
+JOB_STAGING_RETENTION_HOURS = 24
 
 
 def _iter_files(root: Path) -> list[Path]:
@@ -88,6 +89,23 @@ def prunable_log_files(runtime_config: BackendRuntimeConfig) -> list[Path]:
     return sorted(candidates)
 
 
+def orphaned_job_staging_candidates(runtime_config: BackendRuntimeConfig, *, now: datetime | None = None) -> list[Path]:
+    # A terminated worker can leave the private file used for atomic status
+    # replacement. Keep recent files because a live writer does not hold the
+    # retention lock and might still be staging its replacement.
+    cutoff = _normalize_now(now) - timedelta(hours=JOB_STAGING_RETENTION_HOURS)
+    candidates: list[Path] = []
+    for path in runtime_config.jobs_dir.glob(".*.json.*.tmp"):
+        try:
+            modified_at = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+        except OSError:
+            logger.warning("Could not inspect job staging candidate %s.", path, exc_info=True)
+            continue
+        if path.is_file() and modified_at <= cutoff:
+            candidates.append(path)
+    return sorted(candidates)
+
+
 def cleanup_candidates(
     runtime_config: BackendRuntimeConfig,
     target: CleanupTarget,
@@ -97,10 +115,9 @@ def cleanup_candidates(
     if target == CleanupTarget.TMP:
         return temporary_cleanup_candidates(runtime_config)
     if target == CleanupTarget.JOBS:
-        return prunable_job_metadata_files(
-            runtime_config.jobs_dir,
-            retention_days=DEFAULT_JOB_METADATA_RETENTION_DAYS,
-            now=now,
+        return sorted(
+            prunable_job_metadata_files(runtime_config.jobs_dir, retention_days=DEFAULT_JOB_METADATA_RETENTION_DAYS, now=now)
+            + orphaned_job_staging_candidates(runtime_config, now=now)
         )
     if target == CleanupTarget.LOGS:
         return prunable_log_files(runtime_config)
@@ -113,6 +130,7 @@ def cleanup_candidates(
                 retention_days=DEFAULT_JOB_METADATA_RETENTION_DAYS,
                 now=now,
             )
+            + orphaned_job_staging_candidates(runtime_config, now=now)
             + prunable_log_files(runtime_config)
         )
         unique: list[Path] = []
