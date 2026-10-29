@@ -88,7 +88,7 @@
       "e2e/reviewHistoryFlow.spec.ts",
       "",
       "review and history replacement flow",
-      "History chart table is reachable by keyboard at both desktop window sizes"
+      "History chart table and focus outline are reachable at desktop and narrow widths"
     ],
     [
       "e2e/reviewHistoryFlow.spec.ts",

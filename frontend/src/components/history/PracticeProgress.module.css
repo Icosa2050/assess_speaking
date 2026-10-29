@@ -13,7 +13,7 @@
 .chart text { font-size: 13px; fill: #496459; }
 .attempts { display: flex; flex-wrap: wrap; gap: .5rem; max-height: 180px; overflow: auto; padding: .25rem; }
 .comparison { display: grid; gap: .75rem; border-top: 1px solid #d2e2dc; padding-top: 1rem; }
-.tableWrap { overflow-x: auto; padding: var(--focus-offset); }
+.tableWrap { overflow-x: auto; padding: calc(var(--focus-offset) + var(--focus-width)); }
 .panel table { border-collapse: collapse; width: 100%; min-width: 380px; font-size: .875rem; }
 .panel th, .panel td { padding: .6rem; text-align: right; border-bottom: 1px solid #e5eee9; overflow-wrap: normal; }
 .panel td { white-space: nowrap; }

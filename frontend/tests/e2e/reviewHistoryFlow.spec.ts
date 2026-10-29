@@ -292,7 +292,7 @@ const tabTo = async (page: Page, testId: string) => {
 };
 
 test.describe("review and history replacement flow", () => {
-  test("History chart table is reachable by keyboard at both desktop window sizes", async ({ page }, testInfo) => {
+  test("History chart table and focus outline are reachable at desktop and narrow widths", async ({ page }, testInfo) => {
     await installReadyEmptyBackend(page);
     const comparableRows = historyRows.map((row, index) => ({ ...row,
       elapsed_wpm: index ? 103 : 96, duration_sec: 90, pause_total_sec: index ? 8 : 12,
@@ -303,7 +303,7 @@ test.describe("review and history replacement flow", () => {
     }));
     await page.route("**/v1/history", route => fulfillJson(route, { items: comparableRows }));
     await page.route("**/v1/history/*", route => fulfillJson(route, { payload: reportPayload(attempts[1], "sess-first") }));
-    for (const [width, height] of [[1360, 900], [1100, 760]] as const) {
+    for (const [width, height] of [[1360, 900], [1100, 760], [360, 760], [320, 760]] as const) {
       await page.setViewportSize({ width, height });
       await page.goto("/history");
       const table = page.getByRole("table", { name: "Chart data: Overall performance" });
@@ -314,9 +314,22 @@ test.describe("review and history replacement flow", () => {
       await page.getByRole("combobox", { name: "Measurement" }).focus();
       await page.keyboard.press("Tab");
       await expect(table).toBeFocused();
+      if (width <= 360) {
+        const outline = await table.evaluate(element => {
+          const wrapper = element.parentElement!;
+          const style = getComputedStyle(element);
+          const extent = parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset);
+          wrapper.scrollLeft = 0;
+          const leftVisible = element.getBoundingClientRect().left - extent >= wrapper.getBoundingClientRect().left - 0.5;
+          wrapper.scrollLeft = wrapper.scrollWidth;
+          const rightVisible = element.getBoundingClientRect().right + extent <= wrapper.getBoundingClientRect().right + 0.5;
+          return { scrollable: wrapper.scrollWidth > wrapper.clientWidth, leftVisible, rightVisible };
+        });
+        expect(outline).toEqual({ scrollable: true, leftVisible: true, rightVisible: true });
+      }
       await page.keyboard.press("Tab");
       await expect(page.getByTestId("practice-rhythm").getByRole("combobox")).toBeFocused();
-      await page.screenshot({ path: testInfo.outputPath(`history-after-${width}x${height}.png`), fullPage: true });
+      if (width > 360) await page.screenshot({ path: testInfo.outputPath(`history-after-${width}x${height}.png`), fullPage: true });
     }
   });
   test("keeps empty Review and History states actionable", async ({ page }) => {
