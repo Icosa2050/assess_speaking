@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppFrame } from "@/App";
 import { renderWithProviders } from "@/test/renderWithProviders";
+import { queryKeys } from "@/lib/query/queryClient";
 
 vi.mock("@/lib/api/client", () => ({
   ApiClientError: class ApiClientError extends Error {
@@ -473,6 +474,22 @@ describe("Speak route", () => {
     expect(screen.getByTestId("speak.cancel_assessment")).toBeVisible();
     expect(screen.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "true");
     expect(mockedCreateAssessment).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears a polling error after an unchanged status response recovers", async () => {
+    const { queryClient } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+    fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(mockedGetAssessmentStatus).toHaveBeenCalled());
+    const originalStatus = await mockedGetAssessmentStatus.mock.results[0].value;
+    mockedGetAssessmentStatus.mockRejectedValue(new ApiClientError(503, { code: "runtime_error", detail: "Poll unavailable" }));
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.assessment("asmt-1") }); });
+    await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Could not refresh progress: Poll unavailable"));
+    mockedGetAssessmentStatus.mockResolvedValue(originalStatus);
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.assessment("asmt-1") }); });
+    await waitFor(() => expect(screen.getByTestId("speak.status_panel")).not.toHaveTextContent("Could not refresh progress"));
   });
 
   it("rejects a file when current disk space is insufficient, retaining a backup link", async () => {

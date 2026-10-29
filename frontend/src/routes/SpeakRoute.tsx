@@ -365,6 +365,8 @@ export const SpeakRoute = () => {
   useEffect(() => {
     if (assessmentStatusQuery.error instanceof ApiClientError) {
       setPollError(assessmentStatusQuery.error.detail);
+    } else if (!assessmentStatusQuery.error) {
+      setPollError("");
     }
   }, [assessmentStatusQuery.error]);
 
