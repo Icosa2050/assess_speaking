@@ -532,6 +532,8 @@ pub struct DraftStore {
     fail_manifest_sync: bool,
     #[cfg(test)]
     fail_chunk_write_after_length: bool,
+    #[cfg(test)]
+    free_bytes_override: Option<u64>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -555,6 +557,8 @@ impl DraftStore {
             fail_manifest_sync: false,
             #[cfg(test)]
             fail_chunk_write_after_length: false,
+            #[cfg(test)]
+            free_bytes_override: None,
         })
     }
     #[cfg(test)]
@@ -571,6 +575,7 @@ impl DraftStore {
             verified: HashSet::new(),
             fail_manifest_sync: false,
             fail_chunk_write_after_length: false,
+            free_bytes_override: None,
         }
     }
     fn manifest_path(&self, id: &str) -> StoreResult<PathBuf> {
@@ -862,7 +867,28 @@ impl DraftStore {
             return Err(err("Local draft storage limit reached"));
         }
         let free = free_bytes(&self.dir)?;
-        if free < incoming_size.saturating_mul(2).saturating_add(RESERVE) {
+        #[cfg(test)]
+        let free = self.free_bytes_override.unwrap_or(free);
+        let pending_disk = self.incoming.values().try_fold(0_u64, |total, item| {
+            let written = item
+                .file
+                .metadata()
+                .map_err(|_| err("Could not inspect pending take"))?
+                .len();
+            Ok::<u64, String>(
+                total.saturating_add(
+                    encrypted_media_size(item.take.size)
+                        .saturating_mul(2)
+                        .saturating_sub(written),
+                ),
+            )
+        })?;
+        if free
+            < incoming_size
+                .saturating_mul(2)
+                .saturating_add(pending_disk)
+                .saturating_add(RESERVE)
+        {
             return Err(err("Not enough free disk space to save take"));
         }
         if self.incoming.values().any(|item| item.draft_id == draft_id) {
@@ -1946,6 +1972,28 @@ mod tests {
             .unwrap();
         store.abort_take(&second).unwrap();
         store.abort_take(&third).unwrap();
+    }
+    #[test]
+    fn overlapping_transfers_preserve_free_disk_reserve() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let first = store.save_setup(setup("Alex"), None, None).unwrap();
+        let second = store.save_setup(setup("Bea"), None, None).unwrap();
+        store.free_bytes_override = Some(680 * 1024 * 1024);
+        let mut metadata = take(b"x");
+        metadata.size = 80 * 1024 * 1024;
+        let transfer = store
+            .begin_take(first.draft_id, first.revision, metadata.clone())
+            .unwrap();
+        assert!(store
+            .begin_take(second.draft_id.clone(), second.revision, metadata.clone())
+            .unwrap_err()
+            .contains("free disk space"));
+        store.abort_take(&transfer).unwrap();
+        let retry = store
+            .begin_take(second.draft_id, second.revision, metadata)
+            .unwrap();
+        store.abort_take(&retry).unwrap();
     }
     #[test]
     fn future_capture_time_cannot_publish_unreadable_manifest() {
