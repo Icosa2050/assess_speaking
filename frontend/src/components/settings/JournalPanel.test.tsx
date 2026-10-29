@@ -99,6 +99,21 @@ describe("journal recovery visibility", () => {
     expect(screen.getByRole("button", {name: t("journal.rollback")})).toBeEnabled();
   });
 
+  it("announces a failed fresh start inside the dialog and permits retry", async () => {
+    status.mockResolvedValue(damaged);
+    vi.mocked(startFreshJournal).mockRejectedValueOnce(new Error("Journal disk is full"));
+    renderWithProviders(<JournalPanel locale="en" />);
+    fireEvent.click(await screen.findByRole("button", { name: t("journal.fresh") }));
+    fireEvent.click(screen.getByRole("button", { name: t("journal.confirm_fresh") }));
+    await waitFor(() => expect(screen.getByRole("dialog").querySelector('[role="alert"]')).toHaveTextContent("Journal disk is full"));
+    expect(document.activeElement).toHaveAttribute("id", "fresh-error");
+    expect(screen.getByRole("button", { name: "Cancel and keep current state" })).toBeEnabled();
+    status.mockResolvedValue(clean);
+    fireEvent.click(screen.getByRole("button", { name: t("journal.confirm_fresh") }));
+    await waitFor(() => expect(startFreshJournal).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(t("journal.fresh_done"))).toBeVisible();
+  });
+
   it("keeps rollback retry reachable after an intact transaction hits a disk error", async () => {
     const retryable = {...damaged, recovery_retryable: true, transaction: {id: "a".repeat(32), phase: "rolling_back"}};
     status.mockResolvedValue(retryable);

@@ -1,6 +1,7 @@
 import { apiClient } from "@/lib/api/client";
 import type { SupportBundleCreateResponse } from "@/lib/api/types";
 import { useEffect, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { createTranslator } from "@/lib/i18n";
 import type { UiLocale } from "@/lib/state/sessionDraft";
@@ -18,12 +19,15 @@ import styles from "./JournalPanel.module.css";
 
 export function JournalPanel({ locale }: { locale: UiLocale }) {
   const t = createTranslator(locale);
+  const location = useLocation();
   const beginNewSession = useAppStore((state) => state.beginNewSession);
   const cache = useQueryClient();
   const controller = useRef<AbortController | null>(null);
   const freshDialog = useRef<HTMLDialogElement>(null);
   const messageRef = useRef<HTMLParagraphElement>(null);
+  const focusedFragment = useRef<string | null>(null);
   const [confirmFresh, setConfirmFresh] = useState(false);
+  const [freshError, setFreshError] = useState("");
   const [diagnostics, setDiagnostics] = useState<SupportBundleCreateResponse | null>(null);
   const [committing, setCommitting] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -36,11 +40,11 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
   const [status, setStatus] = useState<JournalStatus | null>(null);
   const [removal, setRemoval] = useState<{ id: string; kind: "attempt" | "rehearsal"; files: number; retained: number; fingerprint?: string } | null>(null);
   const [archived, setArchived] = useState<Rehearsal[]>([]);
-  const run = async (action: (signal: AbortSignal) => Promise<void>) => {
+  const run = async (action: (signal: AbortSignal) => Promise<void>, onError: (detail: string) => void = setError) => {
     setError(""); setMessage(""); setBusy(true);
     const abort = new AbortController(); controller.current = abort;
     try { await action(abort.signal); await cache.invalidateQueries(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    catch (cause) { onError(cause instanceof Error ? cause.message : String(cause)); }
     finally { controller.current = null; setBusy(false); setCommitting(false); window.dispatchEvent(new Event("journal-recovery-changed")); }
   };
   const progress = (done: number, total: number) => setMessage(t("journal.progress", { done, total }));
@@ -75,6 +79,7 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
   useEffect(() => preview ? ownJournalPreview(preview.id) : undefined, [preview?.id]);
   useEffect(() => { if (preview) document.getElementById("journal-preview-heading")?.focus(); }, [preview]);
   useEffect(() => { if (message && !busy) messageRef.current?.focus(); }, [message, busy]);
+  useEffect(() => { if (freshError) document.getElementById("fresh-error")?.focus(); }, [freshError]);
   useEffect(() => {
     const dialog = freshDialog.current;
     if (!dialog || !confirmFresh) return;
@@ -83,9 +88,18 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
     document.getElementById("fresh-cancel")?.focus();
     return () => { if (typeof dialog.close === "function" && dialog.open) dialog.close(); };
   }, [confirmFresh]);
-  const cancelFresh = () => { setConfirmFresh(false); window.setTimeout(() => document.getElementById("journal-fresh")?.focus(), 0); };
+  const cancelFresh = () => { setConfirmFresh(false); setFreshError(""); window.setTimeout(() => document.getElementById("journal-fresh")?.focus(), 0); };
   const pendingTransaction = !!status?.transaction && status.transaction.phase !== "recovery_error";
   const activeTransaction = pendingTransaction && !status?.recovery_retryable;
+  useEffect(() => {
+    if (focusedFragment.current === location.key) return;
+    const target = ({ "#your-data": "your-data-title", "#journal-diagnostics": "journal-diagnostics", "#journal-restore": "journal-restore-action", "#journal-fresh": "journal-fresh" } as Record<string, string>)[location.hash];
+    const element = target && document.getElementById(target);
+    if (!element) return;
+    element.scrollIntoView?.({ block: "start" });
+    element.focus();
+    focusedFragment.current = location.key;
+  }, [location.hash, location.key, status]);
   const refresh = async () => { setStatus(await journalRecoveryStatus()); setArchived(await listArchivedRehearsals()); };
   const retryRecovery = async (rollback = false) => {
     try {
@@ -129,16 +143,17 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
     {status?.recovery_error && <div className={`${styles.actionGroup} ${styles.dangerCard}`}>
       <span className={styles.eyebrow}>{t("your_data.changes_data")}</span><h3>{t("journal.fresh")}</h3>
       <p>{t("your_data.fresh_intro")}</p>
-      <Button variant="danger" id="journal-fresh" disabled={busy || activeTransaction} onClick={() => setConfirmFresh(true)}>{t("journal.fresh")}</Button>
+      <Button variant="danger" id="journal-fresh" disabled={busy || activeTransaction} onClick={() => { setFreshError(""); setConfirmFresh(true); }}>{t("journal.fresh")}</Button>
     </div>}
     {confirmFresh && <dialog ref={freshDialog} className={styles.dialog} aria-labelledby="fresh-dialog-title" onCancel={event => { event.preventDefault(); cancelFresh(); }}>
       <h2 id="fresh-dialog-title">{t("your_data.fresh_heading")}</h2>
       <p>{t("your_data.fresh_kept")}</p><p>{t("your_data.fresh_replaced")}</p><p>{t("journal.fresh_note")}</p>
+      {freshError && <div id="fresh-error" tabIndex={-1}><StatusBanner title={freshError} tone="error" urgent /></div>}
       <div className={styles.dialogActions}>
         <Button id="fresh-cancel" variant="secondary" disabled={busy} onClick={cancelFresh}>{t("your_data.fresh_cancel")}</Button>
-        <Button variant="danger" disabled={busy || activeTransaction} onClick={() => void run(async () => {
+        <Button variant="danger" disabled={busy || activeTransaction} onClick={() => { setFreshError(""); void run(async () => {
           await startFreshJournal(); beginNewSession(); setConfirmFresh(false); await refresh(); setMessage(t("journal.fresh_done"));
-        })}>{t("journal.confirm_fresh")}</Button>
+        }, setFreshError); }}>{t("journal.confirm_fresh")}</Button>
       </div>
     </dialog>}
     <div className={`${styles.actionGroup} ${styles.actionCard}`}><h3>{t("your_data.backup_heading")}</h3><p>{t("journal.limit")}</p>

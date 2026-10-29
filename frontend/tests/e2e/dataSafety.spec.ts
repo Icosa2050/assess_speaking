@@ -91,3 +91,24 @@ test("keyboard navigation reaches the safe action at both desktop sizes", async 
     if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `after-damaged-${width}x${height}.png`) });
   }
 });
+
+for (const [label, buttonName] of [["Export diagnostics only", "Export diagnostics only"], ["Start a fresh journal", "Start a fresh journal"]]) {
+  test(`recovery notice focuses ${label} after delayed journal status`, async ({ page }) => {
+    let delay = false;
+    let release: () => void = () => {};
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    await page.route("**/v1/journal/status", async route => {
+      if (delay) await gate;
+      await route.fulfill({ json: damaged });
+    });
+    await page.goto("/");
+    const notice = page.getByTestId("journal-recovery-notice");
+    await expect(notice).toBeVisible();
+    delay = true;
+    await notice.getByRole("link", { name: label, exact: true }).click();
+    await expect(page).toHaveURL(/\/settings#journal-/);
+    await expect(page.getByRole("button", { name: buttonName, exact: true })).toHaveCount(0);
+    release();
+    await expect(page.getByRole("button", { name: buttonName, exact: true })).toBeFocused();
+  });
+}

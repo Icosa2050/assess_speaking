@@ -198,14 +198,6 @@ export const SettingsRoute = () => {
   }, [setCurrentPage]);
 
   useEffect(() => {
-    const target = ({ "#your-data": "your-data-title", "#journal-diagnostics": "journal-diagnostics", "#journal-restore": "journal-restore-action", "#journal-fresh": "journal-fresh" } as Record<string, string>)[location.hash];
-    if (!target) return;
-    const element = document.getElementById(target);
-    element?.scrollIntoView?.({ block: "start" });
-    element?.focus();
-  }, [location.hash]);
-
-  useEffect(() => {
     if (!runtimeSettingsQuery.data) {
       if (runtimeSettingsQuery.isError && selectedConnectionId === null) {
         setSelectedConnectionId("__new__");
