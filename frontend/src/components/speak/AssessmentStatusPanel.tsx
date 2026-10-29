@@ -1,3 +1,7 @@
+import { AssessmentProgress } from "./AssessmentProgress";
+import { Button } from "@/components/ui/Button";
+import type { AssessmentStatusResponse } from "@/lib/api/types";
+
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
 
 const cardStyle = {
@@ -27,15 +31,6 @@ const controlStyle = {
   font: "inherit",
 } as const;
 
-const actionButtonStyle = {
-  minHeight: "44px",
-  padding: "0.75rem 0.875rem",
-  borderRadius: "8px",
-  fontWeight: 700,
-  font: "inherit",
-  cursor: "pointer",
-} as const;
-
 export const AssessmentStatusPanel = ({
   canCancel,
   contextMode,
@@ -43,6 +38,7 @@ export const AssessmentStatusPanel = ({
   lifecycleState,
   notesValue,
   onCancel,
+  onRetry,
   onLabelChange,
   onNotesChange,
   onSubmit,
@@ -54,6 +50,14 @@ export const AssessmentStatusPanel = ({
   translate,
   warningMessage,
   labelValue,
+  assessmentStatus,
+  uploadStartedAt,
+  uploadUpdatedAt,
+  uploading,
+  uploaded,
+  pollFailed,
+  canRetry,
+  mediaMessage,
 }: {
   canCancel: boolean;
   contextMode: "inline" | "optional";
@@ -62,6 +66,7 @@ export const AssessmentStatusPanel = ({
   lifecycleState: string;
   notesValue: string;
   onCancel: () => void;
+  onRetry: () => void;
   onLabelChange: (value: string) => void;
   onNotesChange: (value: string) => void;
   onSubmit: () => void;
@@ -72,6 +77,14 @@ export const AssessmentStatusPanel = ({
   submitDisabledHelp: string | null;
   translate: Translate;
   warningMessage: string | null;
+  assessmentStatus?: AssessmentStatusResponse;
+  uploadStartedAt: number | null;
+  uploadUpdatedAt: number | null;
+  uploading: boolean;
+  uploaded: boolean;
+  pollFailed: boolean;
+  canRetry: boolean;
+  mediaMessage: string;
 }) => {
   const contextFields = (
     <>
@@ -165,16 +178,19 @@ export const AssessmentStatusPanel = ({
       }}
     >
       <p
+        role={uploading ? undefined : "status"}
+        aria-live={uploading ? "off" : "polite"}
+        aria-atomic="true"
         style={{
           margin: 0,
           color:
             lifecycleState === "failed"
-              ? "#b42318"
+              ? "var(--color-error)"
               : lifecycleState === "cancelled"
-                ? "#9a6700"
+                ? "var(--color-warning)"
                 : lifecycleState === "completed"
-                  ? "#166534"
-                  : "#33514b",
+                  ? "var(--color-success)"
+                  : "var(--color-text-muted)",
           lineHeight: 1.55,
         }}
       >
@@ -203,17 +219,9 @@ export const AssessmentStatusPanel = ({
           {phaseMessage}
         </p>
       ) : null}
-      {(lifecycleState === "queued" || lifecycleState === "running") ? (
-        <p
-          style={{
-            margin: 0,
-            color: "#33514b",
-            lineHeight: 1.55,
-          }}
-        >
-          {translate("speak.job_review_wait")}
-        </p>
-      ) : null}
+      <AssessmentProgress status={assessmentStatus} uploadStartedAt={uploadStartedAt} uploadUpdatedAt={uploadUpdatedAt}
+        uploading={uploading} uploaded={uploaded} pollFailed={pollFailed} translate={translate} />
+      {mediaMessage && <p style={{ margin: 0, color: "var(--color-text-muted)" }} data-testid="speak.media_state">{mediaMessage}</p>}
     </div>
     {submitDisabledHelp ? (
       <p
@@ -237,40 +245,31 @@ export const AssessmentStatusPanel = ({
         gap: "0.75rem",
       }}
     >
-      <button
+      <Button
         type="button"
         onClick={onSubmit}
         disabled={submitDisabled}
         aria-describedby={submitDisabledHelp ? "speak-submit-help" : undefined}
-        style={{
-          ...actionButtonStyle,
-          border: "1px solid rgba(15, 118, 110, 0.2)",
-          backgroundColor: submitDisabled ? "rgba(215, 235, 229, 0.5)" : "#d7ebe5",
-          color: "#10201c",
-          cursor: submitDisabled ? "not-allowed" : "pointer",
-          opacity: submitDisabled ? 0.7 : 1,
-        }}
+        variant="primary"
         data-testid="speak.submit"
         data-semantic-id="speak.submit"
       >
         {translate("speak.submit")}
-      </button>
+      </Button>
       {canCancel ? (
-        <button
+        <Button
           type="button"
           onClick={onCancel}
-          style={{
-            ...actionButtonStyle,
-            border: "1px solid rgba(180, 35, 24, 0.18)",
-            backgroundColor: "rgba(255, 245, 245, 0.96)",
-            color: "#8f1f14",
-          }}
+          variant="secondary"
           data-testid="speak.cancel_assessment"
           data-semantic-id="speak.cancel_assessment"
         >
           {translate("speak.cancel_assessment")}
-        </button>
+        </Button>
       ) : null}
+      {canRetry && <Button onClick={onRetry} data-testid="speak.retry_assessment">
+        {translate("speak.wait_retry")}
+      </Button>}
     </div>
     <p
       style={{

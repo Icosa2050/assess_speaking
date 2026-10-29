@@ -126,6 +126,16 @@
     [
       "e2e/visualRefreshSmoke.spec.ts",
       "",
+      "assessment wait explains a stall and recovers without a second upload"
+    ],
+    [
+      "e2e/visualRefreshSmoke.spec.ts",
+      "",
+      "cancelled upload keeps local media without claiming a lost confirmation"
+    ],
+    [
+      "e2e/visualRefreshSmoke.spec.ts",
+      "",
       "renders primary visual-refresh artifacts without serif typography"
     ],
     [

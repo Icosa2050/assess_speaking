@@ -5,12 +5,15 @@ import hashlib
 import io
 import json
 import logging
+import math
 import multiprocessing
 import os
 from pathlib import Path
+import re
 import signal
 import tempfile
 import threading
+import time
 from typing import Any, BinaryIO
 from uuid import uuid4
 
@@ -34,6 +37,9 @@ from assess_core.settings import practice_llm_timeout_sec
 INCOMPLETE_JOB_STATUSES = {JobStatus.QUEUED.value, JobStatus.RUNNING.value}
 TERMINAL_JOB_STATUSES = {JobStatus.COMPLETED.value, JobStatus.FAILED.value, JobStatus.CANCELLED.value}
 TERMINAL_JOB_STATUSES_NORMALIZED = {status.lower() for status in TERMINAL_JOB_STATUSES}
+QUIET_WARNING_MARGIN_SEC = 30
+CLOUD_ASR_RESPONSE_TIMEOUT_SEC = 660
+CLOUD_LLM_RESPONSE_TIMEOUT_SEC = 360
 
 logger = logging.getLogger(__name__)
 
@@ -116,10 +122,13 @@ def recover_incomplete_job_metadata(jobs_dir: Path) -> int:
         payload = _read_json(job_file)
         if payload.get("status") not in INCOMPLETE_JOB_STATUSES:
             continue
+        payload["last_phase"] = payload.get("phase") or ""
         payload["status"] = JobStatus.FAILED.value
         payload["phase"] = "failed"
         payload["progress"] = 1.0
         payload["completed_at"] = _now_iso()
+        payload["updated_at"] = payload["completed_at"]
+        payload["phase_started_at"] = payload["completed_at"]
         payload["error"] = ErrorResponse(
             code=ErrorCode.RUNTIME,
             detail="Backend restarted before the assessment finished.",
@@ -211,6 +220,14 @@ def _update_job_file(
     **extra: Any,
 ) -> dict[str, Any]:
     current = _read_json(path)
+    changed_phase = phase is not None and phase != current.get("phase")
+    changed_status = status is not None and status != current.get("status")
+    if changed_phase or changed_status:
+        current["updated_at"] = _now_iso()
+    if changed_phase:
+        if phase in {"done", "failed", "cancelled"} and current.get("phase") not in {"done", "failed", "cancelled"}:
+            current["last_phase"] = current.get("phase") or ""
+        current["phase_started_at"] = current["updated_at"]
     if status is not None:
         current["status"] = status
     if phase is not None:
@@ -275,7 +292,7 @@ def _job_worker(job_file: str, request_payload: dict[str, Any], audio_path: str,
         message = {**message, "rpc_id": uuid4().hex}
         try:
             credentials.send(message)
-            if not credentials.poll(660 if message.get("operation") == "asr" else 360):
+            if not credentials.poll(CLOUD_ASR_RESPONSE_TIMEOUT_SEC if message.get("operation") == "asr" else CLOUD_LLM_RESPONSE_TIMEOUT_SEC):
                 cloud_transport_dead = True
                 raise LLMClientError("Cloud request timed out. Retained work can be resumed.")
             result = credentials.recv()
@@ -380,7 +397,8 @@ class JobManager:
         self._config = config
         self._ctx = multiprocessing.get_context("spawn")
         self._processes: dict[str, multiprocessing.Process] = {}
-        self._submit_lock = threading.Lock()
+        self._active_cloud_requests: dict[str, threading.Event] = {}
+        self._submit_lock = threading.RLock()
         self._recover_existing_jobs()
 
     @property
@@ -393,7 +411,41 @@ class JobManager:
     def register_upload(self, *, data: bytes, filename: str) -> UploadResponse:
         return self.register_upload_stream(source=io.BytesIO(data), filename=filename)
 
-    def register_upload_stream(self, *, source: BinaryIO, filename: str) -> UploadResponse:
+    def has_saved_upload_request(self, request_id: str) -> bool:
+        if not request_id or not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", request_id):
+            return False
+        with locked_file(self.uploads_dir / ".upload-requests.lock"):
+            return any(saved.get("request_id") == request_id and Path(str(saved.get("stored_path") or "")).is_file()
+                       for path in self.uploads_dir.glob("aud_*.json")
+                       if (saved := _read_json(path)))
+
+    def register_upload_stream(self, *, source: BinaryIO, filename: str, request_id: str = "") -> UploadResponse:
+        if request_id and not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", request_id):
+            raise UploadRejected("Choose a valid upload request ID.", 400)
+        if request_id:
+            with locked_file(self.uploads_dir / ".upload-requests.lock"):
+                for path in self.uploads_dir.glob("aud_*.json"):
+                    saved = _read_json(path)
+                    if saved.get("request_id") != request_id:
+                        continue
+                    stored_path = Path(str(saved.get("stored_path") or ""))
+                    if not stored_path.exists():
+                        continue
+                    hasher = hashlib.sha1()
+                    total = 0
+                    while chunk := source.read(COPY_CHUNK_BYTES):
+                        total += len(chunk)
+                        if total > MAX_UPLOAD_BYTES:
+                            raise UploadRejected("Audio exceeds the available upload limit.")
+                        hasher.update(chunk)
+                    if hasher.hexdigest() != saved.get("sha1") or filename != saved.get("original_name"):
+                        raise UploadRejected("This upload request ID belongs to a different recording.", 409)
+                    return UploadResponse(audio_id=saved["audio_id"], stored_path=str(stored_path),
+                                          sha1=saved["sha1"], original_name=str(saved.get("original_name") or ""))
+                return self._store_upload_stream(source=source, filename=filename, request_id=request_id)
+        return self._store_upload_stream(source=source, filename=filename, request_id="")
+
+    def _store_upload_stream(self, *, source: BinaryIO, filename: str, request_id: str) -> UploadResponse:
         audio_id = f"aud_{uuid4().hex}"
         suffix = Path(filename or "audio.wav").suffix.lower()
         if suffix not in {".wav", ".mp3", ".webm", ".ogg", ".opus", ".m4a", ".mp4", ".aac", ".flac", ".aiff", ".aif"}:
@@ -416,7 +468,7 @@ class JobManager:
                     hasher.update(chunk)
             digest = hasher.hexdigest()
             _write_json(metadata_path, {"audio_id": audio_id, "stored_path": str(stored_path.resolve()),
-                                      "sha1": digest, "original_name": filename})
+                                      "sha1": digest, "original_name": filename, "request_id": request_id})
         except BaseException:  # quality: allow[broad-except] remove partial files on cancellation too, then re-raise
             stored_path.unlink(missing_ok=True)
             metadata_path.unlink(missing_ok=True)
@@ -459,6 +511,11 @@ class JobManager:
                         raise AssessmentIdentityConflictError("This submission ID already belongs to a different request or sharing route.")
                     return AssessmentCreateResponse(assessment_id=prior["assessment_id"], status=JobStatus(prior["status"]))
             self.wait_for_finished_workers()
+            deadline = time.monotonic() + 2.0
+            while any(active.is_set() for active in self._active_cloud_requests.values()) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            if any(active.is_set() for active in self._active_cloud_requests.values()):
+                raise AssessmentBusyError("A prior provider request is still finishing. Wait for it to finish before retrying.")
             if any(process.is_alive() for process in list(self._processes.values())):
                 raise AssessmentBusyError("Another attempt is still being analysed. Wait for it to finish or cancel it, then retry.")
             if upload_limits(self.uploads_dir)["available_bytes"] <= 0:
@@ -473,12 +530,15 @@ class JobManager:
             "log_dir": str(self._config.app_data.reports_dir),
             "llm_connection_id": llm_connection_id,
         }
+        created_at = _now_iso()
         payload = {
             "assessment_id": assessment_id,
             "status": JobStatus.QUEUED.value,
             "phase": "queued",
             "progress": 0.0,
-            "created_at": _now_iso(),
+            "created_at": created_at,
+            "updated_at": created_at,
+            "phase_started_at": created_at,
             "report_path": None,
             "summary": None,
             "payload": None,
@@ -517,6 +577,12 @@ class JobManager:
                 raise ValueError("A saved ChatGPT account is required.")
             parent, child = self._ctx.Pipe()
             worker_request["llm_api_key"] = ""
+        if cloud_runtime is not None:
+            payload["request"].update({
+                "cloud_broker": True,
+                "asr_provider": worker_request["asr_provider"],
+                "asr_model": worker_request["asr_model"],
+            })
         args = (str(job_file), worker_request, str(audio_path.resolve()))
         try:
             process = self._ctx.Process(target=_job_worker, args=(*args, child) if child is not None else args)
@@ -533,17 +599,26 @@ class JobManager:
         self._processes[assessment_id] = process
         if child is not None:
             child.close()
-            threading.Thread(target=self._serve_cloud if cloud_runtime else self._serve_credentials, args=(process, parent, cloud_runtime or credential_ref), daemon=True).start()
+            if cloud_runtime:
+                active = threading.Event()
+                self._active_cloud_requests[assessment_id] = active
+                service = threading.Thread(target=self._serve_cloud, args=(process, parent, cloud_runtime, active), daemon=True)
+            else:
+                service = threading.Thread(target=self._serve_credentials, args=(process, parent, credential_ref), daemon=True)
+            service.start()
         return AssessmentCreateResponse(assessment_id=assessment_id, status=JobStatus.QUEUED)
 
-    @staticmethod
-    def _serve_cloud(process, channel, runtime):
+    def _serve_cloud(self, process, channel, runtime, active: threading.Event):
         runtime.cancelled = lambda: not process.is_alive()
         try:
             while process.is_alive():
                 if not channel.poll(0.5):
                     continue
                 message = channel.recv()
+                with self._submit_lock:
+                    if not process.is_alive():
+                        break
+                    active.set()
                 try:
                     result = {"value": runtime.handle(message), "rpc_id": message.get("rpc_id")}
                 except Exception as exc:  # quality: allow[broad-except] provider boundary returns safe typed application diagnostics
@@ -553,11 +628,18 @@ class JobManager:
                     from assessment_runtime.groq_asr import GroqASRError
                     safe = isinstance(exc, (CloudPolicyError, ChatGPTAuthError, ResponsesError, GroqASRError))
                     result = {"error": str(exc) if safe else "Cloud request failed. Your recording and completed stages are retained.", "rpc_id": message.get("rpc_id")}
+                finally:
+                    active.clear()
                 channel.send(result)
         except (EOFError, BrokenPipeError, OSError):
             pass
         finally:
+            active.clear()
             channel.close()
+            with self._submit_lock:
+                for assessment_id, pending in list(self._active_cloud_requests.items()):
+                    if pending is active:
+                        self._active_cloud_requests.pop(assessment_id, None)
 
     @staticmethod
     def _serve_credentials(process, channel, credential_ref):
@@ -581,15 +663,26 @@ class JobManager:
             channel.close()
 
     def has_active_provider(self, provider: str) -> bool:
-        return any(process.is_alive() and _read_json(_job_file(self._config.jobs_dir, assessment_id)).get('request', {}).get('provider') == provider
-                   for assessment_id, process in list(self._processes.items()))
+        for assessment_id in set(self._processes) | set(self._active_cloud_requests):
+            process = self._processes.get(assessment_id)
+            active = self._active_cloud_requests.get(assessment_id)
+            busy = (process is not None and process.is_alive()) or (active is not None and active.is_set())
+            if busy and _read_json(_job_file(self._config.jobs_dir, assessment_id)).get("request", {}).get("provider") == provider:
+                return True
+        return False
 
     def cancel_provider(self, provider: str) -> None:
         with self._submit_lock:
+            busy_assessments = []
             for assessment_id in list(self._processes):
                 payload = _read_json(_job_file(self._config.jobs_dir, assessment_id))
                 if payload.get("request", {}).get("provider") == provider:
-                    self.cancel(assessment_id)
+                    try:
+                        self.cancel(assessment_id)
+                    except AssessmentBusyError:
+                        busy_assessments.append(assessment_id)
+            if busy_assessments or self.has_active_provider(provider):
+                raise AssessmentBusyError("An assessment is still stopping. Try disconnecting again after it stops.")
 
     def _reconcile_process(self, assessment_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         process = self._processes.get(assessment_id)
@@ -599,10 +692,13 @@ class JobManager:
             return payload
         process.join(timeout=0.1)
         if payload.get("status") in {JobStatus.QUEUED.value, JobStatus.RUNNING.value}:
+            payload["last_phase"] = payload.get("phase") or ""
             payload["status"] = JobStatus.FAILED.value
             payload["phase"] = "failed"
             payload["progress"] = 1.0
             payload["completed_at"] = _now_iso()
+            payload["updated_at"] = payload["completed_at"]
+            payload["phase_started_at"] = payload["completed_at"]
             payload["error"] = ErrorResponse(
                 code=ErrorCode.RUNTIME,
                 detail=f"Assessment worker exited unexpectedly with code {process.exitcode}.",
@@ -612,16 +708,37 @@ class JobManager:
         return payload
 
     def get_status(self, assessment_id: str) -> AssessmentStatusResponse | None:
+        with self._submit_lock:
+            return self._get_status_locked(assessment_id)
+
+    def _get_status_locked(self, assessment_id: str) -> AssessmentStatusResponse | None:
         job_file = _job_file(self._config.jobs_dir, assessment_id)
         if not job_file.exists():
             return None
         payload = self._reconcile_process(assessment_id, _read_json(job_file))
+        process = self._processes.get(assessment_id)
+        worker_seen_at = _now_iso() if process is not None and process.is_alive() and payload.get("status") in INCOMPLETE_JOB_STATUSES else None
+        request = payload.get("request") if isinstance(payload.get("request"), dict) else {}
+        phase = str(payload.get("phase") or "")
+        phase_timeout = None
+        if request.get("cloud_broker") and phase == "transcribing" and request.get("asr_provider") == "groq":
+            phase_timeout = max(practice_llm_timeout_sec(), CLOUD_ASR_RESPONSE_TIMEOUT_SEC)
+        elif phase in {"scoring_rubric", "generating_coaching"}:
+            phase_timeout = practice_llm_timeout_sec()
+            if request.get("cloud_broker"):
+                phase_timeout = max(phase_timeout, CLOUD_LLM_RESPONSE_TIMEOUT_SEC)
         from assessment_runtime.eligibility import annotate_payload
         return AssessmentStatusResponse(
             assessment_id=assessment_id,
             status=JobStatus(str(payload.get("status") or JobStatus.FAILED.value)),
             phase=str(payload.get("phase") or ""),
             progress=float(payload.get("progress") or 0.0),
+            created_at=payload.get("created_at") or None,
+            updated_at=payload.get("updated_at") or payload.get("created_at") or None,
+            phase_started_at=payload.get("phase_started_at") or payload.get("updated_at") or payload.get("created_at") or None,
+            last_phase=payload.get("last_phase") or None,
+            worker_seen_at=worker_seen_at,
+            quiet_warning_after_sec=math.ceil(phase_timeout + QUIET_WARNING_MARGIN_SEC) if phase_timeout is not None else None,
             error=(ErrorResponse(**payload["error"]) if isinstance(payload.get("error"), dict) else None),
             report_path=str(payload.get("report_path") or "") or None,
             summary=_build_summary(payload.get("payload")),
@@ -629,6 +746,10 @@ class JobManager:
         )
 
     def cancel(self, assessment_id: str) -> AssessmentStatusResponse | None:
+        with self._submit_lock:
+            return self._cancel_locked(assessment_id)
+
+    def _cancel_locked(self, assessment_id: str) -> AssessmentStatusResponse | None:
         status = self.get_status(assessment_id)
         if status is None:
             return None
@@ -638,16 +759,28 @@ class JobManager:
         if process is not None and process.is_alive():
             process.terminate()
             process.join(timeout=1.0)
+            observed = _read_json(_job_file(self._config.jobs_dir, assessment_id))
+            if observed.get("status") in TERMINAL_JOB_STATUSES_NORMALIZED:
+                return self.get_status(assessment_id)
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=1.0)
+            if process.is_alive():
+                raise AssessmentBusyError("The assessment is still stopping. Keep this page open and try Cancel again before retrying.")
         payload = _read_json(_job_file(self._config.jobs_dir, assessment_id))
         if str(payload.get("status") or "").strip().lower() in TERMINAL_JOB_STATUSES_NORMALIZED:
             self._processes.pop(assessment_id, None)
             return self.get_status(assessment_id)
+        cancelled_at = _now_iso()
         payload.update(
             {
+                "last_phase": payload.get("phase") or "",
                 "status": JobStatus.CANCELLED.value,
                 "phase": "cancelled",
                 "progress": 1.0,
-                "completed_at": _now_iso(),
+                "completed_at": cancelled_at,
+                "updated_at": cancelled_at,
+                "phase_started_at": cancelled_at,
                 "error": ErrorResponse(
                     code=ErrorCode.CANCELLATION,
                     detail="Assessment cancelled by the user.",

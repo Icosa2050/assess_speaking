@@ -256,7 +256,7 @@ export const createApiClient = (baseUrl?: string) => ({
       },
     ),
 
-  uploadAudio: (file: File, options?: ClientOptions & { filename?: string; onProgress?: (percent: number) => void }) => {
+  uploadAudio: (file: File, options?: ClientOptions & { filename?: string; requestId?: string; onProgress?: (percent: number) => void }) => {
     const formData = new FormData();
     formData.append("file", file, options?.filename || file.name || "audio.wav");
 
@@ -268,6 +268,7 @@ export const createApiClient = (baseUrl?: string) => ({
         xhr.open("POST", buildApiUrl("/v1/uploads", baseUrl));
         xhr.timeout = options.timeoutMs ?? UPLOAD_TIMEOUT_MS;
         xhr.setRequestHeader("Accept", "application/json");
+        if (options.requestId) xhr.setRequestHeader("X-Upload-Request-Id", options.requestId);
         Object.entries(desktopSessionHeaders(baseUrl)).forEach(([key, value]) => xhr.setRequestHeader(key, value));
         xhr.upload.onprogress = (event) => {
           if (event.lengthComputable) options.onProgress?.(Math.round(event.loaded / event.total * 100));
@@ -301,6 +302,7 @@ export const createApiClient = (baseUrl?: string) => ({
       {
         ...options,
         baseUrl,
+        headers: options?.requestId ? { "X-Upload-Request-Id": options.requestId } : undefined,
         timeoutMs: options?.timeoutMs ?? UPLOAD_TIMEOUT_MS,
       },
     );

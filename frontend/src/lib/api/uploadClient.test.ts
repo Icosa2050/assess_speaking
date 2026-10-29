@@ -24,10 +24,11 @@ describe("upload transport", () => {
     vi.stubGlobal("XMLHttpRequest", UploadXHR);
     const progress = vi.fn();
     const done = vi.fn();
-    const pending = createApiClient("http://localhost:12345").uploadAudio(new File(["audio"], "voice.wav"), { onProgress: progress }).then(done);
+    const pending = createApiClient("http://localhost:12345").uploadAudio(new File(["audio"], "voice.wav"), { onProgress: progress, requestId: "same-recording-1" }).then(done);
     const xhr = UploadXHR.last;
     expect(xhr.open).toHaveBeenCalledWith("POST", "http://localhost:12345/v1/uploads");
     expect(xhr.timeout).toBe(180000);
+    expect(xhr.setRequestHeader).toHaveBeenCalledWith("X-Upload-Request-Id", "same-recording-1");
     xhr.upload.onprogress?.({ lengthComputable: true, loaded: 10, total: 10 });
     expect(progress).toHaveBeenCalledWith(100);
     expect(done).not.toHaveBeenCalled();

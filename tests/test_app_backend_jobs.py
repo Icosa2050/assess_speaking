@@ -1,18 +1,101 @@
 import json
 import os
 import tempfile
+import threading
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from app_backend.config import build_backend_runtime_config
 from app_backend.contracts import AssessmentCreateRequest, ErrorCode, JobStatus
-from app_backend.jobs import JobManager, _job_worker, _read_json, _write_json, prunable_job_metadata_files
+from app_backend.jobs import AssessmentBusyError, JobManager, QUIET_WARNING_MARGIN_SEC, _job_worker, _read_json, _update_job_file, _write_json, prunable_job_metadata_files
 from assessment_runtime.runner import AssessmentRunResult
 
 
 class BackendJobsTests(unittest.TestCase):
+    def test_cloud_submit_persists_deadline_inputs(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)
+            manager = JobManager(config)
+            upload = manager.register_upload(data=b"audio", filename="clip.wav")
+            request = AssessmentCreateRequest(audio_id=upload.audio_id, whisper="tiny", provider="chatgpt",
+                llm_model="test", expected_language="en", feedback_language="en", speaker_id="test",
+                task_family="generic", theme="test", target_duration_sec=90)
+            cloud = SimpleNamespace(primary=None, settings=SimpleNamespace(asr_provider="groq", asr_model="whisper"))
+            process = mock.Mock()
+            process.is_alive.return_value = False
+            with mock.patch.object(manager._ctx, "Process", return_value=process):
+                created = manager.submit(request, cloud_runtime=cloud)
+            job_file = config.jobs_dir / f"{created.assessment_id}.json"
+            payload = json.loads(job_file.read_text(encoding="utf-8"))
+            self.assertTrue(payload["request"]["cloud_broker"])
+            self.assertEqual(payload["request"]["asr_provider"], "groq")
+            self.assertNotIn("llm_api_key", payload["request"])
+            manager._processes.pop(created.assessment_id)
+            payload["status"] = "running"
+            payload["phase"] = "transcribing"
+            job_file.write_text(json.dumps(payload), encoding="utf-8")
+            self.assertEqual(manager.get_status(created.assessment_id).quiet_warning_after_sec, 660 + QUIET_WARNING_MARGIN_SEC)
+
+    def test_cancel_provider_attempts_every_matching_job_before_reporting_busy(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)
+            manager = JobManager(config)
+            for assessment_id in ("asmt_one", "asmt_two"):
+                (config.jobs_dir / f"{assessment_id}.json").write_text(json.dumps({
+                    "request": {"provider": "chatgpt"}, "status": "running"}), encoding="utf-8")
+                manager._processes[assessment_id] = mock.Mock()
+            with mock.patch.object(manager, "cancel", side_effect=[AssessmentBusyError("still stopping"), None]) as cancel:
+                with self.assertRaises(AssessmentBusyError):
+                    manager.cancel_provider("chatgpt")
+            self.assertEqual([call.args[0] for call in cancel.call_args_list], ["asmt_one", "asmt_two"])
+
+    def test_active_cloud_call_keeps_provider_busy_after_worker_exit(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)
+            manager = JobManager(config)
+            assessment_id = "asmt_cloud_pending"
+            (config.jobs_dir / f"{assessment_id}.json").write_text(json.dumps({
+                "request": {"provider": "chatgpt"}, "status": "cancelled"}), encoding="utf-8")
+            active = threading.Event()
+            active.set()
+            manager._active_cloud_requests[assessment_id] = active
+            self.assertTrue(manager.has_active_provider("chatgpt"))
+            with self.assertRaises(AssessmentBusyError):
+                manager.cancel_provider("chatgpt")
+            active.clear()
+            self.assertFalse(manager.has_active_provider("chatgpt"))
+
+    def test_status_warning_deadline_uses_configured_model_timeout_and_cloud_phase(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)
+            manager = JobManager(config)
+            job_file = config.jobs_dir / "asmt_deadline.json"
+            job_file.write_text(json.dumps({"assessment_id": "asmt_deadline", "status": "running",
+                "phase": "scoring_rubric", "request": {"cloud_broker": False}}), encoding="utf-8")
+            with mock.patch.dict(os.environ, {"LLM_TIMEOUT_SEC": "240.5"}):
+                self.assertEqual(manager.get_status("asmt_deadline").quiet_warning_after_sec, 241 + QUIET_WARNING_MARGIN_SEC)
+            job_file.write_text(json.dumps({"assessment_id": "asmt_deadline", "status": "running",
+                "phase": "transcribing", "request": {"cloud_broker": False}}), encoding="utf-8")
+            self.assertIsNone(manager.get_status("asmt_deadline").quiet_warning_after_sec)
+            job_file.write_text(json.dumps({"assessment_id": "asmt_deadline", "status": "running",
+                "phase": "transcribing", "request": {"cloud_broker": True, "asr_provider": "groq"}}), encoding="utf-8")
+            self.assertGreaterEqual(manager.get_status("asmt_deadline").quiet_warning_after_sec, 660 + QUIET_WARNING_MARGIN_SEC)
+
+    def test_status_timestamps_change_only_for_meaningful_transitions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            job_file = Path(directory) / "asmt_test.json"
+            job_file.write_text(json.dumps({"status": "queued", "phase": "queued", "created_at": "2026-01-01T00:00:00+00:00"}))
+            with mock.patch("app_backend.jobs._now_iso", side_effect=["2026-01-01T00:00:01+00:00", "2026-01-01T00:00:02+00:00"]):
+                started = _update_job_file(job_file, status="running", phase="transcribing")
+                repeated = _update_job_file(job_file, status="running", phase="transcribing")
+                scoring = _update_job_file(job_file, status="running", phase="scoring_rubric")
+            self.assertEqual(started["updated_at"], "2026-01-01T00:00:01+00:00")
+            self.assertEqual(repeated["updated_at"], started["updated_at"])
+            self.assertEqual(scoring["phase_started_at"], "2026-01-01T00:00:02+00:00")
+
     def test_job_status_stays_readable_while_a_new_status_is_staged(self):
         with tempfile.TemporaryDirectory() as directory:
             job_file = Path(directory) / "asmt_staged.json"
@@ -91,6 +174,117 @@ class BackendJobsTests(unittest.TestCase):
             status = manager.cancel(assessment_id)
 
         self.assertEqual(status.status.value, "completed")
+
+    def test_cancel_keeps_stubborn_worker_tracked_and_blocks_submission(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)
+            manager = JobManager(config)
+            assessment_id = "asmt_stubborn"
+            (config.jobs_dir / f"{assessment_id}.json").write_text(json.dumps({
+                "assessment_id": assessment_id, "status": "running", "phase": "scoring_rubric", "progress": 0.5,
+            }), encoding="utf-8")
+            process = mock.Mock()
+            process.is_alive.return_value = True
+            manager._processes[assessment_id] = process
+            with self.assertRaises(AssessmentBusyError):
+                manager.cancel(assessment_id)
+            process.terminate.assert_called_once()
+            process.kill.assert_called_once()
+            self.assertIs(manager._processes[assessment_id], process)
+            running_status = manager.get_status(assessment_id)
+            self.assertEqual(running_status.status, JobStatus.RUNNING)
+            self.assertIsNotNone(running_status.worker_seen_at)
+            with self.assertRaises(AssessmentBusyError):
+                manager.submit(AssessmentCreateRequest(audio_id="unused", whisper="tiny", provider="ollama",
+                    llm_model="test", expected_language="en", feedback_language="en", speaker_id="test",
+                    task_family="generic", theme="test", target_duration_sec=90))
+
+    def test_provider_request_must_finish_before_a_cancelled_job_can_be_retried(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)
+            manager = JobManager(config)
+            assessment_id = "asmt_cloud"
+            (config.jobs_dir / f"{assessment_id}.json").write_text(json.dumps({
+                "assessment_id": assessment_id, "status": "running", "phase": "scoring_rubric", "progress": 0.5,
+            }), encoding="utf-8")
+            state = {"alive": True}
+            process = mock.Mock()
+            process.is_alive.side_effect = lambda: state["alive"]
+            process.terminate.side_effect = lambda: state.update(alive=False)
+            manager._processes[assessment_id] = process
+            active = threading.Event()
+            active.set()
+            manager._active_cloud_requests[assessment_id] = active
+            self.assertEqual(manager.cancel(assessment_id).status, JobStatus.CANCELLED)
+            with self.assertRaisesRegex(AssessmentBusyError, "provider request is still finishing"):
+                manager.submit(AssessmentCreateRequest(audio_id="unused", whisper="tiny", provider="ollama",
+                    llm_model="test", expected_language="en", feedback_language="en", speaker_id="test",
+                    task_family="generic", theme="test", target_duration_sec=90))
+            active.clear()
+            with mock.patch.object(manager, "_submit", side_effect=ValueError("admitted")):
+                with self.assertRaisesRegex(ValueError, "admitted"):
+                    manager.submit(AssessmentCreateRequest(audio_id="unused", whisper="tiny", provider="ollama",
+                        llm_model="test", expected_language="en", feedback_language="en", speaker_id="test",
+                        task_family="generic", theme="test", target_duration_sec=90))
+
+    def test_cancel_waits_for_submit_to_register_worker(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)
+            manager = JobManager(config)
+            upload = manager.register_upload(data=b"audio", filename="clip.wav")
+            started = threading.Event()
+            release = threading.Event()
+            cancel_attempted = threading.Event()
+            state = {"alive": True}
+            process = mock.Mock()
+            process.is_alive.side_effect = lambda: state["alive"]
+            process.start.side_effect = lambda: (started.set(), release.wait(2))
+            process.terminate.side_effect = lambda: state.update(alive=False)
+            request = AssessmentCreateRequest(audio_id=upload.audio_id, whisper="tiny", provider="ollama",
+                llm_model="test", expected_language="en", feedback_language="en", speaker_id="test",
+                task_family="generic", theme="test", target_duration_sec=90)
+            created = []
+            cancelled = []
+            with mock.patch.object(manager._ctx, "Process", return_value=process):
+                submit_thread = threading.Thread(target=lambda: created.append(manager.submit(request)))
+                submit_thread.start()
+                self.assertTrue(started.wait(2))
+                job_file = next(config.jobs_dir.glob("asmt_*.json"))
+                cancel_thread = threading.Thread(target=lambda: (cancel_attempted.set(), cancelled.append(manager.cancel(job_file.stem))))
+                cancel_thread.start()
+                self.assertTrue(cancel_attempted.wait(2))
+                self.assertEqual(json.loads(job_file.read_text())["status"], "queued")
+                release.set()
+                submit_thread.join(2)
+                cancel_thread.join(2)
+            self.assertFalse(submit_thread.is_alive())
+            self.assertFalse(cancel_thread.is_alive())
+            self.assertEqual(created[0].assessment_id, job_file.stem)
+            self.assertEqual(cancelled[0].status, JobStatus.CANCELLED)
+            self.assertEqual(cancelled[0].last_phase, "queued")
+            self.assertEqual(json.loads(job_file.read_text())["status"], "cancelled")
+
+    def test_recovered_job_reports_terminal_update_timestamps(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)
+            assessment_id = "asmt_recovered"
+            (config.jobs_dir / f"{assessment_id}.json").write_text(json.dumps({
+                "assessment_id": assessment_id, "status": "running", "phase": "transcribing",
+                "created_at": "2026-01-01T00:00:00+00:00", "updated_at": "2026-01-01T00:00:01+00:00",
+            }), encoding="utf-8")
+            manager = JobManager(config)
+            status = manager.get_status(assessment_id)
+            self.assertEqual(status.status, JobStatus.FAILED)
+            self.assertEqual(status.last_phase, "transcribing")
+            self.assertEqual(status.updated_at, status.phase_started_at)
+            self.assertNotEqual(status.updated_at, status.created_at)
+            from fastapi.testclient import TestClient
+            from app_backend.app import create_app
+            response = TestClient(create_app(config)).get(f"/v1/assessments/{assessment_id}")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["created_at"], status.created_at)
+            self.assertEqual(response.json()["updated_at"], status.updated_at)
+            self.assertEqual(response.json()["phase_started_at"], status.phase_started_at)
 
     def test_failed_worker_start_allows_retry_with_same_request_id(self):
         with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
