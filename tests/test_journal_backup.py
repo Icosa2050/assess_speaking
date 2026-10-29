@@ -620,14 +620,37 @@ def test_fresh_start_retains_browser_acknowledgement_across_restart(tmp_path):
     j = Journal(config, SimpleNamespace(_processes={}))
     j.state_path.write_text('{broken')
     browser_id = 'a' * 32
+    request_id = 'b' * 32
     with TestClient(create_app(config)) as client:
-        assert client.post('/v1/journal/start-fresh', json={'confirmed': True, 'browser_transaction': browser_id}).status_code == 200
+        assert client.post('/v1/journal/start-fresh', json={'confirmed': True, 'fresh_request': 'invalid'}).status_code == 409
+        assert client.get('/v1/journal/status').json()['recovery_error']
+        assert client.post('/v1/journal/start-fresh', json={'confirmed': True, 'browser_transaction': browser_id, 'fresh_request': request_id}).status_code == 200
     # A renderer crash or lost response must still leave evidence that browser
     # cleanup can be retried without rolling back committed sessions/audio.
     with TestClient(create_app(config)) as client:
         status = client.get('/v1/journal/status').json()
         assert browser_id in status['completed']
+        assert request_id in status['completed']
         assert status['transaction'] is None and status['recovery_error'] is None
+
+
+def test_rejected_fresh_start_does_not_publish_its_request_receipt(tmp_path):
+    from fastapi.testclient import TestClient
+    from app_backend.app import create_app
+    from app_backend.config import build_backend_runtime_config
+    config = build_backend_runtime_config(app_data_dir=tmp_path / 'app', cache_dir=tmp_path / 'cache', port=8871)
+    j = Journal(config, SimpleNamespace(_processes={}))
+    j.state_path.write_text('{broken')
+    with TestClient(create_app(config)) as client:
+        assert client.post('/v1/journal/start-fresh', json={'confirmed': True, 'fresh_request': 'a' * 32}).status_code == 200
+        restore = client.post('/v1/journal/begin-restore', json={})
+        assert restore.status_code == 200
+        rejected = client.post('/v1/journal/start-fresh', json={'confirmed': True, 'fresh_request': 'b' * 32})
+        assert rejected.status_code == 409
+        status = client.get('/v1/journal/status').json()
+        assert status['transaction']['id'] == restore.json()['id']
+        assert 'a' * 32 in status['completed']
+        assert 'b' * 32 not in status['completed']
 
 
 def test_intact_startup_rollback_can_be_retried_after_transient_disk_failure(tmp_path, monkeypatch):
