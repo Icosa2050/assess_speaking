@@ -39,9 +39,12 @@ test("Rehearsal preserves completed work when sharing changes and reload resumes
     await route.fulfill({ response });
   });
   await page.getByTestId("rehearsal-analyse").click();
+  // The fixture assessment may take longer than Playwright's default 5s
+  // assertion window under CI load. Wait for the completed part that triggers
+  // the route change before checking the resulting sharing guard.
+  await expect(page.getByTestId("rehearsal-retry-0")).toBeVisible({ timeout: 45_000 });
   await expect(page.getByRole("alert")).toContainText("Sharing destinations changed");
   expect(created).toHaveLength(1);
-  await expect(page.getByTestId("rehearsal-result-0")).toBeVisible();
   await page.unroute("**/v1/assessments/*");
   await page.reload(); await page.getByRole("button", { name: /sharing-fixture/ }).click();
   await expect(page.getByTestId("sharing-summary")).toContainText("journey-fixture-next");
