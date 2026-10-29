@@ -41,4 +41,17 @@ describe("PracticeProgress chart alternative", () => {
     rerender(<PracticeProgress rows={[{ ...first, eligibility: { version: 1, state: "insufficient_speech", reasons: [], metrics_reliable: false, task_complete: false } }, selected]} selected={selected} verifiedPreviousId="first" locale="en" onSelect={() => {}} onRetry={() => {}} />);
     expect(screen.getByTestId("practice-comparison")).toHaveTextContent("No earlier comparable attempt");
   });
+
+  it("labels the score change against the verified parent rather than the first matching take", () => {
+    const first = row("first", 2, "01");
+    const middle = row("middle", 4, "02");
+    const selected = row("selected", 3, "03");
+    render(<PracticeProgress rows={[first, middle, selected]} selected={selected} verifiedPreviousId="middle"
+      locale="en" onSelect={() => {}} onRetry={() => {}} />);
+    expect(screen.getByText("Score change from verified previous take: -1")).toBeVisible();
+    const table = within(screen.getByTestId("practice-chart-table")).getByRole("table");
+    expect(within(table).getByRole("row", { name: /Task middle/ })).toHaveTextContent("4");
+    expect(within(table).getByRole("row", { name: /Task selected/ })).toHaveTextContent("3");
+    expect(within(table).queryByRole("row", { name: /Task first/ })).not.toBeInTheDocument();
+  });
 });

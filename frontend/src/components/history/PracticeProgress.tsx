@@ -72,7 +72,7 @@ export function PracticeProgress({ rows, selected, locale, onSelect, onRetry, ve
         <Card as="section" className={styles.performance}>
           <div className={styles.header}>
             <div><p className={styles.eyebrow}>{t("journey.voice_over_time")}</p><h3>{t("journey.small_steps")}</h3></div>
-            {delta !== null && metric === "final_score" && <span className={styles.delta} data-positive={delta > 0}>{t("journey.since_first", { delta: `${delta > 0 ? "+" : ""}${format(delta)}` })}</span>}
+            {delta !== null && metric === "final_score" && <span className={styles.delta} data-positive={delta > 0}>{t("history_slice10.since_verified_previous", { delta: `${delta > 0 ? "+" : ""}${format(delta)}` })}</span>}
           </div>
           <p className={styles.score}>{format(selected[metric])}<span>{t(`practice.${metric}`)}</span></p>
           <strong>{selected.theme}</strong>

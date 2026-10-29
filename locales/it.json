@@ -106,7 +106,8 @@
     "annotation_intro": "Frasi della trascrizione con feedback. Seleziona una frase sottolineata per leggere il suggerimento.",
     "annotation_label": "Feedback per «{phrase}»",
     "annotation_suggestion": "Suggerimento: {suggestion}.",
-    "unverified_comparison": "Il tentativo precedente non è verificato per il confronto. Entrambi restano nelle revisioni salvate."
+    "unverified_comparison": "Il tentativo precedente non è verificato per il confronto. Entrambi restano nelle revisioni salvate.",
+    "since_verified_previous": "Variazione del punteggio rispetto al tentativo precedente verificato: {delta}"
   },
   "home": {
     "practice_checks": "{ready} controlli pronti su {total}",

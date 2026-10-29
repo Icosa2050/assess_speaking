@@ -106,7 +106,8 @@
     "annotation_intro": "Passages de la transcription avec commentaires. Sélectionnez un passage souligné pour lire la suggestion.",
     "annotation_label": "Commentaire sur « {phrase} »",
     "annotation_suggestion": "Suggestion : {suggestion}.",
-    "unverified_comparison": "La comparaison avec l’essai précédent n’est pas vérifiée. Les deux essais restent dans les bilans enregistrés."
+    "unverified_comparison": "La comparaison avec l’essai précédent n’est pas vérifiée. Les deux essais restent dans les bilans enregistrés.",
+    "since_verified_previous": "Variation du score par rapport à l’essai précédent vérifié : {delta}"
   },
   "home": {
     "practice_checks": "{ready} vérifications prêtes sur {total}",

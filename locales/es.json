@@ -106,7 +106,8 @@
     "annotation_intro": "Frases de la transcripción con comentarios. Selecciona una frase subrayada para leer la sugerencia.",
     "annotation_label": "Comentario sobre «{phrase}»",
     "annotation_suggestion": "Sugerencia: {suggestion}.",
-    "unverified_comparison": "El intento anterior no está verificado para la comparación. Ambos intentos siguen en las revisiones guardadas."
+    "unverified_comparison": "El intento anterior no está verificado para la comparación. Ambos intentos siguen en las revisiones guardadas.",
+    "since_verified_previous": "Cambio de puntuación frente al intento anterior verificado: {delta}"
   },
   "home": {
     "practice_checks": "{ready} de {total} comprobaciones listas",
