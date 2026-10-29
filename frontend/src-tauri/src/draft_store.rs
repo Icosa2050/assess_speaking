@@ -14,6 +14,7 @@ use std::{
     sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
 };
+use tauri::Manager;
 
 const CHUNK: usize = 256 * 1024;
 const MAX_TAKE: u64 = 100 * 1024 * 1024;
@@ -729,6 +730,7 @@ impl DraftStore {
             unreadable_ids,
         })
     }
+    #[cfg(test)]
     pub fn list(&mut self) -> StoreResult<Vec<Manifest>> {
         Ok(self.list_with_issues()?.drafts)
     }
@@ -1321,63 +1323,61 @@ fn bounded_chunk_body(body: &tauri::ipc::InvokeBody) -> StoreResult<&[u8]> {
         _ => Err(err("Take chunk exceeds limit")),
     }
 }
-fn with_store<T>(
+async fn with_store<T: Send + 'static>(
     window: tauri::WebviewWindow,
-    state: tauri::State<'_, DraftState>,
-    f: impl FnOnce(&mut DraftStore) -> StoreResult<T>,
+    f: impl FnOnce(&mut DraftStore) -> StoreResult<T> + Send + 'static,
 ) -> StoreResult<T> {
     main_window_only(window.label())?;
-    let mut store = state
-        .lock()
-        .map_err(|_| err("Draft store is unavailable"))?;
-    f(store
-        .as_mut()
-        .ok_or_else(|| err("Draft store is unavailable"))?
-        .as_mut()
-        .map_err(|error| error.clone())?)
+    let app = window.app_handle().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DraftState>();
+        let mut store = state
+            .lock()
+            .map_err(|_| err("Draft store is unavailable"))?;
+        f(store
+            .as_mut()
+            .ok_or_else(|| err("Draft store is unavailable"))?
+            .as_mut()
+            .map_err(|error| error.clone())?)
+    })
+    .await
+    .map_err(|_| err("Draft worker is unavailable"))?
 }
 #[tauri::command]
-pub async fn draft_list(
-    window: tauri::WebviewWindow,
-    state: tauri::State<'_, DraftState>,
-) -> StoreResult<DraftListing> {
-    with_store(window, state, |s| s.list_with_issues())
+pub async fn draft_list(window: tauri::WebviewWindow) -> StoreResult<DraftListing> {
+    with_store(window, |s| s.list_with_issues()).await
 }
 #[tauri::command]
-pub async fn draft_recovery_ids(
-    window: tauri::WebviewWindow,
-    state: tauri::State<'_, DraftState>,
-) -> StoreResult<Vec<String>> {
-    with_store(window, state, |s| s.recovery_ids())
+pub async fn draft_recovery_ids(window: tauri::WebviewWindow) -> StoreResult<Vec<String>> {
+    with_store(window, |s| s.recovery_ids()).await
 }
 #[tauri::command]
 pub async fn draft_save_setup(
     window: tauri::WebviewWindow,
-    state: tauri::State<'_, DraftState>,
     setup: Setup,
     draft_id: Option<String>,
     expected_revision: Option<u64>,
 ) -> StoreResult<Manifest> {
-    with_store(window, state, |s| {
+    with_store(window, move |s| {
         s.save_setup(setup, draft_id, expected_revision)
     })
+    .await
 }
 #[tauri::command]
 pub async fn draft_begin_take(
     window: tauri::WebviewWindow,
-    state: tauri::State<'_, DraftState>,
     draft_id: String,
     expected_revision: u64,
     take: Take,
 ) -> StoreResult<String> {
-    with_store(window, state, |s| {
+    with_store(window, move |s| {
         s.begin_take(draft_id, expected_revision, take)
     })
+    .await
 }
 #[tauri::command]
 pub async fn draft_write_take_chunk(
     window: tauri::WebviewWindow,
-    state: tauri::State<'_, DraftState>,
     request: tauri::ipc::Request<'_>,
 ) -> StoreResult<u64> {
     let transfer_id = request
@@ -1386,74 +1386,63 @@ pub async fn draft_write_take_chunk(
         .and_then(|value| value.to_str().ok())
         .ok_or_else(|| err("Invalid take transfer identifier"))?;
     checked_id(transfer_id)?;
-    let bytes = bounded_chunk_body(request.body())?;
-    with_store(window, state, |s| {
-        s.write_take_chunk(transfer_id, bytes.to_vec())
-    })
+    let transfer_id = transfer_id.to_owned();
+    let bytes = bounded_chunk_body(request.body())?.to_vec();
+    with_store(window, move |s| s.write_take_chunk(&transfer_id, bytes)).await
 }
 #[tauri::command]
 pub async fn draft_abort_take(
     window: tauri::WebviewWindow,
-    state: tauri::State<'_, DraftState>,
     transfer_id: String,
 ) -> StoreResult<()> {
-    with_store(window, state, |s| s.abort_take(&transfer_id))
+    with_store(window, move |s| s.abort_take(&transfer_id)).await
 }
 #[tauri::command]
 pub async fn draft_abort_take_for_draft(
     window: tauri::WebviewWindow,
-    state: tauri::State<'_, DraftState>,
     draft_id: String,
 ) -> StoreResult<()> {
-    with_store(window, state, |s| s.abort_take_for_draft(&draft_id))
+    with_store(window, move |s| s.abort_take_for_draft(&draft_id)).await
 }
 #[tauri::command]
 pub async fn draft_finish_take(
     window: tauri::WebviewWindow,
-    state: tauri::State<'_, DraftState>,
     transfer_id: String,
 ) -> StoreResult<Manifest> {
-    with_store(window, state, |s| s.finish_take(&transfer_id))
+    with_store(window, move |s| s.finish_take(&transfer_id)).await
 }
 #[tauri::command]
 pub async fn draft_load_take_chunk(
     window: tauri::WebviewWindow,
-    state: tauri::State<'_, DraftState>,
     draft_id: String,
     media_id: String,
     index: u32,
 ) -> StoreResult<Vec<u8>> {
-    with_store(window, state, |s| {
+    with_store(window, move |s| {
         s.load_take_chunk(&draft_id, &media_id, index)
     })
+    .await
 }
 #[tauri::command]
 pub async fn draft_mark_submission(
     window: tauri::WebviewWindow,
-    state: tauri::State<'_, DraftState>,
     draft_id: String,
     expected_revision: u64,
     status: String,
     submission: Submission,
 ) -> StoreResult<Manifest> {
-    with_store(window, state, |s| {
+    with_store(window, move |s| {
         s.mark_submission(&draft_id, expected_revision, status, submission)
     })
+    .await
 }
 #[tauri::command]
-pub async fn draft_discard(
-    window: tauri::WebviewWindow,
-    state: tauri::State<'_, DraftState>,
-    draft_id: String,
-) -> StoreResult<()> {
-    with_store(window, state, |s| s.discard(&draft_id))
+pub async fn draft_discard(window: tauri::WebviewWindow, draft_id: String) -> StoreResult<()> {
+    with_store(window, move |s| s.discard(&draft_id)).await
 }
 #[tauri::command]
-pub async fn draft_expire(
-    window: tauri::WebviewWindow,
-    state: tauri::State<'_, DraftState>,
-) -> StoreResult<u32> {
-    with_store(window, state, |s| s.expire(now_ms()))
+pub async fn draft_expire(window: tauri::WebviewWindow) -> StoreResult<u32> {
+    with_store(window, |s| s.expire(now_ms())).await
 }
 
 #[cfg(test)]
@@ -1964,7 +1953,7 @@ mod tests {
         let mut store = store(&root);
         let draft = store.save_setup(setup("Alex"), None, None).unwrap();
         let mut future = take(b"take");
-        future.capture_ended_at = now_ms() + 60_000;
+        future.capture_ended_at = now_ms() + 5_000;
         assert!(store
             .begin_take(draft.draft_id.clone(), draft.revision, future)
             .unwrap_err()
