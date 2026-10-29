@@ -273,7 +273,11 @@ impl KeySource for MacKeychain {
         .map_err(|code| {
             format!("Mac Keychain is unavailable; local save is disabled (code {code})")
         })?;
-        *self.mode.lock().unwrap() = Some(mode);
+        let mut selected = self.mode.lock().unwrap();
+        if selected.is_none() {
+            eprintln!("Draft Keychain mode: {}", mode.label());
+        }
+        *selected = Some(mode);
         Ok(())
     }
 }
