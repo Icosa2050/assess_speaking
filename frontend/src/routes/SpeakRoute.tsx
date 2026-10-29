@@ -37,6 +37,10 @@ import {
 
 const DEFAULT_SCORING_WHISPER_MODEL = "large-v3";
 
+const isIndeterminateAssessmentResponse = (error: unknown): boolean =>
+  error instanceof TypeError ||
+  (error instanceof DOMException && ["AbortError", "NetworkError", "TimeoutError"].includes(error.name));
+
 const cardStyle = {
   display: "grid",
   gap: "0.875rem",
@@ -594,7 +598,7 @@ export const SpeakRoute = () => {
       assessmentRequestAttempted = true;
       try { created = await apiClient.createAssessment(body); }
       catch (error) {
-        if (!(error instanceof TypeError)) throw error;
+        if (!isIndeterminateAssessmentResponse(error)) throw error;
         // The backend deduplicates this ID even if the accepted response was lost.
         created = await apiClient.createAssessment(body);
       }
@@ -621,10 +625,12 @@ export const SpeakRoute = () => {
         return;
       }
       if (error instanceof ApiClientError && error.responseStatus === 404) savedUpload.current = null;
-      if (assessmentRequestAttempted && error instanceof TypeError && priorTerminalJob) {
+      if (assessmentRequestAttempted && isIndeterminateAssessmentResponse(error) && priorTerminalJob) {
         setRecordingJob(priorTerminalJob);
         setRetryResponseUnknown(true);
-        setRetryError(error.message || translate("speak.job_status_unknown"));
+        setRetryError(error instanceof Error || error instanceof DOMException
+          ? error.message || translate("speak.job_status_unknown")
+          : translate("speak.job_status_unknown"));
         return;
       }
       setRecordingError(

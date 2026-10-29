@@ -400,10 +400,13 @@ describe("Speak route", () => {
     expect(mockedUploadAudio.mock.calls[1][1]?.requestId).toBe(first);
   });
 
-  it("keeps the prior job and request ID when both retry confirmations are lost", async () => {
+  it.each([
+    ["network replies are lost", () => new TypeError("Failed to fetch")],
+    ["assessment replies time out", () => new DOMException("The assessment request timed out", "AbortError")],
+  ])("keeps the prior job and request ID when %s", async (_scenario, makeError) => {
     mockedCreateAssessment.mockResolvedValueOnce({ assessment_id: "asmt-1", status: "queued" })
-      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
-      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockRejectedValueOnce(makeError())
+      .mockRejectedValueOnce(makeError())
       .mockResolvedValueOnce({ assessment_id: "asmt-2", status: "queued" });
     const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
     fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
@@ -413,6 +416,7 @@ describe("Speak route", () => {
     fireEvent.click(await screen.findByTestId("speak.cancel_assessment"));
     fireEvent.click(await screen.findByTestId("speak.retry_assessment"));
     await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Could not confirm the retry"));
+    expect(screen.getByTestId("speak.status_panel")).not.toHaveTextContent("Upload cancelled");
     expect(store.getState().recording.job.assessmentId).toBe("asmt-1");
     expect(screen.getByTestId("speak.retry_assessment")).toBeVisible();
     fireEvent.click(screen.getByTestId("speak.retry_assessment"));
