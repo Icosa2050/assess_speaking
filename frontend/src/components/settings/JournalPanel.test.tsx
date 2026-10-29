@@ -114,6 +114,22 @@ describe("journal recovery visibility", () => {
     expect(await screen.findByText(t("journal.fresh_done"))).toBeVisible();
   });
 
+  it("keeps the confirmation open when Escape is pressed during fresh start", async () => {
+    status.mockResolvedValue(damaged);
+    let finish!: () => void;
+    vi.mocked(startFreshJournal).mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
+    renderWithProviders(<JournalPanel locale="en" />);
+    fireEvent.click(await screen.findByRole("button", { name: t("journal.fresh") }));
+    fireEvent.click(screen.getByRole("button", { name: t("journal.confirm_fresh") }));
+    const dialog = screen.getByRole("dialog");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel and keep current state" })).toBeDisabled());
+    fireEvent(dialog, new Event("cancel", { bubbles: false, cancelable: true }));
+    expect(dialog).toBeInTheDocument();
+    status.mockResolvedValue(clean);
+    finish();
+    expect(await screen.findByText(t("journal.fresh_done"))).toBeVisible();
+  });
+
   it("keeps rollback retry reachable after an intact transaction hits a disk error", async () => {
     const retryable = {...damaged, recovery_retryable: true, transaction: {id: "a".repeat(32), phase: "rolling_back"}};
     status.mockResolvedValue(retryable);

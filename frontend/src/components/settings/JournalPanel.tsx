@@ -145,7 +145,7 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
       <p>{t("your_data.fresh_intro")}</p>
       <Button variant="danger" id="journal-fresh" disabled={busy || activeTransaction} onClick={() => { setFreshError(""); setConfirmFresh(true); }}>{t("journal.fresh")}</Button>
     </div>}
-    {confirmFresh && <dialog ref={freshDialog} className={styles.dialog} aria-labelledby="fresh-dialog-title" onCancel={event => { event.preventDefault(); cancelFresh(); }}>
+    {confirmFresh && <dialog ref={freshDialog} className={styles.dialog} aria-labelledby="fresh-dialog-title" onCancel={event => { event.preventDefault(); if (!busy) cancelFresh(); }}>
       <h2 id="fresh-dialog-title">{t("your_data.fresh_heading")}</h2>
       <p>{t("your_data.fresh_kept")}</p><p>{t("your_data.fresh_replaced")}</p><p>{t("journal.fresh_note")}</p>
       {freshError && <div id="fresh-error" tabIndex={-1}><StatusBanner title={freshError} tone="error" urgent /></div>}
