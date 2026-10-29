@@ -377,10 +377,12 @@ export const SpeakRoute = () => {
   useEffect(() => {
     if (assessmentStatusQuery.error instanceof ApiClientError) {
       setPollError(assessmentStatusQuery.error.detail);
+    } else if (assessmentStatusQuery.error) {
+      setPollError(assessmentStatusQuery.error.message || translate("speak.job_status_unknown"));
     } else if (!assessmentStatusQuery.error) {
       setPollError("");
     }
-  }, [assessmentStatusQuery.error]);
+  }, [assessmentStatusQuery.error, translate]);
 
   useEffect(() => {
     if (lifecycleState === "completed" && review.reportId) {

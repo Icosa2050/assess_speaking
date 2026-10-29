@@ -577,6 +577,24 @@ describe("Speak route", () => {
     await waitFor(() => expect(screen.getByTestId("speak.status_panel")).not.toHaveTextContent("Could not refresh progress"));
   });
 
+  it.each([
+    ["network failure", new TypeError("Failed to fetch"), "Failed to fetch"],
+    ["request timeout", new DOMException("The request timed out", "AbortError"), "The request timed out"],
+  ])("reports a %s while retaining the active job and Cancel", async (_scenario, error, detail) => {
+    const { queryClient, store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+    fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(mockedGetAssessmentStatus).toHaveBeenCalled());
+    mockedGetAssessmentStatus.mockRejectedValue(error);
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.assessment("asmt-1") }); });
+    await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent(`Could not refresh progress: ${detail}`));
+    expect(store.getState().recording.job.assessmentId).toBe("asmt-1");
+    expect(screen.getByTestId("speak.cancel_assessment")).toBeVisible();
+    expect(screen.getByTestId("speak.assessment_progress")).toBeVisible();
+  });
+
   it("rejects a file when current disk space is insufficient, retaining a backup link", async () => {
     vi.mocked(apiClient.getUploadLimits).mockResolvedValueOnce({ max_bytes: 104857600, available_bytes: 1 });
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
