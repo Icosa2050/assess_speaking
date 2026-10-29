@@ -37,3 +37,20 @@ test("unreachable local tutor shows rescue and refreshes to Ready before Speak",
   await expect(page.getByTestId("speak.recording_panel")).toBeVisible();
   await expect(page.getByTestId("speak.record_start")).toBeDisabled();
 });
+
+test("ready Groq speech shows cloud processing copy and cloud settings action", async ({ page }) => {
+  const checks = readyReadiness.checks.map((check) => check.key === "speech_recognition"
+    ? { ...check, detail_args: { provider: "groq", model: "whisper-large-v3" } } : check);
+  await page.route("**/v1/readiness", (route) => route.fulfill({ json: { ready: true, checks } }));
+  await page.route("**/v1/runtime/settings", (route) => route.fulfill({ json: {
+    ui_locale: "en", whisper_model: "small", active_connection_id: "",
+    asr_provider: "groq", connections: [],
+  } }));
+
+  await page.goto("/runtime-setup");
+  const speech = page.getByTestId("runtime_setup.setup_guide.speech_recognition");
+  await expect(speech).toHaveAttribute("data-status", "ready");
+  await expect(speech).toContainText("Groq cloud transcription is selected and its saved key is present.");
+  await expect(speech).not.toContainText("on this device");
+  await expect(page.getByTestId("runtime_setup.setup_guide.speech_recognition.action")).toHaveText("Manage cloud transcription");
+});

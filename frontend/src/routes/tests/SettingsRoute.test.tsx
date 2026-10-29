@@ -221,6 +221,17 @@ describe("Settings route", () => {
     expect(provider).toHaveValue("openrouter");
   });
 
+  it("shows setup guidance when a saved connection is blocked by backend readiness", async () => {
+    mockedGetRuntimeSettings.mockResolvedValue(runtimeSettings({
+      connections: [alphaConnection, { ...bravoConnection, has_api_key: false, secret_state: "absent" }],
+    }));
+    mockedGetReadiness.mockResolvedValue(readinessWith("ai_tutor", "credential_missing"));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/settings"], locale: "en" });
+
+    expect(await screen.findByText("Practice setup needs attention. Open Setup to resolve the failing check.")).toBeVisible();
+    expect(mockedGetReadiness).toHaveBeenCalled();
+  });
+
   it("returns to Review after opening Settings from the navigation", async () => {
     renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en" });
     expect(await screen.findByTestId("review-guard-missing-review")).toBeVisible();

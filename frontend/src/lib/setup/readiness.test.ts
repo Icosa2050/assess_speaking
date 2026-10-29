@@ -16,19 +16,19 @@ const withReason = (key: ReadinessCheck["key"], reason: ReadinessCheck["reason"]
 });
 
 const mapped = [
-  ["ai_tutor", "not_configured", "first_run.readiness_not_configured", "first_run.readiness_configure"],
-  ["ai_tutor", "credential_missing", "first_run.readiness_credential_missing", "first_run.readiness_add_credential"],
-  ["ai_tutor", "local_service_unreachable", "first_run.readiness_service_unreachable", "first_run.readiness_start_service"],
-  ["ai_tutor", "model_unavailable", "first_run.readiness_model_unavailable", "first_run.readiness_select_model"],
-  ["speech_recognition", "model_not_cached", "first_run.readiness_model_not_cached", "first_run.readiness_download_model"],
-  ["speech_recognition", "credential_missing", "first_run.readiness_credential_missing", "first_run.readiness_add_credential"],
-  ["media_decoder", "media_decoder_missing", "first_run.readiness_media_missing", "first_run.readiness_install_media"],
-  ["storage", "storage_not_writable", "first_run.readiness_storage_unwritable", "first_run.readiness_fix_storage"],
+  ["ai_tutor", "needs_setup", "not_configured", "first_run.readiness_not_configured", "first_run.readiness_configure"],
+  ["ai_tutor", "needs_setup", "credential_missing", "first_run.readiness_credential_missing", "first_run.readiness_add_credential"],
+  ["ai_tutor", "unavailable", "local_service_unreachable", "first_run.readiness_service_unreachable", "first_run.readiness_start_service"],
+  ["ai_tutor", "needs_setup", "model_unavailable", "first_run.readiness_model_unavailable", "first_run.readiness_select_model"],
+  ["speech_recognition", "needs_setup", "model_not_cached", "first_run.readiness_model_not_cached", "first_run.readiness_download_model"],
+  ["speech_recognition", "needs_setup", "credential_missing", "first_run.readiness_credential_missing", "first_run.readiness_add_credential"],
+  ["media_decoder", "unavailable", "media_decoder_missing", "first_run.readiness_media_missing", "first_run.readiness_install_media"],
+  ["storage", "unavailable", "storage_not_writable", "first_run.readiness_storage_unwritable", "first_run.readiness_fix_storage"],
 ] as const;
 
 describe("backend readiness mapping", () => {
-  it.each(mapped)("maps %s/%s to Needs setup with specific rescue", (key, reason, detailKey, rescueKey) => {
-    const rows = buildSetupReadinessRows({ readiness: withReason(key, reason, "unavailable") });
+  it.each(mapped)("maps %s/%s/%s to Needs setup with specific rescue", (key, state, reason, detailKey, rescueKey) => {
+    const rows = buildSetupReadinessRows({ readiness: withReason(key, reason, state) });
     const row = rows.find((item) => item.key === key);
     expect(row).toMatchObject({ status: "setup", detailKey, rescueKey });
     expect(canEnterSpeak(rows)).toBe(false);
@@ -53,6 +53,34 @@ describe("backend readiness mapping", () => {
     });
   });
 
+  it("describes ready Groq transcription as cloud processing with a cloud action", () => {
+    const response = structuredClone(ready);
+    response.checks[0].detail_args = { provider: "groq", model: "whisper-large-v3" };
+    expect(buildSetupReadinessRows({ readiness: response })[0]).toMatchObject({
+      status: "ready", detailKey: "first_run.cloud_speech_ready",
+      actionKey: "first_run.readiness_manage_cloud_speech",
+    });
+  });
+
+  it("requires the backend aggregate even when every displayed check is available", () => {
+    expect(canEnterSpeak(buildSetupReadinessRows({ readiness: { ...ready, ready: false } }))).toBe(false);
+  });
+
+  it("allows a nonblocking setup check when the backend says ready", () => {
+    const response = withReason("ai_tutor", "not_configured");
+    response.ready = true;
+    response.checks[1].blocking = false;
+    const rows = buildSetupReadinessRows({ readiness: response });
+    expect(rows[1]).toMatchObject({ status: "setup", blocking: false });
+    expect(canEnterSpeak(rows)).toBe(true);
+  });
+
+  it("fails closed for a future blocking check missing from the displayed rows", () => {
+    const futureCheck = { ...available("storage"), key: "future_service", state: "unavailable" } as unknown as ReadinessCheck;
+    const rows = buildSetupReadinessRows({ readiness: { checks: [...ready.checks, futureCheck], ready: true } });
+    expect(canEnterSpeak(rows)).toBe(false);
+  });
+
   it("requires microphone confirmation for recording but allows entry to Speak", () => {
     const rows = buildSetupReadinessRows({ readiness: ready, microphoneStatus: "ready" });
     expect(rows.find((row) => row.key === "microphone")?.status).toBe("setup");
@@ -64,7 +92,7 @@ describe("backend readiness mapping", () => {
   it("does not let missing backend checks or a first load pass the guard", () => {
     expect(canEnterSpeak(buildSetupReadinessRows({ readiness: { checks: [], ready: true } }))).toBe(false);
     const rows = buildSetupReadinessRows({ readinessPending: true });
-    expect(rows.slice(0, 4).every((row) => row.status === "loading" && row.disabled)).toBe(true);
+    expect(rows.filter((row) => row.key !== "microphone").every((row) => row.status === "loading" && row.disabled)).toBe(true);
     expect(canEnterSpeak(rows)).toBe(false);
   });
 

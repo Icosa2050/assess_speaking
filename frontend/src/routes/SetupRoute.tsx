@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -28,7 +28,6 @@ import {
   resolveSetupReadinessAction,
   type SetupReadinessKey,
 } from "@/lib/setup/readiness";
-import { markConnectionTest } from "@/lib/setup/connectionVerification";
 import { useReadiness } from "@/lib/setup/useReadiness";
 import { useAppStore } from "@/lib/state/appStore";
 import styles from "./SetupRoute.module.css";
@@ -190,7 +189,6 @@ export const SetupRoute = () => {
   >("idle");
   const [formStatusMessage, setFormStatusMessage] = useState("");
   const [isBusy, setIsBusy] = useState(false);
-  const testedDraftRef = useRef<string | null>(null);
   const [cloudOptionsOpen, setCloudOptionsOpen] = useState(hash === "#runtime-setup-cloud");
   const [cloudPanelOpened, setCloudPanelOpened] = useState(hash === "#runtime-setup-cloud");
 
@@ -398,15 +396,7 @@ export const SetupRoute = () => {
     setFormStatusMessage(translate("runtime_setup.testing_connection"));
     try {
       const response = await apiClient.postRuntimeSettingsTestConnection({ connection });
-      testedDraftRef.current = JSON.stringify({ ...connection, connection_id: "" });
       setDetectedModels(response.discovered_models);
-      if (runtime?.configured && activeConnection &&
-        connection.connection_id === activeConnection.connection_id &&
-        connection.provider_choice === activeConnection.provider_choice &&
-        connection.model === activeConnection.model &&
-        connection.base_url === activeConnection.base_url) {
-        markConnectionTest(queryClient, runtime, true);
-      }
       await queryClient.invalidateQueries({ queryKey: queryKeys.readiness });
       setFormStatus("test-succeeded");
       setFormStatusMessage(
@@ -418,7 +408,6 @@ export const SetupRoute = () => {
         }),
       );
     } catch (caught) {
-      testedDraftRef.current = null;
       const detail =
         caught instanceof ApiClientError && caught.code === "validation_error"
           ? caught.detail
@@ -426,9 +415,6 @@ export const SetupRoute = () => {
             ? caught.message
             : String(caught);
       setFormStatus("test-failed");
-      if (runtime?.configured && activeConnection && connection.connection_id === activeConnection.connection_id) {
-        markConnectionTest(queryClient, runtime, false);
-      }
       await queryClient.invalidateQueries({ queryKey: queryKeys.readiness });
       setFormStatusMessage(translate("runtime_setup.test_error", { detail }));
     } finally {
@@ -459,19 +445,6 @@ export const SetupRoute = () => {
       const saved = response.connections.find(c => c.connection_id === response.active_connection_id);
       setFormStatusMessage(translate(saved?.provider_metadata.persistent === false ? "runtime_setup.save_success_session_only" : "runtime_setup.save_success"));
       await handleInvalidateRuntime();
-      const refreshedRuntime = queryClient.getQueryData<typeof runtime>(queryKeys.runtime);
-      const savedBaseUrl = saved?.base_url.replace(/\/+$/, "");
-      const sameRuntimeBase = refreshedRuntime?.base_url === saved?.base_url ||
-        (saved?.provider_choice === "ollama_local" && refreshedRuntime?.base_url === `${savedBaseUrl}/v1`);
-      if (!clearSavedSecret && saved && refreshedRuntime?.configured &&
-        queryClient.getQueryState(queryKeys.runtime)?.status === "success" &&
-        testedDraftRef.current === JSON.stringify({ ...connection, connection_id: "" }) &&
-        saved.provider_choice === connection.provider_choice && saved.model === connection.model &&
-        saved.base_url === connection.base_url && refreshedRuntime.model === saved.model &&
-        [saved.provider_key, saved.provider_choice].includes(refreshedRuntime.provider) && sameRuntimeBase) {
-        markConnectionTest(queryClient, refreshedRuntime, true);
-      }
-      testedDraftRef.current = null;
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
       setFormStatus("save-failed");

@@ -84,6 +84,11 @@
       "unreachable local tutor shows rescue and refreshes to Ready before Speak"
     ],
     [
+      "e2e/readinessContract.spec.ts",
+      "",
+      "ready Groq speech shows cloud processing copy and cloud settings action"
+    ],
+    [
       "e2e/reviewChangeTaskFlow.spec.ts",
       "",
       "review change-task browser flow",

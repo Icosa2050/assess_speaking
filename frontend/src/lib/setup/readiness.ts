@@ -6,6 +6,8 @@ export type SetupReadinessKey = ReadinessCheck["key"] | "microphone" | "sample_c
 
 export type SetupReadinessRow = {
   actionKey: string;
+  backendReady?: boolean;
+  blocking?: boolean;
   detailKey: string;
   disabled: boolean;
   key: SetupReadinessKey;
@@ -37,7 +39,8 @@ export const canContinueWithCheck = (status: SetupReadinessStatus): boolean => s
 // The recording page performs its own microphone test. Backend prerequisites
 // must already be available before entering it.
 export const canEnterSpeak = (rows: SetupReadinessRow[]): boolean =>
-  backendKeys.every((key) => rows.some((row) => row.key === key && canContinueWithCheck(row.status)));
+  backendKeys.every((key) => rows.some((row) => row.key === key && row.backendReady === true &&
+    (!row.blocking || canContinueWithCheck(row.status))));
 
 export const canRecord = (rows: SetupReadinessRow[]): boolean =>
   canEnterSpeak(rows) && rows.some((row) => row.key === "microphone" && canContinueWithCheck(row.status));
@@ -92,26 +95,29 @@ export const buildSetupReadinessRows = ({
   microphoneSetupPassed = false,
 }: SetupReadinessInput): SetupReadinessRow[] => {
   const checks = new Map(readiness?.checks.map((check) => [check.key, check]));
+  const backendReady = readiness?.ready === true && readiness.checks.every((check) =>
+    !check.blocking || check.state === "available");
   const backendRows: SetupReadinessRow[] = backendKeys.map((key) => {
     const check = checks.get(key);
     const meta = rowMeta[key];
-    const cloudSpeechNeedsSetup = key === "speech_recognition" &&
-      check?.detail_args.provider === "groq" && check.state !== "available";
+    const cloudSpeech = key === "speech_recognition" && check?.detail_args.provider === "groq";
     const status: SetupReadinessStatus = !readiness && readinessPending ? "loading"
       : !readiness && readinessError ? "unavailable"
         : check?.state === "available" ? "ready" : "setup";
     const copy = check ? reasonCopy[check.reason] : undefined;
     return {
       key, status,
+      backendReady, blocking: check?.blocking ?? true,
       titleKey: meta.title,
-      detailKey: status === "ready" ? meta.ready : status === "loading"
+      detailKey: status === "ready" ? cloudSpeech ? "first_run.cloud_speech_ready" : meta.ready : status === "loading"
         ? "runtime_setup.setup_guide_loading" : status === "unavailable"
-          ? "first_run.readiness_backend_unavailable" : cloudSpeechNeedsSetup
+          ? "first_run.readiness_backend_unavailable" : cloudSpeech
             ? "first_run.cloud_speech_missing" : copy?.detail || "first_run.readiness_not_configured",
-      rescueKey: status === "setup" ? cloudSpeechNeedsSetup
+      rescueKey: status === "setup" ? cloudSpeech
         ? "first_run.rescue_cloud_speech" : copy?.rescue || "first_run.readiness_configure"
         : status === "unavailable" ? "first_run.readiness_retry_backend" : undefined,
-      actionKey: cloudSpeechNeedsSetup ? "first_run.readiness_configure_cloud_speech" : meta.action,
+      actionKey: cloudSpeech ? status === "ready"
+        ? "first_run.readiness_manage_cloud_speech" : "first_run.readiness_configure_cloud_speech" : meta.action,
       disabled: status === "loading",
     };
   });
@@ -126,10 +132,12 @@ export const buildSetupReadinessRows = ({
   };
   const requiredRows = [...backendRows, microphoneRow];
   const sampleReady = canRecord(requiredRows);
+  const sampleLoading = !readiness && readinessPending;
   return [...requiredRows, {
-    key: "sample_check", status: sampleReady ? "ready" : "setup",
+    key: "sample_check", status: sampleLoading ? "loading" : sampleReady ? "ready" : "setup",
     titleKey: "runtime_setup.setup_guide_sample_title",
-    detailKey: sampleReady ? "runtime_setup.setup_guide_sample_ready" : "runtime_setup.setup_guide_sample_blocked",
+    detailKey: sampleLoading ? "runtime_setup.setup_guide_loading"
+      : sampleReady ? "runtime_setup.setup_guide_sample_ready" : "runtime_setup.setup_guide_sample_blocked",
     actionKey: "runtime_setup.setup_guide_run_sample", disabled: !sampleReady,
   }];
 };

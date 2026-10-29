@@ -23,7 +23,6 @@ export type AssessmentLifecycleState =
   | "completed"
   | "failed"
   | "cancelled";
-export type RuntimeReadinessMissing = "connection";
 
 export type RuntimeSetupSecretState =
   | { kind: "absent" }

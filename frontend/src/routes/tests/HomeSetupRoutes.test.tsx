@@ -673,6 +673,9 @@ describe("Home and Runtime Setup routes", () => {
   });
 
   it("marks Groq transcription ready only with its selected saved account and key", async () => {
+    const cloudReady = structuredClone(readyReadiness);
+    cloudReady.checks[0].detail_args = { provider: "groq", model: "whisper-large-v3" };
+    mockedGetReadiness.mockResolvedValue(cloudReady);
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       settings: {
         version: 1, asr_provider: "groq", asr_connection_id: "groq-1", asr_model: "whisper-large-v3",
@@ -701,11 +704,13 @@ describe("Home and Runtime Setup routes", () => {
     });
 
     await waitFor(() => expect(screen.getByTestId("runtime_setup.setup_guide.speech_recognition")).toHaveAttribute("data-status", "ready"));
+    expect(screen.getByTestId("runtime_setup.setup_guide.speech_recognition")).toHaveTextContent("Groq cloud transcription is selected and its saved key is present.");
+    expect(screen.getByTestId("runtime_setup.setup_guide.speech_recognition.action")).toHaveTextContent("Manage cloud transcription");
     expect(screen.getByText("All required checks passed. You can choose a task.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Choose a practice task" })).toBeEnabled();
   });
 
-  it("shares a recent user-triggered local connection test with Home", async () => {
+  it("refreshes backend readiness across Setup and Home after a local connection test", async () => {
     mockedGetReadiness.mockResolvedValueOnce(readinessWith("ai_tutor", "local_service_unreachable")).mockResolvedValue(readyReadiness);
     mockedGetRuntime.mockResolvedValue({
       configured: true, provider: "ollama", model: "llama3.2:3b", base_url: "http://localhost:11434/v1",

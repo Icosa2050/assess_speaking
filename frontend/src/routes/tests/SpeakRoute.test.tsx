@@ -254,6 +254,18 @@ describe("Speak route", () => {
     expect(await screen.findByTestId("runtime_setup.screen")).toBeVisible();
     expect(screen.queryByTestId("speak.record_start")).not.toBeInTheDocument();
   });
+
+  it.each([
+    ["media_decoder", "media_decoder_missing", "The media decoder is unavailable."],
+    ["storage", "storage_not_writable", "Practice storage is not writable."],
+  ] as const)("guards Speak when %s blocks readiness", async (key, reason, detail) => {
+    mockedGetReadiness.mockResolvedValue(readinessWith(key, reason, "unavailable"));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+
+    expect(await screen.findByTestId("runtime_setup.screen")).toBeVisible();
+    expect(screen.getByText(detail)).toBeVisible();
+    expect(screen.queryByTestId("speak.record_start")).not.toBeInTheDocument();
+  });
   const stopTrack = vi.fn();
   const getUserMedia = vi.fn();
 
