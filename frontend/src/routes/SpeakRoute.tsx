@@ -255,6 +255,7 @@ export const SpeakRoute = () => {
   const [uploadUnconfirmed, setUploadUnconfirmed] = useState(false);
   const [cancelError, setCancelError] = useState("");
   const [retryError, setRetryError] = useState("");
+  const [retryResponseUnknown, setRetryResponseUnknown] = useState(false);
   const [pollError, setPollError] = useState("");
   const uploadController = useRef<AbortController | null>(null);
   const submittingRef = useRef(false);
@@ -440,7 +441,7 @@ export const SpeakRoute = () => {
   const shortRecording = recordedDurationSec !== null && recordedDurationSec < MIN_REVIEW_SECONDS;
   const canSubmitLiveAttachment = canSubmitAssessment && Boolean(attachedFile) && !shortRecording && Boolean(sharingQuery.data?.available);
   const statusMessage = cancelError ? translate("speak.wait_cancel_failed", { detail: cancelError })
-    : retryError ? translate("speak.wait_retry_not_ready", { detail: retryError })
+    : retryError ? translate(retryResponseUnknown ? "speak.wait_retry_unconfirmed" : "speak.wait_retry_not_ready", { detail: retryError })
     : pollError ? translate("speak.wait_status_failed", { detail: pollError })
     : shortRecording ? translate("speak.recording_too_short") : buildStatusMessage({
     errorMessage: recording.error || recording.job.error,
@@ -505,10 +506,14 @@ export const SpeakRoute = () => {
     }
 
     let uploadAttempted = false;
+    let assessmentRequestAttempted = false;
+    const priorTerminalJob = recording.job.assessmentId && (recording.job.status === "failed" || recording.job.status === "cancelled")
+      ? recording.job : null;
     try {
       submittingRef.current = true;
       setCancelError("");
       setRetryError("");
+      setRetryResponseUnknown(false);
       setPollError("");
       setIsSubmitting(true);
       const refreshed = await sharingQuery.refetch();
@@ -521,6 +526,7 @@ export const SpeakRoute = () => {
         assessmentState: "idle",
       });
       if (savedUpload.current?.file !== attachedFile) {
+        const replayingUpload = uploadUnconfirmed && uploadIdentity.current?.file === attachedFile;
         if (uploadIdentity.current?.file !== attachedFile) uploadIdentity.current = { file: attachedFile, requestId: crypto.randomUUID() };
         const controller = new AbortController();
         uploadController.current = controller;
@@ -529,14 +535,18 @@ export const SpeakRoute = () => {
         setUploadUpdatedAt(startedAt);
         setUploadProgress(0);
         const limits = await apiClient.getUploadLimits({ signal: controller.signal });
-        if (attachedFile.size > limits.available_bytes) {
-          throw new Error(translate(limits.available_bytes < limits.max_bytes ? "speak.upload_disk_error" : "speak.upload_size_error"));
+        if (attachedFile.size > limits.max_bytes) {
+          throw new Error(translate("speak.upload_size_error"));
+        }
+        if (!replayingUpload && attachedFile.size > limits.available_bytes) {
+          throw new Error(translate("speak.upload_disk_error"));
         }
         uploadAttempted = true;
         const upload = await apiClient.uploadAudio(attachedFile, { signal: controller.signal,
           requestId: uploadIdentity.current.requestId,
           onProgress: (percent) => { setUploadProgress(percent); setUploadUpdatedAt(Date.now()); } });
         savedUpload.current = { file: attachedFile, audioId: upload.audio_id };
+        uploadAttempted = false;
         setUploadUnconfirmed(false);
         uploadController.current = null;
         setUploadProgress(null);
@@ -579,6 +589,7 @@ export const SpeakRoute = () => {
       if (submission.current?.signature !== signature) submission.current = { signature, requestId: crypto.randomUUID() };
       const body = { ...request, request_id: submission.current.requestId };
       let created;
+      assessmentRequestAttempted = true;
       try { created = await apiClient.createAssessment(body); }
       catch (error) {
         if (!(error instanceof TypeError)) throw error;
@@ -608,6 +619,12 @@ export const SpeakRoute = () => {
         return;
       }
       if (error instanceof ApiClientError && error.responseStatus === 404) savedUpload.current = null;
+      if (assessmentRequestAttempted && error instanceof TypeError && priorTerminalJob) {
+        setRecordingJob(priorTerminalJob);
+        setRetryResponseUnknown(true);
+        setRetryError(error.message || translate("speak.job_status_unknown"));
+        return;
+      }
       setRecordingError(
         error instanceof DOMException && error.name === "AbortError"
           ? translate("speak.upload_cancelled")
@@ -783,6 +800,7 @@ export const SpeakRoute = () => {
         </fieldset>
         <AssessmentStatusPanel
           assessmentStatus={lifecycleState === "queued" || lifecycleState === "running" ? assessmentStatusQuery.data : undefined}
+          pollFailed={Boolean(pollError)}
           uploadStartedAt={uploadStartedAt}
           uploadUpdatedAt={uploadUpdatedAt}
           uploading={uploadProgress !== null}

@@ -485,6 +485,7 @@
     "wait_cancel_failed": "L'annulation a échoué : {detail}. L'évaluation peut encore être en cours. Vous pouvez attendre ou réessayer d'annuler.",
     "wait_retry": "Réessayer l’évaluation",
     "wait_retry_not_ready": "Nouvel essai pas encore possible : {detail}. L’évaluation et l’audio envoyé sont conservés.",
+    "wait_retry_unconfirmed": "Impossible de confirmer la nouvelle tentative : {detail}. L’évaluation précédente et l’audio envoyé restent disponibles. Réessayez pour vérifier le même envoi.",
     "wait_media_retained": "Audio envoyé et conservé avec cette évaluation.",
     "wait_media_uploaded": "Audio envoyé ; évaluation en attente.",
     "wait_media_uploaded_ready": "Audio envoyé et conservé. Lancez l’évaluation pour continuer.",

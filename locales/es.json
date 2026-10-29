@@ -485,6 +485,7 @@
     "wait_cancel_failed": "No se pudo cancelar: {detail}. La evaluación puede seguir en curso. Puedes esperar o intentar cancelar de nuevo.",
     "wait_retry": "Reintentar evaluación",
     "wait_retry_not_ready": "Todavía no se puede reintentar: {detail}. Se conservan la evaluación y el audio subido.",
+    "wait_retry_unconfirmed": "No se pudo confirmar el reintento: {detail}. La evaluación anterior y el audio subido siguen disponibles. Vuelve a intentarlo para comprobar el mismo envío.",
     "wait_media_retained": "Audio subido y conservado con esta evaluación.",
     "wait_media_uploaded": "Audio subido; esperando el inicio de la evaluación.",
     "wait_media_uploaded_ready": "Audio subido y guardado. Inicia la evaluación para continuar.",

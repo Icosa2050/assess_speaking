@@ -392,11 +392,33 @@ describe("Speak route", () => {
     fireEvent.click(screen.getByTestId("speak.submit"));
     await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Upload connection lost"));
     expect(screen.getByTestId("speak.media_state")).toHaveTextContent("Upload confirmation was lost");
+    vi.mocked(apiClient.getUploadLimits).mockResolvedValueOnce({ max_bytes: 104857600, available_bytes: 0 });
     fireEvent.click(screen.getByTestId("speak.submit"));
     await waitFor(() => expect(mockedUploadAudio).toHaveBeenCalledTimes(2));
     const first = mockedUploadAudio.mock.calls[0][1]?.requestId;
     expect(first).toBeTruthy();
     expect(mockedUploadAudio.mock.calls[1][1]?.requestId).toBe(first);
+  });
+
+  it("keeps the prior job and request ID when both retry confirmations are lost", async () => {
+    mockedCreateAssessment.mockResolvedValueOnce({ assessment_id: "asmt-1", status: "queued" })
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce({ assessment_id: "asmt-2", status: "queued" });
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+    fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    fireEvent.click(await screen.findByTestId("speak.cancel_assessment"));
+    fireEvent.click(await screen.findByTestId("speak.retry_assessment"));
+    await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Could not confirm the retry"));
+    expect(store.getState().recording.job.assessmentId).toBe("asmt-1");
+    expect(screen.getByTestId("speak.retry_assessment")).toBeVisible();
+    fireEvent.click(screen.getByTestId("speak.retry_assessment"));
+    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(4));
+    expect(mockedCreateAssessment.mock.calls[3][0]).toEqual(mockedCreateAssessment.mock.calls[1][0]);
+    expect(mockedUploadAudio).toHaveBeenCalledTimes(1);
   });
 
   it("keeps upload percentages out of the live status and describes an aborted upload accurately", async () => {
@@ -475,7 +497,7 @@ describe("Speak route", () => {
       phase: "scoring_rubric", progress: 0, created_at: new Date(Date.now() - 240_000).toISOString(),
       updated_at: new Date(Date.now() - 240_000).toISOString(),
       phase_started_at: new Date(Date.now() - 240_000).toISOString(),
-      worker_seen_at: new Date(Date.now() - 240_000).toISOString(), quiet_warning_after_sec: 210 });
+      worker_seen_at: new Date().toISOString(), quiet_warning_after_sec: 210 });
     mockedCreateAssessment.mockResolvedValueOnce({ assessment_id: "asmt-1", status: "queued" })
       .mockResolvedValueOnce({ assessment_id: "asmt-2", status: "queued" });
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
@@ -503,7 +525,7 @@ describe("Speak route", () => {
     mockedGetAssessmentStatus.mockResolvedValue({ assessment_id: "asmt-1", status: "running",
       phase: "scoring_rubric", progress: 0, created_at: new Date(Date.now() - 240_000).toISOString(),
       updated_at: new Date(Date.now() - 240_000).toISOString(),
-      worker_seen_at: new Date(Date.now() - 240_000).toISOString(), quiet_warning_after_sec: 210 });
+      worker_seen_at: new Date().toISOString(), quiet_warning_after_sec: 210 });
     mockedCancelAssessment.mockRejectedValueOnce(new ApiClientError(503, { code: "runtime_error", detail: "Connection lost" }));
     const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
     fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));

@@ -8,6 +8,7 @@ from app_core.chatgpt_auth import ChatGPTAuth, ChatGPTAuthError, access_token, a
 from app_core.services import save_provider_connection, delete_provider_connection
 from app_core.state import ProviderConnection
 from app_core.preference_lock import PREFERENCES_LOCK, synchronized_preferences
+from app_backend.jobs import AssessmentBusyError
 
 
 class SignInRequest(BaseModel):
@@ -106,7 +107,10 @@ def install_chatgpt_routes(app, runtime_config, load_state):
             with PREFERENCES_LOCK:
                 state = load_state(runtime_config)
                 delete_provider_connection(state, connection_id, persist_draft=False)
-        confirmed = manager.disconnect(connection_id, before_clear=remove_local)
+        try:
+            confirmed = manager.disconnect(connection_id, before_clear=remove_local)
+        except AssessmentBusyError as exc:
+            raise HTTPException(status_code=409, detail={'code': 'runtime_error', 'detail': str(exc)}) from exc
         return {'disconnected': True, 'revocation_confirmed': confirmed}
 
     app.include_router(router)

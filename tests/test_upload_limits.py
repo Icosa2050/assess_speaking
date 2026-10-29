@@ -11,7 +11,7 @@ from starlette.requests import Request
 from app_backend.app import create_app
 from app_backend.config import build_backend_runtime_config
 from app_backend.jobs import JobManager
-from app_backend.uploads import DISK_RESERVE_BYTES, UploadRejected, parse_upload
+from app_backend.uploads import DISK_RESERVE_BYTES, MULTIPART_OVERHEAD_BYTES, UploadRejected, parse_upload
 
 
 @pytest.fixture
@@ -53,6 +53,24 @@ def test_lost_upload_response_reuses_saved_audio(config):
     assert len(list(config.app_data.uploads_dir.glob('aud_*.json'))) == 1
     conflict = client.post('/v1/uploads', headers=headers, files={'file': ('clip.wav', b'other')})
     assert conflict.status_code == 409
+    assert len(list(config.app_data.uploads_dir.glob('aud_*.json'))) == 1
+
+
+def test_saved_upload_replay_needs_only_one_spool_after_disk_space_falls(config):
+    client = TestClient(create_app(config))
+    headers = {'X-Upload-Request-Id': 'same-recording-low-disk'}
+    first = client.post('/v1/uploads', headers=headers, files={'file': ('clip.wav', b'audio')})
+    assert first.status_code == 200
+    reduced_free = DISK_RESERVE_BYTES + MULTIPART_OVERHEAD_BYTES + 8
+    with patch('app_backend.uploads.shutil.disk_usage', return_value=SimpleNamespace(free=reduced_free)):
+        assert client.get('/v1/uploads/limits').json()['available_bytes'] == 0
+        second = client.post('/v1/uploads', headers=headers, files={'file': ('clip.wav', b'audio')})
+        conflict = client.post('/v1/uploads', headers=headers, files={'file': ('clip.wav', b'other')})
+        fresh = client.post('/v1/uploads', headers={'X-Upload-Request-Id': 'fresh-low-disk'}, files={'file': ('clip.wav', b'audio')})
+    assert second.status_code == 200
+    assert second.json() == first.json()
+    assert conflict.status_code == 409
+    assert fresh.status_code == 507
     assert len(list(config.app_data.uploads_dir.glob('aud_*.json'))) == 1
 
 

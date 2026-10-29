@@ -485,6 +485,7 @@
     "wait_cancel_failed": "Abbrechen fehlgeschlagen: {detail}. Die Auswertung läuft möglicherweise noch. Du kannst weiter warten oder erneut abbrechen.",
     "wait_retry": "Auswertung erneut versuchen",
     "wait_retry_not_ready": "Erneuter Versuch noch nicht möglich: {detail}. Die Auswertung und das hochgeladene Audio bleiben gespeichert.",
+    "wait_retry_unconfirmed": "Der erneute Versuch konnte nicht bestätigt werden: {detail}. Die bisherige Auswertung und das hochgeladene Audio bleiben erhalten. Versuche es erneut, um dieselbe Übermittlung zu prüfen.",
     "wait_media_retained": "Audio ist hochgeladen und für diese Auswertung gespeichert.",
     "wait_media_uploaded": "Audio ist hochgeladen; die Auswertung startet gleich.",
     "wait_media_uploaded_ready": "Audio hochgeladen und gespeichert. Starte die Auswertung, um fortzufahren.",

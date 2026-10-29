@@ -687,10 +687,12 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
         await upload_slots.acquire()
         form = None
         try:
-            form, file = await parse_upload(request, runtime_config.app_data.uploads_dir)
+            request_id = request.headers.get("x-upload-request-id", "")
+            replay = await run_in_threadpool(app.state.job_manager.has_saved_upload_request, request_id)
+            form, file = await parse_upload(request, runtime_config.app_data.uploads_dir, replay=replay)
             return await run_in_threadpool(app.state.job_manager.register_upload_stream,
                                           source=file.file, filename=file.filename or "audio.wav",
-                                          request_id=request.headers.get("x-upload-request-id", ""))
+                                          request_id=request_id)
         except UploadRejected as exc:
             raise _http_error(exc.status, ErrorCode(exc.code), exc.message) from exc
         except MultiPartException as exc:

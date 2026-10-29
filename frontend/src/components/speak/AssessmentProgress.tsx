@@ -2,19 +2,22 @@ import { useEffect, useState } from "react";
 
 import { StatusBanner } from "@/components/ui/StatusBanner";
 import type { AssessmentStatusResponse } from "@/lib/api/types";
+import { pollingIntervals } from "@/lib/query/queryClient";
 
 import styles from "./AssessmentProgress.module.css";
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
 
 const phases = ["upload", "transcribing", "scoring_rubric", "generating_coaching"] as const;
+const UPLOAD_QUIET_MS = 120_000;
 
-export function AssessmentProgress({ status, uploadStartedAt, uploadUpdatedAt, uploading, uploaded, translate }: {
+export function AssessmentProgress({ status, uploadStartedAt, uploadUpdatedAt, uploading, uploaded, pollFailed = false, translate }: {
   status?: AssessmentStatusResponse;
   uploadStartedAt: number | null;
   uploadUpdatedAt: number | null;
   uploading: boolean;
   uploaded: boolean;
+  pollFailed?: boolean;
   translate: Translate;
 }) {
   const [now, setNow] = useState(() => Date.now());
@@ -39,8 +42,11 @@ export function AssessmentProgress({ status, uploadStartedAt, uploadUpdatedAt, u
   const elapsed = Number.isFinite(started) && started !== null ? Math.max(0, Math.floor((now - started) / 1000)) : null;
   const sinceUpdate = Number.isFinite(updated) && updated !== null ? Math.max(0, Math.floor((now - updated) / 1000)) : null;
   const sinceWorkerSeen = Number.isFinite(workerSeen) ? Math.max(0, Math.floor((now - workerSeen) / 1000)) : null;
-  const stalled = active && !uploading && sinceWorkerSeen !== null &&
-    status?.quiet_warning_after_sec != null && sinceWorkerSeen >= status.quiet_warning_after_sec;
+  const workerRecentlyConfirmed = sinceWorkerSeen !== null && sinceWorkerSeen * 1000 <= pollingIntervals.assessmentMs * 3;
+  const stalled = uploading
+    ? sinceUpdate !== null && sinceUpdate * 1000 >= UPLOAD_QUIET_MS
+    : active && !pollFailed && sinceUpdate !== null && status?.quiet_warning_after_sec != null &&
+      sinceUpdate >= status.quiet_warning_after_sec && workerRecentlyConfirmed;
   const format = (seconds: number) => seconds < 60
     ? translate("speak.wait_seconds", { count: seconds })
     : seconds % 60 === 0 ? translate("speak.wait_minutes", { count: seconds / 60 })

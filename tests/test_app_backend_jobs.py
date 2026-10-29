@@ -5,6 +5,7 @@ import threading
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from app_backend.config import build_backend_runtime_config
@@ -14,6 +15,59 @@ from assessment_runtime.runner import AssessmentRunResult
 
 
 class BackendJobsTests(unittest.TestCase):
+    def test_cloud_submit_persists_deadline_inputs(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)
+            manager = JobManager(config)
+            upload = manager.register_upload(data=b"audio", filename="clip.wav")
+            request = AssessmentCreateRequest(audio_id=upload.audio_id, whisper="tiny", provider="chatgpt",
+                llm_model="test", expected_language="en", feedback_language="en", speaker_id="test",
+                task_family="generic", theme="test", target_duration_sec=90)
+            cloud = SimpleNamespace(primary=None, settings=SimpleNamespace(asr_provider="groq", asr_model="whisper"))
+            process = mock.Mock()
+            process.is_alive.return_value = False
+            with mock.patch.object(manager._ctx, "Process", return_value=process):
+                created = manager.submit(request, cloud_runtime=cloud)
+            job_file = config.jobs_dir / f"{created.assessment_id}.json"
+            payload = json.loads(job_file.read_text(encoding="utf-8"))
+            self.assertTrue(payload["request"]["cloud_broker"])
+            self.assertEqual(payload["request"]["asr_provider"], "groq")
+            self.assertNotIn("llm_api_key", payload["request"])
+            manager._processes.pop(created.assessment_id)
+            payload["status"] = "running"
+            payload["phase"] = "transcribing"
+            job_file.write_text(json.dumps(payload), encoding="utf-8")
+            self.assertEqual(manager.get_status(created.assessment_id).quiet_warning_after_sec, 660 + QUIET_WARNING_MARGIN_SEC)
+
+    def test_cancel_provider_attempts_every_matching_job_before_reporting_busy(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)
+            manager = JobManager(config)
+            for assessment_id in ("asmt_one", "asmt_two"):
+                (config.jobs_dir / f"{assessment_id}.json").write_text(json.dumps({
+                    "request": {"provider": "chatgpt"}, "status": "running"}), encoding="utf-8")
+                manager._processes[assessment_id] = mock.Mock()
+            with mock.patch.object(manager, "cancel", side_effect=[AssessmentBusyError("still stopping"), None]) as cancel:
+                with self.assertRaises(AssessmentBusyError):
+                    manager.cancel_provider("chatgpt")
+            self.assertEqual([call.args[0] for call in cancel.call_args_list], ["asmt_one", "asmt_two"])
+
+    def test_active_cloud_call_keeps_provider_busy_after_worker_exit(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)
+            manager = JobManager(config)
+            assessment_id = "asmt_cloud_pending"
+            (config.jobs_dir / f"{assessment_id}.json").write_text(json.dumps({
+                "request": {"provider": "chatgpt"}, "status": "cancelled"}), encoding="utf-8")
+            active = threading.Event()
+            active.set()
+            manager._active_cloud_requests[assessment_id] = active
+            self.assertTrue(manager.has_active_provider("chatgpt"))
+            with self.assertRaises(AssessmentBusyError):
+                manager.cancel_provider("chatgpt")
+            active.clear()
+            self.assertFalse(manager.has_active_provider("chatgpt"))
+
     def test_status_warning_deadline_uses_configured_model_timeout_and_cloud_phase(self):
         with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
             config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)

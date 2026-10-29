@@ -399,6 +399,14 @@ class JobManager:
     def register_upload(self, *, data: bytes, filename: str) -> UploadResponse:
         return self.register_upload_stream(source=io.BytesIO(data), filename=filename)
 
+    def has_saved_upload_request(self, request_id: str) -> bool:
+        if not request_id or not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", request_id):
+            return False
+        with locked_file(self.uploads_dir / ".upload-requests.lock"):
+            return any(saved.get("request_id") == request_id and Path(str(saved.get("stored_path") or "")).is_file()
+                       for path in self.uploads_dir.glob("aud_*.json")
+                       if (saved := _read_json(path)))
+
     def register_upload_stream(self, *, source: BinaryIO, filename: str, request_id: str = "") -> UploadResponse:
         if request_id and not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", request_id):
             raise UploadRejected("Choose a valid upload request ID.", 400)
@@ -557,6 +565,12 @@ class JobManager:
                 raise ValueError("A saved ChatGPT account is required.")
             parent, child = self._ctx.Pipe()
             worker_request["llm_api_key"] = ""
+        if cloud_runtime is not None:
+            payload["request"].update({
+                "cloud_broker": True,
+                "asr_provider": worker_request["asr_provider"],
+                "asr_model": worker_request["asr_model"],
+            })
         args = (str(job_file), worker_request, str(audio_path.resolve()))
         try:
             process = self._ctx.Process(target=_job_worker, args=(*args, child) if child is not None else args)
@@ -610,6 +624,10 @@ class JobManager:
         finally:
             active.clear()
             channel.close()
+            with self._submit_lock:
+                for assessment_id, pending in list(self._active_cloud_requests.items()):
+                    if pending is active:
+                        self._active_cloud_requests.pop(assessment_id, None)
 
     @staticmethod
     def _serve_credentials(process, channel, credential_ref):
@@ -633,15 +651,26 @@ class JobManager:
             channel.close()
 
     def has_active_provider(self, provider: str) -> bool:
-        return any(process.is_alive() and _read_json(_job_file(self._config.jobs_dir, assessment_id)).get('request', {}).get('provider') == provider
-                   for assessment_id, process in list(self._processes.items()))
+        for assessment_id in set(self._processes) | set(self._active_cloud_requests):
+            process = self._processes.get(assessment_id)
+            active = self._active_cloud_requests.get(assessment_id)
+            busy = (process is not None and process.is_alive()) or (active is not None and active.is_set())
+            if busy and _read_json(_job_file(self._config.jobs_dir, assessment_id)).get("request", {}).get("provider") == provider:
+                return True
+        return False
 
     def cancel_provider(self, provider: str) -> None:
         with self._submit_lock:
+            busy_assessments = []
             for assessment_id in list(self._processes):
                 payload = _read_json(_job_file(self._config.jobs_dir, assessment_id))
                 if payload.get("request", {}).get("provider") == provider:
-                    self.cancel(assessment_id)
+                    try:
+                        self.cancel(assessment_id)
+                    except AssessmentBusyError:
+                        busy_assessments.append(assessment_id)
+            if busy_assessments or self.has_active_provider(provider):
+                raise AssessmentBusyError("An assessment is still stopping. Try disconnecting again after it stops.")
 
     def _reconcile_process(self, assessment_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         process = self._processes.get(assessment_id)

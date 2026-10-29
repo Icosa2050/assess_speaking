@@ -55,6 +55,7 @@ export const AssessmentStatusPanel = ({
   uploadUpdatedAt,
   uploading,
   uploaded,
+  pollFailed,
   canRetry,
   mediaMessage,
 }: {
@@ -81,6 +82,7 @@ export const AssessmentStatusPanel = ({
   uploadUpdatedAt: number | null;
   uploading: boolean;
   uploaded: boolean;
+  pollFailed: boolean;
   canRetry: boolean;
   mediaMessage: string;
 }) => {
@@ -218,7 +220,7 @@ export const AssessmentStatusPanel = ({
         </p>
       ) : null}
       <AssessmentProgress status={assessmentStatus} uploadStartedAt={uploadStartedAt} uploadUpdatedAt={uploadUpdatedAt}
-        uploading={uploading} uploaded={uploaded} translate={translate} />
+        uploading={uploading} uploaded={uploaded} pollFailed={pollFailed} translate={translate} />
       {mediaMessage && <p style={{ margin: 0, color: "var(--color-text-muted)" }} data-testid="speak.media_state">{mediaMessage}</p>}
     </div>
     {submitDisabledHelp ? (

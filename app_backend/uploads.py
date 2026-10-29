@@ -89,9 +89,13 @@ class BoundedMultipartParser(MultiPartParser):
             raise
 
 
-async def parse_upload(request: Request, destination: Path):
+async def parse_upload(request: Request, destination: Path, *, replay: bool = False):
     limits = upload_limits(destination)
     available = limits["available_bytes"]
+    if replay:
+        # A matching request ID needs one multipart spool, but no second durable copy.
+        free = min(shutil.disk_usage(destination).free, shutil.disk_usage(tempfile.gettempdir()).free)
+        available = min(MAX_UPLOAD_BYTES, max(0, free - DISK_RESERVE_BYTES - MULTIPART_OVERHEAD_BYTES))
     if available <= 0:
         raise UploadRejected("Not enough free disk space. Free some space and retry; your recording is still selected.", 507, "storage_error")
     body_limit = available + MULTIPART_OVERHEAD_BYTES

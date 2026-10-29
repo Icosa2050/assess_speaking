@@ -485,6 +485,7 @@
     "wait_cancel_failed": "Cancellation did not finish: {detail}. The assessment may still be running. You can keep watching or try Cancel again.",
     "wait_retry": "Retry assessment",
     "wait_retry_not_ready": "Retry is not ready yet: {detail}. Your assessment and uploaded audio are retained.",
+    "wait_retry_unconfirmed": "Could not confirm the retry: {detail}. Your prior assessment and uploaded audio remain available. Try Retry again to check the same submission.",
     "wait_media_retained": "Audio uploaded and retained with this assessment.",
     "wait_media_uploaded": "Audio uploaded; waiting to start assessment.",
     "wait_media_uploaded_ready": "Audio uploaded and saved. Start the assessment to continue.",
