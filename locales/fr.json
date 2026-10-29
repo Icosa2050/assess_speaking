@@ -1214,6 +1214,7 @@
     "fresh_intro": "Le journal de récupération endommagé est mis de côté et un nouveau est créé. L’historique et les médias enregistrés restent en place ; les données de restauration du navigateur en attente sont oubliées.",
     "fresh_heading": "Créer un nouveau journal ?",
     "fresh_refresh_failed": "Un nouveau journal a été créé, mais cette vue n’a pas pu être mise à jour complètement : {detail}. Vérifiez à nouveau la récupération.",
+    "restore_refresh_failed": "La sauvegarde a été restaurée, mais cette vue n’a pas pu être mise à jour complètement : {detail}. Vérifiez à nouveau la récupération.",
     "fresh_kept": "Conservés : rapports, historique, enregistrements, fichiers envoyés, tentatives archivées et archives ZIP de sauvegarde existantes.",
     "fresh_replaced": "Un nouveau journal de récupération remplace le journal endommagé actif. Ses fichiers de transaction et instantanés d’annulation sont conservés en quarantaine ; les données de restauration du navigateur en attente sont oubliées. Les modifications inachevées ne pourront plus être annulées automatiquement.",
     "fresh_cancel": "Annuler et conserver l’état actuel",
@@ -1264,7 +1265,6 @@
     "damaged_guidance": "Le journal de récupération est endommagé. L’historique reste lisible. Choisissez l’une de ces trois options dans les paramètres.",
     "diagnostics_note": "Exporte les diagnostics, l’état opérationnel nettoyé et le nombre d’entrées de log par gravité. Les textes des logs, rapports, enregistrements et fichiers importés ne sont jamais inclus.",
     "confirm_fresh": "Confirmer : repartir à neuf",
-    "fresh_note": "Les rapports, l’historique, les enregistrements et les fichiers importés sont conservés. Les fichiers de transaction endommagés et les copies de restauration sont mis de côté ; les données de restauration en attente du navigateur sont abandonnées. Les modifications inachevées ne seront plus annulées automatiquement.",
     "fresh_done": "Un nouveau journal de récupération est prêt. Vous pouvez reprendre la pratique."
   }
 }

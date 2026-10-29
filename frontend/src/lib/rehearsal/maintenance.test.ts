@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { commitLearnerRestore, exportJournalDiagnostics, journalRecoveryStatus, recoverLearnerJournal, previewLearnerRestore, startFreshJournal } from "./maintenance";
+import { commitLearnerRestore, exportJournalDiagnostics, finishFreshJournalCleanup, journalRecoveryStatus, recoverLearnerJournal, previewLearnerRestore, startFreshJournal } from "./maintenance";
 import { clearRehearsalMaintenance, commitRehearsals, rehearsalMaintenance, stageRehearsals } from "./storage";
 import { buildSessionDraft } from "@/lib/state/sessionDraft";
 import { persistRetryDraft, RETRY_DRAFT_STORAGE_KEY } from "@/lib/state/retryBriefStorage";
@@ -53,6 +53,24 @@ describe("damaged journal browser coordination", () => {
     await recoverLearnerJournal();
     expect(clearRehearsalMaintenance).toHaveBeenNthCalledWith(1, {});
     expect(clearRehearsalMaintenance).toHaveBeenNthCalledWith(2, {});
+  });
+
+  it("finishes browser cleanup after an uncertain fresh-start response without a second reset", async () => {
+    persistRetryDraft(buildSessionDraft({speakerId: "learner", themeId: "trip", promptText: "Describe a trip",
+      retryOfSessionId: "first", coachingGoal: "Add a closing sentence", retryGoalEligible: true}));
+    await finishFreshJournalCleanup();
+    expect(clearRehearsalMaintenance).toHaveBeenCalledExactlyOnceWith({});
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull();
+  });
+
+  it("forgets a retry draft even when post-reset browser cleanup remains blocked", async () => {
+    persistRetryDraft(buildSessionDraft({speakerId: "learner", themeId: "trip", promptText: "Describe a trip",
+      retryOfSessionId: "first", coachingGoal: "Add a closing sentence", retryGoalEligible: true}));
+    vi.mocked(clearRehearsalMaintenance).mockRejectedValueOnce(new Error("IndexedDB blocked"));
+    await expect(finishFreshJournalCleanup()).rejects.toThrow("IndexedDB blocked");
+    expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("retains browser recovery data when another backend transaction excludes fresh start", async () => {

@@ -7,7 +7,7 @@ import { createTranslator } from "@/lib/i18n";
 import type { UiLocale } from "@/lib/state/sessionDraft";
 import { useAppStore } from "@/lib/state/appStore";
 import { isDesktopRuntime, readDesktopRuntimeBridge } from "@/lib/runtime/desktopBridge";
-import { ownJournalPreview, startFreshJournal, exportJournalDiagnostics, attemptRemoval, rehearsalRemoval, createLearnerBackup, previewLearnerRestore, commitLearnerRestore, recoverLearnerJournal, journalRecoveryStatus, journalStatus, journalRequest, journalBlob, type BackupResult, type RestorePreview, type JournalStatus } from "@/lib/rehearsal/maintenance";
+import { ownJournalPreview, startFreshJournal, finishFreshJournalCleanup, exportJournalDiagnostics, attemptRemoval, rehearsalRemoval, createLearnerBackup, previewLearnerRestore, commitLearnerRestore, recoverLearnerJournal, journalRecoveryStatus, journalStatus, journalRequest, journalBlob, type BackupResult, type RestorePreview, type JournalStatus } from "@/lib/rehearsal/maintenance";
 import { listArchivedRehearsals, undoRehearsalArchive } from "@/lib/rehearsal/storage";
 import type { Rehearsal } from "@/lib/rehearsal/session";
 import { Button } from "@/components/ui/Button";
@@ -40,11 +40,11 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
   const [status, setStatus] = useState<JournalStatus | null>(null);
   const [removal, setRemoval] = useState<{ id: string; kind: "attempt" | "rehearsal"; files: number; retained: number; fingerprint?: string } | null>(null);
   const [archived, setArchived] = useState<Rehearsal[]>([]);
-  const run = async (action: (signal: AbortSignal) => Promise<void>, onError: (detail: string) => void = setError) => {
+  const run = async (action: (signal: AbortSignal) => Promise<void>, onError: (detail: string) => void | Promise<void> = setError) => {
     setError(""); setMessage(""); setBusy(true);
     const abort = new AbortController(); controller.current = abort;
     try { await action(abort.signal); await cache.invalidateQueries(); }
-    catch (cause) { onError(cause instanceof Error ? cause.message : String(cause)); }
+    catch (cause) { await onError(cause instanceof Error ? cause.message : String(cause)); }
     finally { controller.current = null; setBusy(false); setCommitting(false); window.dispatchEvent(new Event("journal-recovery-changed")); }
   };
   const progress = (done: number, total: number) => setMessage(t("journal.progress", { done, total }));
@@ -98,9 +98,13 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
     const element = target && document.getElementById(target);
     if (!element) return;
     element.scrollIntoView?.({ block: "start" });
+    if (element instanceof HTMLButtonElement && element.disabled) {
+      document.getElementById("your-data-title")?.focus();
+      return;
+    }
     element.focus();
-    focusedFragment.current = location.key;
-  }, [location.hash, location.key, status]);
+    if (document.activeElement === element) focusedFragment.current = location.key;
+  }, [location.hash, location.key, status, busy]);
   const refresh = async () => { setStatus(await journalRecoveryStatus()); setArchived(await listArchivedRehearsals()); };
   const retryRecovery = async (rollback = false) => {
     try {
@@ -138,7 +142,11 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
     {preview && <div className={`${styles.actionGroup} ${styles.actionCard}`} role="region" aria-labelledby="journal-preview-heading"><h3 id="journal-preview-heading" tabIndex={-1}>{t("journal.preview", { attempts: preview.attempts, rehearsals: preview.browser.sessions.length })}</h3><p>{t("journal.restore_note")}</p>
       {!!(preview.skipped_attempts.length + preview.skipped_rehearsals.length) && <p>{t("journal.skipped", { count: preview.skipped_attempts.length + preview.skipped_rehearsals.length })}</p>}
       {!!preview.missing.length && <p>{t("journal.missing", { count: preview.missing.length })}</p>}
-      <Button variant="primary" disabled={busy} onClick={() => void run(async signal => { try { await commitLearnerRestore(preview, signal, progress, () => setCommitting(true)); beginNewSession(); } finally { setPreview(null); setRestoreName(""); setStatus(await journalRecoveryStatus()); } setMessage(t("journal.restored")); await refresh(); })}>{t("journal.confirm_restore")}</Button>
+      <Button variant="primary" disabled={busy} onClick={() => { let restoreSucceeded = false; void run(async signal => {
+        try { await commitLearnerRestore(preview, signal, progress, () => setCommitting(true)); restoreSucceeded = true; beginNewSession(); }
+        finally { setPreview(null); setRestoreName(""); if (!restoreSucceeded) await refresh(); }
+        setStatus(null); setMessage(t("journal.restored")); await refresh();
+      }, detail => setError(restoreSucceeded ? t("your_data.restore_refresh_failed", { detail }) : detail)); }}>{t("journal.confirm_restore")}</Button>
       <Button disabled={busy} onClick={() => void run(async () => { await retryRecovery(true); setMessage(t("journal.cancelled")); })}>{t("journal.cancel")}</Button>
     </div>}
     {status?.recovery_error && <div className={`${styles.actionGroup} ${styles.dangerCard}`}>
@@ -155,7 +163,18 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
         <Button variant="danger" disabled={busy || activeTransaction} onClick={() => { setFreshError(""); let resetSucceeded = false; void run(async () => {
           await startFreshJournal(); resetSucceeded = true; beginNewSession(); setConfirmFresh(false); setStatus(null); setRestoreName("");
           await refresh(); setMessage(t("journal.fresh_done"));
-        }, detail => resetSucceeded ? setError(t("your_data.fresh_refresh_failed", { detail })) : setFreshError(detail)); }}>{t("journal.confirm_fresh")}</Button>
+          }, async detail => {
+            if (!resetSucceeded) {
+              try {
+                if ((await journalStatus()).recovery_error) { setFreshError(detail); return; }
+              } catch { setFreshError(detail); return; }
+              resetSucceeded = true;
+              beginNewSession(); setConfirmFresh(false); setStatus(null); setRestoreName("");
+              try { await finishFreshJournalCleanup(); await refresh(); setMessage(t("journal.fresh_done")); return; }
+              catch (cause) { detail = cause instanceof Error ? cause.message : String(cause); }
+            }
+            setError(t("your_data.fresh_refresh_failed", { detail }));
+          }); }}>{t("journal.confirm_fresh")}</Button>
       </div>
     </dialog>}
     <div className={`${styles.actionGroup} ${styles.actionCard}`}><h3>{t("your_data.backup_heading")}</h3><p>{t("journal.limit")}</p>

@@ -181,6 +181,14 @@ export async function startFreshJournal(): Promise<void> {
   clearRetryDraft();
 }
 
+export async function finishFreshJournalCleanup(): Promise<void> {
+  try {
+    await withJournalLock(access => clearRehearsalMaintenance(access), true);
+  } finally {
+    clearRetryDraft();
+  }
+}
+
 export async function exportJournalDiagnostics(): Promise<import("@/lib/api/types").SupportBundleCreateResponse> {
   return withJournalLock(() => journalRequest("diagnostics", {}), true);
 }

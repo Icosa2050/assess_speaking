@@ -18,6 +18,21 @@
     [
       "e2e/dataSafety.spec.ts",
       "",
+      "a lost fresh-start reply reports the backend-applied reset after reconciliation"
+    ],
+    [
+      "e2e/dataSafety.spec.ts",
+      "",
+      "recovery notice retries focus on Export diagnostics only when repair enables it"
+    ],
+    [
+      "e2e/dataSafety.spec.ts",
+      "",
+      "recovery notice retries focus on Start a fresh journal when repair enables it"
+    ],
+    [
+      "e2e/dataSafety.spec.ts",
+      "",
       "recovery notice focuses Export diagnostics only after delayed journal status"
     ],
     [
