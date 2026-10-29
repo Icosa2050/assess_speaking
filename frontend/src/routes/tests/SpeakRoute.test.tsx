@@ -422,6 +422,24 @@ describe("Speak route", () => {
     expect(mockedCreateAssessment.mock.calls[1][0].request_id).not.toBe(mockedCreateAssessment.mock.calls[0][0].request_id);
   });
 
+  it("keeps monitoring a stalled job when retry cancellation fails", async () => {
+    mockedGetAssessmentStatus.mockResolvedValue({ assessment_id: "asmt-1", status: "running",
+      phase: "scoring_rubric", progress: 0, created_at: new Date(Date.now() - 180_000).toISOString(),
+      updated_at: new Date(Date.now() - 180_000).toISOString() });
+    mockedCancelAssessment.mockRejectedValueOnce(new ApiClientError(503, { code: "runtime_error", detail: "Connection lost" }));
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+    fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    fireEvent.click(await screen.findByTestId("speak.retry_assessment"));
+    await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Cancellation did not finish: Connection lost"));
+    expect(store.getState().recording.job.assessmentId).toBe("asmt-1");
+    expect(screen.getByTestId("speak.cancel_assessment")).toBeVisible();
+    expect(screen.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "true");
+    expect(mockedCreateAssessment).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects a file when current disk space is insufficient, retaining a backup link", async () => {
     vi.mocked(apiClient.getUploadLimits).mockResolvedValueOnce({ max_bytes: 104857600, available_bytes: 1 });
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
@@ -681,6 +699,7 @@ describe("Speak route", () => {
     );
     expect(within(statusPanel).getByTestId("speak.submit")).toBeEnabled();
     expect(within(statusPanel).getByTestId("speak.optional_context")).toBeInTheDocument();
+    expect(within(statusPanel).queryByTestId("speak.assessment_progress")).not.toBeInTheDocument();
     expect(within(statusPanel).getByText("Add optional context")).toBeVisible();
     expect(within(statusPanel).getByTestId("speak.optional_context")).not.toHaveAttribute(
       "open",

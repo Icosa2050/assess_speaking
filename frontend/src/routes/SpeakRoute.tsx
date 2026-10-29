@@ -247,6 +247,8 @@ export const SpeakRoute = () => {
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadStartedAt, setUploadStartedAt] = useState<number | null>(null);
   const [uploadUpdatedAt, setUploadUpdatedAt] = useState<number | null>(null);
+  const [cancelError, setCancelError] = useState("");
+  const [pollError, setPollError] = useState("");
   const [clock, setClock] = useState(() => Date.now());
   const uploadController = useRef<AbortController | null>(null);
   const submittingRef = useRef(false);
@@ -349,6 +351,7 @@ export const SpeakRoute = () => {
     }
 
     const nextStatus = assessmentStatusQuery.data;
+    setPollError("");
     setRecordingJob({
       assessmentId: nextStatus.assessment_id,
       status: nextStatus.status,
@@ -366,9 +369,9 @@ export const SpeakRoute = () => {
 
   useEffect(() => {
     if (assessmentStatusQuery.error instanceof ApiClientError) {
-      setRecordingError(assessmentStatusQuery.error.detail);
+      setPollError(assessmentStatusQuery.error.detail);
     }
-  }, [assessmentStatusQuery.error, setRecordingError]);
+  }, [assessmentStatusQuery.error]);
 
   useEffect(() => {
     if (lifecycleState === "completed" && review.reportId) {
@@ -428,7 +431,9 @@ export const SpeakRoute = () => {
   const hasAttachment = assessmentOwnsAttachment ? storeHasAttachment : Boolean(attachedFile);
   const shortRecording = recordedDurationSec !== null && recordedDurationSec < MIN_REVIEW_SECONDS;
   const canSubmitLiveAttachment = canSubmitAssessment && Boolean(attachedFile) && !shortRecording && Boolean(sharingQuery.data?.available);
-  const statusMessage = shortRecording ? translate("speak.recording_too_short") : buildStatusMessage({
+  const statusMessage = cancelError ? translate("speak.wait_cancel_failed", { detail: cancelError })
+    : pollError ? translate("speak.wait_status_failed", { detail: pollError })
+    : shortRecording ? translate("speak.recording_too_short") : buildStatusMessage({
     errorMessage: recording.error || recording.job.error,
     hasAttachment,
     hasMissingAttachment: storeHasAttachment && !attachedFile && !assessmentOwnsAttachment,
@@ -493,6 +498,8 @@ export const SpeakRoute = () => {
 
     try {
       submittingRef.current = true;
+      setCancelError("");
+      setPollError("");
       setIsSubmitting(true);
       const refreshed = await sharingQuery.refetch();
       if (!refreshed.data?.available || refreshed.data.fingerprint !== sharingQuery.data?.fingerprint) {
@@ -595,6 +602,7 @@ export const SpeakRoute = () => {
   const handleRetry = async () => {
     if (retryingRef.current || submittingRef.current || !attachedFile) return;
     retryingRef.current = true;
+    setCancelError("");
     try {
       if (lifecycleState === "queued" || lifecycleState === "running") {
         const stopped = await apiClient.cancelAssessment(recording.job.assessmentId);
@@ -603,12 +611,13 @@ export const SpeakRoute = () => {
           return;
         }
         if (stopped.status !== "cancelled" && stopped.status !== "failed") return;
+        setPollError("");
         setRecordingJob({ assessmentId: stopped.assessment_id, status: stopped.status,
           phase: stopped.phase, progress: stopped.progress, error: "", reportPath: stopped.report_path ?? "" });
       }
       await handleSubmit(recording.job.assessmentId || undefined);
     } catch (error) {
-      setRecordingError(error instanceof ApiClientError ? error.detail : String(error));
+      setCancelError(error instanceof ApiClientError ? error.detail : String(error));
     } finally {
       retryingRef.current = false;
     }
@@ -624,7 +633,9 @@ export const SpeakRoute = () => {
     }
 
     try {
+      setCancelError("");
       const response = await apiClient.cancelAssessment(recording.job.assessmentId);
+      setPollError("");
       setRecordingJob({
         assessmentId: response.assessment_id,
         status: response.status,
@@ -634,9 +645,7 @@ export const SpeakRoute = () => {
         reportPath: response.report_path ?? "",
       });
     } catch (error) {
-      setRecordingError(
-        error instanceof ApiClientError ? error.detail : String(error || translate("speak.job_status_unknown")),
-      );
+      setCancelError(error instanceof ApiClientError ? error.detail : String(error || translate("speak.job_status_unknown")));
     }
   };
 
@@ -746,7 +755,7 @@ export const SpeakRoute = () => {
           showReadyCheckpoint={hasAttachment && lifecycleState === "idle" && !isSubmitting}
           statusMessage={statusMessage}
           statusTone={
-            lifecycleState === "failed"
+            cancelError || pollError || lifecycleState === "failed"
               ? "error"
               : lifecycleState === "cancelled"
                 ? "warning"
@@ -758,7 +767,7 @@ export const SpeakRoute = () => {
         />
         </fieldset>
         <AssessmentStatusPanel
-          assessmentStatus={assessmentStatusQuery.data}
+          assessmentStatus={lifecycleState === "queued" || lifecycleState === "running" ? assessmentStatusQuery.data : undefined}
           uploadStartedAt={uploadStartedAt}
           uploadUpdatedAt={uploadUpdatedAt}
           uploading={uploadProgress !== null}

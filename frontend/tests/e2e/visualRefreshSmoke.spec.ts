@@ -339,6 +339,7 @@ test("assessment wait explains a stall and recovers without a second upload", as
   await expect(page.getByTestId("speak.cancel_assessment")).toBeVisible();
   await page.getByTestId("speak.cancel_assessment").click();
   await expect(page.getByTestId("speak.status_panel")).toContainText("cancelled");
+  await expect(page.getByTestId("speak.assessment_progress")).toHaveCount(0);
   expect(uploads).toBe(1);
   expect(cancels).toBe(2);
   expect(requests).toHaveLength(3);

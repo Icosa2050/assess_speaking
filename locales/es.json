@@ -478,6 +478,8 @@
     "wait_stalled_title": "Seguimos trabajando",
     "wait_stalled_upload_body": "La subida lleva un tiempo sin actualizarse. La grabación sigue seleccionada en este dispositivo. Cancela la subida y vuelve a intentarlo.",
     "wait_stalled_body": "Esta fase lleva un tiempo sin actualizarse. Puedes cancelar o reintentar con el audio conservado.",
+    "wait_status_failed": "No se pudo actualizar el progreso: {detail}. La evaluación puede seguir en curso; puedes esperar o cancelar.",
+    "wait_cancel_failed": "No se pudo cancelar: {detail}. La evaluación puede seguir en curso. Puedes esperar o intentar cancelar de nuevo.",
     "wait_retry": "Reintentar evaluación",
     "wait_media_retained": "Audio subido y conservado con esta evaluación.",
     "wait_media_uploaded": "Audio subido; esperando el inicio de la evaluación.",
