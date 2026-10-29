@@ -397,6 +397,31 @@ describe("Speak route", () => {
     await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Your assessment is running"));
   });
 
+  it("cancels a stalled job before one retry with the retained audio", async () => {
+    mockedGetAssessmentStatus.mockResolvedValue({ assessment_id: "asmt-1", status: "running",
+      phase: "scoring_rubric", progress: 0, created_at: new Date(Date.now() - 180_000).toISOString(),
+      updated_at: new Date(Date.now() - 180_000).toISOString(),
+      phase_started_at: new Date(Date.now() - 180_000).toISOString() });
+    mockedCreateAssessment.mockResolvedValueOnce({ assessment_id: "asmt-1", status: "queued" })
+      .mockResolvedValueOnce({ assessment_id: "asmt-2", status: "queued" });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+    fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    const retry = await screen.findByTestId("speak.retry_assessment");
+    expect(screen.getByTestId("speak.media_state")).toHaveTextContent("Audio uploaded and retained");
+    fireEvent.click(retry);
+    fireEvent.click(retry);
+    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(2));
+    expect(mockedCancelAssessment).toHaveBeenCalledTimes(1);
+    expect(mockedUploadAudio).toHaveBeenCalledTimes(1);
+    expect(mockedCreateAssessment.mock.calls[1][0]).toMatchObject({
+      audio_id: "audio-1", resume_assessment_id: "asmt-1",
+    });
+    expect(mockedCreateAssessment.mock.calls[1][0].request_id).not.toBe(mockedCreateAssessment.mock.calls[0][0].request_id);
+  });
+
   it("rejects a file when current disk space is insufficient, retaining a backup link", async () => {
     vi.mocked(apiClient.getUploadLimits).mockResolvedValueOnce({ max_bytes: 104857600, available_bytes: 1 });
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
@@ -896,11 +921,7 @@ describe("Speak route", () => {
       "active",
     );
     expect(within(statusPanel).getByText("Current step: Transcribing recording.")).toBeVisible();
-    expect(
-      within(statusPanel).getByText(
-        "This usually takes a short moment. You can leave this screen open while the review finishes.",
-      ),
-    ).toBeVisible();
+    expect(await within(statusPanel).findByRole("list", { name: "Assessment phases" })).toBeVisible();
     expect(
       within(statusPanel).queryByText("This status refreshes automatically every few seconds."),
     ).not.toBeInTheDocument();

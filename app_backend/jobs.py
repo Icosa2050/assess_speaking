@@ -199,6 +199,12 @@ def _update_job_file(
     **extra: Any,
 ) -> dict[str, Any]:
     current = _read_json(path)
+    changed_phase = phase is not None and phase != current.get("phase")
+    changed_status = status is not None and status != current.get("status")
+    if changed_phase or changed_status:
+        current["updated_at"] = _now_iso()
+    if changed_phase:
+        current["phase_started_at"] = current["updated_at"]
     if status is not None:
         current["status"] = status
     if phase is not None:
@@ -461,12 +467,15 @@ class JobManager:
             "log_dir": str(self._config.app_data.reports_dir),
             "llm_connection_id": llm_connection_id,
         }
+        created_at = _now_iso()
         payload = {
             "assessment_id": assessment_id,
             "status": JobStatus.QUEUED.value,
             "phase": "queued",
             "progress": 0.0,
-            "created_at": _now_iso(),
+            "created_at": created_at,
+            "updated_at": created_at,
+            "phase_started_at": created_at,
             "report_path": None,
             "summary": None,
             "payload": None,
@@ -591,6 +600,8 @@ class JobManager:
             payload["phase"] = "failed"
             payload["progress"] = 1.0
             payload["completed_at"] = _now_iso()
+            payload["updated_at"] = payload["completed_at"]
+            payload["phase_started_at"] = payload["completed_at"]
             payload["error"] = ErrorResponse(
                 code=ErrorCode.RUNTIME,
                 detail=f"Assessment worker exited unexpectedly with code {process.exitcode}.",
@@ -610,6 +621,9 @@ class JobManager:
             status=JobStatus(str(payload.get("status") or JobStatus.FAILED.value)),
             phase=str(payload.get("phase") or ""),
             progress=float(payload.get("progress") or 0.0),
+            created_at=payload.get("created_at") or None,
+            updated_at=payload.get("updated_at") or payload.get("created_at") or None,
+            phase_started_at=payload.get("phase_started_at") or payload.get("updated_at") or payload.get("created_at") or None,
             error=(ErrorResponse(**payload["error"]) if isinstance(payload.get("error"), dict) else None),
             report_path=str(payload.get("report_path") or "") or None,
             summary=_build_summary(payload.get("payload")),
@@ -630,12 +644,15 @@ class JobManager:
         if str(payload.get("status") or "").strip().lower() in TERMINAL_JOB_STATUSES_NORMALIZED:
             self._processes.pop(assessment_id, None)
             return self.get_status(assessment_id)
+        cancelled_at = _now_iso()
         payload.update(
             {
                 "status": JobStatus.CANCELLED.value,
                 "phase": "cancelled",
                 "progress": 1.0,
-                "completed_at": _now_iso(),
+                "completed_at": cancelled_at,
+                "updated_at": cancelled_at,
+                "phase_started_at": cancelled_at,
                 "error": ErrorResponse(
                     code=ErrorCode.CANCELLATION,
                     detail="Assessment cancelled by the user.",

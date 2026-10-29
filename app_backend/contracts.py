@@ -323,6 +323,9 @@ class AssessmentStatusResponse(BaseModel):
     status: JobStatus
     phase: str
     progress: float
+    created_at: str | None = None
+    updated_at: str | None = None
+    phase_started_at: str | None = None
     error: ErrorResponse | None = None
     report_path: str | None = None
     summary: AssessmentSummary | None = None

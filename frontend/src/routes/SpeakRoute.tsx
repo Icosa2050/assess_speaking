@@ -245,10 +245,21 @@ export const SpeakRoute = () => {
   const [recordingActive, setRecordingActive] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [uploadStartedAt, setUploadStartedAt] = useState<number | null>(null);
+  const [uploadUpdatedAt, setUploadUpdatedAt] = useState<number | null>(null);
+  const [clock, setClock] = useState(() => Date.now());
   const uploadController = useRef<AbortController | null>(null);
+  const submittingRef = useRef(false);
+  const retryingRef = useRef(false);
   const submission = useRef<{ signature: string; requestId: string } | null>(null);
   const savedUpload = useRef<{ file: File; audioId: string } | null>(null);
   const previewUrlRef = useRef("");
+
+  useEffect(() => {
+    if (lifecycleState !== "queued" && lifecycleState !== "running") return;
+    const timer = window.setInterval(() => setClock(Date.now()), 5000);
+    return () => window.clearInterval(timer);
+  }, [lifecycleState]);
 
   const clearAttachment = () => {
     savedUpload.current = null;
@@ -438,10 +449,7 @@ export const SpeakRoute = () => {
     model: runtime?.model || "-",
     whisper: effectiveWhisperModel,
   });
-  const assessmentContextMode =
-    hasAttachment && lifecycleState !== "queued" && lifecycleState !== "running"
-      ? "optional"
-      : "inline";
+  const assessmentContextMode = hasAttachment ? "optional" : "inline";
   const submitDisabledHelp = shortRecording ? translate("speak.recording_too_short") : !hasAttachment ? translate("speak.submit_disabled_no_audio") : null;
   const confidencePhase: SpeakConfidencePhase =
     lifecycleState === "failed" || lifecycleState === "cancelled"
@@ -466,12 +474,25 @@ export const SpeakRoute = () => {
               ? translate("speak.handoff_ready")
               : translate("speak.handoff_idle");
 
-  const handleSubmit = async () => {
-    if (!attachedFile || shortRecording || !sharingQuery.data?.available) {
+  const lastUpdateAt = Date.parse(assessmentStatusQuery.data?.updated_at || assessmentStatusQuery.data?.created_at || "");
+  const stalled = (lifecycleState === "queued" || lifecycleState === "running") &&
+    Number.isFinite(lastUpdateAt) && clock - lastUpdateAt >= 120_000;
+  const uploaded = Boolean(savedUpload.current || recording.job.assessmentId);
+  const mediaMessage = recording.job.assessmentId
+    ? translate("speak.wait_media_retained")
+    : savedUpload.current
+      ? translate("speak.wait_media_uploaded")
+      : attachedFile
+        ? translate("speak.wait_media_selected")
+        : translate("speak.wait_media_unavailable");
+
+  const handleSubmit = async (resumeAssessmentId?: string) => {
+    if (submittingRef.current || !attachedFile || shortRecording || !sharingQuery.data?.available) {
       return;
     }
 
     try {
+      submittingRef.current = true;
       setIsSubmitting(true);
       const refreshed = await sharingQuery.refetch();
       if (!refreshed.data?.available || refreshed.data.fingerprint !== sharingQuery.data?.fingerprint) {
@@ -482,19 +503,23 @@ export const SpeakRoute = () => {
         error: "",
         assessmentState: "idle",
       });
-      const controller = new AbortController();
-      uploadController.current = controller;
-      setUploadProgress(0);
       if (savedUpload.current?.file !== attachedFile) {
+        const controller = new AbortController();
+        uploadController.current = controller;
+        const startedAt = Date.now();
+        setUploadStartedAt(startedAt);
+        setUploadUpdatedAt(startedAt);
+        setUploadProgress(0);
         const limits = await apiClient.getUploadLimits({ signal: controller.signal });
         if (attachedFile.size > limits.available_bytes) {
           throw new Error(translate(limits.available_bytes < limits.max_bytes ? "speak.upload_disk_error" : "speak.upload_size_error"));
         }
-        const upload = await apiClient.uploadAudio(attachedFile, { signal: controller.signal, onProgress: setUploadProgress });
+        const upload = await apiClient.uploadAudio(attachedFile, { signal: controller.signal,
+          onProgress: (percent) => { setUploadProgress(percent); setUploadUpdatedAt(Date.now()); } });
         savedUpload.current = { file: attachedFile, audioId: upload.audio_id };
+        uploadController.current = null;
+        setUploadProgress(null);
       }
-      uploadController.current = null;
-      setUploadProgress(null);
       const openrouterHttpReferer = String(
         activeRuntimeConnection?.openrouter_http_referer || "",
       ).trim();
@@ -503,7 +528,8 @@ export const SpeakRoute = () => {
       ).trim();
       const request = {
         sharing_fingerprint: sharingQuery.data.fingerprint,
-        ...(recording.job.assessmentId && ["failed", "cancelled"].includes(recording.job.status) ? {resume_assessment_id: recording.job.assessmentId} : {}),
+        ...((resumeAssessmentId || (recording.job.assessmentId && ["failed", "cancelled"].includes(recording.job.status) ? recording.job.assessmentId : ""))
+          ? { resume_assessment_id: resumeAssessmentId || recording.job.assessmentId } : {}),
         audio_id: savedUpload.current.audioId,
         whisper: effectiveWhisperModel,
         provider: runtime?.provider || "",
@@ -559,9 +585,32 @@ export const SpeakRoute = () => {
           : error instanceof ApiClientError ? (error.code === "sharing_changed" ? translate("sharing.changed") : error.detail) : error instanceof Error ? error.message : String(error || translate("speak.job_status_unknown")),
       );
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
       setUploadProgress(null);
       uploadController.current = null;
+    }
+  };
+
+  const handleRetry = async () => {
+    if (retryingRef.current || submittingRef.current || !attachedFile) return;
+    retryingRef.current = true;
+    try {
+      if (lifecycleState === "queued" || lifecycleState === "running") {
+        const stopped = await apiClient.cancelAssessment(recording.job.assessmentId);
+        if (stopped.status === "completed") {
+          await assessmentStatusQuery.refetch();
+          return;
+        }
+        if (stopped.status !== "cancelled" && stopped.status !== "failed") return;
+        setRecordingJob({ assessmentId: stopped.assessment_id, status: stopped.status,
+          phase: stopped.phase, progress: stopped.progress, error: "", reportPath: stopped.report_path ?? "" });
+      }
+      await handleSubmit(recording.job.assessmentId || undefined);
+    } catch (error) {
+      setRecordingError(error instanceof ApiClientError ? error.detail : String(error));
+    } finally {
+      retryingRef.current = false;
     }
   };
 
@@ -709,6 +758,13 @@ export const SpeakRoute = () => {
         />
         </fieldset>
         <AssessmentStatusPanel
+          assessmentStatus={assessmentStatusQuery.data}
+          uploadStartedAt={uploadStartedAt}
+          uploadUpdatedAt={uploadUpdatedAt}
+          uploading={uploadProgress !== null}
+          uploaded={uploaded}
+          canRetry={Boolean(attachedFile) && !shortRecording && Boolean(sharingQuery.data?.available) && !isSubmitting && (stalled || lifecycleState === "failed" || lifecycleState === "cancelled")}
+          mediaMessage={mediaMessage}
           canCancel={uploadProgress !== null || lifecycleState === "queued" || lifecycleState === "running"}
           contextMode={assessmentContextMode}
           handoffHint={handoffHint}
@@ -716,9 +772,10 @@ export const SpeakRoute = () => {
           lifecycleState={lifecycleState}
           notesValue={recording.notesInput}
           onCancel={handleCancel}
+          onRetry={handleRetry}
           onLabelChange={(value) => updateRecordingInputs(value, recording.notesInput)}
           onNotesChange={(value) => updateRecordingInputs(recording.labelInput, value)}
-          onSubmit={handleSubmit}
+          onSubmit={() => void handleSubmit()}
           phaseMessage={phaseMessage(translate, recording.job.phase)}
           runtimeDetail={runtimeDetail}
           statusMessage={uploadProgress !== null ? translate("speak.upload_progress", { percent: uploadProgress }) : isSubmitting ? translate("speak.assessing") : statusMessage}

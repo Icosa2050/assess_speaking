@@ -249,6 +249,9 @@ export interface AssessmentStatusResponse {
   status: JobStatus;
   phase: string;
   progress: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+  phase_started_at?: string | null;
   error?: ErrorResponse | null;
   report_path?: string | null;
   summary?: AssessmentSummary | null;

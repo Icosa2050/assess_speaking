@@ -1,0 +1,8 @@
+.progress { display: grid; gap: var(--space-3); color: var(--color-text); }
+.phases { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-2); }
+.phases li { border-top: 4px solid var(--color-border-decorative); padding: var(--space-2) var(--space-1); font-size: var(--font-size-compact); font-weight: var(--weight-semibold); }
+.phases .done { border-color: var(--color-success); }
+.phases .current { border-color: var(--color-brand); background: var(--color-selected); border-radius: 0 0 var(--radius-control) var(--radius-control); }
+.time, .announcement { margin: 0; }
+.time { color: var(--color-text-muted); font-size: var(--font-size-compact); }
+@media (max-width: 560px) { .phases { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

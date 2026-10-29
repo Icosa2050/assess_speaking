@@ -3,15 +3,28 @@ import os
 import tempfile
 import unittest
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest import mock
 
 from app_backend.config import build_backend_runtime_config
 from app_backend.contracts import AssessmentCreateRequest, ErrorCode, JobStatus
-from app_backend.jobs import JobManager, _job_worker, prunable_job_metadata_files
+from app_backend.jobs import JobManager, _job_worker, _update_job_file, prunable_job_metadata_files
 from assessment_runtime.runner import AssessmentRunResult
 
 
 class BackendJobsTests(unittest.TestCase):
+    def test_status_timestamps_change_only_for_meaningful_transitions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            job_file = Path(directory) / "asmt_test.json"
+            job_file.write_text(json.dumps({"status": "queued", "phase": "queued", "created_at": "2026-01-01T00:00:00+00:00"}))
+            with mock.patch("app_backend.jobs._now_iso", side_effect=["2026-01-01T00:00:01+00:00", "2026-01-01T00:00:02+00:00"]):
+                started = _update_job_file(job_file, status="running", phase="transcribing")
+                repeated = _update_job_file(job_file, status="running", phase="transcribing")
+                scoring = _update_job_file(job_file, status="running", phase="scoring_rubric")
+            self.assertEqual(started["updated_at"], "2026-01-01T00:00:01+00:00")
+            self.assertEqual(repeated["updated_at"], started["updated_at"])
+            self.assertEqual(scoring["phase_started_at"], "2026-01-01T00:00:02+00:00")
+
     def test_prunable_job_metadata_files_handles_mixed_case_terminal_statuses(self):
         with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
             config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8766)
