@@ -803,9 +803,7 @@ impl DraftStore {
         }
         take.media_id = new_id()?;
         take.validate()?;
-        if take.capture_ended_at < old.created_at
-            || take.capture_ended_at > now.saturating_add(60_000)
-        {
+        if take.capture_ended_at < old.created_at || take.capture_ended_at > now {
             return Err(err("Invalid take capture time"));
         }
         let existing: u64 = self
@@ -1681,6 +1679,24 @@ mod tests {
             .unwrap();
         store.abort_take(&second).unwrap();
         store.abort_take(&third).unwrap();
+    }
+    #[test]
+    fn future_capture_time_cannot_publish_unreadable_manifest() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let draft = store.save_setup(setup("Alex"), None, None).unwrap();
+        let mut future = take(b"take");
+        future.capture_ended_at = now_ms() + 60_000;
+        assert!(store
+            .begin_take(draft.draft_id.clone(), draft.revision, future)
+            .unwrap_err()
+            .contains("capture time"));
+        let transfer = store
+            .begin_take(draft.draft_id.clone(), draft.revision, take(b"take"))
+            .unwrap();
+        store.write_take_chunk(&transfer, b"take".to_vec()).unwrap();
+        let ready = store.finish_take(&transfer).unwrap();
+        assert_eq!(store.list().unwrap()[0].revision, ready.revision);
     }
     #[test]
     fn old_transfer_cannot_overwrite_new_revision_and_permissions_are_private() {
