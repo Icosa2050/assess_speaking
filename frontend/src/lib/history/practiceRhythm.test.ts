@@ -8,6 +8,17 @@ const row = (timestamp: string, overrides: Partial<HistoryRow> = {}): HistoryRow
 } as HistoryRow);
 
 describe("weekly practice rhythm", () => {
+  it("counts a saved first take without a score as practice progress", () => {
+    const now = new Date(2026, 9, 7, 14);
+    const first = row(new Date(2026, 9, 7, 11).toISOString(), {
+      final_score: null,
+      eligibility: { version: 1, state: "insufficient_speech", reasons: [], metrics_reliable: false, task_complete: false },
+    });
+    const result = practiceRhythm([first], "alex", "it", now);
+    expect(result.attempts).toBe(1);
+    expect(result.days).toBe(1);
+    expect(result.completed).toBe(1);
+  });
   it("counts local practice days, not repeat submissions; isolates learner, language and real attempts", () => {
     const now = new Date(2026, 9, 7, 14);
     const monday = new Date(2026, 9, 5, 10).toISOString();

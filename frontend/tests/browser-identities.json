@@ -88,6 +88,12 @@
       "e2e/reviewHistoryFlow.spec.ts",
       "",
       "review and history replacement flow",
+      "History chart table is reachable by keyboard at both desktop window sizes"
+    ],
+    [
+      "e2e/reviewHistoryFlow.spec.ts",
+      "",
+      "review and history replacement flow",
       "keeps empty Review and History states actionable"
     ],
     [

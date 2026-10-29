@@ -69,3 +69,13 @@
 @media (max-width: 480px) { .chart text { font-size: 12px; } .mission { padding: 1rem; } }
 
 .delta[data-positive="false"] { background: #f0eee4; color: #496459; }
+
+/* History migration: chart and table share semantic contrast roles. */
+.performance { background: var(--color-surface); color: var(--color-text); }
+.chart { color: var(--color-chart-line); }
+.chart text { fill: var(--color-text-muted); }
+.panel table caption { text-align: left; font-weight: var(--weight-bold); padding: var(--space-2); color: var(--color-text); }
+.panel th, .panel td { border-bottom-color: var(--color-border-decorative); }
+.panel table:focus-visible { outline: var(--focus-width) solid var(--color-focus); outline-offset: var(--focus-offset); }
+.panel select, .panel button { border-color: var(--color-border-control); background: var(--color-surface); color: var(--color-text); border-radius: var(--radius-control); }
+.panel button[aria-pressed="true"] { background: var(--color-selected); color: var(--color-text); border-color: var(--color-selected-border); }

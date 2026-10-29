@@ -243,6 +243,14 @@ describe("History route", () => {
     expect(screen.queryByText("First take recorded on this Mac")).not.toBeInTheDocument();
   });
 
+  it("keeps the first-take milestone when saved history is still unscored", async () => {
+    mockedGetHistory.mockResolvedValueOnce({ items: historyRows.map(row => ({ ...row, final_score: null, overall: null })) });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/history"], locale: "en", appState: validDraftState });
+    expect(await screen.findByTestId("history-route")).toBeVisible();
+    expect(await screen.findByText("First take recorded on this Mac")).toBeVisible();
+    expect(screen.getByTestId("history-attempts-list")).toBeVisible();
+  });
+
   it("shows all languages on refresh and preserves an explicit filter", async () => {
     const queryClient = createQueryClient();
     queryClient.setQueryData(queryKeys.history, { items: historyRows.filter(row => row.learning_language === "en") });

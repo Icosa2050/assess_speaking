@@ -115,6 +115,7 @@ const reportPayload = (attempt: Attempt, previousSessionId = "") => ({
     rubric: {
       recurring_grammar_errors: [],
       coherence_issues: [],
+      style_suggestions: [{ original: "Sono andato a Roma", suggestion: "Sono stato a Roma", explanation: "Consider a more natural phrasing." }],
     },
     progress_delta: previousSessionId
       ? {
@@ -291,6 +292,33 @@ const tabTo = async (page: Page, testId: string) => {
 };
 
 test.describe("review and history replacement flow", () => {
+  test("History chart table is reachable by keyboard at both desktop window sizes", async ({ page }, testInfo) => {
+    await installReadyEmptyBackend(page);
+    const comparableRows = historyRows.map((row, index) => ({ ...row,
+      elapsed_wpm: index ? 103 : 96, duration_sec: 90, pause_total_sec: index ? 8 : 12,
+      practice: { version: 1, goal: "B1", prompt_id: "travel-b1", prompt_text: "Describe your trip.",
+        retry_of_session_id: index ? "sess-first" : "", target_duration_sec: 90, scoring_version: "scorer-v1",
+        scoring_mode: "hybrid", analysis_signature: "settings-v1", provider: "ollama", model: "llama3.2:3b",
+        asr_provider: "faster_whisper", whisper_model: "small", dry_run: false },
+    }));
+    await page.route("**/v1/history", route => fulfillJson(route, { items: comparableRows }));
+    await page.route("**/v1/history/*", route => fulfillJson(route, { payload: reportPayload(attempts[1], "sess-first") }));
+    for (const [width, height] of [[1360, 900], [1100, 760]] as const) {
+      await page.setViewportSize({ width, height });
+      await page.goto("/history");
+      const table = page.getByRole("table", { name: "Chart data: Overall performance" });
+      await expect(table).toBeVisible();
+      await expect(table.getByRole("row")).toHaveCount(3);
+      await expect(table.getByRole("row", { name: /May 19.*3.1/ })).toBeVisible();
+      await expect(table.getByRole("row", { name: /May 19.* 4$/ })).toBeVisible();
+      await page.getByRole("combobox", { name: "Measurement" }).focus();
+      await page.keyboard.press("Tab");
+      await expect(table).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(page.getByTestId("practice-rhythm").getByRole("combobox")).toBeFocused();
+      await page.screenshot({ path: testInfo.outputPath(`history-after-${width}x${height}.png`), fullPage: true });
+    }
+  });
   test("keeps empty Review and History states actionable", async ({ page }) => {
     await installReadyEmptyBackend(page);
 
@@ -372,6 +400,14 @@ test.describe("review and history replacement flow", () => {
     await expect(page.getByTestId("review-retry-change")).toContainText("+0.90/5");
     expect(await page.evaluate(() => window.localStorage.getItem("vostavo.retry-draft.v2"))).toBeNull();
     await expect(page.getByTestId("review-transcript")).toHaveValue(attempts[1].transcript);
+    await page.getByTestId("review-evidence-toggle").click();
+    await page.getByTestId("review-transcript").focus();
+    await page.keyboard.press("Tab");
+    const annotation = page.getByRole("button", { name: "Feedback for “Sono andato a Roma”" });
+    await expect(annotation).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(annotation).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByTestId("transcript-feedback")).toContainText("Consider a more natural phrasing.");
 
     await page.getByTestId("review-action-view-history").click();
     await expect(page).toHaveURL(/\/history$/);

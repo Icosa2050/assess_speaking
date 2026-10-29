@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { HistoryRow } from "@/lib/api/types";
 import { comparableAttempts, comparisonAttempt, measurement, retryDraft } from "@/lib/history/practiceProgress";
 import { createTranslator } from "@/lib/i18n";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import styles from "./PracticeProgress.module.css";
 import { RecordingReplay } from "./RecordingReplay";
 
@@ -11,17 +13,22 @@ import { practiceRhythm } from "@/lib/history/practiceRhythm";
 type Metric = "final_score" | "elapsed_wpm" | "duration_sec" | "pause_total_sec";
 const metrics: Metric[] = ["final_score", "elapsed_wpm", "duration_sec", "pause_total_sec"];
 
-export function PracticeProgress({ rows, selected, locale, onSelect, onRetry }: {
+export function PracticeProgress({ rows, selected, locale, onSelect, onRetry, verifiedPreviousId }: {
   rows: HistoryRow[];
   selected: HistoryRow | null;
   locale: string;
   onSelect: (id: string) => void;
   onRetry: (row: HistoryRow) => void;
+  verifiedPreviousId?: string | null;
 }) {
   const t = createTranslator(locale);
   const [metric, setMetric] = useState<Metric>("final_score");
-  const cohort = selected ? comparableAttempts(rows, selected).filter(row =>
-    Date.parse(row.timestamp) <= Date.parse(selected.timestamp)) : [];
+  const matching = selected ? comparableAttempts(rows, selected) : [];
+  const eligiblePrevious = selected ? comparisonAttempt(rows, selected) : null;
+  const previous = eligiblePrevious?.session_id === verifiedPreviousId ? eligiblePrevious : null;
+  // A matching settings key alone cannot verify a score comparison. The report names its verified parent.
+  const cohort = selected && matching.some(row => row.session_id === selected.session_id)
+    ? previous ? [previous, selected] : [selected] : [];
   const chartRef = useRef<SVGSVGElement>(null);
   const [chartWidth, setChartWidth] = useState(600);
   useEffect(() => {
@@ -33,7 +40,6 @@ export function PracticeProgress({ rows, selected, locale, onSelect, onRetry }: 
     observer.observe(chartRef.current);
     return () => observer.disconnect();
   }, [selected?.session_id, metric]);
-  const previous = selected ? comparisonAttempt(rows, selected) : null;
   const valid = cohort.filter((row) => measurement(row[metric]) !== null && Number.isFinite(Date.parse(row.timestamp)));
   const values = valid.map((row) => measurement(row[metric])!);
   const max = metric === "final_score" ? 5 : Math.max(1, ...values);
@@ -54,7 +60,7 @@ export function PracticeProgress({ rows, selected, locale, onSelect, onRetry }: 
   const rhythm = selected ? practiceRhythm(rows, selected.speaker_id, selected.learning_language) : null;
   const firstScore = measurement(cohort.find(row => measurement(row.final_score) !== null)?.final_score);
   const currentScore = measurement(selected?.final_score);
-  const delta = firstScore !== null && currentScore !== null && cohort.length > 1 ? Math.round((currentScore - firstScore) * 10) / 10 : null;
+  const delta = previous?.session_id === cohort[0]?.session_id && firstScore !== null && currentScore !== null && cohort.length > 1 ? Math.round((currentScore - firstScore) * 10) / 10 : null;
   const priorities = Array.isArray(selected?.top_priorities) ? selected.top_priorities : [];
   return <section className={styles.panel} data-testid="practice-progress">
     <header className={styles.header}>
@@ -63,7 +69,7 @@ export function PracticeProgress({ rows, selected, locale, onSelect, onRetry }: 
     </header>
     {selected && <>
       <div className={styles.heroGrid}>
-        <section className={styles.performance}>
+        <Card as="section" className={styles.performance}>
           <div className={styles.header}>
             <div><p className={styles.eyebrow}>{t("journey.voice_over_time")}</p><h3>{t("journey.small_steps")}</h3></div>
             {delta !== null && metric === "final_score" && <span className={styles.delta} data-positive={delta > 0}>{t("journey.since_first", { delta: `${delta > 0 ? "+" : ""}${format(delta)}` })}</span>}
@@ -92,10 +98,15 @@ export function PracticeProgress({ rows, selected, locale, onSelect, onRetry }: 
               <text x="36" y="204">{axisDate(valid[0].timestamp)}</text>
               {end !== start && <text x={chartWidth - 18} y="204" textAnchor="end">{axisDate(valid.at(-1)!.timestamp)}</text>}
             </svg> : <p>{t("practice.no_measurements")}</p>}
+            <div className={styles.tableWrap} data-testid="practice-chart-table"><table tabIndex={0}>
+              <caption>{t("history_slice10.chart_table_caption", { metric: t(`practice.${metric}`) })}</caption>
+              <thead><tr><th scope="col">{t("history_slice10.chart_table_date")}</th><th scope="col">{t("history_slice10.chart_table_task")}</th><th scope="col">{t(`practice.${metric}`)}</th></tr></thead>
+              <tbody>{cohort.map(row => <tr key={row.session_id}><th scope="row">{date(row.timestamp)}</th><td>{row.theme}</td><td>{format(row[metric])}</td></tr>)}</tbody>
+            </table></div>
             <p className={styles.muted}>{t("practice.conditions", { count: cohort.length, seconds: selected.practice!.target_duration_sec })}</p>
           </> : <p data-testid="practice-legacy">{t("practice.legacy")}</p>}
           <p className={styles.muted}>{t(`practice.${metric}_help`)}</p>
-        </section>
+        </Card>
         <WeeklyRhythm key={JSON.stringify([selected.speaker_id, selected.learning_language])} rows={rows} selected={selected} locale={locale} />
       </div>
       {retryDraft(selected) && <section className={styles.mission}>
@@ -103,7 +114,7 @@ export function PracticeProgress({ rows, selected, locale, onSelect, onRetry }: 
           <h3>{t("journey.retry_title")}</h3>
           <p>{priorities[0] || t("journey.retry_hint")}</p>
         </div>
-        <button type="button" onClick={() => onRetry(selected)} data-testid="practice-retry">{t("practice.retry")}</button>
+        <Button type="button" onClick={() => onRetry(selected)} data-testid="practice-retry">{t("practice.retry")}</Button>
       </section>}
       <div className={styles.evidenceGrid}>
         <section className={styles.audioPanel}>
@@ -140,7 +151,7 @@ export function PracticeProgress({ rows, selected, locale, onSelect, onRetry }: 
             })}</tbody>
           </table></div>
           <button type="button" disabled={!previous.report_path?.trim()} onClick={() => onSelect(previous.session_id)}>{t("practice.open_previous")}</button>
-        </> : <p>{t(selected.practice?.retry_of_session_id ? "practice.parent_unavailable" : "practice.first")}</p>}
+        </> : <p>{t(eligiblePrevious ? "history_slice10.unverified_comparison" : selected.practice?.retry_of_session_id ? "practice.parent_unavailable" : "practice.first")}</p>}
       </section>
       {priorities.length > 0 && <aside className={styles.focus}><strong>{t("practice.focus")}</strong><p>{priorities[0]}</p><small>{t("practice.focus_help")}</small></aside>}
     </>}

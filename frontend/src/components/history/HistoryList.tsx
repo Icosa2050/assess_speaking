@@ -26,13 +26,13 @@ export const HistoryList = ({ attempts, onSelectSession, selectedSessionId, tran
       <span className={styles.count} aria-hidden="true">{attempts.length}</span>
     </header>
     <p className={styles.hint}>{translate("history.attempts_jump_hint")}</p>
-    <ul tabIndex={0} aria-label={translate("history.attempts_title")} className={styles.list} data-testid="history-attempts-list">
+    <ul aria-label={translate("history.attempts_title")} className={styles.list} data-testid="history-attempts-list">
       {attempts.map((record, index) => {
         const hasReport = Boolean(record.reportPath.trim() && record.sessionId.trim());
         const isSelected = hasReport && record.sessionId === selectedSessionId;
         const content = <>
           <span className={styles.meta}>{record.languageLabel}{record.goal ? ` · ${record.goal}` : ""} · {record.timestampLabel}</span>
-          <span className={styles.topic}>{record.theme || translate("history.none")}</span>
+          {hasReport && <span className={styles.topicText}>{record.theme || translate("history.none")}</span>}
           <span className={styles.learner}>{record.speakerId || translate("history.none")}</span>
           <span className={styles.metrics}>
             <span className={styles.score}>{translate("history.table_score")} {record.scoreLabel}</span>
@@ -46,9 +46,9 @@ export const HistoryList = ({ attempts, onSelectSession, selectedSessionId, tran
           "data-selected": String(isSelected),
           "data-testid": `history-attempt-card-${record.sessionId}`,
         };
-        return <li key={record.sessionId || `legacy-${index}`}>
-          {hasReport ? <button {...props} type="button" aria-pressed={isSelected} onClick={() => onSelectSession(record.sessionId)}>{content}</button>
-            : <article {...props}>{content}</article>}
+        return <li key={record.sessionId || `legacy-${index}`} className={styles.item}>
+          {hasReport ? <h3 className={styles.topic}><button {...props} type="button" aria-label={`${translate("history.open_review")}: ${record.theme || translate("history.none")}, ${record.timestampLabel}`} aria-pressed={isSelected} onClick={() => onSelectSession(record.sessionId)}>{content}</button></h3>
+            : <article {...props}><h3 className={styles.topicText}>{record.theme || translate("history.none")}</h3>{content}</article>}
         </li>;
       })}
     </ul>

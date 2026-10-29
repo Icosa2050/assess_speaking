@@ -99,6 +99,15 @@
     "milestone_unscored": "Eine Aufnahme auf diesem Mac zählt als Fortschritt. Hier liegt keine Punktzahl vor; du kannst erneut üben.",
     "milestone_next": "Weiteren Versuch machen"
   },
+  "history_slice10": {
+    "chart_table_caption": "Diagrammdaten: {metric}",
+    "chart_table_date": "Datum und Uhrzeit",
+    "chart_table_task": "Übungsthema",
+    "annotation_intro": "Transkriptstellen mit Rückmeldung. Wähle eine unterstrichene Stelle, um den Vorschlag zu lesen.",
+    "annotation_label": "Rückmeldung zu „{phrase}“",
+    "annotation_suggestion": "Vorschlag: {suggestion}.",
+    "unverified_comparison": "Der frühere Versuch ist nicht für einen Vergleich verifiziert. Beide Versuche bleiben in den gespeicherten Berichten."
+  },
   "home": {
     "practice_checks": "{ready} von {total} Prüfungen bestanden",
     "title": "Vostavo",

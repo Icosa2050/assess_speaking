@@ -99,6 +99,15 @@
     "milestone_unscored": "Un enregistrement sur ce Mac compte comme progrès. Aucune note n’est disponible ici ; tu peux réessayer.",
     "milestone_next": "Faire un autre essai"
   },
+  "history_slice10": {
+    "chart_table_caption": "Données du graphique : {metric}",
+    "chart_table_date": "Date et heure",
+    "chart_table_task": "Sujet de pratique",
+    "annotation_intro": "Passages de la transcription avec commentaires. Sélectionnez un passage souligné pour lire la suggestion.",
+    "annotation_label": "Commentaire sur « {phrase} »",
+    "annotation_suggestion": "Suggestion : {suggestion}.",
+    "unverified_comparison": "La comparaison avec l’essai précédent n’est pas vérifiée. Les deux essais restent dans les bilans enregistrés."
+  },
   "home": {
     "practice_checks": "{ready} vérifications prêtes sur {total}",
     "title": "Vostavo",

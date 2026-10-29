@@ -1,0 +1,44 @@
+import "@testing-library/jest-dom/vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import type { HistoryRow } from "@/lib/api/types";
+import { PracticeProgress } from "./PracticeProgress";
+
+const row = (id: string, score: number | null, day: string): HistoryRow => ({
+  timestamp: `2026-09-${day}T12:00:00Z`, session_id: id, speaker_id: "learner", learning_language: "it",
+  theme: `Task ${id}`, task_family: "travel_narrative", overall: score, final_score: score,
+  wpm: 100, report_path: `/tmp/${id}.json`, band: "3", requires_human_review: false,
+  duration_pass: true, topic_pass: true, language_pass: true, min_words_pass: true,
+  top_priorities: [], grammar_error_categories: [], coherence_issue_categories: [], duration_sec: 90,
+  practice: { version: 1, goal: "B2", prompt_id: "travel", prompt_text: "Describe travel", retry_of_session_id: "",
+    target_duration_sec: 90, scoring_version: "v1", scoring_mode: "hybrid", analysis_signature: "settings-v1",
+    provider: "ollama", model: "model", whisper_model: "small", asr_provider: "faster_whisper", dry_run: false },
+});
+
+describe("PracticeProgress chart alternative", () => {
+  it("exposes every comparable chart row as a labelled table and switches the values with the metric", () => {
+    const first = { ...row("first", 3, "02"), duration_sec: null };
+    const selected = row("selected", 4, "03");
+    render(<PracticeProgress rows={[selected, first]} selected={selected} verifiedPreviousId="first" locale="en" onSelect={() => {}} onRetry={() => {}} />);
+    const table = within(screen.getByTestId("practice-chart-table")).getByRole("table", { name: "Chart data: Overall performance" });
+    expect(within(table).getAllByRole("row")).toHaveLength(3);
+    expect(within(table).getByRole("row", { name: /Task first/ })).toHaveTextContent("3");
+    expect(within(table).getByRole("row", { name: /Task selected/ })).toHaveTextContent("4");
+    fireEvent.change(screen.getByRole("combobox", { name: "Measurement" }), { target: { value: "duration_sec" } });
+    const duration = within(screen.getByTestId("practice-chart-table")).getByRole("table", { name: "Chart data: Recording duration (seconds)" });
+    expect(within(duration).getByRole("row", { name: /Task first/ })).toHaveTextContent("—");
+    expect(within(duration).getByRole("row", { name: /Task selected/ })).toHaveTextContent("90");
+  });
+
+  it("withholds change claims without a verified eligible parent", () => {
+    const first = row("first", 3, "01");
+    const selected = row("selected", 4, "03");
+    const { rerender } = render(<PracticeProgress rows={[first, selected]} selected={selected} locale="en" onSelect={() => {}} onRetry={() => {}} />);
+    expect(screen.queryByText(/since your first/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId("practice-comparison")).toHaveTextContent("Earlier take is not verified for comparison");
+    rerender(<PracticeProgress rows={[first, selected]} selected={selected} verifiedPreviousId="first" locale="en" onSelect={() => {}} onRetry={() => {}} />);
+    expect(screen.getByTestId("practice-comparison")).toHaveTextContent("Task first");
+    rerender(<PracticeProgress rows={[{ ...first, eligibility: { version: 1, state: "insufficient_speech", reasons: [], metrics_reliable: false, task_complete: false } }, selected]} selected={selected} verifiedPreviousId="first" locale="en" onSelect={() => {}} onRetry={() => {}} />);
+    expect(screen.getByTestId("practice-comparison")).toHaveTextContent("No earlier comparable attempt");
+  });
+});

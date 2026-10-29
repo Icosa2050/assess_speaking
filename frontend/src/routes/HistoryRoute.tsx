@@ -26,10 +26,10 @@ const cardStyle = {
   display: "grid",
   gap: "0.875rem",
   padding: "1.25rem",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
-  borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.94)",
-  boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
+  border: "var(--border-width) solid var(--color-border-decorative)",
+  borderRadius: "var(--radius-card)",
+  backgroundColor: "var(--color-surface)",
+  boxShadow: "var(--shadow-card)",
 } as const;
 
 const routeGridStyle = {
@@ -39,10 +39,10 @@ const routeGridStyle = {
 const selectStyle = {
   minHeight: "44px",
   padding: "0.75rem 0.875rem",
-  borderRadius: "8px",
+  borderRadius: "var(--radius-control)",
   border: "1px solid var(--color-border-control)",
-  backgroundColor: "#fff",
-  color: "#10201c",
+  backgroundColor: "var(--color-surface)",
+  color: "var(--color-text)",
   font: "inherit",
 } as const;
 
@@ -52,10 +52,10 @@ const primaryButtonStyle = {
   justifyContent: "center",
   minHeight: "44px",
   padding: "0.75rem 1rem",
-  borderRadius: "8px",
-  border: "1px solid rgba(15, 118, 110, 0.2)",
-  backgroundColor: "#d7ebe5",
-  color: "#10201c",
+  borderRadius: "var(--radius-control)",
+  border: "var(--border-width) solid var(--color-brand)",
+  backgroundColor: "var(--color-brand)",
+  color: "var(--color-on-brand)",
   fontWeight: 600,
   font: "inherit",
   cursor: "pointer",
@@ -401,6 +401,12 @@ export const HistoryRoute = () => {
   const selectedPractice = selectedSessionId
     ? practiceRows.find((row) => row.session_id === selectedSessionId) ?? null
     : null;
+  const report = detailQuery.data?.payload?.report;
+  const progressDelta = report && typeof report === "object" && !Array.isArray(report)
+    ? (report as Record<string, unknown>).progress_delta : null;
+  const verifiedPreviousId = progressDelta && typeof progressDelta === "object" && !Array.isArray(progressDelta) &&
+    (progressDelta as Record<string, unknown>).comparison_verified === true
+    ? String((progressDelta as Record<string, unknown>).previous_session_id || "") : null;
 
   return (
     <div
@@ -439,6 +445,11 @@ export const HistoryRoute = () => {
           {scopeCaption({ count: filteredRecords.length, selectedLanguage, speakerScope, translate })}
         </p>
       </section>
+      {!historyQuery.isPending && (firstTakeRecorded || allRecords.length > 0) && !allRecords.some(row => row.finalScore !== null) && <StatusBanner
+        title={translate("first_run.milestone_title")}
+        tone="success"
+        action={<Link to="/session-setup">{translate("first_run.milestone_next")}</Link>}
+      >{translate("first_run.milestone_unscored")}</StatusBanner>}
       {historyQuery.isPending ? <p role="status">{translate("journey.loading")}</p> :
         filteredRecords.length === 0 ? <section style={cardStyle} data-testid="history-empty-filtered">
           <p>{translate("history.empty_filtered")}</p>
@@ -450,6 +461,7 @@ export const HistoryRoute = () => {
         rows={practiceRows}
         selected={selectedPractice}
         locale={locale}
+        verifiedPreviousId={verifiedPreviousId}
         onSelect={setSelectedSessionId}
         onRetry={(row) => {
           const savedDraft = retryDraft(row);
