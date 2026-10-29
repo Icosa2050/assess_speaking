@@ -458,6 +458,8 @@ describe("Speak route", () => {
     await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Assessment failed: Scoring failed"));
     expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Stopped during Scoring rubric.");
     expect(screen.getByTestId("speak.status_panel")).not.toHaveTextContent("Assessment failed: The assessment was cancelled");
+    expect(screen.getByTestId("speak.retry_assessment")).toBeVisible();
+    expect(screen.queryByTestId("speak.submit")).not.toBeInTheDocument();
   });
 
   it("keeps a cancelled assessment resumable while its provider request finishes", async () => {
@@ -470,6 +472,8 @@ describe("Speak route", () => {
     await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
     fireEvent.click(screen.getByTestId("speak.submit"));
     fireEvent.click(await screen.findByTestId("speak.cancel_assessment"));
+    await screen.findByTestId("speak.retry_assessment");
+    expect(screen.queryByTestId("speak.submit")).not.toBeInTheDocument();
     fireEvent.click(await screen.findByTestId("speak.retry_assessment"));
     await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Retry is not ready yet"));
     expect(store.getState().recording.job.assessmentId).toBe("asmt-1");

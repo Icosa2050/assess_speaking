@@ -53,7 +53,7 @@ it("does not claim transcription while queued or coaching during finalization", 
   rerender(<AssessmentProgress status={{ ...status, phase: "finalizing_report" }} uploadStartedAt={null} uploadUpdatedAt={null}
     uploading={false} uploaded translate={createTranslator("en")} />);
   expect(screen.getByText("Finalizing the report.")).toBeVisible();
-  expect(screen.getByText("Coach").closest("li")).toHaveTextContent("Completed");
+  expect(screen.getByText("Coach").closest("li")).not.toHaveTextContent("Completed");
 });
 
 it("describes an unfinished upload as selected locally", () => {

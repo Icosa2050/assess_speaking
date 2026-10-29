@@ -279,6 +279,7 @@ test("assessment wait explains a stall and recovers without a second upload", as
   let uploads = 0;
   let cancels = 0;
   let workerFresh = true;
+  let pollNetworkError = false;
   let phaseAgeMs = 180_000;
   let currentId = "";
   let state: "stalled" | "failed" | "running" | "cancelled" = "stalled";
@@ -299,6 +300,7 @@ test("assessment wait explains a stall and recovers without a second upload", as
     return fulfillJson(route, { assessment_id: currentId, status: "cancelled", phase: "cancelled", last_phase: "scoring_rubric", progress: 1 });
   });
   await page.route("**/v1/assessments/*", route => {
+    if (pollNetworkError) return route.abort("failed");
     const old = new Date(Date.now() - phaseAgeMs).toISOString();
     const recent = new Date().toISOString();
     const stopped = state === "failed" || state === "cancelled";
@@ -324,6 +326,11 @@ test("assessment wait explains a stall and recovers without a second upload", as
   await expect(page.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "false");
   await expect(page.getByTestId("speak.wait_time")).toContainText("Last progress update 3 min");
   await expect(page.getByTestId("speak.cancel_assessment")).toBeVisible();
+  pollNetworkError = true;
+  await expect(page.getByTestId("speak.status_panel")).toContainText("Could not refresh progress", { timeout: 15_000 });
+  await expect(page.getByTestId("speak.cancel_assessment")).toBeVisible();
+  pollNetworkError = false;
+  await expect(page.getByTestId("speak.status_panel")).not.toContainText("Could not refresh progress", { timeout: 15_000 });
   phaseAgeMs = 240_000;
   await expect(page.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "true");
   await expect(page.getByTestId("speak.media_state")).toContainText("Audio uploaded and retained");
@@ -347,8 +354,10 @@ test("assessment wait explains a stall and recovers without a second upload", as
 
   await page.getByTestId("speak.cancel_assessment").click();
   await expect(page.getByTestId("speak.assessment_progress")).toHaveCount(0);
+  await expect(page.getByTestId("speak.submit")).toHaveCount(0);
   await page.getByTestId("speak.retry_assessment").click();
   await expect(page.getByTestId("speak.status_panel")).toContainText("Model request failed");
+  await expect(page.getByTestId("speak.submit")).toHaveCount(0);
   await page.getByTestId("speak.retry_assessment").click();
   await expect(page.getByTestId("speak.cancel_assessment")).toBeVisible();
   await page.getByTestId("speak.cancel_assessment").click();

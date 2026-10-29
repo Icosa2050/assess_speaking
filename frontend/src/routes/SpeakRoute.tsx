@@ -620,7 +620,7 @@ export const SpeakRoute = () => {
       }
       if (error instanceof ApiClientError && error.responseStatus === 409 && recording.job.assessmentId &&
           (recording.job.status === "failed" || recording.job.status === "cancelled")) {
-        setRecordingJob({});
+        if (priorTerminalJob) setRecordingJob(priorTerminalJob);
         setRetryError(error.detail);
         return;
       }
@@ -649,7 +649,7 @@ export const SpeakRoute = () => {
   };
 
   const handleRetry = async () => {
-    if (retryingRef.current || submittingRef.current || !attachedFile ||
+    if (retryingRef.current || submittingRef.current || !attachedFile || !recording.job.assessmentId ||
         (lifecycleState !== "failed" && lifecycleState !== "cancelled")) return;
     retryingRef.current = true;
     setCancelError("");
@@ -813,7 +813,7 @@ export const SpeakRoute = () => {
           uploadUpdatedAt={uploadUpdatedAt}
           uploading={uploadProgress !== null}
           uploaded={uploaded}
-          canRetry={Boolean(attachedFile) && !shortRecording && Boolean(sharingQuery.data?.available) && !isSubmitting && (lifecycleState === "failed" || lifecycleState === "cancelled")}
+          canRetry={Boolean(recording.job.assessmentId) && Boolean(attachedFile) && !shortRecording && Boolean(sharingQuery.data?.available) && !isSubmitting && (lifecycleState === "failed" || lifecycleState === "cancelled")}
           mediaMessage={mediaMessage}
           canCancel={uploadProgress !== null || lifecycleState === "queued" || lifecycleState === "running"}
           contextMode={assessmentContextMode}

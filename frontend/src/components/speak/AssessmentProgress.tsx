@@ -33,7 +33,7 @@ export function AssessmentProgress({ status, uploadStartedAt, uploadUpdatedAt, u
   const specialPhase = status?.phase === "analyzing_audio" ? "speak.wait_preparing_audio"
     : status?.phase === "finalizing_report" ? "speak.wait_finalizing"
       : "speak.wait_queued";
-  const completedThrough = uploading ? 0 : status?.phase === "finalizing_report" ? 4
+  const completedThrough = uploading ? 0 : status?.phase === "finalizing_report" ? 3
     : current ? phases.indexOf(current) : uploaded ? 1 : 0;
   const active = uploading || status?.status === "queued" || status?.status === "running";
   const started = uploading ? uploadStartedAt : Date.parse(status?.created_at || "");

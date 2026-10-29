@@ -245,7 +245,7 @@ export const AssessmentStatusPanel = ({
         gap: "0.75rem",
       }}
     >
-      <Button
+      {!canRetry && <Button
         type="button"
         onClick={onSubmit}
         disabled={submitDisabled}
@@ -255,7 +255,7 @@ export const AssessmentStatusPanel = ({
         data-semantic-id="speak.submit"
       >
         {translate("speak.submit")}
-      </Button>
+      </Button>}
       {canCancel ? (
         <Button
           type="button"
