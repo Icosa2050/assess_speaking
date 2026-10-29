@@ -7,7 +7,7 @@ import { createQueryClient, queryKeys } from "@/lib/query/queryClient";
 
 import { AppFrame } from "@/App";
 import { createTranslator } from "@/lib/i18n";
-import { formatTrendSummary } from "@/routes/HistoryRoute";
+import { formatTrendSummary, verifiedComparisonParentId } from "@/routes/HistoryRoute";
 import { renderWithProviders } from "@/test/renderWithProviders";
 
 vi.mock("@/lib/api/client", () => ({
@@ -183,6 +183,15 @@ const detailPayload = (sessionId: string, options: { review?: boolean; topicPass
 });
 
 describe("History route", () => {
+  it("accepts only an explicitly verified report parent ID", () => {
+    const payload = (verified: boolean | undefined) => ({ report: { progress_delta: {
+      ...(verified === undefined ? {} : { comparison_verified: verified }), previous_session_id: "s1",
+    } } });
+    expect(verifiedComparisonParentId(payload(true))).toBe("s1");
+    expect(verifiedComparisonParentId(payload(false))).toBeNull();
+    expect(verifiedComparisonParentId(payload(undefined))).toBeNull();
+    expect(verifiedComparisonParentId({ report: { progress_delta: { comparison_verified: true, previous_session_id: {} } } })).toBeNull();
+  });
   it("formats score and pace trend summaries for the UI locale", () => {
     const translate = createTranslator("de");
 
@@ -249,6 +258,25 @@ describe("History route", () => {
     expect(await screen.findByTestId("history-route")).toBeVisible();
     expect(await screen.findByText("First take recorded on this Mac")).toBeVisible();
     expect(screen.getByTestId("history-attempts-list")).toBeVisible();
+  });
+
+  it.each([false, undefined])("withholds a score delta when report verification is %s", async verified => {
+    const practice = { version: 1, goal: "B2", prompt_id: "trip", prompt_text: "Tell a trip story", retry_of_session_id: "",
+      target_duration_sec: 120, scoring_version: "v1", scoring_mode: "hybrid" as const, analysis_signature: "settings-v1",
+      provider: "ollama", model: "model", whisper_model: "small", asr_provider: "faster_whisper", dry_run: false };
+    mockedGetHistory.mockResolvedValueOnce({ items: [
+      { ...historyRows[0], speaker_id: "bern", practice },
+      { ...historyRows[1], practice },
+    ] });
+    const report = detailPayload("s2");
+    mockedGetHistoryDetail.mockResolvedValue({ payload: { ...report, report: { ...report.report,
+      progress_delta: { ...report.report.progress_delta, previous_session_id: "s1",
+        ...(verified === undefined ? {} : { comparison_verified: verified }) },
+    } } });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/history"], locale: "en", appState: validDraftState });
+    await waitFor(() => expect(screen.getByTestId("practice-comparison")).toHaveTextContent("Earlier take is not verified"));
+    expect(screen.queryByText(/Score change from verified previous take/)).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("practice-chart-table")).getAllByRole("row")).toHaveLength(3);
   });
 
   it("shows all languages on refresh and preserves an explicit filter", async () => {

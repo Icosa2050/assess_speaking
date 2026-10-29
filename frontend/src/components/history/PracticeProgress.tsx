@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { HistoryRow } from "@/lib/api/types";
-import { comparableAttempts, comparisonAttempt, measurement, retryDraft } from "@/lib/history/practiceProgress";
+import { comparableAttempts, comparisonAttempt, comparisonKey, measurement, retryDraft } from "@/lib/history/practiceProgress";
 import { createTranslator } from "@/lib/i18n";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -12,23 +12,29 @@ import { practiceRhythm } from "@/lib/history/practiceRhythm";
 
 type Metric = "final_score" | "elapsed_wpm" | "duration_sec" | "pause_total_sec";
 const metrics: Metric[] = ["final_score", "elapsed_wpm", "duration_sec", "pause_total_sec"];
+const metricValue = (row: HistoryRow | null | undefined, metric: Metric) =>
+  row?.eligibility && row.eligibility.state !== "assessable" ? null : measurement(row?.[metric]);
 
-export function PracticeProgress({ rows, selected, locale, onSelect, onRetry, verifiedPreviousId }: {
+export function PracticeProgress({ rows, selected, locale, onSelect, onRetry, verifiedPreviousId, comparisonState = "ready" }: {
   rows: HistoryRow[];
   selected: HistoryRow | null;
   locale: string;
   onSelect: (id: string) => void;
   onRetry: (row: HistoryRow) => void;
   verifiedPreviousId?: string | null;
+  comparisonState?: "ready" | "loading" | "error";
 }) {
   const t = createTranslator(locale);
   const [metric, setMetric] = useState<Metric>("final_score");
+  const currentScore = metricValue(selected, "final_score");
+  const unscored = Boolean(selected && (selected.eligibility?.state !== undefined && selected.eligibility.state !== "assessable" || currentScore === null));
+  const hasContext = selected ? comparisonKey({ ...selected, eligibility: undefined }) !== null : false;
   const matching = selected ? comparableAttempts(rows, selected) : [];
   const eligiblePrevious = selected ? comparisonAttempt(rows, selected) : null;
-  const previous = eligiblePrevious?.session_id === verifiedPreviousId ? eligiblePrevious : null;
-  // A matching settings key alone cannot verify a score comparison. The report names its verified parent.
-  const cohort = selected && matching.some(row => row.session_id === selected.session_id)
-    ? previous ? [previous, selected] : [selected] : [];
+  const previous = !unscored && eligiblePrevious?.session_id === verifiedPreviousId ? eligiblePrevious : null;
+  // Matching assessment conditions form the chart. Report verification gates only the comparison claim.
+  const cohort = selected && hasContext ? unscored ? [selected] : matching.filter(row =>
+    Date.parse(row.timestamp) <= Date.parse(selected.timestamp)) : [];
   const chartRef = useRef<SVGSVGElement>(null);
   const [chartWidth, setChartWidth] = useState(600);
   useEffect(() => {
@@ -40,8 +46,8 @@ export function PracticeProgress({ rows, selected, locale, onSelect, onRetry, ve
     observer.observe(chartRef.current);
     return () => observer.disconnect();
   }, [selected?.session_id, metric]);
-  const valid = cohort.filter((row) => measurement(row[metric]) !== null && Number.isFinite(Date.parse(row.timestamp)));
-  const values = valid.map((row) => measurement(row[metric])!);
+  const valid = cohort.filter((row) => metricValue(row, metric) !== null && Number.isFinite(Date.parse(row.timestamp)));
+  const values = valid.map((row) => metricValue(row, metric)!);
   const max = metric === "final_score" ? 5 : Math.max(1, ...values);
   const start = Date.parse(valid[0]?.timestamp ?? "") || 0;
   const end = Date.parse(valid.at(-1)?.timestamp ?? "") || start;
@@ -50,7 +56,7 @@ export function PracticeProgress({ rows, selected, locale, onSelect, onRetry, ve
     ? { hour: "2-digit", minute: "2-digit", second: "2-digit" }
     : { month: "short", day: "numeric" }).format(new Date(stamp));
   const x = (row: HistoryRow) => end === start ? chartWidth / 2 : 36 + (Date.parse(row.timestamp) - start) / (end - start) * (chartWidth - 54);
-  const y = (row: HistoryRow) => 174 - measurement(row[metric])! / max * 140;
+  const y = (row: HistoryRow) => 174 - metricValue(row, metric)! / max * 140;
   const date = (stamp: string) => Number.isFinite(Date.parse(stamp))
     ? new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(stamp)) : "—";
   const format = (value: unknown) => {
@@ -58,9 +64,8 @@ export function PracticeProgress({ rows, selected, locale, onSelect, onRetry, ve
     return number === null ? "—" : new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(number);
   };
   const rhythm = selected ? practiceRhythm(rows, selected.speaker_id, selected.learning_language) : null;
-  const firstScore = measurement(cohort.find(row => measurement(row.final_score) !== null)?.final_score);
-  const currentScore = measurement(selected?.final_score);
-  const delta = previous?.session_id === cohort[0]?.session_id && firstScore !== null && currentScore !== null && cohort.length > 1 ? Math.round((currentScore - firstScore) * 10) / 10 : null;
+  const previousScore = metricValue(previous, "final_score");
+  const delta = previousScore !== null && currentScore !== null ? Math.round((currentScore - previousScore) * 10) / 10 : null;
   const priorities = Array.isArray(selected?.top_priorities) ? selected.top_priorities : [];
   return <section className={styles.panel} data-testid="practice-progress">
     <header className={styles.header}>
@@ -74,7 +79,8 @@ export function PracticeProgress({ rows, selected, locale, onSelect, onRetry, ve
             <div><p className={styles.eyebrow}>{t("journey.voice_over_time")}</p><h3>{t("journey.small_steps")}</h3></div>
             {delta !== null && metric === "final_score" && <span className={styles.delta} data-positive={delta > 0}>{t("history_slice10.since_verified_previous", { delta: `${delta > 0 ? "+" : ""}${format(delta)}` })}</span>}
           </div>
-          <p className={styles.score}>{format(selected[metric])}<span>{t(`practice.${metric}`)}</span></p>
+          <p className={styles.score}>{format(metricValue(selected, metric))}<span>{t(`practice.${metric}`)}</span></p>
+          {unscored && <p role="status" data-testid="practice-no-estimate">{t("history_slice10.no_estimate")}</p>}
           <strong>{selected.theme}</strong>
           <label className={styles.metric}>{t("practice.measurement")}
             <select value={metric} onChange={(event) => setMetric(event.target.value as Metric)}>
@@ -84,7 +90,7 @@ export function PracticeProgress({ rows, selected, locale, onSelect, onRetry, ve
           {cohort.length > 0 ? <>
             {valid.length ? <svg ref={chartRef} viewBox={`0 0 ${chartWidth} 220`} role="img" aria-label={t(`practice.${metric}`)} className={styles.chart}>
               <title>{t(`practice.${metric}`)}</title>
-              <desc>{t("journey.chart_summary", { count: valid.length, first: `${date(valid[0].timestamp)}: ${format(valid[0][metric])}`, last: `${date(valid.at(-1)!.timestamp)}: ${format(valid.at(-1)![metric])}` })}</desc>
+              <desc>{t(valid.length === 1 ? "history_slice10.chart_point_summary" : "history_slice10.chart_points_summary", { count: valid.length, first: `${date(valid[0].timestamp)}: ${format(metricValue(valid[0], metric))}`, last: `${date(valid.at(-1)!.timestamp)}: ${format(metricValue(valid.at(-1), metric))}` })}</desc>
               <line x1="36" y1="174" x2={chartWidth - 18} y2="174" stroke="currentColor" opacity="0.2" />
               <line x1="36" y1="34" x2={chartWidth - 18} y2="34" stroke="currentColor" opacity="0.12" />
               <text x="26" y="178" textAnchor="end">0</text><text x="26" y="38" textAnchor="end">{format(max)}</text>
@@ -93,17 +99,17 @@ export function PracticeProgress({ rows, selected, locale, onSelect, onRetry, ve
                 <polyline points={valid.map(row => `${x(row)},${y(row)}`).join(" ")} fill="none" stroke="currentColor" strokeWidth="3" strokeLinejoin="round" />
               </>}
               {valid.map((row) => <circle key={row.session_id} cx={x(row)} cy={y(row)} r={row.session_id === selected.session_id ? 6 : 4} fill="currentColor">
-                <title>{date(row.timestamp)} · {row.theme}: {format(row[metric])}</title>
+                <title>{date(row.timestamp)} · {row.theme}: {format(metricValue(row, metric))}</title>
               </circle>)}
               <text x="36" y="204">{axisDate(valid[0].timestamp)}</text>
               {end !== start && <text x={chartWidth - 18} y="204" textAnchor="end">{axisDate(valid.at(-1)!.timestamp)}</text>}
             </svg> : <p>{t("practice.no_measurements")}</p>}
             <div className={styles.tableWrap} data-testid="practice-chart-table"><table tabIndex={0}>
               <caption>{t("history_slice10.chart_table_caption", { metric: t(`practice.${metric}`) })}</caption>
-              <thead><tr><th scope="col">{t("history_slice10.chart_table_date")}</th><th scope="col">{t("history_slice10.chart_table_task")}</th><th scope="col">{t(`practice.${metric}`)}</th></tr></thead>
-              <tbody>{cohort.map(row => <tr key={row.session_id}><th scope="row">{date(row.timestamp)}</th><td>{row.theme}</td><td>{format(row[metric])}</td></tr>)}</tbody>
+              <thead><tr><th scope="col">{t("history_slice10.chart_table_date")}</th><th scope="col">{t("history_slice10.chart_table_task")}</th><th scope="col">{t(`practice.${metric}`)}{metric === "final_score" ? ` (${t("history_slice10.out_of_five")})` : ""}</th></tr></thead>
+              <tbody>{cohort.map(row => <tr key={row.session_id} aria-current={row.session_id === selected.session_id ? "true" : undefined}><th scope="row">{date(row.timestamp)}{row.session_id === selected.session_id ? ` · ${t("history_slice10.chart_selected")}` : ""}</th><td>{row.theme}</td><td>{format(metricValue(row, metric))}</td></tr>)}</tbody>
             </table></div>
-            <p className={styles.muted}>{t(previous ? "history_slice10.chart_pair_context" : "history_slice10.chart_one_context")}</p>
+            <p className={styles.muted}>{cohort.length === 1 ? t("history_slice10.chart_one_context") : t("practice.conditions", { count: cohort.length, seconds: selected.practice!.target_duration_sec })}</p>
           </> : <p data-testid="practice-legacy">{t("practice.legacy")}</p>}
           <p className={styles.muted}>{t(`practice.${metric}_help`)}</p>
         </Card>
@@ -134,7 +140,7 @@ export function PracticeProgress({ rows, selected, locale, onSelect, onRetry, ve
       {selected.practice?.prompt_text && <details><summary>{t("practice.saved_prompt")}</summary><p className={styles.prompt}>{selected.practice.prompt_text}</p></details>}
       <div className={styles.attempts} role="group" aria-label={t("practice.select_attempt")}>
         {cohort.map((row) => <button type="button" key={row.session_id} disabled={!row.report_path?.trim()} aria-pressed={selected.session_id === row.session_id} onClick={() => onSelect(row.session_id)}>
-          {date(row.timestamp)} · {format(row[metric])} · {row.theme}{row.practice?.retry_of_session_id ? ` · ${t("practice.repeat")}` : ""}
+          {date(row.timestamp)} · {format(metricValue(row, metric))} · {row.theme}{row.practice?.retry_of_session_id ? ` · ${t("practice.repeat")}` : ""}
         </button>)}
       </div>
       <section className={styles.comparison} data-testid="practice-comparison">
@@ -151,7 +157,7 @@ export function PracticeProgress({ rows, selected, locale, onSelect, onRetry, ve
             })}</tbody>
           </table></div>
           <button type="button" disabled={!previous.report_path?.trim()} onClick={() => onSelect(previous.session_id)}>{t("practice.open_previous")}</button>
-        </> : <p>{t(eligiblePrevious ? "history_slice10.unverified_comparison" : selected.practice?.retry_of_session_id ? "practice.parent_unavailable" : "practice.first")}</p>}
+        </> : <p>{t(comparisonState === "loading" ? "history_slice10.comparison_loading" : comparisonState === "error" ? "history_slice10.comparison_error" : unscored ? "history_slice10.unscored_comparison" : eligiblePrevious ? "history_slice10.unverified_comparison" : selected.practice?.retry_of_session_id ? "practice.parent_unavailable" : "practice.first")}</p>}
       </section>
       {priorities.length > 0 && <aside className={styles.focus}><strong>{t("practice.focus")}</strong><p>{priorities[0]}</p><small>{t("practice.focus_help")}</small></aside>}
     </>}

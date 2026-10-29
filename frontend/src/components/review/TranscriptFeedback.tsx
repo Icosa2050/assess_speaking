@@ -50,12 +50,12 @@ export function TranscriptFeedback({ transcript, suggestions, translate }: {
       const number = annotationIndex;
       const detailId = `${id}-annotation-${number}`;
       return <span key={index} className={styles.annotation}>
-        <button type="button" className={styles.phrase} aria-expanded={open === number}
+        <button type="button" className={styles.phrase} aria-expanded={open === number} aria-controls={detailId}
           aria-label={translate("history_slice10.annotation_label", { phrase: segment.text })}
-          aria-describedby={detailId} onClick={() => setOpen(open === number ? null : number)}>
+          aria-describedby={open === number ? detailId : undefined} onClick={() => setOpen(open === number ? null : number)}>
           {segment.text}<span aria-hidden="true"> ✦</span>
         </button>
-        <span id={detailId} className={open === number ? styles.detail : styles.visuallyHidden}>
+        <span id={detailId} className={styles.detail} hidden={open !== number}>
           {translate("history_slice10.annotation_suggestion", { suggestion: segment.suggestion.suggestion })} {segment.suggestion.explanation}
         </span>
       </span>;

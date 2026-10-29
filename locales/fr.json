@@ -103,13 +103,20 @@
     "chart_table_caption": "Données du graphique : {metric}",
     "chart_table_date": "Date et heure",
     "chart_table_task": "Sujet de pratique",
-    "annotation_intro": "Passages de la transcription avec commentaires. Sélectionnez un passage souligné pour lire la suggestion.",
+    "annotation_intro": "Copie annotée de la transcription. Sélectionne un passage souligné pour lire la suggestion. Seule la première occurrence disponible de chaque suggestion est marquée.",
     "annotation_label": "Commentaire sur « {phrase} »",
     "annotation_suggestion": "Suggestion : {suggestion}.",
     "unverified_comparison": "La comparaison avec l’essai précédent n’est pas vérifiée. Les deux essais restent dans les bilans enregistrés.",
     "since_verified_previous": "Variation du score par rapport à l’essai précédent vérifié : {delta}",
     "chart_one_context": "Un essai affiché. Aucune comparaison de score vérifiée n’est disponible.",
-    "chart_pair_context": "Deux essais affichés : l’essai sélectionné et l’essai précédent vérifié."
+    "chart_points_summary": "{count} points tracés, de {first} à {last}.",
+    "no_estimate": "Aucune estimation pour cet essai. Ton enregistrement compte quand même comme pratique.",
+    "unscored_comparison": "Cet essai n’a pas d’estimation ; aucune comparaison de score n’est affichée.",
+    "comparison_loading": "Vérification de la disponibilité d’une comparaison de score…",
+    "comparison_error": "Comparaison indisponible tant que ce bilan enregistré ne peut pas être chargé.",
+    "chart_point_summary": "1 point tracé : {first}.",
+    "chart_selected": "Sélectionné",
+    "out_of_five": "sur 5"
   },
   "home": {
     "practice_checks": "{ready} vérifications prêtes sur {total}",

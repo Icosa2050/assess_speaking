@@ -24,10 +24,13 @@ describe("PracticeProgress chart alternative", () => {
     expect(within(table).getAllByRole("row")).toHaveLength(3);
     expect(within(table).getByRole("row", { name: /Task first/ })).toHaveTextContent("3");
     expect(within(table).getByRole("row", { name: /Task selected/ })).toHaveTextContent("4");
+    expect(within(table).getByRole("columnheader", { name: "Overall performance (out of 5)" })).toBeVisible();
+    expect(within(table).getByRole("row", { name: /Task selected/ })).toHaveAttribute("aria-current", "true");
     fireEvent.change(screen.getByRole("combobox", { name: "Measurement" }), { target: { value: "duration_sec" } });
     const duration = within(screen.getByTestId("practice-chart-table")).getByRole("table", { name: "Chart data: Recording duration (seconds)" });
     expect(within(duration).getByRole("row", { name: /Task first/ })).toHaveTextContent("—");
     expect(within(duration).getByRole("row", { name: /Task selected/ })).toHaveTextContent("90");
+    expect(screen.getByRole("img", { name: "Recording duration (seconds)" }).querySelector("desc")).toHaveTextContent(/^1 plotted point:/);
   });
 
   it("withholds change claims without a verified eligible parent", () => {
@@ -50,9 +53,50 @@ describe("PracticeProgress chart alternative", () => {
       locale="en" onSelect={() => {}} onRetry={() => {}} />);
     expect(screen.getByText("Score change from verified previous take: -1")).toBeVisible();
     const table = within(screen.getByTestId("practice-chart-table")).getByRole("table");
+    expect(within(table).getAllByRole("row")).toHaveLength(4);
+    expect(within(table).getByRole("row", { name: /Task first/ })).toHaveTextContent("2");
     expect(within(table).getByRole("row", { name: /Task middle/ })).toHaveTextContent("4");
     expect(within(table).getByRole("row", { name: /Task selected/ })).toHaveTextContent("3");
-    expect(within(table).queryByRole("row", { name: /Task first/ })).not.toBeInTheDocument();
-    expect(screen.getByText(/^Two takes shown:/)).toHaveTextContent("verified earlier take");
+    expect(screen.getByText(/^3 comparable attempts/)).toBeVisible();
+    expect(screen.getByRole("img", { name: "Overall performance" }).querySelector("desc")).toHaveTextContent(/^3 plotted points/);
+  });
+
+  it("shows an unscored selected take as progress without implying an estimate or comparison", () => {
+    const first = row("first", 3, "01");
+    const selected = { ...row("selected", 4, "02"), eligibility: {
+      version: 1, state: "insufficient_speech" as const, reasons: [], metrics_reliable: false, task_complete: false,
+    } };
+    render(<PracticeProgress rows={[first, selected]} selected={selected} verifiedPreviousId="first"
+      locale="en" onSelect={() => {}} onRetry={() => {}} />);
+    expect(screen.getByTestId("practice-no-estimate")).toHaveTextContent("recording still counts as practice");
+    expect(screen.queryByTestId("practice-legacy")).not.toBeInTheDocument();
+    const table = within(screen.getByTestId("practice-chart-table")).getByRole("table");
+    expect(within(table).getByRole("row", { name: /Task selected/ })).toHaveTextContent("—");
+    expect(within(table).getAllByRole("row")).toHaveLength(2);
+    expect(screen.getByText("This measurement is not available for these attempts.")).toBeVisible();
+    expect(screen.queryByText("4", { selector: "p" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox", { name: "Measurement" }), { target: { value: "duration_sec" } });
+    expect(within(screen.getByTestId("practice-chart-table")).getByRole("row", { name: /Task selected/ })).toHaveTextContent("—");
+    expect(screen.getByTestId("practice-comparison")).toHaveTextContent("no score comparison");
+  });
+
+  it("does not invent a zero delta when the verified parent has no score", () => {
+    const first = row("first", null, "01");
+    const selected = row("selected", 4, "02");
+    render(<PracticeProgress rows={[first, selected]} selected={selected} verifiedPreviousId="first"
+      locale="en" onSelect={() => {}} onRetry={() => {}} />);
+    expect(screen.queryByText(/Score change from verified previous take/)).not.toBeInTheDocument();
+  });
+
+  it("distinguishes a pending or failed report from an unverified comparison", () => {
+    const first = row("first", 3, "01");
+    const selected = row("selected", 4, "02");
+    const { rerender } = render(<PracticeProgress rows={[first, selected]} selected={selected} comparisonState="loading"
+      locale="en" onSelect={() => {}} onRetry={() => {}} />);
+    expect(screen.getByTestId("practice-comparison")).toHaveTextContent("Checking whether");
+    rerender(<PracticeProgress rows={[first, selected]} selected={selected} comparisonState="error"
+      locale="en" onSelect={() => {}} onRetry={() => {}} />);
+    expect(screen.getByTestId("practice-comparison")).toHaveTextContent("Comparison unavailable");
+    expect(within(screen.getByTestId("practice-chart-table")).getAllByRole("row")).toHaveLength(3);
   });
 });

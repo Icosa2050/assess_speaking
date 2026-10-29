@@ -103,13 +103,20 @@
     "chart_table_caption": "Chart data: {metric}",
     "chart_table_date": "Date and time",
     "chart_table_task": "Practice task",
-    "annotation_intro": "Transcript phrases with feedback. Select an underlined phrase to read its suggestion.",
+    "annotation_intro": "Annotated copy of the transcript. Select an underlined phrase to read its suggestion. Only the first available occurrence of each suggestion is marked.",
     "annotation_label": "Feedback for “{phrase}”",
     "annotation_suggestion": "Suggestion: {suggestion}.",
     "unverified_comparison": "Earlier take is not verified for comparison. Both takes remain in your saved reviews.",
     "since_verified_previous": "Score change from verified previous take: {delta}",
     "chart_one_context": "One take shown. No verified score comparison is available.",
-    "chart_pair_context": "Two takes shown: the selected take and its verified earlier take."
+    "chart_points_summary": "{count} plotted points, from {first} to {last}.",
+    "no_estimate": "No estimate for this take. Your recording still counts as practice.",
+    "unscored_comparison": "This take has no estimate, so no score comparison is shown.",
+    "comparison_loading": "Checking whether a score comparison is available…",
+    "comparison_error": "Comparison unavailable while this saved report cannot be loaded.",
+    "chart_point_summary": "1 plotted point: {first}.",
+    "chart_selected": "Selected",
+    "out_of_five": "out of 5"
   },
   "home": {
     "practice_checks": "{ready} of {total} checks ready",

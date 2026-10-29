@@ -4,7 +4,7 @@
 .count { border-radius: var(--radius-pill); background: var(--color-surface-subtle); padding: var(--space-1) var(--space-2); font-weight: var(--weight-bold); }
 .hint { color: var(--color-text-muted); font-size: var(--font-size-compact); line-height: var(--line-height-compact); }
 .list { display: grid; gap: var(--space-3); list-style: none; margin: 0; padding: var(--space-1); max-height: 70vh; overflow-y: auto; }
-.item { border: var(--border-width) solid var(--color-border-decorative); border-radius: var(--radius-card); padding: var(--space-3); }
+.item { min-width: 0; }
 .topic { margin: 0; font-size: inherit; font-weight: inherit; }
 .topicText { font-size: var(--font-size-title); font-weight: var(--weight-bold); line-height: var(--line-height-title); overflow-wrap: anywhere; }
 .card { display: grid; gap: var(--space-2); width: 100%; min-width: 0; text-align: left; font: inherit; color: inherit; padding: var(--space-2); border: var(--border-width) solid var(--color-border-control); border-radius: var(--radius-control); background: var(--color-surface); overflow-wrap: anywhere; }
@@ -14,7 +14,7 @@ button.card:hover { background: var(--color-surface-subtle); }
 .card:focus-visible { outline: var(--focus-width) solid var(--color-focus); outline-offset: var(--focus-offset); }
 .meta, .learner { color: var(--color-text-muted); font-size: var(--font-size-compact); line-height: var(--line-height-compact); }
 .metrics { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: var(--font-size-compact); }
-.score { background: var(--color-brand-tint); border-radius: var(--radius-control); padding: var(--space-1) var(--space-2); font-weight: var(--weight-bold); }
-.focus { color: var(--color-text-muted); font-size: var(--font-size-compact); line-height: var(--line-height-compact); }
+.score { background: var(--color-brand-tint); border: var(--border-width) solid var(--color-border-control); border-radius: var(--radius-control); padding: var(--space-1) var(--space-2); font-weight: var(--weight-bold); }
+.focus { color: var(--color-text-muted); font-size: var(--font-size-compact); line-height: var(--line-height-compact); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .action { font-size: var(--font-size-compact); font-weight: var(--weight-bold); color: var(--color-brand); }
 @media (max-width: 1000px) { .list { max-height: 55vh; } }

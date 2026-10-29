@@ -22,6 +22,17 @@ import type { HistoryRow } from "@/lib/api/types";
 
 const ALL_HISTORY_LANGUAGES = "__all__";
 
+export const verifiedComparisonParentId = (payload: unknown): string | null => {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const report = (payload as Record<string, unknown>).report;
+  if (!report || typeof report !== "object" || Array.isArray(report)) return null;
+  const delta = (report as Record<string, unknown>).progress_delta;
+  if (!delta || typeof delta !== "object" || Array.isArray(delta)) return null;
+  const record = delta as Record<string, unknown>;
+  return record.comparison_verified === true && typeof record.previous_session_id === "string" && record.previous_session_id.trim()
+    ? record.previous_session_id : null;
+};
+
 const cardStyle = {
   display: "grid",
   gap: "0.875rem",
@@ -401,12 +412,7 @@ export const HistoryRoute = () => {
   const selectedPractice = selectedSessionId
     ? practiceRows.find((row) => row.session_id === selectedSessionId) ?? null
     : null;
-  const report = detailQuery.data?.payload?.report;
-  const progressDelta = report && typeof report === "object" && !Array.isArray(report)
-    ? (report as Record<string, unknown>).progress_delta : null;
-  const verifiedPreviousId = progressDelta && typeof progressDelta === "object" && !Array.isArray(progressDelta) &&
-    (progressDelta as Record<string, unknown>).comparison_verified === true
-    ? String((progressDelta as Record<string, unknown>).previous_session_id || "") : null;
+  const verifiedPreviousId = verifiedComparisonParentId(detailQuery.data?.payload);
 
   return (
     <div
@@ -445,7 +451,7 @@ export const HistoryRoute = () => {
           {scopeCaption({ count: filteredRecords.length, selectedLanguage, speakerScope, translate })}
         </p>
       </section>
-      {!historyQuery.isPending && (firstTakeRecorded || allRecords.length > 0) && !allRecords.some(row => row.finalScore !== null) && <StatusBanner
+      {!historyQuery.isPending && filteredRecords.length > 0 && !filteredRecords.some(row => row.finalScore !== null) && <StatusBanner
         title={translate("first_run.milestone_title")}
         tone="success"
         action={<Link to="/session-setup">{translate("first_run.milestone_next")}</Link>}
@@ -462,6 +468,7 @@ export const HistoryRoute = () => {
         selected={selectedPractice}
         locale={locale}
         verifiedPreviousId={verifiedPreviousId}
+        comparisonState={detailQuery.isPending ? "loading" : detailQuery.isError ? "error" : "ready"}
         onSelect={setSelectedSessionId}
         onRetry={(row) => {
           const savedDraft = retryDraft(row);

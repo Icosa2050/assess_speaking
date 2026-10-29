@@ -26,11 +26,14 @@ describe("TranscriptFeedback", () => {
     render(<TranscriptFeedback transcript="I goes home." suggestions={suggestions} translate={createTranslator("en")} />);
     const phrase = screen.getByRole("button", { name: "Feedback for “I goes”" });
     expect(phrase).toHaveAttribute("aria-expanded", "false");
-    const description = document.getElementById(phrase.getAttribute("aria-describedby")!);
+    const description = document.getElementById(phrase.getAttribute("aria-controls")!);
     expect(description).toHaveTextContent("Suggestion: I go. Use present tense here.");
+    expect(description).not.toBeVisible();
+    expect(phrase).not.toHaveAttribute("aria-describedby");
     phrase.focus();
     fireEvent.click(phrase);
     expect(phrase).toHaveAttribute("aria-expanded", "true");
+    expect(phrase).toHaveAttribute("aria-describedby", description?.id);
     expect(description).toBeVisible();
   });
 });
