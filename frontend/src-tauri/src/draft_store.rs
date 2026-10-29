@@ -508,12 +508,28 @@ struct Incoming {
     bytes: u64,
     hash: Sha256,
     chunk_index: u32,
+    replaced_size: u64,
+}
+#[derive(Debug)]
+struct CommitFailure {
+    message: String,
+    published: bool,
+}
+impl From<String> for CommitFailure {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            published: false,
+        }
+    }
 }
 pub struct DraftStore {
     dir: PathBuf,
     key: Box<dyn KeySource>,
     incoming: HashMap<String, Incoming>,
     verified: HashSet<String>,
+    #[cfg(test)]
+    fail_manifest_sync: bool,
 }
 impl DraftStore {
     pub fn new(root: &Path) -> StoreResult<Self> {
@@ -527,6 +543,8 @@ impl DraftStore {
             key: Box::new(MacKeychain::production()),
             incoming: HashMap::new(),
             verified: HashSet::new(),
+            #[cfg(test)]
+            fail_manifest_sync: false,
         })
     }
     #[cfg(test)]
@@ -541,6 +559,7 @@ impl DraftStore {
             key,
             incoming: HashMap::new(),
             verified: HashSet::new(),
+            fail_manifest_sync: false,
         }
     }
     fn manifest_path(&self, id: &str) -> StoreResult<PathBuf> {
@@ -645,23 +664,32 @@ impl DraftStore {
         }
         Ok(())
     }
-    fn commit(&self, manifest: &Manifest, key: &[u8; 32]) -> StoreResult<()> {
+    fn commit(&self, manifest: &Manifest, key: &[u8; 32]) -> Result<(), CommitFailure> {
         let final_path = self.manifest_path(&manifest.draft_id)?;
         regular_file(&final_path)?;
+        let plain = serde_json::to_vec(manifest).map_err(|_| err("Could not encode draft"))?;
+        if plain.len().saturating_add(32) > 64 * 1024 {
+            return Err(err("Saved draft exceeds limit").into());
+        }
         let temp = self.dir.join(format!("{}.tmp", new_id()?));
-        let bytes = seal(
-            key,
-            &manifest.draft_id,
-            "manifest",
-            &serde_json::to_vec(manifest).map_err(|_| err("Could not encode draft"))?,
-        )?;
+        let bytes = seal(key, &manifest.draft_id, "manifest", &plain)?;
         let mut file = create_private(&temp)?;
-        let result = (|| -> StoreResult<()> {
+        let result = (|| -> Result<(), CommitFailure> {
             file.write_all(&bytes)
                 .and_then(|_| file.sync_all())
                 .map_err(|_| err("Could not save draft"))?;
             fs::rename(&temp, &final_path).map_err(|_| err("Could not commit draft"))?;
-            sync_dir(&self.dir)
+            #[cfg(test)]
+            if self.fail_manifest_sync {
+                return Err(CommitFailure {
+                    message: err("Could not sync draft directory"),
+                    published: true,
+                });
+            }
+            sync_dir(&self.dir).map_err(|message| CommitFailure {
+                message,
+                published: true,
+            })
         })();
         if result.is_err() {
             let _ = fs::remove_file(temp);
@@ -677,6 +705,27 @@ impl DraftStore {
             self.verify_media(manifest, &key)?;
         }
         Ok(manifests)
+    }
+    pub fn recovery_ids(&self) -> StoreResult<Vec<String>> {
+        // This intentionally needs no Keychain access. A lost item leaves only
+        // opaque file names available so the user can still discard local data.
+        let mut ids = Vec::new();
+        for entry in fs::read_dir(&self.dir).map_err(|_| err("Draft directory is unavailable"))? {
+            let entry = entry.map_err(|_| err("Draft directory is unavailable"))?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if let Some(id) = name.strip_suffix(".manifest") {
+                checked_id(id)?;
+                if !regular_file(&entry.path())? {
+                    return Err(err("Draft file is unsafe"));
+                }
+                ids.push(id.to_owned());
+                if ids.len() > 64 {
+                    return Err(err("Too many saved drafts"));
+                }
+            }
+        }
+        ids.sort();
+        Ok(ids)
     }
     pub fn save_setup(
         &mut self,
@@ -733,7 +782,8 @@ impl DraftStore {
         if manifest.take.is_none() {
             manifest.expires_at = now + TTL;
         }
-        self.commit(&manifest, &key)?;
+        self.commit(&manifest, &key)
+            .map_err(|error| error.message)?;
         Ok(manifest)
     }
     pub fn begin_take(
@@ -768,9 +818,14 @@ impl DraftStore {
             .as_ref()
             .map_or(0, |t| encrypted_media_size(t.size));
         let incoming_size = encrypted_media_size(take.size);
+        let pending: u64 = self
+            .incoming
+            .values()
+            .map(|item| encrypted_media_size(item.take.size).saturating_sub(item.replaced_size))
+            .sum();
         if existing
-            .saturating_sub(old_size)
-            .saturating_add(incoming_size)
+            .saturating_add(pending)
+            .saturating_add(incoming_size.saturating_sub(old_size))
             > MAX_TOTAL
         {
             return Err(err("Local draft storage limit reached"));
@@ -798,6 +853,7 @@ impl DraftStore {
                 bytes: 0,
                 hash: Sha256::new(),
                 chunk_index: 0,
+                replaced_size: old_size,
             },
         );
         Ok(transfer)
@@ -877,8 +933,10 @@ impl DraftStore {
             manifest.expires_at = item.take.capture_ended_at.saturating_add(TTL);
             manifest.revision += 1;
             if let Err(error) = self.commit(&manifest, &key) {
-                let _ = fs::remove_file(&final_path);
-                return Err(error);
+                if !error.published {
+                    let _ = fs::remove_file(&final_path);
+                }
+                return Err(error.message);
             }
             self.verified
                 .insert(format!("{}:{}", manifest.draft_id, item.take.media_id));
@@ -976,7 +1034,8 @@ impl DraftStore {
         manifest.submission = Some(submission);
         manifest.revision += 1;
         manifest.updated_at = now;
-        self.commit(&manifest, &key)?;
+        self.commit(&manifest, &key)
+            .map_err(|error| error.message)?;
         Ok(manifest)
     }
     pub fn discard(&mut self, draft_id: &str) -> StoreResult<()> {
@@ -1104,15 +1163,18 @@ fn free_bytes(path: &Path) -> StoreResult<u64> {
     Ok((stats.f_bavail as u64).saturating_mul(stats.f_frsize as u64))
 }
 
-pub type DraftState = Mutex<StoreResult<DraftStore>>;
-pub fn open_store() -> DraftState {
+pub type DraftState = Mutex<Option<StoreResult<DraftStore>>>;
+pub fn unopened_store() -> DraftState {
+    Mutex::new(None)
+}
+pub fn initialize_store(state: &DraftState) {
     let result = DraftStore::new(&crate::desktop::data_root()).map(|mut store| {
         // Keychain failure leaves the shell usable, while all draft commands
         // continue to return a clear error and never fall back to plaintext.
         let _ = store.expire(now_ms());
         store
     });
-    Mutex::new(result)
+    *state.lock().unwrap() = Some(result);
 }
 fn with_store<T>(
     state: tauri::State<'_, DraftState>,
@@ -1121,11 +1183,19 @@ fn with_store<T>(
     let mut store = state
         .lock()
         .map_err(|_| err("Draft store is unavailable"))?;
-    f(store.as_mut().map_err(|error| error.clone())?)
+    f(store
+        .as_mut()
+        .ok_or_else(|| err("Draft store is unavailable"))?
+        .as_mut()
+        .map_err(|error| error.clone())?)
 }
 #[tauri::command]
 pub fn draft_list(state: tauri::State<'_, DraftState>) -> StoreResult<Vec<Manifest>> {
     with_store(state, |s| s.list())
+}
+#[tauri::command]
+pub fn draft_recovery_ids(state: tauri::State<'_, DraftState>) -> StoreResult<Vec<String>> {
+    with_store(state, |s| s.recovery_ids())
 }
 #[tauri::command]
 pub fn draft_save_setup(
@@ -1358,6 +1428,73 @@ mod tests {
         assert!(!orphan_media.exists());
     }
     #[test]
+    fn unopened_secondary_state_does_not_prune_active_transfer() {
+        let root = TestRoot::new();
+        let mut active = store(&root);
+        let draft = active.save_setup(setup("Alex"), None, None).unwrap();
+        let transfer = active
+            .begin_take(draft.draft_id, draft.revision, take(b"active"))
+            .unwrap();
+        let temp = active.dir.join(format!("{transfer}.tmp"));
+        assert!(temp.exists());
+        let secondary = unopened_store();
+        assert!(secondary.lock().unwrap().is_none());
+        assert!(temp.exists());
+        drop(active);
+        let mut recovered = self::store(&root);
+        recovered.expire(now_ms()).unwrap();
+        assert!(!temp.exists());
+    }
+    #[test]
+    fn manifest_sync_failure_after_rename_preserves_recoverable_media() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let draft = store.save_setup(setup("Alex"), None, None).unwrap();
+        let first = b"first take";
+        let transfer = store
+            .begin_take(draft.draft_id.clone(), draft.revision, take(first))
+            .unwrap();
+        store.write_take_chunk(&transfer, first.to_vec()).unwrap();
+        let ready = store.finish_take(&transfer).unwrap();
+        let old_media = store
+            .media_path(&ready.draft_id, &ready.take.as_ref().unwrap().media_id)
+            .unwrap();
+        let second = b"replacement";
+        let transfer = store
+            .begin_take(ready.draft_id.clone(), ready.revision, take(second))
+            .unwrap();
+        store.write_take_chunk(&transfer, second.to_vec()).unwrap();
+        store.fail_manifest_sync = true;
+        assert!(store.finish_take(&transfer).unwrap_err().contains("sync"));
+        assert!(old_media.exists());
+        drop(store);
+        let mut recovered = self::store(&root);
+        recovered.expire(now_ms()).unwrap();
+        let published = recovered.list().unwrap().remove(0);
+        assert_eq!(published.revision, ready.revision + 1);
+        assert_eq!(
+            recovered
+                .load_take_chunk(&published.draft_id, &published.take.unwrap().media_id, 0)
+                .unwrap(),
+            second
+        );
+    }
+    #[test]
+    fn oversized_manifest_does_not_replace_readable_revision() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let first = store.save_setup(setup("Alex"), None, None).unwrap();
+        let mut changed = setup("Alex");
+        changed.prompt_text = "\u{0001}".repeat(12_000);
+        assert!(store
+            .save_setup(changed, Some(first.draft_id.clone()), Some(first.revision))
+            .unwrap_err()
+            .contains("limit"));
+        let recovered = store.list().unwrap().remove(0);
+        assert_eq!(recovered.revision, first.revision);
+        assert_eq!(recovered.setup.prompt_text, first.setup.prompt_text);
+    }
+    #[test]
     fn expiry_limits_revisions_and_learner_isolation() {
         let root = TestRoot::new();
         let mut store = store(&root);
@@ -1438,10 +1575,13 @@ mod tests {
         };
         let mut store = DraftStore::test(&root.0, Box::new(lost));
         assert!(store.list().unwrap_err().contains("cannot be opened"));
-        let id = good.list().unwrap()[0].draft_id.clone();
+        let id = store.recovery_ids().unwrap().remove(0);
         store.discard(&id).unwrap();
         store.discard(&id).unwrap();
         assert!(fs::read_dir(&store.dir).unwrap().next().is_none());
+        assert!(store.recovery_ids().unwrap().is_empty());
+        let mut restored = super::tests::store(&root);
+        assert!(restored.save_setup(setup("Alex"), None, None).is_ok());
     }
     #[test]
     fn symlinked_storage_is_rejected() {
@@ -1504,6 +1644,43 @@ mod tests {
             ..safe.clone()
         };
         assert!(unsafe_connection.validate().is_err());
+    }
+    #[test]
+    fn concurrent_transfers_reserve_aggregate_quota() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let drafts = ["Alex", "Bea", "Cia"]
+            .map(|speaker| store.save_setup(setup(speaker), None, None).unwrap());
+        let mut metadata = take(b"x");
+        metadata.size = MAX_TAKE;
+        let first = store
+            .begin_take(
+                drafts[0].draft_id.clone(),
+                drafts[0].revision,
+                metadata.clone(),
+            )
+            .unwrap();
+        let second = store
+            .begin_take(
+                drafts[1].draft_id.clone(),
+                drafts[1].revision,
+                metadata.clone(),
+            )
+            .unwrap();
+        assert!(store
+            .begin_take(
+                drafts[2].draft_id.clone(),
+                drafts[2].revision,
+                metadata.clone()
+            )
+            .unwrap_err()
+            .contains("storage limit"));
+        store.abort_take(&first).unwrap();
+        let third = store
+            .begin_take(drafts[2].draft_id.clone(), drafts[2].revision, metadata)
+            .unwrap();
+        store.abort_take(&second).unwrap();
+        store.abort_take(&third).unwrap();
     }
     #[test]
     fn old_transfer_cannot_overwrite_new_revision_and_permissions_are_private() {

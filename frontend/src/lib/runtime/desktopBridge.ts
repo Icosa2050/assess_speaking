@@ -39,6 +39,7 @@ export interface SavedDraft {
 
 export interface DesktopDraftStoreBridge {
   list(): Promise<SavedDraft[]>;
+  recoveryIds(): Promise<string[]>;
   saveSetup(setup: SessionDraft, draftId?: string, expectedRevision?: number): Promise<SavedDraft>;
   beginTake(draftId: string, expectedRevision: number, take: Omit<SavedTake, "mediaId">): Promise<string>;
   writeTakeChunk(transferId: string, bytes: number[]): Promise<number>;
@@ -94,7 +95,7 @@ const isAuthMode = (value: string): value is DesktopAuthMode =>
 
 const isDraftStore = (value: unknown): value is DesktopDraftStoreBridge => {
   if (!value || typeof value !== "object") return false;
-  return ["list", "saveSetup", "beginTake", "writeTakeChunk", "abortTake", "finishTake", "loadTakeChunk", "markSubmission", "discard", "expire"]
+  return ["list", "recoveryIds", "saveSetup", "beginTake", "writeTakeChunk", "abortTake", "finishTake", "loadTakeChunk", "markSubmission", "discard", "expire"]
     .every((method) => typeof (value as Record<string, unknown>)[method] === "function");
 };
 

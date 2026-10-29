@@ -7,6 +7,7 @@ use tauri::Manager;
 
 const DRAFT_BRIDGE_JS: &str = r#"({
     list: () => window.__TAURI_INTERNALS__.invoke("draft_list"),
+    recoveryIds: () => window.__TAURI_INTERNALS__.invoke("draft_recovery_ids"),
     saveSetup: (setup, draftId, expectedRevision) => window.__TAURI_INTERNALS__.invoke("draft_save_setup", { setup, draftId, expectedRevision }),
     beginTake: (draftId, expectedRevision, take) => window.__TAURI_INTERNALS__.invoke("draft_begin_take", { draftId, expectedRevision, take }),
     writeTakeChunk: (transferId, bytes) => window.__TAURI_INTERNALS__.invoke("draft_write_take_chunk", { transferId, bytes }),
@@ -46,23 +47,24 @@ fn main() {
     context.set_default_window_icon(None);
     let app = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![support::save_support_bundle, support::save_learner_backup, support::draft_support_email,
-            draft_store::draft_list, draft_store::draft_save_setup, draft_store::draft_begin_take,
+            draft_store::draft_list, draft_store::draft_recovery_ids, draft_store::draft_save_setup, draft_store::draft_begin_take,
             draft_store::draft_write_take_chunk, draft_store::draft_abort_take, draft_store::draft_finish_take, draft_store::draft_load_take_chunk,
             draft_store::draft_mark_submission, draft_store::draft_discard, draft_store::draft_expire])
         .manage(Mutex::new(None::<desktop::BackendOwner>))
-        .manage(draft_store::open_store())
+        .manage(draft_store::unopened_store())
         .setup(|app| {
             tauri::WebviewWindowBuilder::new(app, "loading", tauri::WebviewUrl::App("loading.html".into()))
                 .title("Vostavo").inner_size(560.0, 300.0).resizable(false).build()?;
             let handle = app.handle().clone();
             let config = app.config().app.windows.iter().find(|window| window.label == "main").cloned().ok_or("Main window configuration is missing")?;
             std::thread::spawn(move || {
-                if let Err(error) = support::cleanup_draft_attachments(&desktop::data_root()) {
-                    eprintln!("Support attachment cleanup: {error}");
-                }
                 match desktop::BackendOwner::launch() {
                     Ok((owner, runtime)) => {
                         *handle.state::<Mutex<Option<desktop::BackendOwner>>>().lock().unwrap() = Some(owner);
+                        draft_store::initialize_store(&handle.state::<draft_store::DraftState>());
+                        if let Err(error) = support::cleanup_draft_attachments(&desktop::data_root()) {
+                            eprintln!("Support attachment cleanup: {error}");
+                        }
                         let result = tauri::WebviewWindowBuilder::from_config(&handle, &config)
                             .and_then(|builder| builder.on_navigation(|url| {
                                 matches!((url.scheme(), url.host_str()), ("tauri", Some("localhost")) | ("http", Some("tauri.localhost")) | ("https", Some("tauri.localhost")))
