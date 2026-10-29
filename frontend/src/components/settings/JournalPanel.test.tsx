@@ -137,7 +137,7 @@ describe("journal recovery visibility", () => {
     fireEvent.click(await screen.findByRole("button", { name: t("journal.fresh") }));
     fireEvent.click(screen.getByRole("button", { name: t("journal.confirm_fresh") }));
     await waitFor(() => expect(screen.getByRole("dialog").querySelector('[role="alert"]')).toHaveTextContent("Journal disk is full"));
-    expect(document.activeElement).toHaveAttribute("id", "fresh-error");
+    await waitFor(() => expect(document.activeElement).toHaveAttribute("id", "fresh-error"));
     expect(screen.getByRole("button", { name: "Cancel and keep current state" })).toBeEnabled();
     status.mockResolvedValue(clean);
     fireEvent.click(screen.getByRole("button", { name: t("journal.confirm_fresh") }));
