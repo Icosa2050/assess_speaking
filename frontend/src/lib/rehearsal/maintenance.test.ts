@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { commitLearnerRestore, exportJournalDiagnostics, reconcileFreshJournal, journalRecoveryStatus, recoverLearnerJournal, previewLearnerRestore, startFreshJournal } from "./maintenance";
+import { commitLearnerRestore, exportJournalDiagnostics, JournalHttpError, reconcileFreshJournal, journalRecoveryStatus, recoverLearnerJournal, previewLearnerRestore, startFreshJournal } from "./maintenance";
 import { clearRehearsalMaintenance, commitRehearsals, rehearsalMaintenance, stageRehearsals } from "./storage";
 import { buildSessionDraft } from "@/lib/state/sessionDraft";
 import { persistRetryDraft, RETRY_DRAFT_STORAGE_KEY } from "@/lib/state/retryBriefStorage";
@@ -114,7 +114,9 @@ describe("damaged journal browser coordination", () => {
 
   it("retains browser recovery data when another backend transaction excludes fresh start", async () => {
     fetchMock.mockResolvedValueOnce(reply({detail: "Maintenance in progress"}, 409));
-    await expect(startFreshJournal("f".repeat(32))).rejects.toThrow("Maintenance in progress");
+    const failure = await startFreshJournal("f".repeat(32)).catch(cause => cause);
+    expect(failure).toBeInstanceOf(JournalHttpError);
+    expect(failure).toMatchObject({message: "Maintenance in progress", status: 409});
     expect(clearRehearsalMaintenance).not.toHaveBeenCalled();
   });
 

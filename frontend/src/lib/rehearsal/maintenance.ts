@@ -23,6 +23,9 @@ export function ownJournalPreview(id: string) {
   };
 }
 const route = (path: string) => `/v1/journal/${path}` as FrozenApiRoute;
+export class JournalHttpError extends Error {
+  constructor(message: string, readonly status: number) { super(message); this.name = "JournalHttpError"; }
+}
 export async function journalRequest<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const binary = body instanceof Blob;
   const response = await fetch(buildApiUrl(route(path)), {
@@ -32,7 +35,7 @@ export async function journalRequest<T>(path: string, body?: unknown, signal?: A
   });
   if (!response.ok) {
     const error = await response.json().catch(() => null);
-    throw new Error(error?.detail?.detail || (typeof error?.detail === "string" ? error.detail : "Journal operation failed. Retry in Settings."));
+    throw new JournalHttpError(error?.detail?.detail || (typeof error?.detail === "string" ? error.detail : "Journal operation failed. Retry in Settings."), response.status);
   }
   return response.json() as Promise<T>;
 }

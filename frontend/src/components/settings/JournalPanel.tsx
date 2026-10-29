@@ -7,7 +7,7 @@ import { createTranslator } from "@/lib/i18n";
 import type { UiLocale } from "@/lib/state/sessionDraft";
 import { useAppStore } from "@/lib/state/appStore";
 import { isDesktopRuntime, readDesktopRuntimeBridge } from "@/lib/runtime/desktopBridge";
-import { ownJournalPreview, startFreshJournal, reconcileFreshJournal, exportJournalDiagnostics, attemptRemoval, rehearsalRemoval, createLearnerBackup, previewLearnerRestore, commitLearnerRestore, recoverLearnerJournal, journalRecoveryStatus, journalStatus, journalRequest, journalBlob, type BackupResult, type RestorePreview, type JournalStatus } from "@/lib/rehearsal/maintenance";
+import { ownJournalPreview, startFreshJournal, reconcileFreshJournal, JournalHttpError, exportJournalDiagnostics, attemptRemoval, rehearsalRemoval, createLearnerBackup, previewLearnerRestore, commitLearnerRestore, recoverLearnerJournal, journalRecoveryStatus, journalStatus, journalRequest, journalBlob, type BackupResult, type RestorePreview, type JournalStatus } from "@/lib/rehearsal/maintenance";
 import { listArchivedRehearsals, undoRehearsalArchive } from "@/lib/rehearsal/storage";
 import type { Rehearsal } from "@/lib/rehearsal/session";
 import { Button } from "@/components/ui/Button";
@@ -26,6 +26,8 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
   const freshDialog = useRef<HTMLDialogElement>(null);
   const messageRef = useRef<HTMLParagraphElement>(null);
   const focusedFragment = useRef<string | null>(null);
+  const fallbackFocused = useRef<string | null>(null);
+  const checkRecoveryRequested = useRef<string | null>(null);
   const [confirmFresh, setConfirmFresh] = useState(false);
   const [freshError, setFreshError] = useState("");
   const [diagnostics, setDiagnostics] = useState<SupportBundleCreateResponse | null>(null);
@@ -40,11 +42,11 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
   const [status, setStatus] = useState<JournalStatus | null>(null);
   const [removal, setRemoval] = useState<{ id: string; kind: "attempt" | "rehearsal"; files: number; retained: number; fingerprint?: string } | null>(null);
   const [archived, setArchived] = useState<Rehearsal[]>([]);
-  const run = async (action: (signal: AbortSignal) => Promise<void>, onError: (detail: string) => void | Promise<void> = setError) => {
+  const run = async (action: (signal: AbortSignal) => Promise<void>, onError: (detail: string, cause: unknown) => void | Promise<void> = setError) => {
     setError(""); setMessage(""); setBusy(true);
     const abort = new AbortController(); controller.current = abort;
     try { await action(abort.signal); await cache.invalidateQueries(); }
-    catch (cause) { await onError(cause instanceof Error ? cause.message : String(cause)); }
+    catch (cause) { await onError(cause instanceof Error ? cause.message : String(cause), cause); }
     finally { controller.current = null; setBusy(false); setCommitting(false); window.dispatchEvent(new Event("journal-recovery-changed")); }
   };
   const progress = (done: number, total: number) => setMessage(t("journal.progress", { done, total }));
@@ -99,12 +101,19 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
     if (!element) return;
     element.scrollIntoView?.({ block: "start" });
     if (element instanceof HTMLButtonElement && element.disabled) {
-      document.getElementById("your-data-title")?.focus();
+      if (fallbackFocused.current !== location.key) {
+        document.getElementById("your-data-title")?.focus();
+        fallbackFocused.current = location.key;
+      } else if (!busy && checkRecoveryRequested.current === location.key) {
+        checkRecoveryRequested.current = null;
+        if (!error) document.getElementById("journal-check-recovery")?.focus();
+      }
       return;
     }
+    checkRecoveryRequested.current = null;
     element.focus();
     if (document.activeElement === element) focusedFragment.current = location.key;
-  }, [location.hash, location.key, status, busy]);
+  }, [location.hash, location.key, status, busy, error]);
   const refresh = async () => { setStatus(await journalRecoveryStatus()); setArchived(await listArchivedRehearsals()); };
   const retryRecovery = async (rollback = false) => {
     try {
@@ -146,7 +155,13 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
         try { await commitLearnerRestore(preview, signal, progress, () => setCommitting(true)); restoreSucceeded = true; beginNewSession(); }
         finally { setPreview(null); setRestoreName(""); if (!restoreSucceeded) await refresh(); }
         setStatus(null); setMessage(t("journal.restored")); await refresh();
-      }, detail => setError(restoreSucceeded ? t("your_data.restore_refresh_failed", { detail }) : detail)); }}>{t("journal.confirm_restore")}</Button>
+      }, async detail => {
+        if (restoreSucceeded) {
+          try { await cache.invalidateQueries(); }
+          catch (cause) { detail = `${detail}; ${cause instanceof Error ? cause.message : String(cause)}`; }
+        }
+        setError(restoreSucceeded ? t("your_data.restore_refresh_failed", { detail }) : detail);
+      }); }}>{t("journal.confirm_restore")}</Button>
       <Button disabled={busy} onClick={() => void run(async () => { await retryRecovery(true); setMessage(t("journal.cancelled")); })}>{t("journal.cancel")}</Button>
     </div>}
     {status?.recovery_error && <div className={`${styles.actionGroup} ${styles.dangerCard}`}>
@@ -168,8 +183,9 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
           void run(async () => {
             await startFreshJournal(requestId, id => { browserTransaction = id; }); resetSucceeded = true; beginNewSession(); setConfirmFresh(false); setStatus(null); setRestoreName("");
             await refresh(); setMessage(t("journal.fresh_done"));
-          }, async detail => {
+          }, async (detail, cause) => {
             if (resetSucceeded) { setError(t("your_data.fresh_refresh_failed", { detail })); return; }
+            if (cause instanceof JournalHttpError) { setFreshError(detail); return; }
             let result: Awaited<ReturnType<typeof reconcileFreshJournal>>;
             try { result = await reconcileFreshJournal(requestId, browserTransaction); }
             catch {
@@ -210,7 +226,7 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
       {!!backup?.missing.length && <p>{t("journal.missing", { count: backup.missing.length })}</p>}
     </div>
     {busy && !committing && <Button onClick={() => controller.current?.abort()}>{t("journal.cancel")}</Button>}
-    <Button disabled={busy} onClick={() => void run(refresh)}>{t("journal.check_recovery")}</Button>
+    <Button id="journal-check-recovery" disabled={busy} onClick={() => { checkRecoveryRequested.current = location.key; void run(refresh); }}>{t("journal.check_recovery")}</Button>
     {pendingTransaction && status?.transaction?.id !== preview?.id && <div className={styles.actionGroup}><p>{t("journal.recovery_needed")}</p>
       <Button disabled={busy} onClick={() => void run(async () => { await retryRecovery(); setMessage(t("journal.recovered")); })}>{t("journal.recover")}</Button>
       <Button disabled={busy} onClick={() => void run(async () => { await retryRecovery(true); setMessage(t("journal.rolled_back")); })}>{t("journal.rollback")}</Button>

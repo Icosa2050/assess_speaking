@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "@/lib/i18n";
-import { commitLearnerRestore, reconcileFreshJournal, journalRecoveryStatus, journalStatus, previewLearnerRestore, recoverLearnerJournal, startFreshJournal, type JournalStatus } from "@/lib/rehearsal/maintenance";
+import { commitLearnerRestore, JournalHttpError, reconcileFreshJournal, journalRecoveryStatus, journalStatus, previewLearnerRestore, recoverLearnerJournal, startFreshJournal, type JournalStatus } from "@/lib/rehearsal/maintenance";
 import { createRehearsal } from "@/lib/rehearsal/session";
 import { listArchivedRehearsals } from "@/lib/rehearsal/storage";
 import { renderWithProviders } from "@/test/renderWithProviders";
@@ -116,6 +116,20 @@ describe("journal recovery visibility", () => {
     await waitFor(() => expect(fresh).toHaveFocus());
   });
 
+  it("keeps Check recovery focused when the fragment action remains disabled", async () => {
+    status.mockResolvedValue({...damaged, transaction: {id: "repair", phase: "backend_staged"}});
+    renderWithProviders(<JournalPanel locale="en" />, {initialEntries: ["/settings#journal-fresh"]});
+    const fresh = await screen.findByRole("button", {name: t("journal.fresh")});
+    expect(fresh).toBeDisabled();
+    expect(screen.getByRole("heading", {name: t("your_data.title")})).toHaveFocus();
+    const check = screen.getByRole("button", {name: t("journal.check_recovery")});
+    fireEvent.click(check);
+    await waitFor(() => expect(status).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(check).toBeEnabled());
+    expect(check).toHaveFocus();
+    expect(fresh).toBeDisabled();
+  });
+
   it("announces a failed fresh start inside the dialog and permits retry", async () => {
     status.mockResolvedValue(damaged);
     vi.mocked(startFreshJournal).mockRejectedValueOnce(new Error("Journal disk is full"));
@@ -189,17 +203,15 @@ describe("journal recovery visibility", () => {
     expect(reconcileFreshJournal).toHaveBeenCalledOnce();
   });
 
-  it("preserves an unrelated pending restore after a rejected reset", async () => {
-    const pending = {...clean, transaction: {id: "other", phase: "backend_staged"}};
-    vi.mocked(reconcileFreshJournal).mockResolvedValueOnce({applied: false, status: pending, pendingRecovery: false});
-    vi.mocked(startFreshJournal).mockRejectedValueOnce(new Error("The journal is not damaged"));
+  it("keeps a definitive HTTP rejection inside the dialog without reconciling browser recovery", async () => {
+    vi.mocked(startFreshJournal).mockRejectedValueOnce(new JournalHttpError("The journal is not damaged", 409));
     status.mockResolvedValueOnce(damaged);
     renderWithProviders(<JournalPanel locale="en" />);
     fireEvent.click(await screen.findByRole("button", {name: t("journal.fresh")}));
     fireEvent.click(screen.getByRole("button", {name: t("journal.confirm_fresh")}));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(screen.getByRole("alert")).toHaveTextContent("The journal is not damaged");
-    expect(screen.getByTestId("journal-state")).toHaveTextContent(t("your_data.state_pending"));
+    await waitFor(() => expect(screen.getByRole("dialog").querySelector('[role="alert"]')).toHaveTextContent("The journal is not damaged"));
+    expect(reconcileFreshJournal).not.toHaveBeenCalled();
+    expect(journalStatus).not.toHaveBeenCalled();
     expect(screen.queryByText(t("journal.fresh_done"))).not.toBeInTheDocument();
   });
 
@@ -302,15 +314,20 @@ describe("journal recovery visibility", () => {
       .mockRejectedValueOnce(new Error("Status offline"));
     vi.mocked(previewLearnerRestore).mockResolvedValue({id: "restore", attempts: 0,
       skipped_attempts: [], skipped_rehearsals: [], missing: [], browser: {sessions: [], recordings: []}});
-    renderWithProviders(<JournalPanel locale="en" />);
+    const {queryClient} = renderWithProviders(<JournalPanel locale="en" />);
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     fireEvent.change(await screen.findByLabelText(t("journal.open")), {target: {files: [new File(["zip"], "backup.zip")]}});
-    fireEvent.click(await screen.findByRole("button", {name: t("journal.confirm_restore")}));
+    const restore = await screen.findByRole("button", {name: t("journal.confirm_restore")});
+    await waitFor(() => expect(restore).toBeEnabled());
+    invalidate.mockClear();
+    fireEvent.click(restore);
     await waitFor(() => expect(commitLearnerRestore).toHaveBeenCalledOnce());
     expect(await screen.findByText(t("journal.restored"))).toBeVisible();
     expect(screen.getByRole("alert")).toHaveTextContent("The backup was restored");
     expect(screen.getByRole("alert")).toHaveTextContent("Status offline");
     expect(screen.getByTestId("journal-state")).not.toHaveTextContent(t("your_data.state_pending"));
     expect(screen.queryByRole("button", {name: t("journal.confirm_restore")})).not.toBeInTheDocument();
+    await waitFor(() => expect(invalidate).toHaveBeenCalledOnce());
   });
 
   it("offers exits immediately when an explicit rollback retry fails", async () => {
