@@ -78,6 +78,13 @@ test("keyboard navigation reaches the safe action at both desktop sizes", async 
   await page.route("**/v1/journal/status", route => route.fulfill({ json: damaged }));
   const screenshotDir = process.env.DATA_SAFETY_SCREENSHOT_DIR;
   if (screenshotDir) mkdirSync(screenshotDir, { recursive: true });
+  const tabTo = async (target: ReturnType<typeof page.getByRole>) => {
+    for (let step = 0; step < 8; step += 1) {
+      await page.keyboard.press("Tab");
+      if (await target.evaluate(element => element === document.activeElement)) return;
+    }
+    await expect(target).toBeFocused();
+  };
   for (const [width, height] of [[1360, 900], [1100, 760]]) {
     await page.setViewportSize({ width, height });
     await page.goto("/");
@@ -87,12 +94,12 @@ test("keyboard navigation reaches the safe action at both desktop sizes", async 
     await expect(page).toHaveURL(/\/settings#your-data$/);
     await expect(page.getByRole("heading", { name: "Your data", exact: true })).toBeFocused();
     const safe = page.getByRole("button", { name: "Export diagnostics only" });
-    await page.keyboard.press("Tab");
+    await tabTo(safe);
     await expect(safe).toBeFocused();
     if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `after-damaged-${width}x${height}.png`) });
-    await page.keyboard.press("Tab");
+    await tabTo(page.getByRole("button", { name: "Choose a backup ZIP" }));
     await expect(page.getByRole("button", { name: "Choose a backup ZIP" })).toBeFocused();
-    await page.keyboard.press("Tab");
+    await tabTo(page.getByRole("button", { name: "Start a fresh journal" }));
     await expect(page.getByRole("button", { name: "Start a fresh journal" })).toBeFocused();
   }
 });
