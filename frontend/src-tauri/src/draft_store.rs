@@ -414,12 +414,11 @@ impl std::fmt::Debug for Manifest {
     }
 }
 impl Manifest {
-    fn validate(&self, id: &str, now: u64) -> StoreResult<()> {
+    fn validate(&self, id: &str, _now: u64) -> StoreResult<()> {
         if self.version != 1
             || self.draft_id != id
             || self.speaker_id != self.setup.validate()?
             || self.created_at > self.updated_at
-            || self.updated_at > now.saturating_add(60_000)
             || self.expires_at < self.created_at
             || self.expires_at > self.updated_at.saturating_add(TTL)
             || self.revision == 0
@@ -530,6 +529,14 @@ pub struct DraftStore {
     verified: HashSet<String>,
     #[cfg(test)]
     fail_manifest_sync: bool,
+    #[cfg(test)]
+    fail_chunk_write_after_length: bool,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftListing {
+    drafts: Vec<Manifest>,
+    unreadable_ids: Vec<String>,
 }
 impl DraftStore {
     pub fn new(root: &Path) -> StoreResult<Self> {
@@ -545,6 +552,8 @@ impl DraftStore {
             verified: HashSet::new(),
             #[cfg(test)]
             fail_manifest_sync: false,
+            #[cfg(test)]
+            fail_chunk_write_after_length: false,
         })
     }
     #[cfg(test)]
@@ -560,6 +569,7 @@ impl DraftStore {
             incoming: HashMap::new(),
             verified: HashSet::new(),
             fail_manifest_sync: false,
+            fail_chunk_write_after_length: false,
         }
     }
     fn manifest_path(&self, id: &str) -> StoreResult<PathBuf> {
@@ -616,12 +626,9 @@ impl DraftStore {
     }
     fn manifests(&self, key: &[u8; 32], now: u64) -> StoreResult<Vec<Manifest>> {
         let mut found = Vec::new();
-        for entry in fs::read_dir(&self.dir).map_err(|_| err("Draft directory is unavailable"))? {
-            let entry = entry.map_err(|_| err("Draft directory is unavailable"))?;
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if let Some(id) = name.strip_suffix(".manifest") {
-                checked_id(id)?;
-                found.push(self.read(id, key, now)?);
+        for id in self.recovery_ids()? {
+            if let Ok(manifest) = self.read(&id, key, now) {
+                found.push(manifest);
             }
         }
         Ok(found)
@@ -665,6 +672,7 @@ impl DraftStore {
         Ok(())
     }
     fn commit(&self, manifest: &Manifest, key: &[u8; 32]) -> Result<(), CommitFailure> {
+        manifest.validate(&manifest.draft_id, now_ms())?;
         let final_path = self.manifest_path(&manifest.draft_id)?;
         regular_file(&final_path)?;
         let plain = serde_json::to_vec(manifest).map_err(|_| err("Could not encode draft"))?;
@@ -682,12 +690,12 @@ impl DraftStore {
             #[cfg(test)]
             if self.fail_manifest_sync {
                 return Err(CommitFailure {
-                    message: err("Could not sync draft directory"),
+                    message: err("Could not sync draft directory; save may have changed, refresh before retrying"),
                     published: true,
                 });
             }
-            sync_dir(&self.dir).map_err(|message| CommitFailure {
-                message,
+            sync_dir(&self.dir).map_err(|_| CommitFailure {
+                message: err("Could not sync draft directory; save may have changed, refresh before retrying"),
                 published: true,
             })
         })();
@@ -696,15 +704,33 @@ impl DraftStore {
         }
         result
     }
-    pub fn list(&mut self) -> StoreResult<Vec<Manifest>> {
+    pub fn list_with_issues(&mut self) -> StoreResult<DraftListing> {
         let now = now_ms();
         self.expire(now)?;
         let key = self.key()?;
-        let manifests = self.manifests(&key, now)?;
-        for manifest in &manifests {
-            self.verify_media(manifest, &key)?;
+        let mut drafts = Vec::new();
+        let mut unreadable_ids = Vec::new();
+        for id in self.recovery_ids()? {
+            match self.read(&id, &key, now).and_then(|manifest| {
+                self.verify_media(&manifest, &key)?;
+                Ok(manifest)
+            }) {
+                Ok(manifest) => drafts.push(manifest),
+                Err(_) => unreadable_ids.push(id),
+            }
         }
-        Ok(manifests)
+        drafts.sort_by(|a, b| {
+            b.updated_at
+                .cmp(&a.updated_at)
+                .then_with(|| a.draft_id.cmp(&b.draft_id))
+        });
+        Ok(DraftListing {
+            drafts,
+            unreadable_ids,
+        })
+    }
+    pub fn list(&mut self) -> StoreResult<Vec<Manifest>> {
+        Ok(self.list_with_issues()?.drafts)
     }
     pub fn recovery_ids(&self) -> StoreResult<Vec<String>> {
         // This intentionally needs no Keychain access. A lost item leaves only
@@ -714,9 +740,8 @@ impl DraftStore {
             let entry = entry.map_err(|_| err("Draft directory is unavailable"))?;
             let name = entry.file_name().to_string_lossy().into_owned();
             if let Some(id) = name.strip_suffix(".manifest") {
-                checked_id(id)?;
-                if !regular_file(&entry.path())? {
-                    return Err(err("Draft file is unsafe"));
+                if !valid_id(id) {
+                    continue;
                 }
                 ids.push(id.to_owned());
                 if ids.len() > 64 {
@@ -760,7 +785,10 @@ impl DraftStore {
         }) {
             return Err(err("A draft already exists for this learner"));
         }
-        if previous.is_none() && all.len() >= 3 {
+        if previous.is_none() && all.len() != self.recovery_ids()?.len() {
+            return Err(err("Resolve unreadable drafts before creating another"));
+        }
+        if previous.is_none() && self.recovery_ids()?.len() >= 3 {
             return Err(err("Three learner drafts are already saved"));
         }
         let mut manifest = previous.unwrap_or(Manifest {
@@ -777,10 +805,10 @@ impl DraftStore {
             submission: None,
         });
         manifest.setup = setup;
-        manifest.updated_at = now;
+        manifest.updated_at = now.max(manifest.updated_at);
         manifest.revision += 1;
         if manifest.take.is_none() {
-            manifest.expires_at = now + TTL;
+            manifest.expires_at = manifest.updated_at.saturating_add(TTL);
         }
         self.commit(&manifest, &key)
             .map_err(|error| error.message)?;
@@ -806,8 +834,11 @@ impl DraftStore {
         if take.capture_ended_at < old.created_at || take.capture_ended_at > now {
             return Err(err("Invalid take capture time"));
         }
-        let existing: u64 = self
-            .manifests(&key, now)?
+        let manifests = self.manifests(&key, now)?;
+        if manifests.len() != self.recovery_ids()?.len() {
+            return Err(err("Resolve unreadable drafts before saving another take"));
+        }
+        let existing: u64 = manifests
             .iter()
             .filter_map(|m| m.take.as_ref().map(|t| encrypted_media_size(t.size)))
             .sum();
@@ -859,6 +890,8 @@ impl DraftStore {
     pub fn write_take_chunk(&mut self, transfer_id: &str, bytes: Vec<u8>) -> StoreResult<u64> {
         checked_id(transfer_id)?;
         let key = self.key()?;
+        #[cfg(test)]
+        let fail_after_length = self.fail_chunk_write_after_length;
         let item = self
             .incoming
             .get_mut(transfer_id)
@@ -878,10 +911,23 @@ impl DraftStore {
             item.draft_id, item.take.media_id, item.chunk_index
         );
         let sealed = seal(&key, &aad, "media", &bytes)?;
-        item.file
+        let write_result = item
+            .file
             .write_all(&(sealed.len() as u32).to_be_bytes())
-            .and_then(|_| item.file.write_all(&sealed))
-            .map_err(|_| err("Could not write encrypted take"))?;
+            .and_then(|_| {
+                #[cfg(test)]
+                if fail_after_length {
+                    return Err(std::io::Error::other("simulated chunk write failure"));
+                }
+                item.file.write_all(&sealed)
+            });
+        if write_result.is_err() {
+            let failed = self.incoming.remove(transfer_id).unwrap();
+            drop(failed.file);
+            let _ = fs::remove_file(failed.path);
+            return Err(err("Could not write encrypted take; transfer cancelled"));
+        }
+        let item = self.incoming.get_mut(transfer_id).unwrap();
         item.hash.update(&bytes);
         item.bytes += bytes.len() as u64;
         item.chunk_index += 1;
@@ -893,6 +939,19 @@ impl DraftStore {
             drop(item.file);
             fs::remove_file(item.path).map_err(|_| err("Could not cancel take save"))?;
             sync_dir(&self.dir)?;
+        }
+        Ok(())
+    }
+    pub fn abort_take_for_draft(&mut self, draft_id: &str) -> StoreResult<()> {
+        checked_id(draft_id)?;
+        let transfers: Vec<_> = self
+            .incoming
+            .iter()
+            .filter(|(_, item)| item.draft_id == draft_id)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for transfer in transfers {
+            self.abort_take(&transfer)?;
         }
         Ok(())
     }
@@ -908,6 +967,13 @@ impl DraftStore {
             {
                 return Err(err("Take size or digest mismatch"));
             }
+            let open_meta = item
+                .file
+                .metadata()
+                .map_err(|_| err("Could not inspect encrypted take"))?;
+            if open_meta.len() != encrypted_media_size(item.take.size) {
+                return Err(err("Encrypted take changed before commit"));
+            }
             item.file
                 .sync_all()
                 .map_err(|_| err("Could not sync encrypted take"))?;
@@ -921,13 +987,21 @@ impl DraftStore {
             if regular_file(&final_path)? {
                 return Err(err("Take identifier collision"));
             }
+            if !regular_file(&item.path)? {
+                return Err(err("Encrypted take changed before commit"));
+            }
+            let path_meta = fs::symlink_metadata(&item.path)
+                .map_err(|_| err("Encrypted take changed before commit"))?;
+            if open_meta.dev() != path_meta.dev() || open_meta.ino() != path_meta.ino() {
+                return Err(err("Encrypted take changed before commit"));
+            }
             fs::rename(&item.path, &final_path)
                 .map_err(|_| err("Could not commit encrypted take"))?;
             sync_dir(&self.dir)?;
             let old = manifest.take.replace(item.take.clone());
             manifest.status = "take_ready".into();
             manifest.submission = None;
-            manifest.updated_at = now;
+            manifest.updated_at = now.max(manifest.updated_at).max(item.take.capture_ended_at);
             manifest.expires_at = item.take.capture_ended_at.saturating_add(TTL);
             manifest.revision += 1;
             if let Err(error) = self.commit(&manifest, &key) {
@@ -939,7 +1013,9 @@ impl DraftStore {
             self.verified
                 .insert(format!("{}:{}", manifest.draft_id, item.take.media_id));
             if let Some(old) = old {
-                let _ = fs::remove_file(self.media_path(&manifest.draft_id, &old.media_id)?);
+                if let Ok(path) = self.media_path(&manifest.draft_id, &old.media_id) {
+                    let _ = fs::remove_file(path);
+                }
             }
             Ok(manifest)
         })();
@@ -1028,10 +1104,56 @@ impl DraftStore {
         {
             return Err(err("Draft changed or expired"));
         }
+        let next_allowed = match manifest.status.as_str() {
+            "take_ready" => status == "upload_uncertain",
+            "upload_uncertain" => matches!(status.as_str(), "upload_uncertain" | "uploaded"),
+            "uploaded" => status == "assessment_uncertain",
+            "assessment_uncertain" => {
+                matches!(status.as_str(), "assessment_uncertain" | "assessing")
+            }
+            "assessing" => status == "assessing",
+            _ => false,
+        };
+        if !next_allowed {
+            return Err(err("Invalid submission transition"));
+        }
+        if let Some(previous) = &manifest.submission {
+            for (old, new) in [
+                (&previous.upload_request_id, &submission.upload_request_id),
+                (&previous.audio_id, &submission.audio_id),
+                (
+                    &previous.assessment_request_id,
+                    &submission.assessment_request_id,
+                ),
+                (&previous.assessment_id, &submission.assessment_id),
+                (
+                    &previous.request_fingerprint,
+                    &submission.request_fingerprint,
+                ),
+                (
+                    &previous.frozen_request_body,
+                    &submission.frozen_request_body,
+                ),
+            ] {
+                if !old.is_empty() && old != new {
+                    return Err(err("Submission receipt identity cannot change"));
+                }
+            }
+            let phase = |value: &str| match value {
+                "none" => 0,
+                "upload" => 1,
+                "assessment" => 2,
+                "completed" => 3,
+                _ => 4,
+            };
+            if phase(&submission.last_confirmed_phase) < phase(&previous.last_confirmed_phase) {
+                return Err(err("Submission confirmation cannot move backward"));
+            }
+        }
         manifest.status = status;
         manifest.submission = Some(submission);
         manifest.revision += 1;
-        manifest.updated_at = now;
+        manifest.updated_at = now.max(manifest.updated_at);
         self.commit(&manifest, &key)
             .map_err(|error| error.message)?;
         Ok(manifest)
@@ -1086,8 +1208,14 @@ impl DraftStore {
         }
         // A temp or media file is never recovered as an independent take. Only
         // objects referenced by a committed manifest survive a launch scan.
-        let referenced: HashSet<_> = self
-            .manifests(&key, now)?
+        let valid_manifests = self.manifests(&key, now)?;
+        let valid_ids: HashSet<_> = valid_manifests.iter().map(|m| m.draft_id.clone()).collect();
+        let unreadable_ids: HashSet<_> = self
+            .recovery_ids()?
+            .into_iter()
+            .filter(|id| !valid_ids.contains(id))
+            .collect();
+        let referenced: HashSet<_> = valid_manifests
             .iter()
             .filter_map(|m| {
                 m.take
@@ -1104,7 +1232,11 @@ impl DraftStore {
             let entry = entry.map_err(|_| err("Draft directory is unavailable"))?;
             let name = entry.file_name().to_string_lossy().into_owned();
             if (name.ends_with(".tmp") && !active.contains(&name))
-                || (name.ends_with(".media") && !referenced.contains(&name))
+                || (name.ends_with(".media")
+                    && !referenced.contains(&name)
+                    && !unreadable_ids
+                        .iter()
+                        .any(|id| name.starts_with(&format!("{id}-"))))
             {
                 if !regular_file(&entry.path())? {
                     return Err(err("Draft file is unsafe"));
@@ -1174,10 +1306,27 @@ pub fn initialize_store(state: &DraftState) {
     });
     *state.lock().unwrap() = Some(result);
 }
+fn main_window_only(label: &str) -> StoreResult<()> {
+    if label == "main" {
+        Ok(())
+    } else {
+        Err(err("Draft storage is available only in the main window"))
+    }
+}
+fn bounded_chunk_body(body: &tauri::ipc::InvokeBody) -> StoreResult<&[u8]> {
+    match body {
+        tauri::ipc::InvokeBody::Raw(bytes) if !bytes.is_empty() && bytes.len() <= CHUNK => {
+            Ok(bytes)
+        }
+        _ => Err(err("Take chunk exceeds limit")),
+    }
+}
 fn with_store<T>(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, DraftState>,
     f: impl FnOnce(&mut DraftStore) -> StoreResult<T>,
 ) -> StoreResult<T> {
+    main_window_only(window.label())?;
     let mut store = state
         .lock()
         .map_err(|_| err("Draft store is unavailable"))?;
@@ -1188,81 +1337,123 @@ fn with_store<T>(
         .map_err(|error| error.clone())?)
 }
 #[tauri::command]
-pub fn draft_list(state: tauri::State<'_, DraftState>) -> StoreResult<Vec<Manifest>> {
-    with_store(state, |s| s.list())
+pub async fn draft_list(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, DraftState>,
+) -> StoreResult<DraftListing> {
+    with_store(window, state, |s| s.list_with_issues())
 }
 #[tauri::command]
-pub fn draft_recovery_ids(state: tauri::State<'_, DraftState>) -> StoreResult<Vec<String>> {
-    with_store(state, |s| s.recovery_ids())
+pub async fn draft_recovery_ids(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, DraftState>,
+) -> StoreResult<Vec<String>> {
+    with_store(window, state, |s| s.recovery_ids())
 }
 #[tauri::command]
-pub fn draft_save_setup(
+pub async fn draft_save_setup(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, DraftState>,
     setup: Setup,
     draft_id: Option<String>,
     expected_revision: Option<u64>,
 ) -> StoreResult<Manifest> {
-    with_store(state, |s| s.save_setup(setup, draft_id, expected_revision))
+    with_store(window, state, |s| {
+        s.save_setup(setup, draft_id, expected_revision)
+    })
 }
 #[tauri::command]
-pub fn draft_begin_take(
+pub async fn draft_begin_take(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, DraftState>,
     draft_id: String,
     expected_revision: u64,
     take: Take,
 ) -> StoreResult<String> {
-    with_store(state, |s| s.begin_take(draft_id, expected_revision, take))
+    with_store(window, state, |s| {
+        s.begin_take(draft_id, expected_revision, take)
+    })
 }
 #[tauri::command]
-pub fn draft_write_take_chunk(
+pub async fn draft_write_take_chunk(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, DraftState>,
-    transfer_id: String,
-    bytes: Vec<u8>,
+    request: tauri::ipc::Request<'_>,
 ) -> StoreResult<u64> {
-    with_store(state, |s| s.write_take_chunk(&transfer_id, bytes))
+    let transfer_id = request
+        .headers()
+        .get("x-vostavo-transfer-id")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| err("Invalid take transfer identifier"))?;
+    checked_id(transfer_id)?;
+    let bytes = bounded_chunk_body(request.body())?;
+    with_store(window, state, |s| {
+        s.write_take_chunk(transfer_id, bytes.to_vec())
+    })
 }
 #[tauri::command]
-pub fn draft_abort_take(
+pub async fn draft_abort_take(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, DraftState>,
     transfer_id: String,
 ) -> StoreResult<()> {
-    with_store(state, |s| s.abort_take(&transfer_id))
+    with_store(window, state, |s| s.abort_take(&transfer_id))
 }
 #[tauri::command]
-pub fn draft_finish_take(
+pub async fn draft_abort_take_for_draft(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, DraftState>,
+    draft_id: String,
+) -> StoreResult<()> {
+    with_store(window, state, |s| s.abort_take_for_draft(&draft_id))
+}
+#[tauri::command]
+pub async fn draft_finish_take(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, DraftState>,
     transfer_id: String,
 ) -> StoreResult<Manifest> {
-    with_store(state, |s| s.finish_take(&transfer_id))
+    with_store(window, state, |s| s.finish_take(&transfer_id))
 }
 #[tauri::command]
-pub fn draft_load_take_chunk(
+pub async fn draft_load_take_chunk(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, DraftState>,
     draft_id: String,
     media_id: String,
     index: u32,
 ) -> StoreResult<Vec<u8>> {
-    with_store(state, |s| s.load_take_chunk(&draft_id, &media_id, index))
+    with_store(window, state, |s| {
+        s.load_take_chunk(&draft_id, &media_id, index)
+    })
 }
 #[tauri::command]
-pub fn draft_mark_submission(
+pub async fn draft_mark_submission(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, DraftState>,
     draft_id: String,
     expected_revision: u64,
     status: String,
     submission: Submission,
 ) -> StoreResult<Manifest> {
-    with_store(state, |s| {
+    with_store(window, state, |s| {
         s.mark_submission(&draft_id, expected_revision, status, submission)
     })
 }
 #[tauri::command]
-pub fn draft_discard(state: tauri::State<'_, DraftState>, draft_id: String) -> StoreResult<()> {
-    with_store(state, |s| s.discard(&draft_id))
+pub async fn draft_discard(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, DraftState>,
+    draft_id: String,
+) -> StoreResult<()> {
+    with_store(window, state, |s| s.discard(&draft_id))
 }
 #[tauri::command]
-pub fn draft_expire(state: tauri::State<'_, DraftState>) -> StoreResult<u32> {
-    with_store(state, |s| s.expire(now_ms()))
+pub async fn draft_expire(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, DraftState>,
+) -> StoreResult<u32> {
+    with_store(window, state, |s| s.expire(now_ms()))
 }
 
 #[cfg(test)]
@@ -1305,6 +1496,15 @@ mod tests {
         }
         fn create(&self, _: &[u8; 32]) -> StoreResult<()> {
             Err(err("Mac Keychain is unavailable; local save is disabled"))
+        }
+    }
+    struct WrongKey;
+    impl KeySource for WrongKey {
+        fn load(&self) -> StoreResult<Option<[u8; 32]>> {
+            Ok(Some([8; 32]))
+        }
+        fn create(&self, _: &[u8; 32]) -> StoreResult<()> {
+            unreachable!()
         }
     }
     fn setup(speaker: &str) -> Setup {
@@ -1367,12 +1567,63 @@ mod tests {
             .load_take_chunk(&ready.draft_id, media_id, 0)
             .unwrap_err()
             .contains("authentication"));
-        assert!(store.list().unwrap_err().contains("authentication"));
+        assert_eq!(
+            store.list_with_issues().unwrap().unreadable_ids,
+            vec![ready.draft_id.clone()]
+        );
         let path = store.manifest_path(&ready.draft_id).unwrap();
         let mut ciphertext = fs::read(&path).unwrap();
         *ciphertext.last_mut().unwrap() ^= 1;
         fs::write(&path, ciphertext).unwrap();
-        assert!(store.list().unwrap_err().contains("authentication"));
+        assert_eq!(
+            store.list_with_issues().unwrap().unreadable_ids,
+            vec![ready.draft_id.clone()]
+        );
+    }
+    #[test]
+    fn damaged_manifest_is_isolated_and_clock_rollback_does_not_hide_good_draft() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let damaged = store.save_setup(setup("Alex"), None, None).unwrap();
+        let transfer = store
+            .begin_take(damaged.draft_id.clone(), damaged.revision, take(b"take"))
+            .unwrap();
+        store.write_take_chunk(&transfer, b"take".to_vec()).unwrap();
+        let damaged = store.finish_take(&transfer).unwrap();
+        let media = store
+            .media_path(&damaged.draft_id, &damaged.take.as_ref().unwrap().media_id)
+            .unwrap();
+        let good = store.save_setup(setup("Bea"), None, None).unwrap();
+        let mut future_good = good.clone();
+        future_good.updated_at = now_ms() + 120_000;
+        future_good.expires_at = future_good.updated_at + TTL;
+        store.commit(&future_good, &[7; 32]).unwrap();
+        assert_eq!(
+            store
+                .read(&good.draft_id, &[7; 32], now_ms() - 120_000)
+                .unwrap()
+                .draft_id,
+            good.draft_id
+        );
+        let path = store.manifest_path(&damaged.draft_id).unwrap();
+        let mut bytes = fs::read(&path).unwrap();
+        *bytes.last_mut().unwrap() ^= 1;
+        fs::write(path, bytes).unwrap();
+        let bogus = store.dir.join("not-an-opaque-id.manifest");
+        create_private(&bogus).unwrap().write_all(b"junk").unwrap();
+        let listing = store.list_with_issues().unwrap();
+        assert_eq!(listing.drafts.len(), 1);
+        assert_eq!(listing.drafts[0].draft_id, good.draft_id);
+        assert_eq!(listing.unreadable_ids, vec![damaged.draft_id.clone()]);
+        assert!(store
+            .save_setup(setup("Cia"), None, None)
+            .unwrap_err()
+            .contains("unreadable"));
+        let edited = store
+            .save_setup(setup("Bea"), Some(good.draft_id), Some(good.revision))
+            .unwrap();
+        assert!(edited.updated_at >= future_good.updated_at);
+        assert!(media.exists());
     }
     #[test]
     fn incomplete_atomic_write_recovers_previous_pair_and_prunes_orphans() {
@@ -1553,6 +1804,20 @@ mod tests {
         assert!(store.finish_take(&transfer).unwrap_err().contains("digest"));
     }
     #[test]
+    fn raw_ipc_chunk_and_main_window_guards_reject_unbounded_input() {
+        assert!(main_window_only("main").is_ok());
+        assert!(main_window_only("loading").is_err());
+        assert_eq!(
+            bounded_chunk_body(&tauri::ipc::InvokeBody::Raw(vec![1])).unwrap(),
+            &[1]
+        );
+        assert!(bounded_chunk_body(&tauri::ipc::InvokeBody::Raw(vec![0; CHUNK + 1])).is_err());
+        assert!(bounded_chunk_body(&tauri::ipc::InvokeBody::Json(
+            serde_json::json!({"bytes":[1]})
+        ))
+        .is_err());
+    }
+    #[test]
     fn keychain_unavailable_or_lost_fails_closed() {
         let root = TestRoot::new();
         let key = TestKey {
@@ -1580,6 +1845,19 @@ mod tests {
         assert!(store.recovery_ids().unwrap().is_empty());
         let mut restored = super::tests::store(&root);
         assert!(restored.save_setup(setup("Alex"), None, None).is_ok());
+    }
+    #[test]
+    fn wrong_key_reports_unreadable_ids_without_exposing_plaintext() {
+        let root = TestRoot::new();
+        let mut good = store(&root);
+        let draft = good.save_setup(setup("Alex"), None, None).unwrap();
+        drop(good);
+        let mut wrong = DraftStore::test(&root.0, Box::new(WrongKey));
+        let listing = wrong.list_with_issues().unwrap();
+        assert!(listing.drafts.is_empty());
+        assert_eq!(listing.unreadable_ids, vec![draft.draft_id.clone()]);
+        wrong.discard(&draft.draft_id).unwrap();
+        assert!(wrong.recovery_ids().unwrap().is_empty());
     }
     #[test]
     fn symlinked_storage_is_rejected() {
@@ -1699,6 +1977,93 @@ mod tests {
         assert_eq!(store.list().unwrap()[0].revision, ready.revision);
     }
     #[test]
+    fn renderer_reload_can_cancel_transfer_by_draft_and_retry() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let draft = store.save_setup(setup("Alex"), None, None).unwrap();
+        let transfer = store
+            .begin_take(draft.draft_id.clone(), draft.revision, take(b"take"))
+            .unwrap();
+        let temp = store.dir.join(format!("{transfer}.tmp"));
+        assert!(temp.exists());
+        store.abort_take_for_draft(&draft.draft_id).unwrap();
+        assert!(!temp.exists());
+        assert!(store.incoming.is_empty());
+        let replacement = store
+            .begin_take(draft.draft_id.clone(), draft.revision, take(b"take"))
+            .unwrap();
+        store
+            .write_take_chunk(&replacement, b"take".to_vec())
+            .unwrap();
+        assert_eq!(
+            store.finish_take(&replacement).unwrap().status,
+            "take_ready"
+        );
+    }
+    #[test]
+    fn partial_chunk_write_cancels_transfer_before_retry() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let draft = store.save_setup(setup("Alex"), None, None).unwrap();
+        let transfer = store
+            .begin_take(draft.draft_id.clone(), draft.revision, take(b"take"))
+            .unwrap();
+        let temp = store.dir.join(format!("{transfer}.tmp"));
+        store.fail_chunk_write_after_length = true;
+        assert!(store
+            .write_take_chunk(&transfer, b"take".to_vec())
+            .unwrap_err()
+            .contains("cancelled"));
+        assert!(!temp.exists());
+        assert!(store.finish_take(&transfer).is_err());
+        store.fail_chunk_write_after_length = false;
+        let replacement = store
+            .begin_take(draft.draft_id.clone(), draft.revision, take(b"take"))
+            .unwrap();
+        store
+            .write_take_chunk(&replacement, b"take".to_vec())
+            .unwrap();
+        store.finish_take(&replacement).unwrap();
+    }
+    #[test]
+    fn substituted_or_extended_temp_cannot_be_published() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let draft = store.save_setup(setup("Alex"), None, None).unwrap();
+        let transfer = store
+            .begin_take(draft.draft_id.clone(), draft.revision, take(b"take"))
+            .unwrap();
+        store.write_take_chunk(&transfer, b"take".to_vec()).unwrap();
+        let temp = store.dir.join(format!("{transfer}.tmp"));
+        fs::remove_file(&temp).unwrap();
+        create_private(&temp)
+            .unwrap()
+            .write_all(b"impostor")
+            .unwrap();
+        assert!(store
+            .finish_take(&transfer)
+            .unwrap_err()
+            .contains("changed"));
+        assert!(store.list().unwrap()[0].take.is_none());
+
+        let transfer = store
+            .begin_take(draft.draft_id.clone(), draft.revision, take(b"take"))
+            .unwrap();
+        store.write_take_chunk(&transfer, b"take".to_vec()).unwrap();
+        let temp = store.dir.join(format!("{transfer}.tmp"));
+        OpenOptions::new()
+            .append(true)
+            .open(&temp)
+            .unwrap()
+            .write_all(b"extra")
+            .unwrap();
+        assert!(store
+            .finish_take(&transfer)
+            .unwrap_err()
+            .contains("changed"));
+        assert!(store.list().unwrap()[0].take.is_none());
+    }
+    #[test]
     fn old_transfer_cannot_overwrite_new_revision_and_permissions_are_private() {
         let root = TestRoot::new();
         let mut store = store(&root);
@@ -1771,6 +2136,52 @@ mod tests {
             )
             .unwrap();
         assert_eq!(pending.expires_at, ready.expires_at);
+        let mut changed_request = pending.submission.clone().unwrap();
+        changed_request.upload_request_id = "different".into();
+        assert!(store
+            .mark_submission(
+                &ready.draft_id,
+                pending.revision,
+                "upload_uncertain".into(),
+                changed_request
+            )
+            .unwrap_err()
+            .contains("identity"));
+        let mut uploaded_receipt = pending.submission.clone().unwrap();
+        uploaded_receipt.audio_id = "audio-1".into();
+        uploaded_receipt.last_confirmed_phase = "upload".into();
+        let uploaded = store
+            .mark_submission(
+                &ready.draft_id,
+                pending.revision,
+                "uploaded".into(),
+                uploaded_receipt.clone(),
+            )
+            .unwrap();
+        assert_eq!(uploaded.expires_at, ready.expires_at);
+        assert!(store
+            .mark_submission(
+                &ready.draft_id,
+                uploaded.revision,
+                "upload_uncertain".into(),
+                uploaded_receipt.clone()
+            )
+            .unwrap_err()
+            .contains("transition"));
+        let mut changed_audio = uploaded_receipt;
+        changed_audio.audio_id = "audio-2".into();
+        changed_audio.assessment_request_id = "assessment-1".into();
+        changed_audio.request_fingerprint = "fingerprint".into();
+        changed_audio.frozen_request_body = r#"{"audio_id":"audio-2","request_id":"assessment-1","sharing_fingerprint":"fingerprint"}"#.into();
+        assert!(store
+            .mark_submission(
+                &ready.draft_id,
+                uploaded.revision,
+                "assessment_uncertain".into(),
+                changed_audio
+            )
+            .unwrap_err()
+            .contains("identity"));
         assert!(store
             .mark_submission(
                 &ready.draft_id,

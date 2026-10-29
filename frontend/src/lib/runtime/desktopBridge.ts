@@ -36,14 +36,19 @@ export interface SavedDraft {
   take: SavedTake | null;
   submission: DraftSubmission | null;
 }
+export interface DraftListing {
+  drafts: SavedDraft[];
+  unreadableIds: string[];
+}
 
 export interface DesktopDraftStoreBridge {
-  list(): Promise<SavedDraft[]>;
+  list(): Promise<DraftListing>;
   recoveryIds(): Promise<string[]>;
   saveSetup(setup: SessionDraft, draftId?: string, expectedRevision?: number): Promise<SavedDraft>;
   beginTake(draftId: string, expectedRevision: number, take: Omit<SavedTake, "mediaId">): Promise<string>;
   writeTakeChunk(transferId: string, bytes: number[]): Promise<number>;
   abortTake(transferId: string): Promise<void>;
+  abortTakeForDraft(draftId: string): Promise<void>;
   finishTake(transferId: string): Promise<SavedDraft>;
   loadTakeChunk(draftId: string, mediaId: string, index: number): Promise<number[]>;
   markSubmission(draftId: string, expectedRevision: number, status: SavedDraft["status"], submission: DraftSubmission): Promise<SavedDraft>;
@@ -95,7 +100,7 @@ const isAuthMode = (value: string): value is DesktopAuthMode =>
 
 const isDraftStore = (value: unknown): value is DesktopDraftStoreBridge => {
   if (!value || typeof value !== "object") return false;
-  return ["list", "recoveryIds", "saveSetup", "beginTake", "writeTakeChunk", "abortTake", "finishTake", "loadTakeChunk", "markSubmission", "discard", "expire"]
+  return ["list", "recoveryIds", "saveSetup", "beginTake", "writeTakeChunk", "abortTake", "abortTakeForDraft", "finishTake", "loadTakeChunk", "markSubmission", "discard", "expire"]
     .every((method) => typeof (value as Record<string, unknown>)[method] === "function");
 };
 

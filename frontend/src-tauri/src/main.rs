@@ -10,8 +10,12 @@ const DRAFT_BRIDGE_JS: &str = r#"({
     recoveryIds: () => window.__TAURI_INTERNALS__.invoke("draft_recovery_ids"),
     saveSetup: (setup, draftId, expectedRevision) => window.__TAURI_INTERNALS__.invoke("draft_save_setup", { setup, draftId, expectedRevision }),
     beginTake: (draftId, expectedRevision, take) => window.__TAURI_INTERNALS__.invoke("draft_begin_take", { draftId, expectedRevision, take }),
-    writeTakeChunk: (transferId, bytes) => window.__TAURI_INTERNALS__.invoke("draft_write_take_chunk", { transferId, bytes }),
+    writeTakeChunk: (transferId, bytes) => {
+      if (!Array.isArray(bytes) || bytes.length === 0 || bytes.length > 262144) return Promise.reject(new Error("Take chunk exceeds limit"));
+      return window.__TAURI_INTERNALS__.invoke("draft_write_take_chunk", Uint8Array.from(bytes), { headers: { "X-Vostavo-Transfer-Id": transferId } });
+    },
     abortTake: (transferId) => window.__TAURI_INTERNALS__.invoke("draft_abort_take", { transferId }),
+    abortTakeForDraft: (draftId) => window.__TAURI_INTERNALS__.invoke("draft_abort_take_for_draft", { draftId }),
     finishTake: (transferId) => window.__TAURI_INTERNALS__.invoke("draft_finish_take", { transferId }),
     loadTakeChunk: (draftId, mediaId, index) => window.__TAURI_INTERNALS__.invoke("draft_load_take_chunk", { draftId, mediaId, index }),
     markSubmission: (draftId, expectedRevision, status, submission) => window.__TAURI_INTERNALS__.invoke("draft_mark_submission", { draftId, expectedRevision, status, submission }),
@@ -48,7 +52,7 @@ fn main() {
     let app = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![support::save_support_bundle, support::save_learner_backup, support::draft_support_email,
             draft_store::draft_list, draft_store::draft_recovery_ids, draft_store::draft_save_setup, draft_store::draft_begin_take,
-            draft_store::draft_write_take_chunk, draft_store::draft_abort_take, draft_store::draft_finish_take, draft_store::draft_load_take_chunk,
+            draft_store::draft_write_take_chunk, draft_store::draft_abort_take, draft_store::draft_abort_take_for_draft, draft_store::draft_finish_take, draft_store::draft_load_take_chunk,
             draft_store::draft_mark_submission, draft_store::draft_discard, draft_store::draft_expire])
         .manage(Mutex::new(None::<desktop::BackendOwner>))
         .manage(draft_store::unopened_store())
