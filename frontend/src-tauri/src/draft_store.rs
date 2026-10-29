@@ -110,6 +110,21 @@ fn regular_file(path: &Path) -> StoreResult<bool> {
         Err(_) => Err(err("Draft file is unavailable")),
     }
 }
+fn remove_exact_entry(path: &Path) -> StoreResult<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() && !meta.file_type().is_symlink() => {
+            fs::remove_dir_all(path).map_err(|_| err("Could not remove unsafe draft entry"))?;
+            Ok(true)
+        }
+        Ok(_) => {
+            // remove_file unlinks a symlink itself and never follows its target.
+            fs::remove_file(path).map_err(|_| err("Could not remove draft entry"))?;
+            Ok(true)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(_) => Err(err("Draft entry is unavailable")),
+    }
+}
 use std::os::unix::fs::MetadataExt;
 fn create_private(path: &Path) -> StoreResult<File> {
     OpenOptions::new()
@@ -632,12 +647,9 @@ fn seal_manifest(key: &[u8; 32], id: &str, revision: u64, plain: &[u8]) -> Store
     out.extend(encrypted);
     Ok(out)
 }
-fn open_manifest(key: &[u8; 32], id: &str, bytes: &[u8]) -> StoreResult<(Vec<u8>, Option<u64>)> {
-    if bytes.starts_with(MAGIC) {
-        // The original envelope remains readable so a previous local draft is
-        // never silently discarded during this storage-format upgrade.
-        return open(key, id, "manifest", bytes).map(|plain| (plain, None));
-    }
+fn open_manifest(key: &[u8; 32], id: &str, bytes: &[u8]) -> StoreResult<(Vec<u8>, u64)> {
+    // Revision is authenticated, but a same-user whole-file replay still needs
+    // a separate trusted monotonic marker to detect rollback.
     if bytes.len() < 40 || !bytes.starts_with(MANIFEST_MAGIC) {
         return Err(err("Saved draft is damaged"));
     }
@@ -658,7 +670,7 @@ fn open_manifest(key: &[u8; 32], id: &str, bytes: &[u8]) -> StoreResult<(Vec<u8>
             },
         )
         .map_err(|_| err("Saved draft failed authentication"))?;
-    Ok((plain, Some(revision)))
+    Ok((plain, revision))
 }
 
 struct Incoming {
@@ -813,7 +825,7 @@ impl DraftStore {
         let (plain, header_revision) = open_manifest(key, id, &bytes)?;
         let manifest: Manifest =
             serde_json::from_slice(&plain).map_err(|_| err("Invalid saved draft"))?;
-        if header_revision.is_some_and(|revision| revision != manifest.revision) {
+        if header_revision != manifest.revision {
             return Err(err("Saved draft revision mismatch"));
         }
         manifest.validate(id, now)?;
@@ -1375,8 +1387,7 @@ impl DraftStore {
     }
     pub fn discard(&mut self, draft_id: &str) -> StoreResult<()> {
         let path = self.manifest_path(draft_id)?;
-        if regular_file(&path)? {
-            fs::remove_file(path).map_err(|_| err("Could not discard draft"))?;
+        if remove_exact_entry(&path)? {
             sync_dir(&self.dir)?;
         }
         // A lost Keychain item or damaged manifest must still be discardable.
@@ -1391,10 +1402,7 @@ impl DraftStore {
                 .and_then(|name| name.strip_suffix(".media"))
             {
                 if valid_id(media_id) {
-                    if !regular_file(&entry.path())? {
-                        return Err(err("Draft file is unsafe"));
-                    }
-                    fs::remove_file(entry.path()).map_err(|_| err("Could not discard take"))?;
+                    remove_exact_entry(&entry.path())?;
                 }
             }
         }
@@ -1465,10 +1473,10 @@ impl DraftStore {
                         .iter()
                         .any(|id| name.starts_with(&format!("{id}-"))))
             {
-                if !regular_file(&entry.path())? {
-                    return Err(err("Draft file is unsafe"));
-                }
-                fs::remove_file(entry.path()).map_err(|_| err("Could not clean draft storage"))?;
+                // An unsafe orphan must not prevent healthy drafts from being
+                // listed. Removal uses the exact directory entry without following
+                // links; a failure leaves that entry for a later cleanup attempt.
+                let _ = remove_exact_entry(&entry.path());
             }
         }
         sync_dir(&self.dir)?;
@@ -1540,10 +1548,27 @@ fn main_window_only(label: &str) -> StoreResult<()> {
         Err(err("Draft storage is available only in the main window"))
     }
 }
-fn bounded_chunk_body(body: &tauri::ipc::InvokeBody) -> StoreResult<&[u8]> {
+fn bounded_chunk_body(body: &tauri::ipc::InvokeBody) -> StoreResult<Vec<u8>> {
+    // Tauri has already received either body before this command runs. The
+    // injected bridge limits normal callers; this check bounds the copy into
+    // the store, including Tauri's postMessage JSON fallback.
     match body {
         tauri::ipc::InvokeBody::Raw(bytes) if !bytes.is_empty() && bytes.len() <= CHUNK => {
-            Ok(bytes)
+            Ok(bytes.clone())
+        }
+        tauri::ipc::InvokeBody::Json(serde_json::Value::Array(bytes))
+            if !bytes.is_empty() && bytes.len() <= CHUNK =>
+        {
+            bytes
+                .iter()
+                .map(|value| {
+                    value
+                        .as_u64()
+                        .filter(|byte| *byte <= 255)
+                        .map(|byte| byte as u8)
+                })
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| err("Invalid take chunk"))
         }
         _ => Err(err("Take chunk exceeds limit")),
     }
@@ -1612,7 +1637,7 @@ pub async fn draft_write_take_chunk(
         .ok_or_else(|| err("Invalid take transfer identifier"))?;
     checked_id(transfer_id)?;
     let transfer_id = transfer_id.to_owned();
-    let bytes = bounded_chunk_body(request.body())?.to_vec();
+    let bytes = bounded_chunk_body(request.body())?;
     with_store(window, move |s| s.write_take_chunk(&transfer_id, bytes)).await
 }
 #[tauri::command]
@@ -1798,7 +1823,87 @@ mod tests {
         );
     }
     #[test]
-    fn manifest_revision_header_is_authenticated_and_legacy_manifest_upgrades() {
+    fn truncated_and_swapped_encrypted_chunks_are_not_listed() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let draft = store.save_setup(setup("Alex"), None, None).unwrap();
+        let bytes = vec![0x41; CHUNK + 17];
+        let transfer = store
+            .begin_take(draft.draft_id.clone(), draft.revision, take(&bytes))
+            .unwrap();
+        store
+            .write_take_chunk(&transfer, bytes[..CHUNK].to_vec())
+            .unwrap();
+        store
+            .write_take_chunk(&transfer, bytes[CHUNK..].to_vec())
+            .unwrap();
+        let ready = store.finish_take(&transfer).unwrap();
+        let path = store
+            .media_path(&ready.draft_id, &ready.take.as_ref().unwrap().media_id)
+            .unwrap();
+        let original = fs::read(&path).unwrap();
+        fs::write(&path, &original[..original.len() - 1]).unwrap();
+        assert_eq!(
+            store.list_with_issues().unwrap().unreadable_ids,
+            vec![ready.draft_id.clone()]
+        );
+        fs::write(&path, &original).unwrap();
+        let first_record = 4 + CHUNK + 32;
+        let mut swapped = original[..4].to_vec();
+        swapped.extend_from_slice(&original[4 + first_record..]);
+        swapped.extend_from_slice(&original[4..4 + first_record]);
+        fs::write(&path, swapped).unwrap();
+        let mut reopened = self::store(&root);
+        assert_eq!(
+            reopened.list_with_issues().unwrap().unreadable_ids,
+            vec![ready.draft_id]
+        );
+    }
+    #[test]
+    fn unsafe_manifest_can_be_discarded_and_unsafe_orphans_do_not_block_listing() {
+        use std::os::unix::fs::symlink;
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let good = store.save_setup(setup("Bea"), None, None).unwrap();
+        let bad = store.save_setup(setup("Alex"), None, None).unwrap();
+        let path = store.manifest_path(&bad.draft_id).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        let listed = store.list_with_issues().unwrap();
+        assert_eq!(listed.drafts.len(), 1);
+        assert_eq!(listed.drafts[0].draft_id, good.draft_id);
+        assert_eq!(listed.unreadable_ids, vec![bad.draft_id.clone()]);
+        store.discard(&bad.draft_id).unwrap();
+        assert!(!path.exists());
+        let restored = store.save_setup(setup("Alex"), None, None).unwrap();
+        let path = store.manifest_path(&restored.draft_id).unwrap();
+        fs::remove_file(&path).unwrap();
+        let outside = root.0.join("outside-marker");
+        fs::write(&outside, b"outside").unwrap();
+        symlink(&outside, &path).unwrap();
+        assert_eq!(
+            store.list_with_issues().unwrap().unreadable_ids,
+            vec![restored.draft_id.clone()]
+        );
+        store.discard(&restored.draft_id).unwrap();
+        assert_eq!(fs::read(&outside).unwrap(), b"outside");
+        let unsafe_dir_id = new_id().unwrap();
+        let unsafe_dir = store.manifest_path(&unsafe_dir_id).unwrap();
+        fs::create_dir(&unsafe_dir).unwrap();
+        fs::write(unsafe_dir.join("marker"), b"private").unwrap();
+        store.discard(&unsafe_dir_id).unwrap();
+        assert!(!unsafe_dir.exists());
+        let orphan_file = store.dir.join(format!("{}.media", new_id().unwrap()));
+        fs::write(&orphan_file, b"orphan").unwrap();
+        fs::set_permissions(&orphan_file, fs::Permissions::from_mode(0o644)).unwrap();
+        let orphan_link = store.dir.join(format!("{}.media", new_id().unwrap()));
+        symlink(&outside, &orphan_link).unwrap();
+        assert_eq!(store.list_with_issues().unwrap().drafts.len(), 1);
+        assert!(!orphan_file.exists());
+        assert!(!orphan_link.exists());
+        assert_eq!(fs::read(&outside).unwrap(), b"outside");
+    }
+    #[test]
+    fn manifest_revision_header_is_authenticated_and_legacy_manifest_rejected() {
         let root = TestRoot::new();
         let mut store = store(&root);
         let draft = store.save_setup(setup("Alex"), None, None).unwrap();
@@ -1827,14 +1932,10 @@ mod tests {
             seal(&[7; 32], &draft.draft_id, "manifest", &plain).unwrap(),
         )
         .unwrap();
-        assert_eq!(store.list().unwrap().len(), 1);
-        let updated = store
-            .save_setup(setup("Alex"), Some(draft.draft_id), Some(draft.revision))
-            .unwrap();
-        assert_eq!(updated.revision, 2);
-        assert!(fs::read(store.manifest_path(&updated.draft_id).unwrap())
-            .unwrap()
-            .starts_with(MANIFEST_MAGIC));
+        assert_eq!(
+            store.list_with_issues().unwrap().unreadable_ids,
+            vec![draft.draft_id]
+        );
     }
     #[test]
     fn damaged_manifest_is_isolated_and_clock_rollback_does_not_hide_good_draft() {
@@ -2065,9 +2166,22 @@ mod tests {
         assert!(main_window_only("loading").is_err());
         assert_eq!(
             bounded_chunk_body(&tauri::ipc::InvokeBody::Raw(vec![1])).unwrap(),
-            &[1]
+            vec![1]
         );
         assert!(bounded_chunk_body(&tauri::ipc::InvokeBody::Raw(vec![0; CHUNK + 1])).is_err());
+        assert_eq!(
+            bounded_chunk_body(&tauri::ipc::InvokeBody::Json(serde_json::json!([1, 2]))).unwrap(),
+            vec![1, 2]
+        );
+        assert!(
+            bounded_chunk_body(&tauri::ipc::InvokeBody::Json(serde_json::json!([256]))).is_err()
+        );
+        assert!(
+            bounded_chunk_body(&tauri::ipc::InvokeBody::Json(serde_json::json!(
+                vec![0; CHUNK + 1]
+            )))
+            .is_err()
+        );
         assert!(bounded_chunk_body(&tauri::ipc::InvokeBody::Json(
             serde_json::json!({"bytes":[1]})
         ))
