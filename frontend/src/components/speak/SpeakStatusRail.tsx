@@ -52,10 +52,10 @@ const iconWrapStyle = (state: StepState) =>
     alignItems: "center",
     backgroundColor:
       state === "attention"
-        ? "var(--color-warning-border)"
+        ? "var(--color-warning-bg)"
         : state === "active"
-          ? "var(--color-selected-border)"
-          : "var(--color-border-decorative)",
+          ? "var(--color-selected)"
+          : "var(--color-surface)",
     borderRadius: "999px",
     color: state === "attention" ? "var(--color-warning)" : "var(--color-brand)",
     display: "inline-flex",

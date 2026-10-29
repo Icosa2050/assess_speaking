@@ -63,7 +63,7 @@ button {
   background-color: var(--color-surface);
 }
 
-input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"])),
 select,
 textarea {
   color: var(--color-text);

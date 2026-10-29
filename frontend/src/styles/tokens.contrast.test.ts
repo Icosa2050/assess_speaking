@@ -30,6 +30,7 @@ const pairs = [
   ["color-text", "color-surface", 4.5],
   ["color-text-muted", "color-surface", 4.5],
   ["color-brand", "color-surface", 4.5],
+  ["color-brand", "color-selected", 3],
   ["color-on-brand", "color-brand", 4.5],
   ["color-border-control", "color-surface", 3],
   ["color-border-control", "color-surface-subtle", 3],

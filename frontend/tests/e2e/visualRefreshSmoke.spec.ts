@@ -380,6 +380,11 @@ test("assessment wait explains a stall and recovers without a second upload", as
   await expect(page.getByTestId("speak.submit")).toHaveCount(0);
   await page.getByTestId("speak.retry_assessment").click();
   await expect(page.getByTestId("speak.status_panel")).toContainText("Model request failed");
+  for (const theme of ["light", "dark"] as const) {
+    await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
+    await expectStatusRailIconContrast(page, "attention");
+  }
+  await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
   await expect(page.getByTestId("speak.submit")).toHaveCount(0);
   await page.getByTestId("speak.retry_assessment").click();
   await expect(page.getByTestId("speak.cancel_assessment")).toBeVisible();
@@ -500,6 +505,16 @@ const contrastRatio = (foreground: string, background: string) => {
   };
   const [lighter, darker] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
   return (lighter + 0.05) / (darker + 0.05);
+};
+
+const expectStatusRailIconContrast = async (page: Page, state: "active" | "attention") => {
+  const icon = page.locator(`[data-testid="speak.status_rail"] [data-step-state="${state}"] > span`).first();
+  await expect(icon).toBeVisible();
+  const colors = await icon.evaluate(element => ({
+    foreground: getComputedStyle(element).color,
+    background: getComputedStyle(element).backgroundColor,
+  }));
+  expect(contrastRatio(colors.foreground, colors.background), `${state} status icon`).toBeGreaterThanOrEqual(3);
 };
 
 const captureScreenshot = async (page: Page, filename: string) => {
@@ -851,6 +866,7 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
       });
       for (const item of computed.text) expect(item.ratio, `${theme} ${route} ${viewport.width}: ${item.label}`).toBeGreaterThanOrEqual(4.5);
       for (const item of computed.border) expect(item.ratio, `${theme} ${route} ${viewport.width}: ${item.label} border`).toBeGreaterThanOrEqual(3);
+      if (route === "speak" || route === "speak-wait") await expectStatusRailIconContrast(page, "active");
       contrastChecks.push({ route, theme, viewport: `${viewport.width}x${viewport.height}`,
         text: Math.min(...computed.text.map(item => item.ratio)),
         border: computed.border.length ? Math.min(...computed.border.map(item => item.ratio)) : -1 });
@@ -902,6 +918,14 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
     complete = true;
     await expect(page).toHaveURL(/\/review$/, { timeout: 15000 });
     await audit("review", theme);
+    await page.getByTestId("review-action-try-again").click();
+    await attachAudio(page);
+    complete = false;
+    await page.getByTestId("speak.submit").click();
+    const retryGoal = page.getByTestId("speak-retry-goal");
+    await expect(retryGoal).toBeDisabled();
+    await expect(retryGoal).toHaveCSS("background-color", theme === "light" ? "rgb(227, 233, 229)" : "rgb(51, 69, 61)");
+    await expect(retryGoal).toHaveCSS("color", theme === "light" ? "rgb(65, 88, 80)" : "rgb(198, 215, 206)");
     await page.unroute("**/v1/assessments/*");
     await page.route("**/v1/assessments/*", route => fulfillJson(route, {
       assessment_id: "visual-assessment-clean", status: "completed", phase: "finalizing_report", progress: 1,
