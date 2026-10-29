@@ -117,14 +117,20 @@ class BackendJobsTests(unittest.TestCase):
             process.is_alive.side_effect = lambda: state["alive"]
             process.terminate.side_effect = lambda: state.update(alive=False)
             manager._processes[assessment_id] = process
-            service = mock.Mock()
-            service.is_alive.return_value = True
-            manager._service_threads[assessment_id] = service
+            active = threading.Event()
+            active.set()
+            manager._active_cloud_requests[assessment_id] = active
             self.assertEqual(manager.cancel(assessment_id).status, JobStatus.CANCELLED)
             with self.assertRaisesRegex(AssessmentBusyError, "provider request is still finishing"):
                 manager.submit(AssessmentCreateRequest(audio_id="unused", whisper="tiny", provider="ollama",
                     llm_model="test", expected_language="en", feedback_language="en", speaker_id="test",
                     task_family="generic", theme="test", target_duration_sec=90))
+            active.clear()
+            with mock.patch.object(manager, "_submit", side_effect=ValueError("admitted")):
+                with self.assertRaisesRegex(ValueError, "admitted"):
+                    manager.submit(AssessmentCreateRequest(audio_id="unused", whisper="tiny", provider="ollama",
+                        llm_model="test", expected_language="en", feedback_language="en", speaker_id="test",
+                        task_family="generic", theme="test", target_duration_sec=90))
 
     def test_cancel_waits_for_submit_to_register_worker(self):
         with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:

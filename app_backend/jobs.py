@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import signal
 import threading
+import time
 from typing import Any, BinaryIO
 from uuid import uuid4
 
@@ -380,7 +381,7 @@ class JobManager:
         self._config = config
         self._ctx = multiprocessing.get_context("spawn")
         self._processes: dict[str, multiprocessing.Process] = {}
-        self._service_threads: dict[str, threading.Thread] = {}
+        self._active_cloud_requests: dict[str, threading.Event] = {}
         self._submit_lock = threading.RLock()
         self._recover_existing_jobs()
 
@@ -486,7 +487,10 @@ class JobManager:
                         raise AssessmentIdentityConflictError("This submission ID already belongs to a different request or sharing route.")
                     return AssessmentCreateResponse(assessment_id=prior["assessment_id"], status=JobStatus(prior["status"]))
             self.wait_for_finished_workers()
-            if any(thread.is_alive() for thread in self._service_threads.values()):
+            deadline = time.monotonic() + 2.0
+            while any(active.is_set() for active in self._active_cloud_requests.values()) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            if any(active.is_set() for active in self._active_cloud_requests.values()):
                 raise AssessmentBusyError("A prior provider request is still finishing. Wait for it to finish before retrying.")
             if any(process.is_alive() for process in list(self._processes.values())):
                 raise AssessmentBusyError("Another attempt is still being analysed. Wait for it to finish or cancel it, then retry.")
@@ -565,20 +569,26 @@ class JobManager:
         self._processes[assessment_id] = process
         if child is not None:
             child.close()
-            service = threading.Thread(target=self._serve_cloud if cloud_runtime else self._serve_credentials,
-                                       args=(process, parent, cloud_runtime or credential_ref), daemon=True)
-            self._service_threads[assessment_id] = service
+            if cloud_runtime:
+                active = threading.Event()
+                self._active_cloud_requests[assessment_id] = active
+                service = threading.Thread(target=self._serve_cloud, args=(process, parent, cloud_runtime, active), daemon=True)
+            else:
+                service = threading.Thread(target=self._serve_credentials, args=(process, parent, credential_ref), daemon=True)
             service.start()
         return AssessmentCreateResponse(assessment_id=assessment_id, status=JobStatus.QUEUED)
 
-    @staticmethod
-    def _serve_cloud(process, channel, runtime):
+    def _serve_cloud(self, process, channel, runtime, active: threading.Event):
         runtime.cancelled = lambda: not process.is_alive()
         try:
             while process.is_alive():
                 if not channel.poll(0.5):
                     continue
                 message = channel.recv()
+                with self._submit_lock:
+                    if not process.is_alive():
+                        break
+                    active.set()
                 try:
                     result = {"value": runtime.handle(message), "rpc_id": message.get("rpc_id")}
                 except Exception as exc:  # quality: allow[broad-except] provider boundary returns safe typed application diagnostics
@@ -588,10 +598,13 @@ class JobManager:
                     from assessment_runtime.groq_asr import GroqASRError
                     safe = isinstance(exc, (CloudPolicyError, ChatGPTAuthError, ResponsesError, GroqASRError))
                     result = {"error": str(exc) if safe else "Cloud request failed. Your recording and completed stages are retained.", "rpc_id": message.get("rpc_id")}
+                finally:
+                    active.clear()
                 channel.send(result)
         except (EOFError, BrokenPipeError, OSError):
             pass
         finally:
+            active.clear()
             channel.close()
 
     @staticmethod
