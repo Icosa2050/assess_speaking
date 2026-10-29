@@ -107,7 +107,9 @@
     "annotation_label": "Feedback per «{phrase}»",
     "annotation_suggestion": "Suggerimento: {suggestion}.",
     "unverified_comparison": "Il tentativo precedente non è verificato per il confronto. Entrambi restano nelle revisioni salvate.",
-    "since_verified_previous": "Variazione del punteggio rispetto al tentativo precedente verificato: {delta}"
+    "since_verified_previous": "Variazione del punteggio rispetto al tentativo precedente verificato: {delta}",
+    "chart_one_context": "Un tentativo mostrato. Non è disponibile un confronto verificato dei punteggi.",
+    "chart_pair_context": "Due tentativi mostrati: quello selezionato e quello precedente verificato."
   },
   "home": {
     "practice_checks": "{ready} controlli pronti su {total}",

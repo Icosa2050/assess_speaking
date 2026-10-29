@@ -11,6 +11,17 @@ describe("TranscriptFeedback", () => {
     expect(transcriptSegments("I goes home.", suggestions).map(part => part.text).join("")).toBe("I goes home.");
     expect(transcriptSegments("I went home.", suggestions).some(part => part.suggestion)).toBe(false);
   });
+  it("matches complete phrases and finds a later free occurrence after overlap", () => {
+    expect(transcriptSegments("This is useful.", [{ original: "is", suggestion: "was", explanation: "Use past tense." }])
+      .filter(part => part.suggestion).map(part => part.text)).toEqual(["is"]);
+    expect(transcriptSegments("This works.", [{ original: "is", suggestion: "was", explanation: "Use past tense." }])
+      .some(part => part.suggestion)).toBe(false);
+    const segments = transcriptSegments("I goes and I goes", [
+      suggestions[0], { original: "goes", suggestion: "go", explanation: "Use present tense." },
+    ]);
+    expect(segments.map(part => part.text).join("")).toBe("I goes and I goes");
+    expect(segments.filter(part => part.suggestion).map(part => part.text)).toEqual(["I goes", "goes"]);
+  });
   it("offers a named, described, focusable phrase control", () => {
     render(<TranscriptFeedback transcript="I goes home." suggestions={suggestions} translate={createTranslator("en")} />);
     const phrase = screen.getByRole("button", { name: "Feedback for “I goes”" });

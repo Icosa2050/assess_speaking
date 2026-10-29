@@ -107,7 +107,9 @@
     "annotation_label": "Commentaire sur « {phrase} »",
     "annotation_suggestion": "Suggestion : {suggestion}.",
     "unverified_comparison": "La comparaison avec l’essai précédent n’est pas vérifiée. Les deux essais restent dans les bilans enregistrés.",
-    "since_verified_previous": "Variation du score par rapport à l’essai précédent vérifié : {delta}"
+    "since_verified_previous": "Variation du score par rapport à l’essai précédent vérifié : {delta}",
+    "chart_one_context": "Un essai affiché. Aucune comparaison de score vérifiée n’est disponible.",
+    "chart_pair_context": "Deux essais affichés : l’essai sélectionné et l’essai précédent vérifié."
   },
   "home": {
     "practice_checks": "{ready} vérifications prêtes sur {total}",

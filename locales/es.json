@@ -107,7 +107,9 @@
     "annotation_label": "Comentario sobre «{phrase}»",
     "annotation_suggestion": "Sugerencia: {suggestion}.",
     "unverified_comparison": "El intento anterior no está verificado para la comparación. Ambos intentos siguen en las revisiones guardadas.",
-    "since_verified_previous": "Cambio de puntuación frente al intento anterior verificado: {delta}"
+    "since_verified_previous": "Cambio de puntuación frente al intento anterior verificado: {delta}",
+    "chart_one_context": "Se muestra un intento. No hay una comparación de puntuación verificada.",
+    "chart_pair_context": "Se muestran dos intentos: el seleccionado y el anterior verificado."
   },
   "home": {
     "practice_checks": "{ready} de {total} comprobaciones listas",

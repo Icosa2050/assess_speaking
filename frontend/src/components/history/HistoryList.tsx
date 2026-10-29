@@ -47,7 +47,7 @@ export const HistoryList = ({ attempts, onSelectSession, selectedSessionId, tran
           "data-testid": `history-attempt-card-${record.sessionId}`,
         };
         return <li key={record.sessionId || `legacy-${index}`} className={styles.item}>
-          {hasReport ? <h3 className={styles.topic}><button {...props} type="button" aria-label={`${translate("history.open_review")}: ${record.theme || translate("history.none")}, ${record.timestampLabel}`} aria-pressed={isSelected} onClick={() => onSelectSession(record.sessionId)}>{content}</button></h3>
+          {hasReport ? <h3 className={styles.topic}><button {...props} type="button" aria-pressed={isSelected} onClick={() => onSelectSession(record.sessionId)}>{content}</button></h3>
             : <article {...props}><h3 className={styles.topicText}>{record.theme || translate("history.none")}</h3>{content}</article>}
         </li>;
       })}

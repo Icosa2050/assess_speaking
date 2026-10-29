@@ -103,7 +103,7 @@ export function PracticeProgress({ rows, selected, locale, onSelect, onRetry, ve
               <thead><tr><th scope="col">{t("history_slice10.chart_table_date")}</th><th scope="col">{t("history_slice10.chart_table_task")}</th><th scope="col">{t(`practice.${metric}`)}</th></tr></thead>
               <tbody>{cohort.map(row => <tr key={row.session_id}><th scope="row">{date(row.timestamp)}</th><td>{row.theme}</td><td>{format(row[metric])}</td></tr>)}</tbody>
             </table></div>
-            <p className={styles.muted}>{t("practice.conditions", { count: cohort.length, seconds: selected.practice!.target_duration_sec })}</p>
+            <p className={styles.muted}>{t(previous ? "history_slice10.chart_pair_context" : "history_slice10.chart_one_context")}</p>
           </> : <p data-testid="practice-legacy">{t("practice.legacy")}</p>}
           <p className={styles.muted}>{t(`practice.${metric}_help`)}</p>
         </Card>

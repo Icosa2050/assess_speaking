@@ -5,14 +5,22 @@ type Suggestion = { original: string; suggestion: string; explanation: string };
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
 
 type Segment = { text: string; suggestion?: Suggestion };
+const isWordChar = (value: string | undefined): boolean => Boolean(value && /[\p{L}\p{N}_]/u.test(value));
 export function transcriptSegments(transcript: string, suggestions: Suggestion[]): Segment[] {
   const matches: { start: number; end: number; suggestion: Suggestion }[] = [];
   for (const suggestion of suggestions) {
     if (!suggestion.original.trim() || !suggestion.explanation.trim()) continue;
-    const start = transcript.indexOf(suggestion.original);
-    const end = start + suggestion.original.length;
-    if (start < 0 || matches.some(match => start < match.end && end > match.start)) continue;
-    matches.push({ start, end, suggestion });
+    let start = transcript.indexOf(suggestion.original);
+    while (start >= 0) {
+      const end = start + suggestion.original.length;
+      const wholePhrase = !(isWordChar(transcript[start - 1]) && isWordChar(suggestion.original[0])) &&
+        !(isWordChar(transcript[end]) && isWordChar(suggestion.original.at(-1)));
+      if (wholePhrase && !matches.some(match => start < match.end && end > match.start)) {
+        matches.push({ start, end, suggestion });
+        break;
+      }
+      start = transcript.indexOf(suggestion.original, start + 1);
+    }
   }
   matches.sort((a, b) => a.start - b.start);
   const segments: Segment[] = [];

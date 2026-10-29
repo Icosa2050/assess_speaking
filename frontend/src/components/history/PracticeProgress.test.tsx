@@ -53,5 +53,6 @@ describe("PracticeProgress chart alternative", () => {
     expect(within(table).getByRole("row", { name: /Task middle/ })).toHaveTextContent("4");
     expect(within(table).getByRole("row", { name: /Task selected/ })).toHaveTextContent("3");
     expect(within(table).queryByRole("row", { name: /Task first/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/^Two takes shown:/)).toHaveTextContent("verified earlier take");
   });
 });

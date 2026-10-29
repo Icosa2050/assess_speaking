@@ -107,7 +107,9 @@
     "annotation_label": "Feedback for “{phrase}”",
     "annotation_suggestion": "Suggestion: {suggestion}.",
     "unverified_comparison": "Earlier take is not verified for comparison. Both takes remain in your saved reviews.",
-    "since_verified_previous": "Score change from verified previous take: {delta}"
+    "since_verified_previous": "Score change from verified previous take: {delta}",
+    "chart_one_context": "One take shown. No verified score comparison is available.",
+    "chart_pair_context": "Two takes shown: the selected take and its verified earlier take."
   },
   "home": {
     "practice_checks": "{ready} of {total} checks ready",

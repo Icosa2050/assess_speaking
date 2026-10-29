@@ -299,6 +299,7 @@ describe("History route", () => {
     expect(screen.getByTestId("history-attempt-card-s4")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("history-attempt-card-s4")).toHaveTextContent("Holiday return");
     expect(screen.getByTestId("history-attempt-card-s4")).toHaveTextContent("Score 4.2");
+    expect(screen.getByTestId("history-attempt-card-s4")).toHaveAccessibleName(/Score 4\.2.*Done/);
     expect(screen.getByTestId("history-attempt-card-s4")).toHaveTextContent("Done");
     expect(screen.getByTestId("history-attempt-card-s2")).toHaveTextContent("Spring trip");
   });
