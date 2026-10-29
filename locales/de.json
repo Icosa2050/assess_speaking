@@ -116,6 +116,7 @@
     "comparison_error": "Der Vergleich ist nicht verfügbar, solange dieser Bericht nicht geladen werden kann.",
     "chart_point_summary": "{count} Versuche in der Datentabelle; 1 eingezeichneter Punkt: {first}.",
     "chart_one_take_summary": "1 Versuch in der Datentabelle; 1 eingezeichneter Punkt: {first}.",
+    "unscored_activity_title": "Übungsaufnahmen ohne Bewertung erfasst",
     "chart_selected": "Ausgewählt",
     "out_of_five": "von 5"
   },

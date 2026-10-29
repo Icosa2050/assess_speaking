@@ -116,6 +116,7 @@
     "comparison_error": "Comparison unavailable while this saved report cannot be loaded.",
     "chart_point_summary": "{count} takes in the data table; 1 plotted point: {first}.",
     "chart_one_take_summary": "1 take in the data table; 1 plotted point: {first}.",
+    "unscored_activity_title": "Practice recorded without a score",
     "chart_selected": "Selected",
     "out_of_five": "out of 5"
   },

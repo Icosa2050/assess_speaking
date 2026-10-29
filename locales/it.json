@@ -116,6 +116,7 @@
     "comparison_error": "Confronto non disponibile finché non è possibile caricare il resoconto salvato.",
     "chart_point_summary": "{count} tentativi nella tabella dei dati; 1 punto tracciato: {first}.",
     "chart_one_take_summary": "1 tentativo nella tabella dei dati; 1 punto tracciato: {first}.",
+    "unscored_activity_title": "Tentativi registrati senza punteggio",
     "chart_selected": "Selezionato",
     "out_of_five": "su 5"
   },

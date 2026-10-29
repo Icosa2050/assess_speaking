@@ -116,6 +116,7 @@
     "comparison_error": "Comparaison indisponible tant que ce bilan enregistré ne peut pas être chargé.",
     "chart_point_summary": "{count} essais dans le tableau de données ; 1 point tracé : {first}.",
     "chart_one_take_summary": "1 essai dans le tableau de données ; 1 point tracé : {first}.",
+    "unscored_activity_title": "Essais enregistrés sans score",
     "chart_selected": "Sélectionné",
     "out_of_five": "sur 5"
   },

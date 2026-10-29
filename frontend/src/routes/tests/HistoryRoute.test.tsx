@@ -252,11 +252,11 @@ describe("History route", () => {
     expect(screen.queryByText("First take recorded on this Mac")).not.toBeInTheDocument();
   });
 
-  it("keeps the first-take milestone when saved history is still unscored", async () => {
-    mockedGetHistory.mockResolvedValueOnce({ items: historyRows.map(row => ({ ...row, final_score: null, overall: null })) });
+  it.each([[1, "First take recorded on this Mac"], [2, "Practice recorded without a score"]])("labels %i saved unscored take(s) accurately", async (count, title) => {
+    mockedGetHistory.mockResolvedValueOnce({ items: historyRows.slice(0, count).map(row => ({ ...row, final_score: null, overall: null })) });
     renderWithProviders(<AppFrame />, { initialEntries: ["/history"], locale: "en", appState: validDraftState });
     expect(await screen.findByTestId("history-route")).toBeVisible();
-    expect(await screen.findByText("First take recorded on this Mac")).toBeVisible();
+    expect(await screen.findByText(title)).toBeVisible();
     expect(screen.getByTestId("history-attempts-list")).toBeVisible();
   });
 

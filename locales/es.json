@@ -116,6 +116,7 @@
     "comparison_error": "La comparación no está disponible mientras no se pueda cargar este informe guardado.",
     "chart_point_summary": "{count} intentos en la tabla de datos; 1 punto trazado: {first}.",
     "chart_one_take_summary": "1 intento en la tabla de datos; 1 punto trazado: {first}.",
+    "unscored_activity_title": "Prácticas registradas sin puntuación",
     "chart_selected": "Seleccionado",
     "out_of_five": "de 5"
   },

@@ -346,6 +346,22 @@ test.describe("review and history replacement flow", () => {
     await expect(page).toHaveURL(/\/session-setup$/);
   });
 
+  test("labels one and several unscored History takes without implying a score", async ({ page }) => {
+    await installReadyEmptyBackend(page);
+    let count = 1;
+    await page.route("**/v1/history", route => fulfillJson(route, { items: historyRows.slice(0, count).map(row => ({
+      ...row, final_score: null, overall: null,
+    })) }));
+    await page.goto("/history");
+    await expect(page.getByText("First take recorded on this Mac")).toBeVisible();
+    await expect(page.getByTestId("history-attempts-list")).toBeVisible();
+    count = 2;
+    await page.reload();
+    await expect(page.getByText("Practice recorded without a score")).toBeVisible();
+    await expect(page.getByText("First take recorded on this Mac")).toHaveCount(0);
+    await expect(page.getByTestId("history-attempts-list")).toBeVisible();
+  });
+
   test("runs two deterministic attempts, shows progress, and opens the latest history detail", async ({
     page,
   }, testInfo) => {

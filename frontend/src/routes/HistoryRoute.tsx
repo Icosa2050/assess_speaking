@@ -452,7 +452,7 @@ export const HistoryRoute = () => {
         </p>
       </section>
       {!historyQuery.isPending && filteredRecords.length > 0 && !filteredRecords.some(row => row.finalScore !== null) && <StatusBanner
-        title={translate("first_run.milestone_title")}
+        title={translate(filteredRecords.length === 1 ? "first_run.milestone_title" : "history_slice10.unscored_activity_title")}
         tone="success"
         action={<Link to="/session-setup">{translate("first_run.milestone_next")}</Link>}
       >{translate("first_run.milestone_unscored")}</StatusBanner>}
