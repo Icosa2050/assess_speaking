@@ -488,6 +488,7 @@
     "wait_media_retained": "Audio subido y conservado con esta evaluación.",
     "wait_media_uploaded": "Audio subido; esperando el inicio de la evaluación.",
     "wait_media_uploaded_ready": "Audio subido y guardado. Inicia la evaluación para continuar.",
+    "wait_media_upload_unconfirmed": "No se confirmó la subida. La grabación sigue en este dispositivo; reintenta para confirmarla sin guardar otra copia.",
     "wait_media_selected": "Grabación seleccionada en este dispositivo. Todavía no se ha subido.",
     "refresh_progress": "Comprobar progreso",
     "cancel_assessment": "Cancelar evaluación",

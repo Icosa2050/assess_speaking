@@ -488,6 +488,7 @@
     "wait_media_retained": "Audio caricato e conservato con questa valutazione.",
     "wait_media_uploaded": "Audio caricato; in attesa della valutazione.",
     "wait_media_uploaded_ready": "Audio caricato e salvato. Avvia la valutazione per continuare.",
+    "wait_media_upload_unconfirmed": "Il caricamento non è stato confermato. La registrazione resta su questo dispositivo; riprova per confermarla senza creare una seconda copia.",
     "wait_media_selected": "Registrazione selezionata su questo dispositivo. Non è ancora stata caricata.",
     "refresh_progress": "Controlla avanzamento",
     "cancel_assessment": "Annulla valutazione",

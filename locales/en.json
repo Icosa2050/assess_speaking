@@ -488,6 +488,7 @@
     "wait_media_retained": "Audio uploaded and retained with this assessment.",
     "wait_media_uploaded": "Audio uploaded; waiting to start assessment.",
     "wait_media_uploaded_ready": "Audio uploaded and saved. Start the assessment to continue.",
+    "wait_media_upload_unconfirmed": "Upload confirmation was lost. Your recording remains on this device; retry to confirm it without storing another copy.",
     "wait_media_selected": "Recording selected on this device. It has not been uploaded yet.",
     "refresh_progress": "Check progress",
     "cancel_assessment": "Cancel assessment",

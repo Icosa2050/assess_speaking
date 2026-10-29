@@ -488,6 +488,7 @@
     "wait_media_retained": "Audio envoyé et conservé avec cette évaluation.",
     "wait_media_uploaded": "Audio envoyé ; évaluation en attente.",
     "wait_media_uploaded_ready": "Audio envoyé et conservé. Lancez l’évaluation pour continuer.",
+    "wait_media_upload_unconfirmed": "L’envoi n’a pas été confirmé. L’enregistrement reste sur cet appareil ; réessayez pour le confirmer sans créer une seconde copie.",
     "wait_media_selected": "Enregistrement sélectionné sur cet appareil. Il n’a pas encore été envoyé.",
     "refresh_progress": "Vérifier l’avancement",
     "cancel_assessment": "Annuler l’évaluation",

@@ -488,6 +488,7 @@
     "wait_media_retained": "Audio ist hochgeladen und für diese Auswertung gespeichert.",
     "wait_media_uploaded": "Audio ist hochgeladen; die Auswertung startet gleich.",
     "wait_media_uploaded_ready": "Audio hochgeladen und gespeichert. Starte die Auswertung, um fortzufahren.",
+    "wait_media_upload_unconfirmed": "Der Upload wurde nicht bestätigt. Die Aufnahme bleibt auf diesem Gerät; versuche es erneut, um sie ohne zweite Kopie zu bestätigen.",
     "wait_media_selected": "Aufnahme auf diesem Gerät ausgewählt. Sie wurde noch nicht hochgeladen.",
     "refresh_progress": "Fortschritt prüfen",
     "cancel_assessment": "Auswertung abbrechen",

@@ -391,6 +391,7 @@ describe("Speak route", () => {
     await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
     fireEvent.click(screen.getByTestId("speak.submit"));
     await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Upload connection lost"));
+    expect(screen.getByTestId("speak.media_state")).toHaveTextContent("Upload confirmation was lost");
     fireEvent.click(screen.getByTestId("speak.submit"));
     await waitFor(() => expect(mockedUploadAudio).toHaveBeenCalledTimes(2));
     const first = mockedUploadAudio.mock.calls[0][1]?.requestId;

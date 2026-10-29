@@ -252,6 +252,7 @@ export const SpeakRoute = () => {
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadStartedAt, setUploadStartedAt] = useState<number | null>(null);
   const [uploadUpdatedAt, setUploadUpdatedAt] = useState<number | null>(null);
+  const [uploadUnconfirmed, setUploadUnconfirmed] = useState(false);
   const [cancelError, setCancelError] = useState("");
   const [retryError, setRetryError] = useState("");
   const [pollError, setPollError] = useState("");
@@ -266,6 +267,7 @@ export const SpeakRoute = () => {
   const clearAttachment = () => {
     savedUpload.current = null;
     uploadIdentity.current = null;
+    setUploadUnconfirmed(false);
     if (previewUrlRef.current) {
       URL.revokeObjectURL(previewUrlRef.current);
       previewUrlRef.current = "";
@@ -488,6 +490,8 @@ export const SpeakRoute = () => {
     ? translate("speak.wait_media_retained")
     : savedUpload.current
       ? translate(isSubmitting ? "speak.wait_media_uploaded" : "speak.wait_media_uploaded_ready")
+      : uploadUnconfirmed
+        ? translate("speak.wait_media_upload_unconfirmed")
       : attachedFile
         ? translate("speak.wait_media_selected")
         : "";
@@ -497,6 +501,7 @@ export const SpeakRoute = () => {
       return;
     }
 
+    let uploadAttempted = false;
     try {
       submittingRef.current = true;
       setCancelError("");
@@ -524,10 +529,12 @@ export const SpeakRoute = () => {
         if (attachedFile.size > limits.available_bytes) {
           throw new Error(translate(limits.available_bytes < limits.max_bytes ? "speak.upload_disk_error" : "speak.upload_size_error"));
         }
+        uploadAttempted = true;
         const upload = await apiClient.uploadAudio(attachedFile, { signal: controller.signal,
           requestId: uploadIdentity.current.requestId,
           onProgress: (percent) => { setUploadProgress(percent); setUploadUpdatedAt(Date.now()); } });
         savedUpload.current = { file: attachedFile, audioId: upload.audio_id };
+        setUploadUnconfirmed(false);
         uploadController.current = null;
         setUploadProgress(null);
       }
@@ -584,6 +591,7 @@ export const SpeakRoute = () => {
         reportPath: "",
       });
     } catch (error) {
+      if (uploadAttempted && (error instanceof DOMException || error instanceof TypeError)) setUploadUnconfirmed(true);
       if (error instanceof ApiClientError && error.code === "sharing_changed") {
         await Promise.all([runtimeQuery.refetch(), runtimeSettingsQuery.refetch(), sharingQuery.refetch()]);
       }
