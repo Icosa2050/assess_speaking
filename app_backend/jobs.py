@@ -498,7 +498,7 @@ class JobManager:
         return candidate
 
     def submit(self, request: AssessmentCreateRequest, *, credential_ref: str = "", cloud_runtime=None, llm_connection_id: str = "") -> AssessmentCreateResponse:
-        deadline = time.monotonic() + 2.0
+        deadline: float | None = None
         while True:
             with self._submit_lock, locked_file(self._config.jobs_dir / "retention.lock"):
                 # Recheck the request ID after each wait: another submit may have
@@ -516,6 +516,8 @@ class JobManager:
                         return AssessmentCreateResponse(assessment_id=prior["assessment_id"], status=JobStatus(prior["status"]))
                 self.wait_for_finished_workers()
                 if any(active.is_set() for active in self._active_cloud_requests.values()):
+                    if deadline is None:
+                        deadline = time.monotonic() + 2.0
                     if time.monotonic() >= deadline:
                         raise AssessmentBusyError("A prior provider request is still finishing. Wait for it to finish before retrying.")
                 else:

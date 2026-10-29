@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -173,6 +174,26 @@ class BackendJobsTests(unittest.TestCase):
             self.assertFalse(worker.is_alive())
             self.assertEqual(outcomes[0].assessment_id, "asmt_accepted")
             submit.assert_not_called()
+
+    def test_cloud_wait_budget_starts_when_active_call_is_observed(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)
+            manager = JobManager(config)
+            active = threading.Event()
+            active.set()
+            manager._active_cloud_requests["asmt_finishing"] = active
+            request = AssessmentCreateRequest(audio_id="unused", whisper="tiny", provider="ollama",
+                llm_model="test", expected_language="en", feedback_language="en", speaker_id="test",
+                task_family="generic", theme="test", target_duration_sec=90)
+            # The first value represents a slow identity/metadata scan before
+            # the active cloud call is inspected at monotonic time 10.
+            with mock.patch("app_backend.jobs.time.monotonic", side_effect=[0.0, 10.0, 10.0, 10.0, 10.0]), mock.patch.object(
+                manager, "wait_for_finished_workers", side_effect=lambda: time.monotonic()
+            ), mock.patch(
+                "app_backend.jobs.time.sleep", side_effect=lambda _seconds: active.clear()
+            ), mock.patch.object(manager, "_submit", return_value="admitted") as submit:
+                self.assertEqual(manager.submit(request), "admitted")
+            submit.assert_called_once()
 
     def test_status_warning_deadline_uses_configured_model_timeout_and_cloud_phase(self):
         with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
