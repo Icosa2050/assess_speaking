@@ -5,4 +5,5 @@
 .phases .current { border-color: var(--color-brand); background: var(--color-selected); border-radius: 0 0 var(--radius-control) var(--radius-control); }
 .time, .announcement { margin: 0; }
 .time { color: var(--color-text-muted); font-size: var(--font-size-compact); }
+.visuallyHidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @media (max-width: 560px) { .phases { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

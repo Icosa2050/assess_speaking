@@ -318,7 +318,7 @@ test("assessment wait explains a stall and recovers without a second upload", as
   await page.getByTestId("speak.submit").click();
   await expect(page.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "true");
   await expect(page.getByTestId("speak.media_state")).toContainText("Audio uploaded and retained");
-  await expect(page.getByTestId("speak.wait_time")).toContainText("Last update 3 min");
+  await expect(page.getByTestId("speak.wait_time")).toContainText("Last progress update 3 min");
   await expect(page.getByTestId("speak.cancel_assessment")).toBeVisible();
   await expect(page.getByTestId("speak.retry_assessment")).toHaveCount(0);
   await page.getByTestId("speak.status_panel").scrollIntoViewIfNeeded();

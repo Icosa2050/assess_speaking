@@ -254,10 +254,12 @@ export const SpeakRoute = () => {
   const retryingRef = useRef(false);
   const submission = useRef<{ signature: string; requestId: string } | null>(null);
   const savedUpload = useRef<{ file: File; audioId: string } | null>(null);
+  const uploadIdentity = useRef<{ file: File; requestId: string } | null>(null);
   const previewUrlRef = useRef("");
 
   const clearAttachment = () => {
     savedUpload.current = null;
+    uploadIdentity.current = null;
     if (previewUrlRef.current) {
       URL.revokeObjectURL(previewUrlRef.current);
       previewUrlRef.current = "";
@@ -476,10 +478,10 @@ export const SpeakRoute = () => {
   const mediaMessage = recording.job.assessmentId
     ? translate("speak.wait_media_retained")
     : savedUpload.current
-      ? translate("speak.wait_media_uploaded")
+      ? translate(isSubmitting ? "speak.wait_media_uploaded" : "speak.wait_media_uploaded_ready")
       : attachedFile
         ? translate("speak.wait_media_selected")
-        : translate("speak.wait_media_unavailable");
+        : "";
 
   const handleSubmit = async (resumeAssessmentId?: string) => {
     if (submittingRef.current || !attachedFile || shortRecording || !sharingQuery.data?.available) {
@@ -501,6 +503,7 @@ export const SpeakRoute = () => {
         assessmentState: "idle",
       });
       if (savedUpload.current?.file !== attachedFile) {
+        if (uploadIdentity.current?.file !== attachedFile) uploadIdentity.current = { file: attachedFile, requestId: crypto.randomUUID() };
         const controller = new AbortController();
         uploadController.current = controller;
         const startedAt = Date.now();
@@ -512,6 +515,7 @@ export const SpeakRoute = () => {
           throw new Error(translate(limits.available_bytes < limits.max_bytes ? "speak.upload_disk_error" : "speak.upload_size_error"));
         }
         const upload = await apiClient.uploadAudio(attachedFile, { signal: controller.signal,
+          requestId: uploadIdentity.current.requestId,
           onProgress: (percent) => { setUploadProgress(percent); setUploadUpdatedAt(Date.now()); } });
         savedUpload.current = { file: attachedFile, audioId: upload.audio_id };
         uploadController.current = null;
@@ -619,7 +623,8 @@ export const SpeakRoute = () => {
         status: response.status,
         phase: response.phase,
         progress: response.progress,
-        error: translate("speak.job_status_cancelled"),
+        error: response.status === "failed" ? response.error?.detail ?? ""
+          : response.status === "cancelled" ? translate("speak.job_status_cancelled") : "",
         reportPath: response.report_path ?? "",
       });
     } catch (error) {

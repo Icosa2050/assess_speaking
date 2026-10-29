@@ -374,11 +374,41 @@ describe("Speak route", () => {
     fireEvent.click(screen.getByTestId("speak.submit"));
     await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    expect(screen.getByTestId("speak.media_state")).toHaveTextContent("Audio uploaded and saved. Start the assessment to continue.");
     expect(screen.getByTestId("speak.download_recording")).toHaveAttribute("download", "retry.wav");
     await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
     fireEvent.click(screen.getByTestId("speak.submit"));
     await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(2));
     expect(mockedUploadAudio).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries an upload with the same request ID after its response is lost", async () => {
+    mockedUploadAudio.mockRejectedValueOnce(new DOMException("Upload connection lost.", "NetworkError"));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+    fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Upload connection lost"));
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(mockedUploadAudio).toHaveBeenCalledTimes(2));
+    const first = mockedUploadAudio.mock.calls[0][1]?.requestId;
+    expect(first).toBeTruthy();
+    expect(mockedUploadAudio.mock.calls[1][1]?.requestId).toBe(first);
+  });
+
+  it("shows a failure returned by Cancel without calling it a cancellation", async () => {
+    mockedCancelAssessment.mockResolvedValueOnce({ assessment_id: "asmt-1", status: "failed", phase: "failed", progress: 1,
+      error: { code: "runtime_error", detail: "Scoring failed" }, report_path: null, payload: null, summary: null });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+    fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await screen.findByTestId("speak.cancel_assessment");
+    fireEvent.click(screen.getByTestId("speak.cancel_assessment"));
+    await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Assessment failed: Scoring failed"));
+    expect(screen.getByTestId("speak.status_panel")).not.toHaveTextContent("Assessment failed: The assessment was cancelled");
   });
 
   it("recovers a lost accepted response with the same submission ID", async () => {

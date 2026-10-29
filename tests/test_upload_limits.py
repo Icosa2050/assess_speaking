@@ -43,6 +43,19 @@ def test_failed_metadata_write_removes_audio(config):
     assert list(config.app_data.uploads_dir.iterdir()) == []
 
 
+def test_lost_upload_response_reuses_saved_audio(config):
+    client = TestClient(create_app(config))
+    headers = {'X-Upload-Request-Id': 'same-recording-1'}
+    first = client.post('/v1/uploads', headers=headers, files={'file': ('clip.wav', b'audio')})
+    second = client.post('/v1/uploads', headers=headers, files={'file': ('clip.wav', b'audio')})
+    assert first.status_code == second.status_code == 200
+    assert first.json() == second.json()
+    assert len(list(config.app_data.uploads_dir.glob('aud_*.json'))) == 1
+    conflict = client.post('/v1/uploads', headers=headers, files={'file': ('clip.wav', b'other')})
+    assert conflict.status_code == 409
+    assert len(list(config.app_data.uploads_dir.glob('aud_*.json'))) == 1
+
+
 def test_upload_low_disk_and_retry(config):
     client = TestClient(create_app(config))
     with patch('app_backend.uploads.shutil.disk_usage', return_value=SimpleNamespace(free=DISK_RESERVE_BYTES-1)):

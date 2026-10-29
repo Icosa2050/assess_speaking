@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+import threading
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -8,7 +9,7 @@ from unittest import mock
 
 from app_backend.config import build_backend_runtime_config
 from app_backend.contracts import AssessmentCreateRequest, ErrorCode, JobStatus
-from app_backend.jobs import JobManager, _job_worker, _update_job_file, prunable_job_metadata_files
+from app_backend.jobs import AssessmentBusyError, JobManager, _job_worker, _update_job_file, prunable_job_metadata_files
 from assessment_runtime.runner import AssessmentRunResult
 
 
@@ -78,6 +79,85 @@ class BackendJobsTests(unittest.TestCase):
             status = manager.cancel(assessment_id)
 
         self.assertEqual(status.status.value, "completed")
+
+    def test_cancel_keeps_stubborn_worker_tracked_and_blocks_submission(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)
+            manager = JobManager(config)
+            assessment_id = "asmt_stubborn"
+            (config.jobs_dir / f"{assessment_id}.json").write_text(json.dumps({
+                "assessment_id": assessment_id, "status": "running", "phase": "scoring_rubric", "progress": 0.5,
+            }), encoding="utf-8")
+            process = mock.Mock()
+            process.is_alive.return_value = True
+            manager._processes[assessment_id] = process
+            with self.assertRaises(AssessmentBusyError):
+                manager.cancel(assessment_id)
+            process.terminate.assert_called_once()
+            process.kill.assert_called_once()
+            self.assertIs(manager._processes[assessment_id], process)
+            self.assertEqual(manager.get_status(assessment_id).status, JobStatus.RUNNING)
+            with self.assertRaises(AssessmentBusyError):
+                manager.submit(AssessmentCreateRequest(audio_id="unused", whisper="tiny", provider="ollama",
+                    llm_model="test", expected_language="en", feedback_language="en", speaker_id="test",
+                    task_family="generic", theme="test", target_duration_sec=90))
+
+    def test_cancel_waits_for_submit_to_register_worker(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)
+            manager = JobManager(config)
+            upload = manager.register_upload(data=b"audio", filename="clip.wav")
+            started = threading.Event()
+            release = threading.Event()
+            cancel_attempted = threading.Event()
+            state = {"alive": True}
+            process = mock.Mock()
+            process.is_alive.side_effect = lambda: state["alive"]
+            process.start.side_effect = lambda: (started.set(), release.wait(2))
+            process.terminate.side_effect = lambda: state.update(alive=False)
+            request = AssessmentCreateRequest(audio_id=upload.audio_id, whisper="tiny", provider="ollama",
+                llm_model="test", expected_language="en", feedback_language="en", speaker_id="test",
+                task_family="generic", theme="test", target_duration_sec=90)
+            created = []
+            cancelled = []
+            with mock.patch.object(manager._ctx, "Process", return_value=process):
+                submit_thread = threading.Thread(target=lambda: created.append(manager.submit(request)))
+                submit_thread.start()
+                self.assertTrue(started.wait(2))
+                job_file = next(config.jobs_dir.glob("asmt_*.json"))
+                cancel_thread = threading.Thread(target=lambda: (cancel_attempted.set(), cancelled.append(manager.cancel(job_file.stem))))
+                cancel_thread.start()
+                self.assertTrue(cancel_attempted.wait(2))
+                self.assertEqual(json.loads(job_file.read_text())["status"], "queued")
+                release.set()
+                submit_thread.join(2)
+                cancel_thread.join(2)
+            self.assertFalse(submit_thread.is_alive())
+            self.assertFalse(cancel_thread.is_alive())
+            self.assertEqual(created[0].assessment_id, job_file.stem)
+            self.assertEqual(cancelled[0].status, JobStatus.CANCELLED)
+            self.assertEqual(json.loads(job_file.read_text())["status"], "cancelled")
+
+    def test_recovered_job_reports_terminal_update_timestamps(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)
+            assessment_id = "asmt_recovered"
+            (config.jobs_dir / f"{assessment_id}.json").write_text(json.dumps({
+                "assessment_id": assessment_id, "status": "running", "phase": "transcribing",
+                "created_at": "2026-01-01T00:00:00+00:00", "updated_at": "2026-01-01T00:00:01+00:00",
+            }), encoding="utf-8")
+            manager = JobManager(config)
+            status = manager.get_status(assessment_id)
+            self.assertEqual(status.status, JobStatus.FAILED)
+            self.assertEqual(status.updated_at, status.phase_started_at)
+            self.assertNotEqual(status.updated_at, status.created_at)
+            from fastapi.testclient import TestClient
+            from app_backend.app import create_app
+            response = TestClient(create_app(config)).get(f"/v1/assessments/{assessment_id}")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["created_at"], status.created_at)
+            self.assertEqual(response.json()["updated_at"], status.updated_at)
+            self.assertEqual(response.json()["phase_started_at"], status.phase_started_at)
 
     def test_failed_worker_start_allows_retry_with_same_request_id(self):
         with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:

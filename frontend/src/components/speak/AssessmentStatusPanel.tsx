@@ -176,16 +176,19 @@ export const AssessmentStatusPanel = ({
       }}
     >
       <p
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
         style={{
           margin: 0,
           color:
             lifecycleState === "failed"
-              ? "#b42318"
+              ? "var(--color-error)"
               : lifecycleState === "cancelled"
-                ? "#9a6700"
+                ? "var(--color-warning)"
                 : lifecycleState === "completed"
-                  ? "#166534"
-                  : "#33514b",
+                  ? "var(--color-success)"
+                  : "var(--color-text-muted)",
           lineHeight: 1.55,
         }}
       >
@@ -216,7 +219,7 @@ export const AssessmentStatusPanel = ({
       ) : null}
       <AssessmentProgress status={assessmentStatus} uploadStartedAt={uploadStartedAt} uploadUpdatedAt={uploadUpdatedAt}
         uploading={uploading} uploaded={uploaded} translate={translate} />
-      <p style={{ margin: 0, color: "var(--color-text-muted)" }} data-testid="speak.media_state">{mediaMessage}</p>
+      {mediaMessage && <p style={{ margin: 0, color: "var(--color-text-muted)" }} data-testid="speak.media_state">{mediaMessage}</p>}
     </div>
     {submitDisabledHelp ? (
       <p

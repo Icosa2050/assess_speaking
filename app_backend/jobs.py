@@ -8,6 +8,7 @@ import logging
 import multiprocessing
 import os
 from pathlib import Path
+import re
 import signal
 import threading
 from typing import Any, BinaryIO
@@ -108,6 +109,8 @@ def recover_incomplete_job_metadata(jobs_dir: Path) -> int:
         payload["phase"] = "failed"
         payload["progress"] = 1.0
         payload["completed_at"] = _now_iso()
+        payload["updated_at"] = payload["completed_at"]
+        payload["phase_started_at"] = payload["completed_at"]
         payload["error"] = ErrorResponse(
             code=ErrorCode.RUNTIME,
             detail="Backend restarted before the assessment finished.",
@@ -374,7 +377,7 @@ class JobManager:
         self._config = config
         self._ctx = multiprocessing.get_context("spawn")
         self._processes: dict[str, multiprocessing.Process] = {}
-        self._submit_lock = threading.Lock()
+        self._submit_lock = threading.RLock()
         self._recover_existing_jobs()
 
     @property
@@ -387,7 +390,33 @@ class JobManager:
     def register_upload(self, *, data: bytes, filename: str) -> UploadResponse:
         return self.register_upload_stream(source=io.BytesIO(data), filename=filename)
 
-    def register_upload_stream(self, *, source: BinaryIO, filename: str) -> UploadResponse:
+    def register_upload_stream(self, *, source: BinaryIO, filename: str, request_id: str = "") -> UploadResponse:
+        if request_id and not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", request_id):
+            raise UploadRejected("Choose a valid upload request ID.", 400)
+        if request_id:
+            with locked_file(self.uploads_dir / ".upload-requests.lock"):
+                for path in self.uploads_dir.glob("aud_*.json"):
+                    saved = _read_json(path)
+                    if saved.get("request_id") != request_id:
+                        continue
+                    stored_path = Path(str(saved.get("stored_path") or ""))
+                    if not stored_path.exists():
+                        continue
+                    hasher = hashlib.sha1()
+                    total = 0
+                    while chunk := source.read(COPY_CHUNK_BYTES):
+                        total += len(chunk)
+                        if total > MAX_UPLOAD_BYTES:
+                            raise UploadRejected("Audio exceeds the available upload limit.")
+                        hasher.update(chunk)
+                    if hasher.hexdigest() != saved.get("sha1") or filename != saved.get("original_name"):
+                        raise UploadRejected("This upload request ID belongs to a different recording.", 409)
+                    return UploadResponse(audio_id=saved["audio_id"], stored_path=str(stored_path),
+                                          sha1=saved["sha1"], original_name=str(saved.get("original_name") or ""))
+                return self._store_upload_stream(source=source, filename=filename, request_id=request_id)
+        return self._store_upload_stream(source=source, filename=filename, request_id="")
+
+    def _store_upload_stream(self, *, source: BinaryIO, filename: str, request_id: str) -> UploadResponse:
         audio_id = f"aud_{uuid4().hex}"
         suffix = Path(filename or "audio.wav").suffix.lower()
         if suffix not in {".wav", ".mp3", ".webm", ".ogg", ".opus", ".m4a", ".mp4", ".aac", ".flac", ".aiff", ".aif"}:
@@ -410,7 +439,7 @@ class JobManager:
                     hasher.update(chunk)
             digest = hasher.hexdigest()
             _write_json(metadata_path, {"audio_id": audio_id, "stored_path": str(stored_path.resolve()),
-                                      "sha1": digest, "original_name": filename})
+                                      "sha1": digest, "original_name": filename, "request_id": request_id})
         except BaseException:  # quality: allow[broad-except] remove partial files on cancellation too, then re-raise
             stored_path.unlink(missing_ok=True)
             metadata_path.unlink(missing_ok=True)
@@ -611,6 +640,10 @@ class JobManager:
         return payload
 
     def get_status(self, assessment_id: str) -> AssessmentStatusResponse | None:
+        with self._submit_lock:
+            return self._get_status_locked(assessment_id)
+
+    def _get_status_locked(self, assessment_id: str) -> AssessmentStatusResponse | None:
         job_file = _job_file(self._config.jobs_dir, assessment_id)
         if not job_file.exists():
             return None
@@ -631,6 +664,10 @@ class JobManager:
         )
 
     def cancel(self, assessment_id: str) -> AssessmentStatusResponse | None:
+        with self._submit_lock:
+            return self._cancel_locked(assessment_id)
+
+    def _cancel_locked(self, assessment_id: str) -> AssessmentStatusResponse | None:
         status = self.get_status(assessment_id)
         if status is None:
             return None
@@ -640,6 +677,14 @@ class JobManager:
         if process is not None and process.is_alive():
             process.terminate()
             process.join(timeout=1.0)
+            observed = _read_json(_job_file(self._config.jobs_dir, assessment_id))
+            if observed.get("status") in TERMINAL_JOB_STATUSES_NORMALIZED:
+                return self.get_status(assessment_id)
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=1.0)
+            if process.is_alive():
+                raise AssessmentBusyError("The assessment is still stopping. Keep this page open and try Cancel again before retrying.")
         payload = _read_json(_job_file(self._config.jobs_dir, assessment_id))
         if str(payload.get("status") or "").strip().lower() in TERMINAL_JOB_STATUSES_NORMALIZED:
             self._processes.pop(assessment_id, None)

@@ -689,7 +689,8 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
         try:
             form, file = await parse_upload(request, runtime_config.app_data.uploads_dir)
             return await run_in_threadpool(app.state.job_manager.register_upload_stream,
-                                          source=file.file, filename=file.filename or "audio.wav")
+                                          source=file.file, filename=file.filename or "audio.wav",
+                                          request_id=request.headers.get("x-upload-request-id", ""))
         except UploadRejected as exc:
             raise _http_error(exc.status, ErrorCode(exc.code), exc.message) from exc
         except MultiPartException as exc:
@@ -812,7 +813,10 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
         tags=[PRODUCT_API_TAG],
     )
     def cancel_assessment(assessment_id: str) -> AssessmentStatusResponse:
-        status = app.state.job_manager.cancel(assessment_id)
+        try:
+            status = app.state.job_manager.cancel(assessment_id)
+        except AssessmentBusyError as exc:
+            raise _http_error(409, ErrorCode.RUNTIME, str(exc)) from exc
         if status is None:
             raise _http_error(404, ErrorCode.VALIDATION, f"Assessment {assessment_id} does not exist.")
         return status
