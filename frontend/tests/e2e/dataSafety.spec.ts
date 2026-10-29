@@ -23,6 +23,8 @@ test("damaged journal offers a safe first action and confirms start fresh withou
   const notice = page.getByTestId("journal-recovery-notice");
   await expect(notice).toBeVisible();
   await expect(notice.getByRole("link", { name: "Export diagnostics only" })).toBeVisible();
+  await notice.getByRole("link", { name: "Restore from a backup" }).click();
+  await expect(page.getByRole("button", { name: "Choose a backup ZIP" })).toBeFocused();
   await notice.getByRole("link", { name: "Open Your data recovery" }).click();
   const panel = page.getByTestId("journal-panel");
   await expect(panel.getByTestId("journal-state")).toContainText("Journal damaged");

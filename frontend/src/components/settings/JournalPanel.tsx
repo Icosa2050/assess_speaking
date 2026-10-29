@@ -117,7 +117,7 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
     <div className={`${styles.actionGroup} ${styles.actionCard}`}>
       <span className={styles.eyebrow}>{t("your_data.needs_file")}</span><h3>{t("your_data.restore_heading")}</h3><p>{t("your_data.restore_intro")}</p>
       <Field className={styles.visuallyHidden} label={t(status?.recovery_error ? "journal.restore_backup" : "journal.open")} id="journal-restore" type="file" tabIndex={-1} accept=".zip,application/zip" disabled={busy || !!preview || activeTransaction} onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) { setRestoreName(file.name); void run(async signal => { try { setPreview(await previewLearnerRestore(file, signal)); } finally { await refresh(); } }); } }} />
-      <Button disabled={busy || !!preview || activeTransaction} onClick={() => document.getElementById("journal-restore")?.click()}>{t("your_data.choose_backup")}</Button>
+      <Button id="journal-restore-action" disabled={busy || !!preview || activeTransaction} onClick={() => document.getElementById("journal-restore")?.click()}>{t("your_data.choose_backup")}</Button>
       {restoreName && <p>{restoreName}</p>}
     </div>
     {preview && <div className={`${styles.actionGroup} ${styles.actionCard}`} role="region" aria-labelledby="journal-preview-heading"><h3 id="journal-preview-heading" tabIndex={-1}>{t("journal.preview", { attempts: preview.attempts, rehearsals: preview.browser.sessions.length })}</h3><p>{t("journal.restore_note")}</p>

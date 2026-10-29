@@ -198,7 +198,7 @@ export const SettingsRoute = () => {
   }, [setCurrentPage]);
 
   useEffect(() => {
-    const target = ({ "#your-data": "your-data-title", "#journal-diagnostics": "journal-diagnostics", "#journal-restore": "journal-restore", "#journal-fresh": "journal-fresh" } as Record<string, string>)[location.hash];
+    const target = ({ "#your-data": "your-data-title", "#journal-diagnostics": "journal-diagnostics", "#journal-restore": "journal-restore-action", "#journal-fresh": "journal-fresh" } as Record<string, string>)[location.hash];
     if (!target) return;
     const element = document.getElementById(target);
     element?.scrollIntoView?.({ block: "start" });
