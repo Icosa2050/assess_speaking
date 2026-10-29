@@ -699,7 +699,7 @@ test("light routes and opt-in dark journal card stay usable at desktop sizes", a
     const journal = page.getByTestId("journal-panel");
     await expect(journal).toBeVisible();
     await expect(journal.getByRole("button", { name: "Create and save backup" })).toHaveCSS("min-height", "44px");
-    const restore = journal.locator("#journal-restore");
+    const restore = journal.getByRole("button", { name: "Choose a backup ZIP" });
     await restore.focus();
     await expect(restore).toHaveCSS("outline-width", "3px");
     await expectNoPageHorizontalOverflow(page);

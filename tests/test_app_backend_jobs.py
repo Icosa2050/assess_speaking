@@ -10,7 +10,7 @@ from unittest import mock
 
 from app_backend.config import build_backend_runtime_config
 from app_backend.contracts import AssessmentCreateRequest, ErrorCode, JobStatus
-from app_backend.jobs import AssessmentBusyError, JobManager, QUIET_WARNING_MARGIN_SEC, _job_worker, _update_job_file, prunable_job_metadata_files
+from app_backend.jobs import AssessmentBusyError, JobManager, QUIET_WARNING_MARGIN_SEC, _job_worker, _read_json, _update_job_file, _write_json, prunable_job_metadata_files
 from assessment_runtime.runner import AssessmentRunResult
 
 
@@ -95,6 +95,31 @@ class BackendJobsTests(unittest.TestCase):
             self.assertEqual(started["updated_at"], "2026-01-01T00:00:01+00:00")
             self.assertEqual(repeated["updated_at"], started["updated_at"])
             self.assertEqual(scoring["phase_started_at"], "2026-01-01T00:00:02+00:00")
+
+    def test_job_status_stays_readable_while_a_new_status_is_staged(self):
+        with tempfile.TemporaryDirectory() as directory:
+            job_file = Path(directory) / "asmt_staged.json"
+            old = {"assessment_id": "asmt_staged", "status": "running", "phase": "transcribing"}
+            new = {"assessment_id": "asmt_staged", "status": "completed", "phase": "done", "payload": {"report": "x" * 100_000}}
+            _write_json(job_file, old)
+            replace = os.replace
+
+            def inspect_before_replace(source, destination):
+                self.assertEqual(destination, job_file)
+                self.assertEqual(_read_json(job_file), old)
+                self.assertEqual(json.loads(Path(source).read_text(encoding="utf-8")), new)
+                replace(source, destination)
+
+            with mock.patch("app_backend.jobs.os.replace", side_effect=inspect_before_replace):
+                _write_json(job_file, new)
+            self.assertEqual(_read_json(job_file), new)
+            self.assertEqual(list(Path(directory).iterdir()), [job_file])
+
+            with mock.patch("app_backend.jobs.os.replace", side_effect=OSError("disk full")):
+                with self.assertRaisesRegex(OSError, "disk full"):
+                    _write_json(job_file, old)
+            self.assertEqual(_read_json(job_file), new)
+            self.assertEqual(list(Path(directory).iterdir()), [job_file])
 
     def test_prunable_job_metadata_files_handles_mixed_case_terminal_statuses(self):
         with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:

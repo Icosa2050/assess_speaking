@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import tempfile
 import threading
 import time
 from typing import Any, BinaryIO
@@ -65,7 +66,18 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Status polling runs in another process. Replacing a complete file keeps
+    # readers from interpreting a partially written job as a failed one.
+    temporary: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         prefix=f".{path.name}.", suffix=".tmp", delete=False) as output:
+            temporary = output.name
+            json.dump(payload, output, ensure_ascii=False, indent=2)
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            Path(temporary).unlink(missing_ok=True)
 
 
 def _job_file(jobs_dir: Path, assessment_id: str) -> Path:

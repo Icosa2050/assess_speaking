@@ -1,6 +1,31 @@
 {
   "default": [
     [
+      "e2e/dataSafety.spec.ts",
+      "",
+      "a backup can be previewed before restore from the damaged view"
+    ],
+    [
+      "e2e/dataSafety.spec.ts",
+      "",
+      "damaged journal offers a safe first action and confirms start fresh without removing recordings"
+    ],
+    [
+      "e2e/dataSafety.spec.ts",
+      "",
+      "keyboard navigation reaches the safe action at both desktop sizes"
+    ],
+    [
+      "e2e/dataSafety.spec.ts",
+      "",
+      "recovery notice focuses Export diagnostics only after delayed journal status"
+    ],
+    [
+      "e2e/dataSafety.spec.ts",
+      "",
+      "recovery notice focuses Start a fresh journal after delayed journal status"
+    ],
+    [
       "e2e/libraryGuideFlow.spec.ts",
       "",
       "library and guide browser flow",

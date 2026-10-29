@@ -63,6 +63,7 @@ const routeIcons: Record<string, IconName> = {
   "/library": "guide",
   "/guide": "guide",
   "/settings": "settings",
+  "/settings#your-data": "settings",
 };
 
 export const AppShell = ({
@@ -75,6 +76,7 @@ export const AppShell = ({
   shellBody,
 }: AppShellProps) => {
   const location = useLocation();
+  const dataHash = ["#your-data", "#journal-diagnostics", "#journal-restore", "#journal-fresh"].includes(location.hash);
   const primaryGroups = navGroups.filter((group) => group.id !== "preferences" && group.id !== "context");
   const contextGroups = navGroups.filter((group) => group.id === "context");
   const footerGroups = navGroups.filter((group) => group.id === "preferences");
@@ -100,14 +102,15 @@ export const AppShell = ({
     <NavLink
       key={route.href}
       to={route.href}
-      state={route.href === "/settings"
+      state={route.href.startsWith("/settings")
         ? location.pathname === "/settings"
           ? location.state
           : { from: location.pathname.slice(1) || "home" }
         : route.href === "/" || route.href === "/guide"
           ? { from: location.pathname }
         : undefined}
-      className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ""} ${route.href === "/" && location.pathname !== "/" && isPracticePath(location.pathname) ? styles.navLinkSectionActive : ""}`}
+      className={({ isActive }) => `${styles.navLink} ${isActive && (route.href !== "/settings" || !dataHash) && (route.href !== "/settings#your-data" || dataHash) ? styles.navLinkActive : ""} ${route.href === "/" && location.pathname !== "/" && isPracticePath(location.pathname) ? styles.navLinkSectionActive : ""}`}
+      aria-current={route.href === "/settings" ? (dataHash ? false : "page") : route.href === "/settings#your-data" ? (dataHash ? "page" : false) : undefined}
       {...routeSemanticAttributes(route.href)}
     >
       {routeIcons[route.href] ? <Icon name={routeIcons[route.href]} size={20} /> : null}

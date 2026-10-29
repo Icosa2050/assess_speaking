@@ -61,6 +61,16 @@ it("exposes grouped navigation, the current page, a disabled step and a skip tar
   expect(screen.getByText("Progress content")).toBeInTheDocument();
 });
 
+it.each(["/settings", "/settings#your-data", "/settings#journal-fresh"])("marks only one Preferences link current at %s", entry => {
+  render(<MemoryRouter initialEntries={[entry]}><Routes><Route element={<AppShell appName="Practice" shellBody="Practice speaking" navAriaLabel="Navigation" navGroups={[
+    { id: "preferences", label: "Preferences", items: [{ href: "/settings#your-data", label: "Your data" }, { href: "/settings", label: "Settings" }] },
+  ]} />}><Route path="/settings" element={<p>Settings content</p>} /></Route></Routes></MemoryRouter>);
+  const nav = screen.getByRole("navigation");
+  const current = within(nav).getAllByRole("link").filter(link => link.getAttribute("aria-current") === "page");
+  expect(current).toHaveLength(1);
+  expect(current[0]).toHaveTextContent(entry === "/settings" ? "Settings" : "Your data");
+});
+
 it("focuses content without clearing route state or its contextual navigation", async () => {
   const originalUrl = window.location.href;
   const originalState = window.history.state;
