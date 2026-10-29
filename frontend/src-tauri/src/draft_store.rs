@@ -22,6 +22,7 @@ const MAX_TOTAL: u64 = 250 * 1024 * 1024;
 const RESERVE: u64 = 512 * 1024 * 1024;
 const TTL: u64 = 7 * 24 * 60 * 60 * 1000;
 const MAGIC: &[u8; 4] = b"VD01";
+const MANIFEST_MAGIC: &[u8; 4] = b"VM02";
 const KEY_SERVICE: &str = "com.vostavo.desktop.drafts.v1";
 const KEY_ACCOUNT: &str = "content-key";
 
@@ -143,42 +144,137 @@ trait KeySource: Send + Sync {
 }
 struct MacKeychain {
     service: String,
+    mode: Mutex<Option<KeychainMode>>,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum KeychainMode {
+    DeviceOnly,
+    LocalLogin,
+}
+impl KeychainMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::DeviceOnly => "device-only",
+            Self::LocalLogin => "local-login",
+        }
+    }
+}
+const MISSING_ENTITLEMENT: i32 = -34018;
+fn choose_keychain_load(
+    protected: impl FnOnce() -> Result<Option<[u8; 32]>, i32>,
+    local: impl FnOnce() -> Result<Option<[u8; 32]>, i32>,
+) -> Result<(KeychainMode, Option<[u8; 32]>), i32> {
+    match protected() {
+        Ok(Some(key)) => Ok((KeychainMode::DeviceOnly, Some(key))),
+        Ok(None) | Err(MISSING_ENTITLEMENT) => local().map(|key| {
+            if key.is_some() {
+                (KeychainMode::LocalLogin, key)
+            } else {
+                (KeychainMode::DeviceOnly, None)
+            }
+        }),
+        Err(code) => Err(code),
+    }
+}
+fn choose_keychain_create(
+    protected: impl FnOnce() -> Result<(), i32>,
+    local: impl FnOnce() -> Result<(), i32>,
+) -> Result<KeychainMode, i32> {
+    match protected() {
+        Ok(()) => Ok(KeychainMode::DeviceOnly),
+        Err(MISSING_ENTITLEMENT) => local().map(|()| KeychainMode::LocalLogin),
+        Err(code) => Err(code),
+    }
 }
 impl MacKeychain {
     fn production() -> Self {
         Self {
             service: KEY_SERVICE.into(),
+            mode: Mutex::new(None),
         }
+    }
+    #[cfg(test)]
+    fn for_service(service: String) -> Self {
+        Self {
+            service,
+            mode: Mutex::new(None),
+        }
+    }
+    fn mode(&self) -> Option<KeychainMode> {
+        *self.mode.lock().unwrap()
     }
 }
 #[cfg(target_os = "macos")]
 impl KeySource for MacKeychain {
     fn load(&self) -> StoreResult<Option<[u8; 32]>> {
         use security_framework::passwords::{generic_password, PasswordOptions};
-        let mut options = PasswordOptions::new_generic_password(&self.service, KEY_ACCOUNT);
-        options.set_access_synchronized(Some(false));
-        match generic_password(options) {
-            Ok(value) => value
-                .try_into()
-                .map(Some)
-                .map_err(|_| err("Saved take cannot be opened on this Mac")),
-            Err(error) if error.code() == -25300 => Ok(None),
-            Err(error) => Err(format!(
-                "Mac Keychain is unavailable; local save is disabled (code {})",
-                error.code()
-            )),
-        }
-    }
-    fn create(&self, key: &[u8; 32]) -> StoreResult<()> {
-        use security_framework::passwords::{set_generic_password_options, PasswordOptions};
-        let mut options = PasswordOptions::new_generic_password(&self.service, KEY_ACCOUNT);
-        options.set_access_synchronized(Some(false));
-        set_generic_password_options(key, options).map_err(|error| {
+        let load = |mode| {
+            let mut options = PasswordOptions::new_generic_password(&self.service, KEY_ACCOUNT);
+            options.set_access_synchronized(Some(false));
+            if mode == KeychainMode::DeviceOnly {
+                options.use_protected_keychain();
+            }
+            match generic_password(options) {
+                Ok(value) => value.try_into().map(Some).map_err(|_| -50),
+                Err(error) if error.code() == -25300 => Ok(None),
+                Err(error) => Err(error.code()),
+            }
+        };
+        let selected = if let Some(mode) = self.mode() {
+            load(mode).map(|key| (mode, key))
+        } else {
+            choose_keychain_load(
+                || load(KeychainMode::DeviceOnly),
+                || load(KeychainMode::LocalLogin),
+            )
+        };
+        let (mode, key) = selected.map_err(|code| {
             format!(
                 "Mac Keychain is unavailable; local save is disabled (code {})",
-                error.code()
+                code
             )
-        })
+        })?;
+        if key.is_some() {
+            let mut selected = self.mode.lock().unwrap();
+            if selected.is_none() {
+                eprintln!("Draft Keychain mode: {}", mode.label());
+                *selected = Some(mode);
+            }
+        }
+        Ok(key)
+    }
+    fn create(&self, key: &[u8; 32]) -> StoreResult<()> {
+        use security_framework::access_control::{ProtectionMode, SecAccessControl};
+        use security_framework::passwords::{set_generic_password_options, PasswordOptions};
+        let create = |mode| {
+            let mut options = PasswordOptions::new_generic_password(&self.service, KEY_ACCOUNT);
+            options.set_access_synchronized(Some(false));
+            if mode == KeychainMode::DeviceOnly {
+                options.use_protected_keychain();
+                let control = SecAccessControl::create_with_protection(
+                    Some(ProtectionMode::AccessibleWhenUnlockedThisDeviceOnly),
+                    0,
+                )
+                .map_err(|error| error.code())?;
+                options.set_access_control(control);
+            }
+            set_generic_password_options(key, options).map_err(|error| error.code())
+        };
+        // TODO(signed DMG): require DeviceOnly after validating Developer ID
+        // entitlements and an explicit migration of earlier local-login keys.
+        let mode = if let Some(mode) = self.mode() {
+            create(mode).map(|()| mode)
+        } else {
+            choose_keychain_create(
+                || create(KeychainMode::DeviceOnly),
+                || create(KeychainMode::LocalLogin),
+            )
+        }
+        .map_err(|code| {
+            format!("Mac Keychain is unavailable; local save is disabled (code {code})")
+        })?;
+        *self.mode.lock().unwrap() = Some(mode);
+        Ok(())
     }
 }
 #[cfg(not(target_os = "macos"))]
@@ -362,35 +458,46 @@ impl Submission {
         Ok(())
     }
 }
+// Step 3 reconstructs these runtime connection values immediately before an
+// explicit Submit. They must never enter the persistent frozen replay body.
+const RUNTIME_REQUEST_FIELDS: &[&str] = &[
+    "llm_base_url",
+    "llm_api_key",
+    "openrouter_http_referer",
+    "openrouter_app_title",
+];
+const SAFE_REQUEST_FIELDS: &[&str] = &[
+    "sharing_fingerprint",
+    "request_id",
+    "resume_assessment_id",
+    "audio_id",
+    "whisper",
+    "provider",
+    "llm_model",
+    "expected_language",
+    "feedback_language",
+    "speaker_id",
+    "task_family",
+    "theme",
+    "target_duration_sec",
+    "target_cefr",
+    "prompt_id",
+    "prompt_text",
+    "retry_of_session_id",
+    "language_profile_key",
+    "label",
+    "notes",
+    "dry_run",
+];
 fn safe_request_body(value: &serde_json::Value) -> bool {
     let Some(fields) = value.as_object() else {
         return false;
     };
-    const ALLOWED: &[&str] = &[
-        "sharing_fingerprint",
-        "request_id",
-        "resume_assessment_id",
-        "audio_id",
-        "whisper",
-        "provider",
-        "llm_model",
-        "expected_language",
-        "feedback_language",
-        "speaker_id",
-        "task_family",
-        "theme",
-        "target_duration_sec",
-        "target_cefr",
-        "prompt_id",
-        "prompt_text",
-        "retry_of_session_id",
-        "language_profile_key",
-        "label",
-        "notes",
-        "dry_run",
-    ];
     fields.iter().all(|(name, value)| {
-        ALLOWED.contains(&name.as_str()) && !value.is_object() && !value.is_array()
+        !RUNTIME_REQUEST_FIELDS.contains(&name.as_str())
+            && SAFE_REQUEST_FIELDS.contains(&name.as_str())
+            && !value.is_object()
+            && !value.is_array()
     })
 }
 
@@ -498,6 +605,57 @@ fn open(key: &[u8; 32], id: &str, kind: &str, bytes: &[u8]) -> StoreResult<Vec<u
         )
         .map_err(|_| err("Saved draft failed authentication"))
 }
+fn seal_manifest(key: &[u8; 32], id: &str, revision: u64, plain: &[u8]) -> StoreResult<Vec<u8>> {
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| err("Encryption is unavailable"))?;
+    let nonce = random::<12>()?;
+    let revision_bytes = revision.to_be_bytes();
+    let aad = format!("vostavo-draft-v2:manifest:{id}:revision:{revision}");
+    let nonce_ref =
+        Nonce::try_from(nonce.as_slice()).map_err(|_| err("Encryption is unavailable"))?;
+    let encrypted = cipher
+        .encrypt(
+            &nonce_ref,
+            Payload {
+                msg: plain,
+                aad: aad.as_bytes(),
+            },
+        )
+        .map_err(|_| err("Could not encrypt draft"))?;
+    let mut out = Vec::with_capacity(4 + 8 + 12 + encrypted.len());
+    out.extend(MANIFEST_MAGIC);
+    out.extend(revision_bytes);
+    out.extend(nonce);
+    out.extend(encrypted);
+    Ok(out)
+}
+fn open_manifest(key: &[u8; 32], id: &str, bytes: &[u8]) -> StoreResult<(Vec<u8>, Option<u64>)> {
+    if bytes.starts_with(MAGIC) {
+        // The original envelope remains readable so a previous local draft is
+        // never silently discarded during this storage-format upgrade.
+        return open(key, id, "manifest", bytes).map(|plain| (plain, None));
+    }
+    if bytes.len() < 40 || !bytes.starts_with(MANIFEST_MAGIC) {
+        return Err(err("Saved draft is damaged"));
+    }
+    let revision = u64::from_be_bytes(
+        bytes[4..12]
+            .try_into()
+            .map_err(|_| err("Saved draft is damaged"))?,
+    );
+    let aad = format!("vostavo-draft-v2:manifest:{id}:revision:{revision}");
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| err("Encryption is unavailable"))?;
+    let nonce_ref = Nonce::try_from(&bytes[12..24]).map_err(|_| err("Saved draft is damaged"))?;
+    let plain = cipher
+        .decrypt(
+            &nonce_ref,
+            Payload {
+                msg: &bytes[24..],
+                aad: aad.as_bytes(),
+            },
+        )
+        .map_err(|_| err("Saved draft failed authentication"))?;
+    Ok((plain, Some(revision)))
+}
 
 struct Incoming {
     draft_id: String,
@@ -527,13 +685,34 @@ pub struct DraftStore {
     dir: PathBuf,
     key: Box<dyn KeySource>,
     incoming: HashMap<String, Incoming>,
-    verified: HashSet<String>,
+    verified: HashMap<String, MediaProof>,
     #[cfg(test)]
     fail_manifest_sync: bool,
     #[cfg(test)]
     fail_chunk_write_after_length: bool,
     #[cfg(test)]
     free_bytes_override: Option<u64>,
+    #[cfg(test)]
+    media_verifications: u64,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct MediaProof {
+    device: u64,
+    inode: u64,
+    length: u64,
+    modified_seconds: i64,
+    modified_nanos: i64,
+}
+impl MediaProof {
+    fn from_metadata(metadata: &fs::Metadata) -> Self {
+        Self {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            length: metadata.len(),
+            modified_seconds: metadata.mtime(),
+            modified_nanos: metadata.mtime_nsec(),
+        }
+    }
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -552,13 +731,15 @@ impl DraftStore {
             dir,
             key: Box::new(MacKeychain::production()),
             incoming: HashMap::new(),
-            verified: HashSet::new(),
+            verified: HashMap::new(),
             #[cfg(test)]
             fail_manifest_sync: false,
             #[cfg(test)]
             fail_chunk_write_after_length: false,
             #[cfg(test)]
             free_bytes_override: None,
+            #[cfg(test)]
+            media_verifications: 0,
         })
     }
     #[cfg(test)]
@@ -572,10 +753,11 @@ impl DraftStore {
             dir,
             key,
             incoming: HashMap::new(),
-            verified: HashSet::new(),
+            verified: HashMap::new(),
             fail_manifest_sync: false,
             fail_chunk_write_after_length: false,
             free_bytes_override: None,
+            media_verifications: 0,
         }
     }
     fn manifest_path(&self, id: &str) -> StoreResult<PathBuf> {
@@ -624,9 +806,12 @@ impl DraftStore {
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes)
             .map_err(|_| err("Could not read saved draft"))?;
-        let plain = open(key, id, "manifest", &bytes)?;
+        let (plain, header_revision) = open_manifest(key, id, &bytes)?;
         let manifest: Manifest =
             serde_json::from_slice(&plain).map_err(|_| err("Invalid saved draft"))?;
+        if header_revision.is_some_and(|revision| revision != manifest.revision) {
+            return Err(err("Saved draft revision mismatch"));
+        }
         manifest.validate(id, now)?;
         Ok(manifest)
     }
@@ -639,7 +824,7 @@ impl DraftStore {
         }
         Ok(found)
     }
-    fn verify_media(&self, manifest: &Manifest, key: &[u8; 32]) -> StoreResult<()> {
+    fn verify_media(&mut self, manifest: &Manifest, key: &[u8; 32]) -> StoreResult<()> {
         let Some(take) = &manifest.take else {
             return Ok(());
         };
@@ -648,18 +833,22 @@ impl DraftStore {
             return Err(err("Saved take is unavailable"));
         }
         let mut file = open_private(&path)?;
+        let initial = file.metadata().map_err(|_| err("Saved take is damaged"))?;
+        let proof = MediaProof::from_metadata(&initial);
         let mut magic = [0; 4];
         file.read_exact(&mut magic)
             .map_err(|_| err("Saved take is damaged"))?;
         let count = take.size.div_ceil(CHUNK as u64);
-        if &magic != MAGIC
-            || file
-                .metadata()
-                .map_err(|_| err("Saved take is damaged"))?
-                .len()
-                != encrypted_media_size(take.size)
-        {
+        if &magic != MAGIC || initial.len() != encrypted_media_size(take.size) {
             return Err(err("Saved take is damaged"));
+        }
+        let identity = format!("{}:{}", manifest.draft_id, take.media_id);
+        if self.verified.get(&identity) == Some(&proof) {
+            return Ok(());
+        }
+        #[cfg(test)]
+        {
+            self.media_verifications += 1;
         }
         let mut digest = Sha256::new();
         for index in 0..count {
@@ -675,6 +864,12 @@ impl DraftStore {
         if format!("{:x}", digest.finalize()) != take.sha256 {
             return Err(err("Saved take failed integrity check"));
         }
+        if MediaProof::from_metadata(&file.metadata().map_err(|_| err("Saved take is damaged"))?)
+            != proof
+        {
+            return Err(err("Saved take changed during verification"));
+        }
+        self.verified.insert(identity, proof);
         Ok(())
     }
     fn commit(&self, manifest: &Manifest, key: &[u8; 32]) -> Result<(), CommitFailure> {
@@ -682,11 +877,11 @@ impl DraftStore {
         let final_path = self.manifest_path(&manifest.draft_id)?;
         regular_file(&final_path)?;
         let plain = serde_json::to_vec(manifest).map_err(|_| err("Could not encode draft"))?;
-        if plain.len().saturating_add(32) > 64 * 1024 {
+        if plain.len().saturating_add(40) > 64 * 1024 {
             return Err(err("Saved draft exceeds limit").into());
         }
         let temp = self.dir.join(format!("{}.tmp", new_id()?));
-        let bytes = seal(key, &manifest.draft_id, "manifest", &plain)?;
+        let bytes = seal_manifest(key, &manifest.draft_id, manifest.revision, &plain)?;
         let mut file = create_private(&temp)?;
         let result = (|| -> Result<(), CommitFailure> {
             file.write_all(&bytes)
@@ -1038,9 +1233,9 @@ impl DraftStore {
                 }
                 return Err(error.message);
             }
-            self.verified
-                .insert(format!("{}:{}", manifest.draft_id, item.take.media_id));
             if let Some(old) = old {
+                self.verified
+                    .remove(&format!("{}:{}", manifest.draft_id, old.media_id));
                 if let Ok(path) = self.media_path(&manifest.draft_id, &old.media_id) {
                     let _ = fs::remove_file(path);
                 }
@@ -1065,6 +1260,7 @@ impl DraftStore {
         if manifest.expires_at <= now {
             return Err(err("Draft expired"));
         }
+        self.verify_media(&manifest, &key)?;
         let take = manifest.take.ok_or_else(|| err("Draft has no take"))?;
         if take.media_id != media_id || index as u64 >= take.size.div_ceil(CHUNK as u64) {
             return Err(err("Take chunk was not found"));
@@ -1089,19 +1285,6 @@ impl DraftStore {
             != expected_file_len
         {
             return Err(err("Saved take is damaged"));
-        }
-        let identity = format!("{draft_id}:{media_id}");
-        if !self.verified.contains(&identity) {
-            let mut digest = Sha256::new();
-            for chunk in 0..count {
-                digest.update(read_chunk(
-                    &mut file, &key, draft_id, media_id, take.size, chunk,
-                )?);
-            }
-            if format!("{:x}", digest.finalize()) != take.sha256 {
-                return Err(err("Saved take failed integrity check"));
-            }
-            self.verified.insert(identity);
         }
         read_chunk(&mut file, &key, draft_id, media_id, take.size, index as u64)
     }
@@ -1222,6 +1405,8 @@ impl DraftStore {
                 let _ = fs::remove_file(value.path);
             }
         }
+        self.verified
+            .retain(|identity, _| !identity.starts_with(&format!("{draft_id}:")));
         sync_dir(&self.dir)?;
         Ok(())
     }
@@ -1251,6 +1436,16 @@ impl DraftStore {
                     .map(|t| format!("{}-{}.media", m.draft_id, t.media_id))
             })
             .collect();
+        let referenced_proofs: HashSet<_> = valid_manifests
+            .iter()
+            .filter_map(|m| {
+                m.take
+                    .as_ref()
+                    .map(|t| format!("{}:{}", m.draft_id, t.media_id))
+            })
+            .collect();
+        self.verified
+            .retain(|identity, _| referenced_proofs.contains(identity));
         let active: HashSet<_> = self
             .incoming
             .values()
@@ -1574,6 +1769,9 @@ mod tests {
             store.load_take_chunk(&ready.draft_id, media_id, 0).unwrap(),
             bytes
         );
+        assert_eq!(store.media_verifications, 1);
+        assert_eq!(store.list().unwrap().len(), 1);
+        assert_eq!(store.media_verifications, 1);
         let path = store.media_path(&ready.draft_id, media_id).unwrap();
         let mut ciphertext = fs::read(&path).unwrap();
         *ciphertext.last_mut().unwrap() ^= 1;
@@ -1594,6 +1792,45 @@ mod tests {
             store.list_with_issues().unwrap().unreadable_ids,
             vec![ready.draft_id.clone()]
         );
+    }
+    #[test]
+    fn manifest_revision_header_is_authenticated_and_legacy_manifest_upgrades() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let draft = store.save_setup(setup("Alex"), None, None).unwrap();
+        let path = store.manifest_path(&draft.draft_id).unwrap();
+        let original = fs::read(&path).unwrap();
+        assert!(original.starts_with(MANIFEST_MAGIC));
+        let mut tampered = original.clone();
+        tampered[11] ^= 1;
+        fs::write(&path, tampered).unwrap();
+        assert_eq!(
+            store.list_with_issues().unwrap().unreadable_ids,
+            vec![draft.draft_id.clone()]
+        );
+        let plain = serde_json::to_vec(&draft).unwrap();
+        fs::write(
+            &path,
+            seal_manifest(&[7; 32], &draft.draft_id, draft.revision + 1, &plain).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            store.list_with_issues().unwrap().unreadable_ids,
+            vec![draft.draft_id.clone()]
+        );
+        fs::write(
+            &path,
+            seal(&[7; 32], &draft.draft_id, "manifest", &plain).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(store.list().unwrap().len(), 1);
+        let updated = store
+            .save_setup(setup("Alex"), Some(draft.draft_id), Some(draft.revision))
+            .unwrap();
+        assert_eq!(updated.revision, 2);
+        assert!(fs::read(store.manifest_path(&updated.draft_id).unwrap())
+            .unwrap()
+            .starts_with(MANIFEST_MAGIC));
     }
     #[test]
     fn damaged_manifest_is_isolated_and_clock_rollback_does_not_hide_good_draft() {
@@ -2243,20 +2480,18 @@ mod tests {
     fn real_keychain_round_trip_uses_isolated_non_synchronizing_item() {
         use security_framework::passwords::{delete_generic_password_options, PasswordOptions};
         let service = format!("com.vostavo.desktop.drafts.test.{}", new_id().unwrap());
-        let keychain = MacKeychain {
-            service: service.clone(),
-        };
+        let keychain = MacKeychain::for_service(service.clone());
         let result = (|| -> StoreResult<()> {
             assert!(keychain.load()?.is_none());
             keychain.create(&[9; 32])?;
             assert_eq!(keychain.load()?, Some([9; 32]));
+            assert!(matches!(
+                keychain.mode(),
+                Some(KeychainMode::DeviceOnly | KeychainMode::LocalLogin)
+            ));
             let root = TestRoot::new();
-            let mut store = DraftStore::test(
-                &root.0,
-                Box::new(MacKeychain {
-                    service: service.clone(),
-                }),
-            );
+            let mut store =
+                DraftStore::test(&root.0, Box::new(MacKeychain::for_service(service.clone())));
             let draft = store.save_setup(setup("Mac keychain learner"), None, None)?;
             let bytes = b"keychain-backed encrypted media";
             let transfer = store.begin_take(draft.draft_id.clone(), draft.revision, take(bytes))?;
@@ -2269,10 +2504,72 @@ mod tests {
             );
             Ok(())
         })();
-        let mut options = PasswordOptions::new_generic_password(&service, KEY_ACCOUNT);
-        options.set_access_synchronized(Some(false));
-        let _ = delete_generic_password_options(options);
+        for protected in [false, true] {
+            let mut options = PasswordOptions::new_generic_password(&service, KEY_ACCOUNT);
+            options.set_access_synchronized(Some(false));
+            if protected {
+                options.use_protected_keychain();
+            }
+            let _ = delete_generic_password_options(options);
+        }
         result.unwrap();
+    }
+    #[test]
+    fn device_only_keychain_is_preferred_and_missing_entitlement_uses_local_fallback() {
+        let (mode, key) =
+            choose_keychain_load(|| Ok(Some([3; 32])), || panic!("no fallback")).unwrap();
+        assert_eq!(mode.label(), "device-only");
+        assert_eq!(key, Some([3; 32]));
+        let (mode, key) =
+            choose_keychain_load(|| Err(MISSING_ENTITLEMENT), || Ok(Some([4; 32]))).unwrap();
+        assert_eq!(mode.label(), "local-login");
+        assert_eq!(key, Some([4; 32]));
+        assert_eq!(
+            choose_keychain_create(|| Err(MISSING_ENTITLEMENT), || Ok(()))
+                .unwrap()
+                .label(),
+            "local-login"
+        );
+        assert_eq!(
+            choose_keychain_create(|| Ok(()), || panic!("no fallback"))
+                .unwrap()
+                .label(),
+            "device-only"
+        );
+        assert!(choose_keychain_load(|| Err(-25293), || panic!("no fallback")).is_err());
+        assert!(choose_keychain_create(|| Err(-25293), || panic!("no fallback")).is_err());
+    }
+    #[test]
+    fn frozen_request_field_policy_tracks_backend_contract_without_credentials() {
+        use std::collections::BTreeSet;
+        let contract = include_str!("../../../app_backend/contracts.py");
+        let fields = contract
+            .split("class AssessmentCreateRequest(BaseModel):")
+            .nth(1)
+            .unwrap()
+            .split("class AssessmentCreateResponse(BaseModel):")
+            .next()
+            .unwrap();
+        let backend: BTreeSet<&str> = fields
+            .lines()
+            .filter_map(|line| {
+                (line.starts_with("    ") && !line.starts_with("        "))
+                    .then(|| line.trim().split(':').next().unwrap())
+                    .filter(|name| !name.is_empty())
+            })
+            .collect();
+        let allowed: BTreeSet<&str> = SAFE_REQUEST_FIELDS.iter().copied().collect();
+        let runtime: BTreeSet<&str> = RUNTIME_REQUEST_FIELDS.iter().copied().collect();
+        assert!(allowed.is_disjoint(&runtime));
+        assert_eq!(backend, allowed.union(&runtime).copied().collect());
+        for field in RUNTIME_REQUEST_FIELDS {
+            let mut body = serde_json::Map::new();
+            body.insert(
+                (*field).to_owned(),
+                serde_json::Value::String("secret".into()),
+            );
+            assert!(!safe_request_body(&serde_json::Value::Object(body)));
+        }
     }
     #[test]
     #[ignore = "manual 100 MiB storage throughput probe"]
