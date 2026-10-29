@@ -24,6 +24,7 @@ export type FrozenApiRoute =
   | "/v1/uploads/limits"
   | "/v1/health"
   | "/v1/diagnostics"
+  | "/v1/readiness"
   | "/v1/runtime"
   | "/v1/runtime/settings"
   | "/v1/runtime/settings/test-connection"
@@ -64,6 +65,20 @@ export interface DiagnosticItem {
 
 export interface DiagnosticsResponse {
   items: DiagnosticItem[];
+}
+
+export interface ReadinessCheck {
+  key: "ai_tutor" | "speech_recognition" | "media_decoder" | "storage";
+  state: "available" | "needs_setup" | "unavailable";
+  blocking: boolean;
+  reason: "available" | "not_configured" | "credential_missing" | "local_service_unreachable" |
+    "model_not_cached" | "model_unavailable" | "media_decoder_missing" | "storage_not_writable";
+  detail_args: Record<string, string>;
+}
+
+export interface ReadinessResponse {
+  checks: ReadinessCheck[];
+  ready: boolean;
 }
 
 export interface RuntimeResponse {

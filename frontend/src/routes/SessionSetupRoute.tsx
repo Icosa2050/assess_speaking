@@ -10,9 +10,8 @@ import { apiClient } from "@/lib/api/client";
 import type { HistoryRow } from "@/lib/api/types";
 import { createTranslator } from "@/lib/i18n";
 import { queryKeys } from "@/lib/query/queryClient";
-import { buildSetupReadinessRows, canContinueWithCheck, isCoreSetupReadinessKey } from "@/lib/setup/readiness";
-import { useCloudSpeechConnection } from "@/lib/setup/cloudSpeech";
-import { useRecentConnectionTest } from "@/lib/setup/connectionVerification";
+import { buildSetupReadinessRows, canEnterSpeak, canRecord, isCoreSetupReadinessKey } from "@/lib/setup/readiness";
+import { useReadiness } from "@/lib/setup/useReadiness";
 import {
   buildPracticeBrief,
   languageCodes,
@@ -23,7 +22,7 @@ import {
   themesForLanguageAndLevel,
   type ThemeLibrary,
 } from "@/lib/setup/sessionSetupContent";
-import { selectRuntimeReadiness, useAppStore } from "@/lib/state/appStore";
+import { useAppStore } from "@/lib/state/appStore";
 import { type CefrLevel, type DurationOption, type TaskFamily } from "@/lib/state/sessionDraft";
 
 const pageStyle = {
@@ -123,7 +122,6 @@ export const SessionSetupRoute = () => {
 const SessionSetupContent = () => {
   const navigate = useNavigate();
   const locale = useAppStore((state) => state.preferences.uiLocale);
-  const preferences = useAppStore((state) => state.preferences);
   const microphoneStatus = useAppStore((state) => state.microphoneStatus);
   const microphoneSetupPassed = useAppStore((state) => state.microphoneSetupPassed);
   const draft = useAppStore((state) => state.draft);
@@ -152,20 +150,7 @@ const SessionSetupContent = () => {
   const [errors, setErrors] = useState<string[]>([]);
   const draftThemeHydratedRef = useRef(false);
 
-  const runtimeQuery = useQuery({
-    queryKey: queryKeys.runtime,
-    queryFn: () => apiClient.getRuntime(),
-  });
-  const diagnosticsQuery = useQuery({
-    queryKey: queryKeys.diagnostics,
-    queryFn: () => apiClient.getDiagnostics(),
-  });
-  const runtimeSettingsQuery = useQuery({
-    queryKey: ["runtime", "settings"],
-    queryFn: () => apiClient.getRuntimeSettings(),
-  });
-  const cloudSpeech = useCloudSpeechConnection(runtimeSettingsQuery.data);
-  const connectionTestPassed = useRecentConnectionTest(runtimeQuery.data);
+  const readinessQuery = useReadiness();
 
   const historyQuery = useQuery({
     queryKey: queryKeys.history,
@@ -251,36 +236,14 @@ const SessionSetupContent = () => {
         successFocus: [],
       };
 
-  const runtimeConfigured = Boolean(runtimeQuery.data?.configured);
-  const runtimeReadiness = selectRuntimeReadiness({
-    preferences: {
-      ...preferences,
-      activeConnectionId: runtimeConfigured
-        ? preferences.activeConnectionId ||
-          `${runtimeQuery.data?.provider || "runtime"}:${runtimeQuery.data?.model || "active"}`
-        : "",
-      setupComplete: runtimeConfigured,
-    },
-  });
   const requiredChecks = buildSetupReadinessRows({
-    diagnostics: diagnosticsQuery.data?.items ?? [],
-    diagnosticsError: diagnosticsQuery.isError && !diagnosticsQuery.data,
-    diagnosticsPending: diagnosticsQuery.isPending,
-    runtime: runtimeQuery.data,
-    runtimeError: runtimeQuery.isError && !runtimeQuery.data,
-    runtimePending: runtimeQuery.isPending,
-    microphoneStatus,
-    microphoneSetupPassed,
-    connectionTestPassed,
-    cloudSpeechSelected: cloudSpeech.selected,
-    cloudSpeechConnected: cloudSpeech.connected,
-    cloudSpeechPending: cloudSpeech.pending || runtimeSettingsQuery.isPending,
-    cloudSpeechError: cloudSpeech.error || (runtimeSettingsQuery.isError && !runtimeSettingsQuery.data),
+    readiness: readinessQuery.data,
+    readinessError: readinessQuery.isError && !readinessQuery.data,
+    readinessPending: readinessQuery.isPending,
+    microphoneStatus, microphoneSetupPassed,
   }).filter((row) => isCoreSetupReadinessKey(row.key));
-  const readyToRecord = runtimeConfigured && requiredChecks.every((row) => row.status === "ready");
-  const canContinueToSpeak = runtimeReadiness.ready && requiredChecks
-    .filter((row) => row.key !== "microphone")
-    .every((row) => canContinueWithCheck(row.status));
+  const readyToRecord = canRecord(requiredChecks);
+  const canContinueToSpeak = canEnterSpeak(requiredChecks);
   const primaryActionLabel = canContinueToSpeak
     ? translate("setup.start_speaking")
     : translate("setup.save_and_setup_device");

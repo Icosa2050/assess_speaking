@@ -1,19 +1,13 @@
+import type { ReadinessCheck, ReadinessResponse } from "@/lib/api/types";
 import type { MicrophoneStatus } from "./microphone";
-import type {
-  DiagnosticItem,
-  RuntimeResponse,
-} from "@/lib/api/types";
 
-export type SetupReadinessStatus = "loading" | "ready" | "configured" | "setup" | "unavailable";
-
-export type SetupReadinessKey =
-  | "speech_recognition"
-  | "ai_tutor"
-  | "microphone"
-  | "sample_check";
+export type SetupReadinessStatus = "loading" | "ready" | "setup" | "unavailable";
+export type SetupReadinessKey = ReadinessCheck["key"] | "microphone" | "sample_check";
 
 export type SetupReadinessRow = {
   actionKey: string;
+  backendReady?: boolean;
+  blocking?: boolean;
   detailKey: string;
   disabled: boolean;
   key: SetupReadinessKey;
@@ -23,201 +17,128 @@ export type SetupReadinessRow = {
 };
 
 export type SetupReadinessInput = {
-  diagnostics: DiagnosticItem[];
+  readiness?: ReadinessResponse;
+  readinessError?: boolean;
+  readinessPending?: boolean;
   microphoneStatus?: MicrophoneStatus;
   microphoneSetupPassed?: boolean;
-  diagnosticsError?: boolean;
-  diagnosticsPending?: boolean;
-  runtime?: RuntimeResponse;
-  runtimeError?: boolean;
-  runtimePending?: boolean;
-  connectionTestPassed?: boolean;
-  cloudSpeechSelected?: boolean;
-  cloudSpeechConnected?: boolean;
-  cloudSpeechPending?: boolean;
-  cloudSpeechError?: boolean;
-  whisperCached?: boolean;
-  whisperChecked?: boolean;
-  whisperPending?: boolean;
 };
 
 export type SetupReadinessActionTarget =
   | { kind: "route"; value: "/session-setup" }
-  | { kind: "section"; value: "runtime-setup-connection" | "runtime-setup-whisper" | "runtime-setup-microphone" };
+  | { kind: "section"; value: "runtime-setup-connection" | "runtime-setup-whisper" | "runtime-setup-microphone" }
+  | { kind: "refresh" };
 
-export const isCoreSetupReadinessKey = (key: SetupReadinessKey): boolean =>
-  key === "speech_recognition" || key === "ai_tutor" || key === "microphone";
+const backendKeys: ReadinessCheck["key"][] = [
+  "speech_recognition", "ai_tutor", "media_decoder", "storage",
+];
 
-export const canContinueWithCheck = (status: SetupReadinessStatus): boolean =>
-  status === "ready" || status === "configured";
+export const isCoreSetupReadinessKey = (key: SetupReadinessKey): boolean => key !== "sample_check";
+export const isBlockingSetupReadinessRow = (row: SetupReadinessRow): boolean => row.blocking !== false;
+export const canContinueWithCheck = (status: SetupReadinessStatus): boolean => status === "ready";
 
-export const resolveSetupReadinessAction = (
-  key: SetupReadinessKey,
-): SetupReadinessActionTarget => {
-  if (key === "speech_recognition") {
-    return { kind: "section", value: "runtime-setup-whisper" };
-  }
-  if (key === "ai_tutor") {
-    return { kind: "section", value: "runtime-setup-connection" };
-  }
+// The recording page performs its own microphone test. Backend prerequisites
+// must already be available before entering it.
+export const canEnterSpeak = (rows: SetupReadinessRow[]): boolean =>
+  backendKeys.every((key) => rows.some((row) => row.key === key && row.backendReady === true &&
+    (!row.blocking || canContinueWithCheck(row.status))));
+
+export const canRecord = (rows: SetupReadinessRow[]): boolean =>
+  canEnterSpeak(rows) && rows.some((row) => row.key === "microphone" && canContinueWithCheck(row.status));
+
+export const resolveSetupReadinessAction = (key: SetupReadinessKey): SetupReadinessActionTarget => {
+  if (key === "speech_recognition") return { kind: "section", value: "runtime-setup-whisper" };
+  if (key === "ai_tutor") return { kind: "section", value: "runtime-setup-connection" };
   if (key === "microphone") return { kind: "section", value: "runtime-setup-microphone" };
+  if (key === "media_decoder" || key === "storage") return { kind: "refresh" };
   return { kind: "route", value: "/session-setup" };
 };
 
-const findDiagnostic = (items: DiagnosticItem[], key: string): DiagnosticItem | undefined =>
-  items.find((item) => item.key === key);
+const reasonCopy: Record<ReadinessCheck["reason"], { detail: string; rescue?: string }> = {
+  available: { detail: "" },
+  not_configured: { detail: "first_run.readiness_not_configured", rescue: "first_run.readiness_configure" },
+  credential_missing: { detail: "first_run.readiness_credential_missing", rescue: "first_run.readiness_add_credential" },
+  local_service_unreachable: { detail: "first_run.readiness_service_unreachable", rescue: "first_run.readiness_start_service" },
+  model_not_cached: { detail: "first_run.readiness_model_not_cached", rescue: "first_run.readiness_download_model" },
+  model_unavailable: { detail: "first_run.readiness_model_unavailable", rescue: "first_run.readiness_select_model" },
+  media_decoder_missing: { detail: "first_run.readiness_media_missing", rescue: "first_run.readiness_install_media" },
+  storage_not_writable: { detail: "first_run.readiness_storage_unwritable", rescue: "first_run.readiness_fix_storage" },
+};
 
-const statusFromDiagnostic = (item: DiagnosticItem | undefined): SetupReadinessStatus => {
-  if (!item) {
-    return "setup";
-  }
-  if (item.status === "ok") {
-    return "ready";
-  }
-  if (item.status === "error") {
-    return "unavailable";
-  }
-  return "setup";
+const rowMeta: Record<ReadinessCheck["key"], { title: string; ready: string; action: string }> = {
+  speech_recognition: {
+    title: "runtime_setup.setup_guide_speech_title",
+    ready: "runtime_setup.setup_guide_speech_ready",
+    action: "runtime_setup.setup_guide_download_model",
+  },
+  ai_tutor: {
+    title: "runtime_setup.setup_guide_ai_title",
+    ready: "runtime_setup.setup_guide_ai_ready",
+    action: "runtime_setup.setup_guide_connect_ai",
+  },
+  media_decoder: {
+    title: "first_run.readiness_media_title",
+    ready: "first_run.readiness_media_ready",
+    action: "first_run.check_readiness",
+  },
+  storage: {
+    title: "first_run.readiness_storage_title",
+    ready: "first_run.readiness_storage_ready",
+    action: "first_run.check_readiness",
+  },
 };
 
 export const buildSetupReadinessRows = ({
-  diagnostics,
+  readiness,
+  readinessError = false,
+  readinessPending = false,
   microphoneStatus = "unknown",
   microphoneSetupPassed = false,
-  diagnosticsError = false,
-  diagnosticsPending = false,
-  runtime,
-  runtimeError = false,
-  runtimePending = false,
-  connectionTestPassed = false,
-  cloudSpeechSelected = false,
-  cloudSpeechConnected = false,
-  cloudSpeechPending = false,
-  cloudSpeechError = false,
-  whisperCached = false,
-  whisperChecked = false,
-  whisperPending = false,
 }: SetupReadinessInput): SetupReadinessRow[] => {
-  const allPending = diagnosticsPending || runtimePending || whisperPending || cloudSpeechPending;
-  if (allPending) {
-    return [
-      {
-        key: "speech_recognition",
-        status: "loading",
-        titleKey: "runtime_setup.setup_guide_speech_title",
-        detailKey: "runtime_setup.setup_guide_loading",
-        actionKey: "runtime_setup.setup_guide_download_model",
-        disabled: true,
-      },
-      {
-        key: "ai_tutor",
-        status: "loading",
-        titleKey: "runtime_setup.setup_guide_ai_title",
-        detailKey: "runtime_setup.setup_guide_loading",
-        actionKey: "runtime_setup.setup_guide_connect_ai",
-        disabled: true,
-      },
-      {
-        key: "microphone",
-        status: "loading",
-        titleKey: "runtime_setup.setup_guide_microphone_title",
-        detailKey: "runtime_setup.setup_guide_loading",
-        actionKey: "runtime_setup.setup_guide_check_microphone",
-        disabled: true,
-      },
-      {
-        key: "sample_check",
-        status: "loading",
-        titleKey: "runtime_setup.setup_guide_sample_title",
-        detailKey: "runtime_setup.setup_guide_loading",
-        actionKey: "runtime_setup.setup_guide_run_sample",
-        disabled: true,
-      },
-    ];
-  }
-
-  const whisperItem = findDiagnostic(diagnostics, "whisper");
-  const runtimeItem = findDiagnostic(diagnostics, "runtime");
-  const credentialItem = findDiagnostic(diagnostics, "runtime_api_key");
-  const credentialDiagnosticMatchesRuntime = Boolean(
-    runtime?.configured &&
-    credentialItem?.detail_args.provider === runtime.provider &&
-    credentialItem?.detail_args.model === runtime.model &&
-    credentialItem?.detail_args.base_url === runtime.base_url,
-  );
-  const credentialMissing = Boolean(
-    runtime?.requires_api_key &&
-    (!runtime.has_api_key || credentialDiagnosticMatchesRuntime && credentialItem?.status === "error"),
-  );
-
-  const speechStatus =
-    diagnosticsError || cloudSpeechError ? "unavailable"
-      : cloudSpeechSelected ? (cloudSpeechConnected ? "ready" : "setup")
-        : whisperChecked ? (whisperCached ? "ready" : "setup")
-          : whisperCached || whisperItem?.status === "ok" ? "ready"
-            : whisperItem ? statusFromDiagnostic(whisperItem) : runtime?.configured ? "configured" : "setup";
-  const aiStatus =
-    diagnosticsError || runtimeError
-      ? "unavailable"
-      : credentialMissing || runtimeItem?.status === "error"
-        ? "unavailable"
-        : runtime?.configured
-          ? runtime.requires_api_key && runtime.has_api_key || connectionTestPassed ? "ready" : "configured"
-          : runtimeItem?.status === "error" ? "unavailable" : "setup";
-  const microphoneReadiness = microphoneSetupPassed && microphoneStatus === "ready" ? "ready"
-    : ["unknown", "needs_review", "ready"].includes(microphoneStatus) ? "setup" : "unavailable";
-  const coreStatuses: SetupReadinessStatus[] = [speechStatus, aiStatus, microphoneReadiness];
-  const coreReady = coreStatuses.every(canContinueWithCheck);
-
-  return [
-    {
-      key: "speech_recognition",
-      status: speechStatus,
-      titleKey: "runtime_setup.setup_guide_speech_title",
-      detailKey:
-        speechStatus === "ready"
-          ? "runtime_setup.setup_guide_speech_ready"
-          : speechStatus === "configured" ? "first_run.speech_configured" : "runtime_setup.setup_guide_speech_setup",
-      rescueKey: cloudSpeechSelected ? "first_run.rescue_cloud_speech" : undefined,
-      actionKey: "runtime_setup.setup_guide_download_model",
-      disabled: false,
-    },
-    {
-      key: "ai_tutor",
-      status: aiStatus,
-      titleKey: "runtime_setup.setup_guide_ai_title",
-      detailKey:
-        credentialMissing
-          ? "first_run.ai_missing_key"
-          : aiStatus === "configured"
-          ? "first_run.ai_configured"
-          : aiStatus === "ready"
-          ? "runtime_setup.setup_guide_ai_ready"
-          : "runtime_setup.setup_guide_ai_setup",
-      rescueKey: credentialMissing ? "first_run.rescue_ai_credential" : undefined,
-      actionKey: "runtime_setup.setup_guide_connect_ai",
-      disabled: false,
-    },
-    {
-      key: "microphone",
-      status: microphoneReadiness,
-      titleKey: "runtime_setup.setup_guide_microphone_title",
-      detailKey:
-        microphoneReadiness === "ready"
-          ? "runtime_setup.setup_guide_microphone_ready"
-          : "runtime_setup.setup_guide_microphone_setup",
-      actionKey: "runtime_setup.setup_guide_check_microphone",
-      disabled: false,
-    },
-    {
-      key: "sample_check",
-      status: coreReady ? "configured" : "setup",
-      titleKey: "runtime_setup.setup_guide_sample_title",
-      detailKey: coreReady
-        ? "runtime_setup.setup_guide_sample_ready"
-        : "runtime_setup.setup_guide_sample_blocked",
-      actionKey: "runtime_setup.setup_guide_run_sample",
-      disabled: !coreReady,
-    },
-  ];
+  const checks = new Map(readiness?.checks.map((check) => [check.key, check]));
+  const backendReady = readiness?.ready === true && readiness.checks.every((check) =>
+    !check.blocking || check.state === "available");
+  const backendRows: SetupReadinessRow[] = backendKeys.map((key) => {
+    const check = checks.get(key);
+    const meta = rowMeta[key];
+    const cloudSpeech = key === "speech_recognition" && check?.detail_args.provider === "groq";
+    const status: SetupReadinessStatus = !readiness && readinessPending ? "loading"
+      : !readiness && readinessError ? "unavailable"
+        : check?.state === "available" ? "ready" : "setup";
+    const copy = check ? reasonCopy[check.reason] : undefined;
+    return {
+      key, status,
+      backendReady, blocking: check?.blocking ?? true,
+      titleKey: meta.title,
+      detailKey: status === "ready" ? cloudSpeech ? "first_run.cloud_speech_ready" : meta.ready : status === "loading"
+        ? "runtime_setup.setup_guide_loading" : status === "unavailable"
+          ? "first_run.readiness_backend_unavailable" : cloudSpeech
+            ? "first_run.cloud_speech_missing" : copy?.detail || "first_run.readiness_not_configured",
+      rescueKey: status === "setup" ? cloudSpeech
+        ? "first_run.rescue_cloud_speech" : copy?.rescue || "first_run.readiness_configure"
+        : status === "unavailable" ? "first_run.readiness_retry_backend" : undefined,
+      actionKey: cloudSpeech ? status === "ready"
+        ? "first_run.readiness_manage_cloud_speech" : "first_run.readiness_configure_cloud_speech" : meta.action,
+      disabled: status === "loading",
+    };
+  });
+  const microphoneReadiness: SetupReadinessStatus = microphoneSetupPassed && microphoneStatus === "ready"
+    ? "ready" : ["unknown", "needs_review", "ready"].includes(microphoneStatus) ? "setup" : "unavailable";
+  const microphoneRow: SetupReadinessRow = {
+    key: "microphone", status: microphoneReadiness,
+    titleKey: "runtime_setup.setup_guide_microphone_title",
+    detailKey: microphoneReadiness === "ready" ? "runtime_setup.setup_guide_microphone_ready" : "runtime_setup.setup_guide_microphone_setup",
+    rescueKey: microphoneReadiness === "unavailable" ? "first_run.rescue_microphone" : undefined,
+    actionKey: "runtime_setup.setup_guide_check_microphone", disabled: false,
+  };
+  const requiredRows = [...backendRows, microphoneRow];
+  const sampleReady = canRecord(requiredRows);
+  const sampleLoading = !readiness && readinessPending;
+  return [...requiredRows, {
+    key: "sample_check", status: sampleLoading ? "loading" : sampleReady ? "ready" : "setup",
+    titleKey: "runtime_setup.setup_guide_sample_title",
+    detailKey: sampleLoading ? "runtime_setup.setup_guide_loading"
+      : sampleReady ? "runtime_setup.setup_guide_sample_ready" : "runtime_setup.setup_guide_sample_blocked",
+    actionKey: "runtime_setup.setup_guide_run_sample", disabled: !sampleReady,
+  }];
 };

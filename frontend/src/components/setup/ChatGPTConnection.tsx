@@ -41,6 +41,7 @@ export function ChatGPTConnection({ connectionId = "", locale, onConnected, onTe
   const refresh = () => Promise.all([
     queryClient.invalidateQueries({ queryKey: ["runtime"] }),
     queryClient.invalidateQueries({ queryKey: queryKeys.diagnostics }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.readiness }),
   ]);
   useEffect(() => { setId(connectionId); }, [connectionId]);
   useEffect(() => {

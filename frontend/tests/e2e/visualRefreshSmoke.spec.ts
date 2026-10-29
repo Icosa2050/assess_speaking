@@ -1,3 +1,4 @@
+import { stubReadyReadiness } from "../readinessStub";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 
@@ -190,6 +191,7 @@ const fulfillJson = (route: Route, json: unknown) =>
   });
 
 const installVisualBackend = async (page: Page) => {
+  await stubReadyReadiness(page);
   let assessmentCount = 0;
   let activeAssessment: {
     assessmentId: string;

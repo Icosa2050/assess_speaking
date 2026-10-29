@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { CloudSettingsPanel, type CloudSettings } from "./CloudSettingsPanel";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import type { RuntimeSettingsConnection } from "@/lib/api/types";
+import { queryKeys } from "@/lib/query/queryClient";
 
 const settings: CloudSettings = {version:1, asr_provider:"local",asr_connection_id:"",asr_model:"whisper-large-v3",openrouter_modes:{},fallback_connection_id:"",paid_fallback_enabled:false,monthly_budget_usd:5,max_output_tokens:4096};
 const record=(id:string, provider:string):RuntimeSettingsConnection=>({connection_id:id,provider_key:provider,provider_choice:provider,provider_label:provider,label:id,model:"vendor/model:free",base_url:"",is_default:false,is_local:false,requires_api_key:true,has_api_key:true,secret_state:"present",last_test_status:"",last_tested_at:"",openrouter_http_referer:"",openrouter_app_title:"",provider_metadata:{}});
@@ -14,7 +15,8 @@ for(const locale of ["en","it"] as const) it(`saves independent cloud ASR and ex
     if(init?.method==="PUT")saved.push(JSON.parse(String(init.body)));
     return new Response(JSON.stringify({settings,spending:{spent_usd:0,reserved_usd:0,unresolved_requests:[]}}),{status:200});
   }));
-  renderWithProviders(<CloudSettingsPanel locale={locale} connections={[record("groq-account","groq"),record("paid-account","openrouter")]}/>);
+  const { queryClient } = renderWithProviders(<CloudSettingsPanel locale={locale} connections={[record("groq-account","groq"),record("paid-account","openrouter")]}/>);
+  queryClient.setQueryData(queryKeys.readiness, { ready: false, checks: [] });
   const panel=screen.getByRole("region",{name:locale==="en"?"Cloud services":"Servizi cloud"});
   await waitFor(()=>expect(within(panel).getAllByRole("combobox")).toHaveLength(3));
   const [asr,mode,fallback]=within(panel).getAllByRole("combobox");
@@ -27,6 +29,7 @@ for(const locale of ["en","it"] as const) it(`saves independent cloud ASR and ex
   fireEvent.click(within(panel).getByRole("button",{name:locale==="en"?"Save cloud settings":"Salva impostazioni cloud"}));
   await waitFor(()=>expect(saved).toHaveLength(1));
   expect(saved[0]).toMatchObject({asr_provider:"groq",asr_connection_id:"groq-account",paid_fallback_enabled:true,fallback_connection_id:"paid-account",openrouter_modes:{"paid-account":"paid"}});
+  await waitFor(() => expect(queryClient.getQueryState(queryKeys.readiness)?.isInvalidated).toBe(true));
   expect(String(JSON.stringify(saved))).not.toMatch(/api_key|access_token/);
 });
 

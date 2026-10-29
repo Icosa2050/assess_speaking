@@ -18,7 +18,9 @@ import {
   toSavedConnectionRecords,
 } from "@/lib/settings/connectionRepository";
 import { queryKeys } from "@/lib/query/queryClient";
-import { selectRuntimeReadiness, useAppStore } from "@/lib/state/appStore";
+import { buildSetupReadinessRows, canEnterSpeak } from "@/lib/setup/readiness";
+import { useReadiness } from "@/lib/setup/useReadiness";
+import { useAppStore } from "@/lib/state/appStore";
 import { SUPPORTED_UI_LOCALES, type UiLocale } from "@/lib/state/sessionDraft";
 
 type SettingsOrigin =
@@ -186,6 +188,7 @@ export const SettingsRoute = () => {
     queryKey: ["runtime", "settings"],
     queryFn: () => apiClient.getRuntimeSettings(),
   });
+  const readinessQuery = useReadiness();
 
   const whisperStatusQuery = useQuery({
     queryKey: ["runtime", "whisper", selectedWhisperModel],
@@ -252,17 +255,6 @@ export const SettingsRoute = () => {
     );
   }, [runtimeSettingsQuery.data]);
 
-  const effectivePreferences = useMemo(
-    () => ({
-      ...preferences,
-      activeConnectionId:
-        runtimeSettingsQuery.data?.active_connection_id || preferences.activeConnectionId,
-      setupComplete:
-        Boolean(runtimeQuery.data?.configured) || (runtimeSettingsQuery.data?.connections.length ?? 0) > 0,
-    }),
-    [preferences, runtimeQuery.data, runtimeSettingsQuery.data],
-  );
-
   useEffect(() => {
     if (runtimeSettingsQuery.data?.active_connection_id) {
       setActiveConnectionId(runtimeSettingsQuery.data.active_connection_id);
@@ -272,9 +264,11 @@ export const SettingsRoute = () => {
     );
   }, [runtimeQuery.data, runtimeSettingsQuery.data, setActiveConnectionId, setSetupComplete]);
 
-  const runtimeReadiness = selectRuntimeReadiness({
-    preferences: effectivePreferences,
-  });
+  const runtimeReady = canEnterSpeak(buildSetupReadinessRows({
+    readiness: readinessQuery.data,
+    readinessError: readinessQuery.isError && !readinessQuery.data,
+    readinessPending: readinessQuery.isPending,
+  }));
 
   const newConnectionFallbackProviderChoice =
     selectedConnectionId === "__new__" ? "ollama_local" : activeConnection?.provider_choice || "ollama_local";
@@ -303,6 +297,7 @@ export const SettingsRoute = () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.runtime }),
       queryClient.invalidateQueries({ queryKey: queryKeys.diagnostics }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.readiness }),
       queryClient.invalidateQueries({ queryKey: ["runtime", "settings"] }),
       queryClient.invalidateQueries({ queryKey: ["runtime", "whisper", selectedWhisperModel] }),
     ]);
@@ -422,6 +417,7 @@ export const SettingsRoute = () => {
         }),
       );
       await queryClient.invalidateQueries({ queryKey: ["runtime", "whisper", selectedWhisperModel] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.readiness });
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
       setWhisperMessage(translate("settings.whisper_download_failed", { detail }));
@@ -446,7 +442,7 @@ export const SettingsRoute = () => {
         <p style={{ margin: 0, lineHeight: 1.6, color: "#33514b" }}>
           {translate("settings.body")}
         </p>
-        {!runtimeReadiness.ready ? (
+        {!readinessQuery.isPending && !runtimeReady ? (
           <p style={{ margin: 0, color: "#9a6700", lineHeight: 1.6 }}>
             {translate("settings.needs_setup_info")}
           </p>

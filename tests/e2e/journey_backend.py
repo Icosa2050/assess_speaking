@@ -73,6 +73,13 @@ assess_speaking.run_assessment = fixture_assessment
 startup_diagnostics.describe_model_availability = lambda model: {
     "cached": True, "cached_path": f"journey-fixture:{model}",
 }
+# Readiness probes the saved local tutor model before a learner can enter Speak.
+# The journey worker supplies that model through fixture inference, without an
+# Ollama process, so its bounded health check must describe the same fixture.
+startup_diagnostics.llm_health_check = lambda **_kwargs: {
+    "endpoint": "journey-fixture",
+    "payload": {"models": [{"name": "journey-fixture"}]},
+}
 
 if __name__ == "__main__":
     import os

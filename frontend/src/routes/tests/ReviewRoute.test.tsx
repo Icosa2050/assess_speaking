@@ -25,6 +25,9 @@ vi.mock("@/lib/api/client", () => ({
     getAssessmentStatus: vi.fn(),
     resumeHistory: vi.fn(),
     getDiagnostics: vi.fn(),
+    getReadiness: vi.fn().mockResolvedValue({ ready: true, checks: [
+      "speech_recognition", "ai_tutor", "media_decoder", "storage",
+    ].map(key => ({ key, state: "available", blocking: true, reason: "available", detail_args: {} })) }),
     getRuntime: vi.fn(),
     getRuntimeSettings: vi.fn(),
   },

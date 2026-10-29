@@ -21,16 +21,15 @@ import { MIN_REVIEW_SECONDS } from "@/lib/recordingPolicy";
 import { hasFirstTakeMilestone, recordFirstTakeMilestone } from "@/lib/history/firstTakeMilestone";
 import { StatusBanner } from "@/components/ui/StatusBanner";
 import { pollingIntervals, queryKeys } from "@/lib/query/queryClient";
-import { buildSetupReadinessRows, canContinueWithCheck } from "@/lib/setup/readiness";
-import { useCloudSpeechConnection } from "@/lib/setup/cloudSpeech";
-import { useRecentConnectionTest } from "@/lib/setup/connectionVerification";
+import { buildSetupReadinessRows, canEnterSpeak, isBlockingSetupReadinessRow } from "@/lib/setup/readiness";
+import { useReadiness } from "@/lib/setup/useReadiness";
 import {
-  resolveSpeakRouteGuardTarget,
   selectAssessmentLifecycleState,
   selectCanSubmitAssessment,
   useAppStore,
 } from "@/lib/state/appStore";
 import {
+  hasSetupDraft,
   hasRecordingAttachment,
   type RecordingInputMethod,
 } from "@/lib/state/sessionDraft";
@@ -161,7 +160,6 @@ export const SpeakRoute = () => {
   const navigate = useNavigate();
   const setMicrophoneStatus = useAppStore(state => state.setMicrophoneStatus);
   const locale = useAppStore((state) => state.preferences.uiLocale);
-  const preferences = useAppStore((state) => state.preferences);
   const draft = useAppStore((state) => state.draft);
   const retryRestorePending = useAppStore((state) => state.retryRestorePending);
   const confirmRetryRestore = useAppStore((state) => state.confirmRetryRestore);
@@ -196,27 +194,13 @@ export const SpeakRoute = () => {
     queryKey: ["runtime", "settings"],
     queryFn: () => apiClient.getRuntimeSettings(),
   });
-  const diagnosticsQuery = useQuery({
-    queryKey: queryKeys.diagnostics,
-    queryFn: () => apiClient.getDiagnostics(),
-  });
-  const cloudSpeech = useCloudSpeechConnection(runtimeSettingsQuery.data);
-  const connectionTestPassed = useRecentConnectionTest(runtimeQuery.data);
+  const readinessQuery = useReadiness();
   const speakingChecks = buildSetupReadinessRows({
-    diagnostics: diagnosticsQuery.data?.items ?? [],
-    diagnosticsError: diagnosticsQuery.isError && !diagnosticsQuery.data,
-    diagnosticsPending: diagnosticsQuery.isPending,
-    runtime: runtimeQuery.data,
-    runtimeError: runtimeQuery.isError && !runtimeQuery.data,
-    runtimePending: runtimeQuery.isPending,
-    connectionTestPassed,
-    cloudSpeechSelected: cloudSpeech.selected,
-    cloudSpeechConnected: cloudSpeech.connected,
-    cloudSpeechPending: cloudSpeech.pending || (cloudSpeech.selected && runtimeSettingsQuery.isPending),
-    cloudSpeechError: cloudSpeech.error || (cloudSpeech.selected && runtimeSettingsQuery.isError && !runtimeSettingsQuery.data),
-  }).filter((row) => row.key === "speech_recognition" || row.key === "ai_tutor");
-  const speakingChecksPending = speakingChecks.some((row) => row.status === "loading");
-  const speakingChecksBlocked = speakingChecks.some((row) => !canContinueWithCheck(row.status));
+    readiness: readinessQuery.data,
+    readinessError: readinessQuery.isError && !readinessQuery.data,
+    readinessPending: readinessQuery.isPending,
+  });
+  const speakingChecksPending = !readinessQuery.data && readinessQuery.isPending;
 
   const effectiveWhisperModel =
     String(runtimeSettingsQuery.data?.whisper_model || "").trim() || DEFAULT_SCORING_WHISPER_MODEL;
@@ -224,23 +208,6 @@ export const SpeakRoute = () => {
     () => selectRuntimeSettingsConnection(runtimeSettingsQuery.data),
     [runtimeSettingsQuery.data],
   );
-
-  const effectivePreferences = useMemo(
-    () => ({
-      ...preferences,
-      activeConnectionId: runtimeQuery.data?.configured
-        ? preferences.activeConnectionId ||
-          `${runtimeQuery.data.provider || "runtime"}:${runtimeQuery.data.model || "active"}`
-        : "",
-      setupComplete: Boolean(runtimeQuery.data?.configured),
-    }),
-    [preferences, runtimeQuery.data],
-  );
-
-  const guardTarget = resolveSpeakRouteGuardTarget({
-    draft,
-    preferences: effectivePreferences,
-  }) ?? (speakingChecksBlocked && !speakingChecksPending ? "/runtime-setup" : null);
 
   useEffect(() => {
     setCurrentPage("speak");
@@ -268,6 +235,13 @@ export const SpeakRoute = () => {
   const savedUpload = useRef<{ file: File; audioId: string } | null>(null);
   const uploadIdentity = useRef<{ file: File; requestId: string } | null>(null);
   const previewUrlRef = useRef("");
+  const readinessBlocked = !speakingChecksPending && !canEnterSpeak(speakingChecks);
+  const ownsTake = recordingActive || Boolean(attachedFile) || hasRecordingAttachment(recording) ||
+    isSubmitting || uploadProgress !== null || lifecycleState === "queued" || lifecycleState === "running";
+  const guardTarget = !hasSetupDraft(draft) ? "/session-setup"
+    : readinessBlocked && !ownsTake ? "/runtime-setup" : null;
+  const blockedReadinessCheck = speakingChecks.find((row) =>
+    row.key !== "microphone" && row.key !== "sample_check" && isBlockingSetupReadinessRow(row) && row.status !== "ready");
 
   const clearAttachment = () => {
     savedUpload.current = null;
@@ -445,7 +419,8 @@ export const SpeakRoute = () => {
     lifecycleState === "queued" || lifecycleState === "running";
   const hasAttachment = assessmentOwnsAttachment ? storeHasAttachment : Boolean(attachedFile);
   const shortRecording = recordedDurationSec !== null && recordedDurationSec < MIN_REVIEW_SECONDS;
-  const canSubmitLiveAttachment = canSubmitAssessment && Boolean(attachedFile) && !shortRecording && Boolean(sharingQuery.data?.available);
+  const canSubmitLiveAttachment = !readinessBlocked && canSubmitAssessment && Boolean(attachedFile) &&
+    !shortRecording && Boolean(sharingQuery.data?.available);
   const statusMessage = cancelError ? translate("speak.wait_cancel_failed", { detail: cancelError })
     : retryError ? translate(retryResponseUnknown ? "speak.wait_retry_unconfirmed" : "speak.wait_retry_not_ready", { detail: retryError })
     : pollError ? translate("speak.wait_status_failed", { detail: pollError })
@@ -471,7 +446,9 @@ export const SpeakRoute = () => {
     whisper: effectiveWhisperModel,
   });
   const assessmentContextMode = hasAttachment ? "optional" : "inline";
-  const submitDisabledHelp = shortRecording ? translate("speak.recording_too_short") : !hasAttachment ? translate("speak.submit_disabled_no_audio") : null;
+  const submitDisabledHelp = readinessBlocked ? translate("first_run.readiness_changed_body")
+    : shortRecording ? translate("speak.recording_too_short")
+      : !hasAttachment ? translate("speak.submit_disabled_no_audio") : null;
   const confidencePhase: SpeakConfidencePhase =
     lifecycleState === "failed" || lifecycleState === "cancelled"
       ? "failed"
@@ -507,7 +484,7 @@ export const SpeakRoute = () => {
         : "";
 
   const handleSubmit = async (resumeAssessmentId?: string) => {
-    if (submittingRef.current || !attachedFile || shortRecording || !sharingQuery.data?.available) {
+    if (readinessBlocked || submittingRef.current || !attachedFile || shortRecording || !sharingQuery.data?.available) {
       return;
     }
 
@@ -688,6 +665,16 @@ export const SpeakRoute = () => {
 
   return (
     <div style={{ display: "grid", gap: "1rem" }}>
+      {readinessBlocked && ownsTake ? (
+        <div data-testid="speak.readiness_changed">
+          <StatusBanner title={translate("first_run.readiness_changed_title")} tone="warning">
+            <p>{translate(blockedReadinessCheck?.detailKey ?? "first_run.readiness_backend_unavailable")}</p>
+            <p>{translate(blockedReadinessCheck?.rescueKey ?? "first_run.readiness_retry_backend")}</p>
+            <p>{translate("first_run.readiness_changed_body")}</p>
+            <Button onClick={() => void readinessQuery.refetch()}>{translate("first_run.check_readiness")}</Button>
+          </StatusBanner>
+        </div>
+      ) : null}
       <section style={cardStyle}>
         <h2
           style={{
@@ -810,7 +797,7 @@ export const SpeakRoute = () => {
           uploadUpdatedAt={uploadUpdatedAt}
           uploading={uploadProgress !== null}
           uploaded={uploaded}
-          canRetry={Boolean(recording.job.assessmentId) && Boolean(attachedFile) && !shortRecording && Boolean(sharingQuery.data?.available) && (lifecycleState === "failed" || lifecycleState === "cancelled")}
+          canRetry={!readinessBlocked && Boolean(recording.job.assessmentId) && Boolean(attachedFile) && !shortRecording && Boolean(sharingQuery.data?.available) && (lifecycleState === "failed" || lifecycleState === "cancelled")}
           retryDisabled={isSubmitting}
           mediaMessage={mediaMessage}
           canCancel={uploadProgress !== null || lifecycleState === "queued" || lifecycleState === "running"}

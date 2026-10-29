@@ -6,6 +6,7 @@ import { QueryClient } from "@tanstack/react-query";
 
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { queryKeys } from "@/lib/query/queryClient";
+import { readyReadiness, readinessWith } from "@/test/readinessFixtures";
 
 vi.mock("@/lib/api/client", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/api/client")>(),
@@ -16,6 +17,9 @@ vi.mock("@/lib/api/client", async (importOriginal) => ({
     deleteRuntimeSettingsConnection: vi.fn(),
     downloadSupportBundle: vi.fn(),
     getDiagnostics: vi.fn(),
+    getReadiness: vi.fn().mockResolvedValue({ ready: true, checks: [
+      "speech_recognition", "ai_tutor", "media_decoder", "storage",
+    ].map(key => ({ key, state: "available", blocking: true, reason: "available", detail_args: {} })) }),
     getMaintenanceStorage: vi.fn(),
     getRuntime: vi.fn(),
     getRuntimeSettings: vi.fn(),
@@ -46,6 +50,7 @@ import type {
 
 const mockedGetRuntime = vi.mocked(apiClient.getRuntime);
 const mockedGetDiagnostics = vi.mocked(apiClient.getDiagnostics);
+const mockedGetReadiness = vi.mocked(apiClient.getReadiness);
 const mockedGetMaintenanceStorage = vi.mocked(apiClient.getMaintenanceStorage);
 const mockedPostMaintenanceCleanup = vi.mocked(apiClient.postMaintenanceCleanup);
 const mockedCreateSupportBundle = vi.mocked(apiClient.createSupportBundle);
@@ -123,6 +128,7 @@ const createDeferred = <T,>() => {
 describe("Settings route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockedGetReadiness.mockResolvedValue(readyReadiness);
     const currentLocalStorage = window.localStorage as
       | Storage
       | {
@@ -215,6 +221,30 @@ describe("Settings route", () => {
     expect(provider).toHaveValue("openrouter");
   });
 
+  it("shows setup guidance when a saved connection is blocked by backend readiness", async () => {
+    mockedGetRuntimeSettings.mockResolvedValue(runtimeSettings({
+      connections: [alphaConnection, { ...bravoConnection, has_api_key: false, secret_state: "absent" }],
+    }));
+    mockedGetReadiness.mockResolvedValue(readinessWith("ai_tutor", "credential_missing"));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/settings"], locale: "en" });
+
+    expect(await screen.findByText("Practice setup needs attention. Open Setup to resolve the failing check.")).toBeVisible();
+    expect(mockedGetReadiness).toHaveBeenCalled();
+  });
+
+  it("hides setup guidance when backend readiness is ready", async () => {
+    mockedGetRuntime.mockResolvedValue({
+      configured: false, provider: "ollama_local", model: "", base_url: "http://localhost:11434",
+      requires_api_key: false, has_api_key: false,
+    });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/settings"], locale: "en" });
+
+    expect(await screen.findByTestId("settings.return")).toBeVisible();
+    await waitFor(() => expect(mockedGetReadiness).toHaveBeenCalled());
+    await waitFor(() => expect(mockedGetRuntime).toHaveBeenCalled());
+    expect(screen.queryByText("Practice setup needs attention. Open Setup to resolve the failing check.")).not.toBeInTheDocument();
+  });
+
   it("returns to Review after opening Settings from the navigation", async () => {
     renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en" });
     expect(await screen.findByTestId("review-guard-missing-review")).toBeVisible();
@@ -265,6 +295,7 @@ describe("Settings route", () => {
 
   it("refreshes old credential diagnostics when switching from a missing-key cloud tutor to local", async () => {
     let localActive = false;
+    mockedGetReadiness.mockImplementation(async () => localActive ? readyReadiness : readinessWith("ai_tutor", "credential_missing"));
     const localSettings = runtimeSettings({
       active_connection_id: "conn-alpha",
       connections: [{ ...alphaConnection, is_default: true }, { ...bravoConnection, is_default: false }],
@@ -303,7 +334,7 @@ describe("Settings route", () => {
     await waitFor(() => expect(mockedGetDiagnostics).toHaveBeenCalled());
     fireEvent.click(await screen.findByRole("button", { name: "Open Setup Guide" }));
     const tutor = await screen.findByTestId("runtime_setup.setup_guide.ai_tutor");
-    await waitFor(() => expect(tutor).toHaveAttribute("data-status", "configured"));
+    await waitFor(() => expect(tutor).toHaveAttribute("data-status", "ready"));
     expect(screen.getByRole("button", { name: "Choose a practice task" })).toBeEnabled();
   });
 

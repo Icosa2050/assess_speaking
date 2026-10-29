@@ -8,9 +8,8 @@ import { FirstRunPreview } from "@/components/setup/FirstRunPreview";
 import { apiClient } from "@/lib/api/client";
 import { createTranslator, semanticAttributes, SEMANTIC_IDS } from "@/lib/i18n";
 import { queryKeys } from "@/lib/query/queryClient";
-import { buildSetupReadinessRows } from "@/lib/setup/readiness";
-import { useCloudSpeechConnection } from "@/lib/setup/cloudSpeech";
-import { useRecentConnectionTest } from "@/lib/setup/connectionVerification";
+import { buildSetupReadinessRows, canRecord, isBlockingSetupReadinessRow } from "@/lib/setup/readiness";
+import { useReadiness } from "@/lib/setup/useReadiness";
 import { useAppStore } from "@/lib/state/appStore";
 import { hasReviewState, hasSetupDraft } from "@/lib/state/sessionDraft";
 
@@ -89,12 +88,7 @@ export const HomeRoute = () => {
     queryFn: () => apiClient.getDiagnostics(),
   });
 
-  const settingsQuery = useQuery({
-    queryKey: ["runtime", "settings"],
-    queryFn: () => apiClient.getRuntimeSettings(),
-  });
-  const cloudSpeech = useCloudSpeechConnection(settingsQuery.data);
-  const connectionTestPassed = useRecentConnectionTest(runtimeQuery.data);
+  const readinessQuery = useReadiness();
 
   useEffect(() => {
     setCurrentPage("home");
@@ -106,31 +100,23 @@ export const HomeRoute = () => {
     isActionableDiagnosticStatus(item.status),
   );
   const practiceChecks = buildSetupReadinessRows({
-    diagnostics: diagnosticsItems,
-    diagnosticsError: diagnosticsQuery.isError && !diagnosticsQuery.data,
-    diagnosticsPending: diagnosticsQuery.isPending,
-    runtime: runtimeQuery.data,
-    runtimeError: runtimeQuery.isError && !runtimeQuery.data,
-    runtimePending: runtimeQuery.isPending,
-    connectionTestPassed,
-    cloudSpeechSelected: cloudSpeech.selected,
-    cloudSpeechConnected: cloudSpeech.connected,
-    cloudSpeechPending: cloudSpeech.pending || settingsQuery.isPending,
-    cloudSpeechError: cloudSpeech.error || (settingsQuery.isError && !settingsQuery.data),
-    microphoneStatus,
-    microphoneSetupPassed,
+    readiness: readinessQuery.data,
+    readinessError: readinessQuery.isError && !readinessQuery.data,
+    readinessPending: readinessQuery.isPending,
+    microphoneStatus, microphoneSetupPassed,
   }).filter(row => row.key !== "sample_check");
-  const readyChecks = practiceChecks.filter(row => row.status === "ready" && (row.key !== "ai_tutor" || runtimeConfigured)).length;
-  const allChecksReady = readyChecks === practiceChecks.length && runtimeConfigured;
+  const requiredPracticeChecks = practiceChecks.filter(isBlockingSetupReadinessRow);
+  const readyChecks = requiredPracticeChecks.filter(row => row.status === "ready").length;
+  const allChecksReady = canRecord(practiceChecks);
   const diagnosticsCardState: DiagnosticsCardState = (() => {
-    if (runtimeQuery.isPending || diagnosticsQuery.isPending) return "loading";
-    if ((runtimeQuery.isError && !runtimeQuery.data) || (diagnosticsQuery.isError && !diagnosticsQuery.data)) return "unavailable";
+    if (readinessQuery.isPending || diagnosticsQuery.isPending) return "loading";
+    if ((readinessQuery.isError && !readinessQuery.data) || (diagnosticsQuery.isError && !diagnosticsQuery.data)) return "unavailable";
     if (actionableDiagnostics.length > 0) return "checks";
     return allChecksReady ? "ready" : "setup";
   })();
   const diagnosticsMessage = diagnosticsCopy(diagnosticsCardState, actionableDiagnostics.length, translate);
-  const practiceReadinessScore = Math.round(100 * readyChecks / practiceChecks.length);
-  const practiceReadinessLabel = translate("home.practice_checks", { ready: readyChecks, total: practiceChecks.length });
+  const practiceReadinessScore = Math.round(100 * readyChecks / requiredPracticeChecks.length);
+  const practiceReadinessLabel = translate("home.practice_checks", { ready: readyChecks, total: requiredPracticeChecks.length });
   const resumeDisabled = !hasSetupDraft(draft);
 
   const handleStartNew = () => {
@@ -172,7 +158,7 @@ export const HomeRoute = () => {
               showStatus
               status={practiceReadinessLabel}
               value={practiceReadinessScore}
-              valueLabel={`${readyChecks}/${practiceChecks.length}`}
+              valueLabel={`${readyChecks}/${requiredPracticeChecks.length}`}
             />
           </div>
           <div className={styles.actionRow}>
@@ -205,7 +191,7 @@ export const HomeRoute = () => {
               showStatus
               status={practiceReadinessLabel}
               value={practiceReadinessScore}
-              valueLabel={`${readyChecks}/${practiceChecks.length}`}
+              valueLabel={`${readyChecks}/${requiredPracticeChecks.length}`}
             />
           </div>
           <div className={`${styles.actionRow} ${styles.primaryActionRow}`}>

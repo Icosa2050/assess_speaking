@@ -20,7 +20,6 @@ import {
   type NavigationState,
   type RecordingState,
   type ReviewState,
-  type RuntimeReadinessMissing,
   type SessionDraft,
 } from "./sessionDraft";
 
@@ -78,13 +77,6 @@ export interface AppStoreActions {
 
 export type AppStore = AppStoreState & AppStoreActions;
 export type AppStoreApi = StoreApi<AppStore>;
-
-export interface RuntimeReadiness {
-  ready: boolean;
-  missing: RuntimeReadinessMissing[];
-}
-
-export type SpeakRouteGuardTarget = "/session-setup" | "/runtime-setup" | null;
 
 const buildAppStoreState = (seed: AppStoreSeed = {}): AppStoreState => {
   const preferredLocale = resolveUiLocale(
@@ -399,32 +391,6 @@ export const useAppStore = <T,>(selector: (state: AppStore) => T): T => {
   }
 
   return useStore(store, selector);
-};
-
-export const selectRuntimeReadiness = (
-  state: Pick<AppStoreState, "preferences">,
-): RuntimeReadiness => {
-  const hasConnections = Boolean(state.preferences.activeConnectionId);
-  const ready = hasConnections || state.preferences.setupComplete;
-
-  return {
-    ready,
-    missing: ready ? [] : ["connection"],
-  };
-};
-
-export const resolveSpeakRouteGuardTarget = (
-  state: Pick<AppStoreState, "draft" | "preferences">,
-): SpeakRouteGuardTarget => {
-  if (!hasSetupDraft(state.draft)) {
-    return "/session-setup";
-  }
-
-  if (!selectRuntimeReadiness({ preferences: state.preferences }).ready) {
-    return "/runtime-setup";
-  }
-
-  return null;
 };
 
 export const selectAssessmentLifecycleState = (

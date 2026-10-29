@@ -14,14 +14,12 @@ type ReadinessRowProps = {
 };
 
 const statusLabelKey = (status: SetupReadinessStatus): string =>
-  status === "configured" ? "first_run.configured_status" : `runtime_setup.setup_guide_status_${status}`;
+  `runtime_setup.setup_guide_status_${status}`;
 
 const statusClass = (status: SetupReadinessStatus): string => {
   switch (status) {
     case "ready":
       return styles.statusReady;
-    case "configured":
-      return styles.statusConfigured;
     case "unavailable":
       return styles.statusUnavailable;
     case "loading":
@@ -46,10 +44,13 @@ export const ReadinessRow = ({
     <div className={styles.rowText}>
       <div className={styles.rowHeader}>
         <h3 className={styles.rowTitle}>{translate(row.titleKey)}</h3>
-        <span className={styles.statusLabel}>{translate(statusLabelKey(row.status))}</span>
+        <span className={styles.statusLabel}>
+          {row.blocking === false && row.status !== "ready" ? `${translate("first_run.readiness_optional")} · ` : ""}
+          {translate(statusLabelKey(row.status))}
+        </span>
       </div>
       <p className={styles.rowDetail}>{translate(row.detailKey)}</p>
-      {row.status === "unavailable" && row.key !== "sample_check" ? (
+      {row.rescueKey ? (
         <p className={styles.rowRescue}>
           {translate(row.rescueKey ?? `first_run.rescue_${row.key}`)}
         </p>

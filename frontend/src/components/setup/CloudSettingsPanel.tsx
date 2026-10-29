@@ -60,6 +60,7 @@ export function CloudSettingsPanel({locale, connections}: {locale: UiLocale; con
       await Promise.all([
         client.invalidateQueries({queryKey:["runtime"]}),
         client.invalidateQueries({queryKey:queryKeys.diagnostics}),
+        client.invalidateQueries({queryKey:queryKeys.readiness}),
       ]);
     } catch(error) {if(!stopped){setMessage(String(error));setAttempt("");}}}; void poll();
     return()=>{stopped=true;clearTimeout(timer);};
@@ -91,7 +92,7 @@ export function CloudSettingsPanel({locale, connections}: {locale: UiLocale; con
       <label>{t[12]} <input type="number" min="0.01" max="1000" step="0.01" value={settings.monthly_budget_usd} onChange={e=>update({monthly_budget_usd:Number(e.target.value)})}/></label>
       <label>{t[11]} <select value={settings.fallback_connection_id} onChange={e=>update({fallback_connection_id:e.target.value,paid_fallback_enabled:false})}><option value="">{t[20]}</option>{connections.filter(c=>c.provider_key==="openrouter"&&!c.is_default).map(c=><option key={c.connection_id} value={c.connection_id}>{c.label} — {c.model}</option>)}</select></label>
       <label><input type="checkbox" checked={settings.paid_fallback_enabled} disabled={!settings.fallback_connection_id} onChange={e=>update({paid_fallback_enabled:e.target.checked,openrouter_modes:e.target.checked?{...settings.openrouter_modes,[settings.fallback_connection_id]:"paid"}:settings.openrouter_modes})}/>{t[10]}</label>
-      <Button variant="primary" type="button" onClick={()=>void act(async()=>{await cloudRequest("","PUT",settings);await client.invalidateQueries({queryKey:["runtime"]});setMessage(t[14]);})}>{t[13]}</Button>
+      <Button variant="primary" type="button" onClick={()=>void act(async()=>{await cloudRequest("","PUT",settings);await Promise.all([client.invalidateQueries({queryKey:["runtime"]}),client.invalidateQueries({queryKey:queryKeys.readiness})]);setMessage(t[14]);})}>{t[13]}</Button>
     </fieldset>}
     {query.data&&<p>{t[19]}: {query.data.spending.spent_usd.toFixed(2)} / {query.data.spending.reserved_usd.toFixed(2)}</p>}
     {Boolean(query.data?.spending.unresolved_requests.length)&&<p>{t[22]}</p>}

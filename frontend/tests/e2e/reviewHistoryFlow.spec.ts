@@ -1,3 +1,4 @@
+import { stubReadyReadiness } from "../readinessStub";
 import { expect, test, type Page, type Route } from "../fixtures";
 
 type Attempt = {
@@ -161,6 +162,7 @@ const fulfillJson = (route: Route, json: unknown) =>
   });
 
 const installDeterministicBackend = async (page: Page) => {
+  await stubReadyReadiness(page);
   const submissions: Record<string, unknown>[] = [];
   let uploadCount = 0;
   let assessmentCount = 0;
@@ -248,6 +250,7 @@ const installDeterministicBackend = async (page: Page) => {
 };
 
 const installReadyEmptyBackend = async (page: Page) => {
+  await stubReadyReadiness(page);
   await page.route("**/v1/diagnostics", (route) => fulfillJson(route, { items: [] }));
   await page.route("**/v1/runtime", (route) =>
     fulfillJson(route, {

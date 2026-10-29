@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -22,12 +22,14 @@ import { createTranslator, semanticAttributes, SEMANTIC_IDS } from "@/lib/i18n";
 import { queryKeys } from "@/lib/query/queryClient";
 import {
   buildSetupReadinessRows,
+  canEnterSpeak,
+  canRecord,
   canContinueWithCheck,
+  isBlockingSetupReadinessRow,
   resolveSetupReadinessAction,
   type SetupReadinessKey,
 } from "@/lib/setup/readiness";
-import { useCloudSpeechConnection } from "@/lib/setup/cloudSpeech";
-import { markConnectionTest, useRecentConnectionTest } from "@/lib/setup/connectionVerification";
+import { useReadiness } from "@/lib/setup/useReadiness";
 import { useAppStore } from "@/lib/state/appStore";
 import styles from "./SetupRoute.module.css";
 
@@ -188,7 +190,6 @@ export const SetupRoute = () => {
   >("idle");
   const [formStatusMessage, setFormStatusMessage] = useState("");
   const [isBusy, setIsBusy] = useState(false);
-  const testedDraftRef = useRef<string | null>(null);
   const [cloudOptionsOpen, setCloudOptionsOpen] = useState(hash === "#runtime-setup-cloud");
   const [cloudPanelOpened, setCloudPanelOpened] = useState(hash === "#runtime-setup-cloud");
 
@@ -228,8 +229,7 @@ export const SetupRoute = () => {
   const whisperItem = findDiagnostic(diagnosticsItems, "whisper");
   const runtime = runtimeQuery.data;
   const runtimeSettings = runtimeSettingsQuery.data;
-  const cloudSpeech = useCloudSpeechConnection(runtimeSettings);
-  const connectionTestPassed = useRecentConnectionTest(runtime);
+  const readinessQuery = useReadiness();
 
   const activeConnection = useMemo(() => {
     if (!runtimeSettings) {
@@ -258,48 +258,28 @@ export const SetupRoute = () => {
   const whisperStatusMessage = whisperStatusQuery.data?.cached
     ? translate("runtime_setup.cache_ready", { path: whisperStatusQuery.data.cached_path })
     : whisperMessage || whisperMessageFromDiagnostics;
-  const setupReadinessRows = buildSetupReadinessRows({
-    diagnostics: diagnosticsItems,
+  const readinessRows = buildSetupReadinessRows({
+    readiness: readinessQuery.data,
+    readinessError: readinessQuery.isError && !readinessQuery.data,
+    readinessPending: readinessQuery.isPending,
     microphoneStatus: microphoneTest.status,
     microphoneSetupPassed: microphoneTest.passed,
-    diagnosticsError: diagnosticsQuery.isError && !diagnosticsQuery.data,
-    diagnosticsPending: diagnosticsQuery.isPending,
-    runtime,
-    runtimeError: runtimeQuery.isError && !runtimeQuery.data,
-    runtimePending: runtimeQuery.isPending,
-    connectionTestPassed,
-    cloudSpeechSelected: cloudSpeech.selected,
-    cloudSpeechConnected: cloudSpeech.connected,
-    cloudSpeechPending: cloudSpeech.pending || runtimeSettingsQuery.isPending,
-    cloudSpeechError: cloudSpeech.error || (runtimeSettingsQuery.isError && !runtimeSettingsQuery.data),
   });
 
-  const cloudAsr = runtimeSettings?.asr_provider === "groq";
+  const readinessSpeechProvider = readinessQuery.data?.checks.find((check) => check.key === "speech_recognition")?.detail_args.provider;
+  const cloudAsr = readinessSpeechProvider
+    ? readinessSpeechProvider === "groq"
+    : runtimeSettings?.asr_provider === "groq";
   const cloudDisclosureOpen = cloudAsr || hash === "#runtime-setup-cloud" || cloudOptionsOpen;
   useEffect(() => {
     if (cloudDisclosureOpen) setCloudPanelOpened(true);
   }, [cloudDisclosureOpen]);
   const recommendedLocalPath = !cloudAsr && (!runtime?.configured ||
     ["ollama", "ollama_local"].includes(activeConnection?.provider_choice ?? runtime.provider));
-  const cloudCopy = {
-    en: ["Groq cloud transcription selected", "Configure cloud transcription"],
-    it: ["Trascrizione cloud Groq selezionata", "Configura trascrizione cloud"],
-    de: ["Groq Cloud-Transkription ausgewählt", "Cloud-Transkription einrichten"],
-    es: ["Transcripción Groq en la nube seleccionada", "Configurar transcripción en la nube"],
-    fr: ["Transcription cloud Groq sélectionnée", "Configurer la transcription cloud"],
-  }[locale];
-  const truthfulRows = setupReadinessRows.map((row) => row.key === "ai_tutor" && !runtime?.configured && row.status === "ready"
-    ? { ...row, status: "setup" as const } : row);
-  const readinessRows = cloudAsr ? truthfulRows.map(row => row.key === "speech_recognition"
-    ? {...row, detailKey: row.status === "ready" ? "cloud.speech" : "first_run.cloud_speech_missing", actionKey: "cloud.configure"} : row) : truthfulRows;
-  const readinessTranslate = (key: string, vars?: Record<string, string | number>) =>
-    key === "cloud.speech" ? cloudCopy[0] : key === "cloud.configure" ? cloudCopy[1] : translate(key, vars);
   const requiredRows = readinessRows.filter((row) => row.key !== "sample_check");
-  const setupReady = Boolean(runtime?.configured) &&
-    requiredRows.every((row) => row.status === "ready");
-  const setupCanContinue = Boolean(runtime?.configured) &&
-    requiredRows.filter((row) => row.key !== "microphone").every((row) => canContinueWithCheck(row.status));
-  const returnCheck = requiredRows.find((row) => row.key !== "microphone" && !canContinueWithCheck(row.status));
+  const setupReady = canRecord(requiredRows);
+  const setupCanContinue = canEnterSpeak(requiredRows);
+  const returnCheck = requiredRows.find((row) => row.key !== "microphone" && isBlockingSetupReadinessRow(row) && !canContinueWithCheck(row.status));
 
   const initialDraft = buildDraftFromConnection(activeConnection, translate);
   const formResetToken = JSON.stringify({
@@ -316,6 +296,7 @@ export const SetupRoute = () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.runtime }),
       queryClient.invalidateQueries({ queryKey: queryKeys.diagnostics }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.readiness }),
       queryClient.invalidateQueries({ queryKey: ["runtime", "settings"] }),
       queryClient.invalidateQueries({ queryKey: ["runtime", "whisper", selectedWhisperModel] }),
     ]);
@@ -334,6 +315,7 @@ export const SetupRoute = () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["runtime", "whisper", selectedWhisperModel] }),
         queryClient.invalidateQueries({ queryKey: queryKeys.diagnostics }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.readiness }),
       ]);
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
@@ -404,6 +386,7 @@ export const SetupRoute = () => {
     }
     if (key === "speech_recognition" && cloudAsr) { scrollToSetupSection("runtime-setup-cloud"); return; }
     const target = resolveSetupReadinessAction(key);
+    if (target.kind === "refresh") { void readinessQuery.refetch(); return; }
     if (target.kind === "section") {
       scrollToSetupSection(target.value);
       return;
@@ -417,15 +400,8 @@ export const SetupRoute = () => {
     setFormStatusMessage(translate("runtime_setup.testing_connection"));
     try {
       const response = await apiClient.postRuntimeSettingsTestConnection({ connection });
-      testedDraftRef.current = JSON.stringify({ ...connection, connection_id: "" });
       setDetectedModels(response.discovered_models);
-      if (runtime?.configured && activeConnection &&
-        connection.connection_id === activeConnection.connection_id &&
-        connection.provider_choice === activeConnection.provider_choice &&
-        connection.model === activeConnection.model &&
-        connection.base_url === activeConnection.base_url) {
-        markConnectionTest(queryClient, runtime, true);
-      }
+      await queryClient.invalidateQueries({ queryKey: queryKeys.readiness });
       setFormStatus("test-succeeded");
       setFormStatusMessage(
         translate("runtime_setup.test_message", {
@@ -436,7 +412,6 @@ export const SetupRoute = () => {
         }),
       );
     } catch (caught) {
-      testedDraftRef.current = null;
       const detail =
         caught instanceof ApiClientError && caught.code === "validation_error"
           ? caught.detail
@@ -444,9 +419,7 @@ export const SetupRoute = () => {
             ? caught.message
             : String(caught);
       setFormStatus("test-failed");
-      if (runtime?.configured && activeConnection && connection.connection_id === activeConnection.connection_id) {
-        markConnectionTest(queryClient, runtime, false);
-      }
+      await queryClient.invalidateQueries({ queryKey: queryKeys.readiness });
       setFormStatusMessage(translate("runtime_setup.test_error", { detail }));
     } finally {
       setIsBusy(false);
@@ -476,19 +449,6 @@ export const SetupRoute = () => {
       const saved = response.connections.find(c => c.connection_id === response.active_connection_id);
       setFormStatusMessage(translate(saved?.provider_metadata.persistent === false ? "runtime_setup.save_success_session_only" : "runtime_setup.save_success"));
       await handleInvalidateRuntime();
-      const refreshedRuntime = queryClient.getQueryData<typeof runtime>(queryKeys.runtime);
-      const savedBaseUrl = saved?.base_url.replace(/\/+$/, "");
-      const sameRuntimeBase = refreshedRuntime?.base_url === saved?.base_url ||
-        (saved?.provider_choice === "ollama_local" && refreshedRuntime?.base_url === `${savedBaseUrl}/v1`);
-      if (!clearSavedSecret && saved && refreshedRuntime?.configured &&
-        queryClient.getQueryState(queryKeys.runtime)?.status === "success" &&
-        testedDraftRef.current === JSON.stringify({ ...connection, connection_id: "" }) &&
-        saved.provider_choice === connection.provider_choice && saved.model === connection.model &&
-        saved.base_url === connection.base_url && refreshedRuntime.model === saved.model &&
-        [saved.provider_key, saved.provider_choice].includes(refreshedRuntime.provider) && sameRuntimeBase) {
-        markConnectionTest(queryClient, refreshedRuntime, true);
-      }
-      testedDraftRef.current = null;
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
       setFormStatus("save-failed");
@@ -529,13 +489,13 @@ export const SetupRoute = () => {
           {setupCanContinue ? <Button onClick={() => navigate("/session-setup")}>{translate("first_run.choose_task")}</Button> : null}
         </div>
         <p role="status" className={styles.checkStatus}>
-          {translate(setupReady ? "first_run.checks_ready" : setupCanContinue ? "first_run.checks_configured" : requiredRows.some((row) => row.status === "loading") ? "first_run.checks_loading" : "first_run.checks_next")}
+          {translate(setupReady ? "first_run.checks_ready" : setupCanContinue ? "first_run.continue_to_speak_body" : requiredRows.some((row) => isBlockingSetupReadinessRow(row) && row.status === "loading") ? "first_run.checks_loading" : "first_run.checks_next")}
         </p>
       </Card>
 
       <SetupReadinessPanel
         rows={readinessRows}
-        translate={readinessTranslate}
+        translate={translate}
         onAction={handleSetupReadinessAction}
       />
 
@@ -549,6 +509,11 @@ export const SetupRoute = () => {
           if (event.currentTarget.open) setCloudPanelOpened(true);
         }}>
           <p>{translate("first_run.other_routes_body")}</p>
+          {cloudAsr && runtimeSettingsQuery.isError && !runtimeSettings ? (
+            <StatusBanner title={translate("first_run.cloud_settings_unavailable")} tone="warning">
+              <Button onClick={() => void runtimeSettingsQuery.refetch()}>{translate("first_run.retry_saved_settings")}</Button>
+            </StatusBanner>
+          ) : null}
           {(cloudDisclosureOpen || cloudPanelOpened) ? <CloudSettingsPanel locale={locale} connections={runtimeSettings?.connections ?? []}/> : null}
         </Disclosure>
       </div>
