@@ -120,6 +120,27 @@
     "milestone_unscored": "Eine Aufnahme auf diesem Mac zählt als Fortschritt. Hier liegt keine Punktzahl vor; du kannst erneut üben.",
     "milestone_next": "Weiteren Versuch machen"
   },
+  "history_slice10": {
+    "chart_table_caption": "Diagrammdaten: {metric}",
+    "chart_table_date": "Datum und Uhrzeit",
+    "chart_table_task": "Übungsthema",
+    "annotation_intro": "Kommentierte Kopie des Transkripts. Wähle eine unterstrichene Stelle, um den Vorschlag zu lesen. Alle verfügbaren Fundstellen ohne Überschneidung werden markiert.",
+    "annotation_label": "Rückmeldung zu „{phrase}“",
+    "annotation_suggestion": "Vorschlag: {suggestion}.",
+    "unverified_comparison": "Der frühere Versuch ist nicht für einen Vergleich verifiziert. Beide Versuche bleiben in den gespeicherten Berichten.",
+    "since_verified_previous": "Punktänderung gegenüber dem verifizierten vorherigen Versuch: {delta}",
+    "chart_one_context": "Ein Versuch wird angezeigt. Ein verifizierter Punktevergleich ist nicht verfügbar.",
+    "chart_points_summary": "{count} Versuche in der Datentabelle; {points} eingezeichnete Punkte, von {first} bis {last}.",
+    "no_estimate": "Keine Schätzung für diesen Versuch. Deine Aufnahme zählt trotzdem als Übung.",
+    "unscored_comparison": "Dieser Versuch hat keine Schätzung; daher wird kein Punktevergleich angezeigt.",
+    "comparison_loading": "Es wird geprüft, ob ein Punktevergleich möglich ist…",
+    "comparison_error": "Der Vergleich ist nicht verfügbar, solange dieser Bericht nicht geladen werden kann.",
+    "chart_point_summary": "{count} Versuche in der Datentabelle; 1 eingezeichneter Punkt: {first}.",
+    "chart_one_take_summary": "1 Versuch in der Datentabelle; 1 eingezeichneter Punkt: {first}.",
+    "unscored_activity_title": "Übungsaufnahmen ohne Bewertung erfasst",
+    "chart_selected": "Ausgewählt",
+    "out_of_five": "von 5"
+  },
   "home": {
     "practice_checks": "{ready} von {total} Prüfungen bestanden",
     "title": "Vostavo",

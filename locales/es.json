@@ -120,6 +120,27 @@
     "milestone_unscored": "Una grabación en este Mac cuenta como progreso. Aquí no hay nota; puedes hacer otro intento.",
     "milestone_next": "Hacer otro intento"
   },
+  "history_slice10": {
+    "chart_table_caption": "Datos del gráfico: {metric}",
+    "chart_table_date": "Fecha y hora",
+    "chart_table_task": "Tema de práctica",
+    "annotation_intro": "Copia anotada de la transcripción. Selecciona una frase subrayada para leer la sugerencia. Se marcan todas las apariciones disponibles que no se superponen.",
+    "annotation_label": "Comentario sobre «{phrase}»",
+    "annotation_suggestion": "Sugerencia: {suggestion}.",
+    "unverified_comparison": "El intento anterior no está verificado para la comparación. Ambos intentos siguen en las revisiones guardadas.",
+    "since_verified_previous": "Cambio de puntuación frente al intento anterior verificado: {delta}",
+    "chart_one_context": "Se muestra un intento. No hay una comparación de puntuación verificada.",
+    "chart_points_summary": "{count} intentos en la tabla de datos; {points} puntos trazados, de {first} a {last}.",
+    "no_estimate": "No hay estimación para este intento. La grabación sigue contando como práctica.",
+    "unscored_comparison": "Este intento no tiene estimación, por lo que no se muestra una comparación de puntuación.",
+    "comparison_loading": "Comprobando si hay una comparación de puntuación disponible…",
+    "comparison_error": "La comparación no está disponible mientras no se pueda cargar este informe guardado.",
+    "chart_point_summary": "{count} intentos en la tabla de datos; 1 punto trazado: {first}.",
+    "chart_one_take_summary": "1 intento en la tabla de datos; 1 punto trazado: {first}.",
+    "unscored_activity_title": "Prácticas registradas sin puntuación",
+    "chart_selected": "Seleccionado",
+    "out_of_five": "de 5"
+  },
   "home": {
     "practice_checks": "{ready} de {total} comprobaciones listas",
     "title": "Vostavo",
