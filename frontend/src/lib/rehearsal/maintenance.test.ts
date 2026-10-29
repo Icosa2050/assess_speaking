@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { commitLearnerRestore, exportJournalDiagnostics, journalRecoveryStatus, recoverLearnerJournal, previewLearnerRestore, startFreshJournal } from "./maintenance";
+import { commitLearnerRestore, exportJournalDiagnostics, JournalHttpError, reconcileFreshJournal, journalRecoveryStatus, recoverLearnerJournal, previewLearnerRestore, startFreshJournal } from "./maintenance";
 import { clearRehearsalMaintenance, commitRehearsals, rehearsalMaintenance, stageRehearsals } from "./storage";
 import { buildSessionDraft } from "@/lib/state/sessionDraft";
 import { persistRetryDraft, RETRY_DRAFT_STORAGE_KEY } from "@/lib/state/retryBriefStorage";
@@ -25,8 +25,8 @@ describe("damaged journal browser coordination", () => {
       retryOfSessionId: "first", coachingGoal: "Add a closing sentence", retryGoalEligible: true }));
     expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).not.toBeNull();
     fetchMock.mockResolvedValueOnce(reply({phase: "fresh"}));
-    await startFreshJournal();
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({confirmed: true});
+    await startFreshJournal("f".repeat(32));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({confirmed: true, fresh_request: "f".repeat(32)});
     // No rollback flag: already committed sessions and audio must be retained.
     expect(clearRehearsalMaintenance).toHaveBeenCalledExactlyOnceWith({});
     expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull();
@@ -47,17 +47,76 @@ describe("damaged journal browser coordination", () => {
     vi.mocked(rehearsalMaintenance).mockResolvedValue({id, phase: "committed", sessions: [], recordings: []});
     vi.mocked(clearRehearsalMaintenance).mockRejectedValueOnce(new Error("IndexedDB unavailable"));
     fetchMock.mockResolvedValueOnce(reply({phase: "fresh"}));
-    await expect(startFreshJournal()).rejects.toThrow("IndexedDB unavailable");
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({confirmed: true, browser_transaction: id});
+    await expect(startFreshJournal("f".repeat(32))).rejects.toThrow("IndexedDB unavailable");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({confirmed: true, browser_transaction: id, fresh_request: "f".repeat(32)});
     fetchMock.mockResolvedValueOnce(reply({transaction: null, completed: [id], recovery_error: null}));
     await recoverLearnerJournal();
     expect(clearRehearsalMaintenance).toHaveBeenNthCalledWith(1, {});
     expect(clearRehearsalMaintenance).toHaveBeenNthCalledWith(2, {});
   });
 
+  it("finishes browser cleanup only for the matching fresh request and browser transaction", async () => {
+    const id = "a".repeat(32);
+    const requestId = "f".repeat(32);
+    vi.mocked(rehearsalMaintenance).mockResolvedValue({id, phase: "committed", sessions: [], recordings: []});
+    persistRetryDraft(buildSessionDraft({speakerId: "learner", themeId: "trip", promptText: "Describe a trip",
+      retryOfSessionId: "first", coachingGoal: "Add a closing sentence", retryGoalEligible: true}));
+    fetchMock.mockResolvedValueOnce(reply({transaction: null, archived: [], completed: [id, requestId], recovery_error: null}));
+    expect(await reconcileFreshJournal(requestId, id)).toMatchObject({applied: true, pendingRecovery: false});
+    expect(clearRehearsalMaintenance).toHaveBeenCalledExactlyOnceWith({});
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][0]).toContain("/journal/status");
+    expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull();
+  });
+
+  it("forgets a retry draft even when post-reset browser cleanup remains blocked", async () => {
+    const id = "a".repeat(32);
+    const requestId = "f".repeat(32);
+    vi.mocked(rehearsalMaintenance).mockResolvedValue({id, phase: "committed", sessions: [], recordings: []});
+    persistRetryDraft(buildSessionDraft({speakerId: "learner", themeId: "trip", promptText: "Describe a trip",
+      retryOfSessionId: "first", coachingGoal: "Add a closing sentence", retryGoalEligible: true}));
+    vi.mocked(clearRehearsalMaintenance).mockRejectedValueOnce(new Error("IndexedDB blocked"));
+    fetchMock.mockResolvedValueOnce(reply({transaction: null, archived: [], completed: [id, requestId], recovery_error: null}));
+    expect(await reconcileFreshJournal(requestId, id)).toMatchObject({applied: true, cleanupError: "IndexedDB blocked"});
+    expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull();
+  });
+
+  it("does not clear an unrelated pending restore after a rejected reset", async () => {
+    const oldId = "a".repeat(32);
+    const otherId = "b".repeat(32);
+    const requestId = "f".repeat(32);
+    vi.mocked(rehearsalMaintenance).mockResolvedValue({id: otherId, phase: "staged", sessions: [], recordings: []});
+    fetchMock.mockResolvedValueOnce(reply({transaction: {id: otherId, phase: "backend_staged"}, archived: [], completed: [], recovery_error: null}));
+    expect(await reconcileFreshJournal(requestId, oldId)).toMatchObject({applied: false});
+    expect(clearRehearsalMaintenance).not.toHaveBeenCalled();
+    expect(rehearsalMaintenance).toHaveBeenCalledOnce();
+  });
+
+  it("preserves newer browser recovery even if this reset's receipt exists", async () => {
+    const otherId = "b".repeat(32);
+    const requestId = "f".repeat(32);
+    vi.mocked(rehearsalMaintenance).mockResolvedValue({id: otherId, phase: "staged", sessions: [], recordings: []});
+    fetchMock.mockResolvedValueOnce(reply({transaction: {id: otherId, phase: "backend_staged"}, archived: [], completed: [requestId], recovery_error: null}));
+    expect(await reconcileFreshJournal(requestId, "a".repeat(32))).toMatchObject({applied: true, pendingRecovery: true});
+    expect(clearRehearsalMaintenance).not.toHaveBeenCalled();
+  });
+
+  it("shows a newer browser-only recovery as pending without clearing it", async () => {
+    const otherId = "b".repeat(32);
+    const requestId = "f".repeat(32);
+    vi.mocked(rehearsalMaintenance).mockResolvedValue({id: otherId, phase: "committed", sessions: [], recordings: []});
+    fetchMock.mockResolvedValueOnce(reply({transaction: null, archived: [], completed: [requestId], recovery_error: null}));
+    expect(await reconcileFreshJournal(requestId, "a".repeat(32))).toMatchObject({
+      applied: true, pendingRecovery: true, status: {transaction: {id: otherId, phase: "browser_recovery"}},
+    });
+    expect(clearRehearsalMaintenance).not.toHaveBeenCalled();
+  });
+
   it("retains browser recovery data when another backend transaction excludes fresh start", async () => {
     fetchMock.mockResolvedValueOnce(reply({detail: "Maintenance in progress"}, 409));
-    await expect(startFreshJournal()).rejects.toThrow("Maintenance in progress");
+    const failure = await startFreshJournal("f".repeat(32)).catch(cause => cause);
+    expect(failure).toBeInstanceOf(JournalHttpError);
+    expect(failure).toMatchObject({message: "Maintenance in progress", status: 409});
     expect(clearRehearsalMaintenance).not.toHaveBeenCalled();
   });
 

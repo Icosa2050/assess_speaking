@@ -504,10 +504,7 @@ export const SpeakRoute = () => {
         setRecordingError(translate("sharing.changed"));
         await Promise.all([runtimeQuery.refetch(), runtimeSettingsQuery.refetch()]); return;
       }
-      updateRecording({
-        error: "",
-        assessmentState: "idle",
-      });
+      updateRecording(priorTerminalJob ? { error: "" } : { error: "", assessmentState: "idle" });
       if (savedUpload.current?.file !== attachedFile) {
         const replayingUpload = uploadUnconfirmed && uploadIdentity.current?.file === attachedFile;
         if (uploadIdentity.current?.file !== attachedFile) uploadIdentity.current = { file: attachedFile, requestId: crypto.randomUUID() };
@@ -597,7 +594,7 @@ export const SpeakRoute = () => {
       }
       if (error instanceof ApiClientError && error.responseStatus === 409 && recording.job.assessmentId &&
           (recording.job.status === "failed" || recording.job.status === "cancelled")) {
-        setRecordingJob({});
+        if (priorTerminalJob) setRecordingJob(priorTerminalJob);
         setRetryError(error.detail);
         return;
       }
@@ -626,7 +623,7 @@ export const SpeakRoute = () => {
   };
 
   const handleRetry = async () => {
-    if (retryingRef.current || submittingRef.current || !attachedFile ||
+    if (retryingRef.current || submittingRef.current || !attachedFile || !recording.job.assessmentId ||
         (lifecycleState !== "failed" && lifecycleState !== "cancelled")) return;
     retryingRef.current = true;
     setCancelError("");
@@ -800,7 +797,8 @@ export const SpeakRoute = () => {
           uploadUpdatedAt={uploadUpdatedAt}
           uploading={uploadProgress !== null}
           uploaded={uploaded}
-          canRetry={!readinessBlocked && Boolean(attachedFile) && !shortRecording && Boolean(sharingQuery.data?.available) && !isSubmitting && (lifecycleState === "failed" || lifecycleState === "cancelled")}
+          canRetry={!readinessBlocked && Boolean(recording.job.assessmentId) && Boolean(attachedFile) && !shortRecording && Boolean(sharingQuery.data?.available) && (lifecycleState === "failed" || lifecycleState === "cancelled")}
+          retryDisabled={isSubmitting}
           mediaMessage={mediaMessage}
           canCancel={uploadProgress !== null || lifecycleState === "queued" || lifecycleState === "running"}
           contextMode={assessmentContextMode}

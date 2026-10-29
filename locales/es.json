@@ -1235,6 +1235,9 @@
     "fresh_intro": "El diario de recuperación dañado se aparta y se crea uno nuevo. El historial y los archivos multimedia guardados permanecen; se descartan los datos de restauración pendientes del navegador.",
     "fresh_heading": "¿Empezar un diario nuevo?",
     "fresh_refresh_failed": "Se ha iniciado un diario nuevo, pero esta vista no se pudo actualizar por completo: {detail}. Vuelve a comprobar la recuperación.",
+    "fresh_outcome_unverified": "El diario está en buen estado, pero no se pudo confirmar esta solicitud de inicio nuevo: {detail}. Comprueba la recuperación antes de volver a intentarlo.",
+    "fresh_followup_pending": "Se ha iniciado un diario nuevo, pero ahora hay otra recuperación pendiente. Comprueba la recuperación antes de continuar.",
+    "restore_refresh_failed": "Se ha restaurado la copia, pero esta vista no se pudo actualizar por completo: {detail}. Vuelve a comprobar la recuperación.",
     "fresh_kept": "Se conserva: informes, historial, grabaciones, archivos subidos, intentos archivados y copias ZIP existentes.",
     "fresh_replaced": "Un nuevo diario de recuperación sustituye al diario dañado activo. Sus archivos de transacción e instantáneas de reversión se conservan en cuarentena; se descartan los datos de restauración pendientes del navegador. Los cambios incompletos ya no se pueden revertir automáticamente.",
     "fresh_cancel": "Cancelar y conservar el estado actual",
@@ -1285,7 +1288,6 @@
     "damaged_guidance": "El diario de recuperación está dañado. El historial sigue disponible. Elige una de estas tres opciones en Ajustes.",
     "diagnostics_note": "Exporta diagnósticos, estado operativo depurado y recuentos de registros por gravedad. Nunca incluye textos de registros, informes, grabaciones ni archivos subidos.",
     "confirm_fresh": "Confirmar: empezar de nuevo",
-    "fresh_note": "Los informes, el historial, las grabaciones y los archivos subidos se conservan. Los archivos de transacciones dañados y las copias de reversión se apartan; se descartan los datos pendientes de restauración del navegador. Los cambios incompletos ya no se revertirán automáticamente.",
     "fresh_done": "El nuevo diario de recuperación está listo. Ya puedes practicar."
   }
 }

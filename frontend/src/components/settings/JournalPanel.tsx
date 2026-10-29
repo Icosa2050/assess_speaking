@@ -7,7 +7,7 @@ import { createTranslator } from "@/lib/i18n";
 import type { UiLocale } from "@/lib/state/sessionDraft";
 import { useAppStore } from "@/lib/state/appStore";
 import { isDesktopRuntime, readDesktopRuntimeBridge } from "@/lib/runtime/desktopBridge";
-import { ownJournalPreview, startFreshJournal, exportJournalDiagnostics, attemptRemoval, rehearsalRemoval, createLearnerBackup, previewLearnerRestore, commitLearnerRestore, recoverLearnerJournal, journalRecoveryStatus, journalStatus, journalRequest, journalBlob, type BackupResult, type RestorePreview, type JournalStatus } from "@/lib/rehearsal/maintenance";
+import { ownJournalPreview, startFreshJournal, reconcileFreshJournal, JournalHttpError, exportJournalDiagnostics, attemptRemoval, rehearsalRemoval, createLearnerBackup, previewLearnerRestore, commitLearnerRestore, recoverLearnerJournal, journalRecoveryStatus, journalStatus, journalRequest, journalBlob, type BackupResult, type RestorePreview, type JournalStatus } from "@/lib/rehearsal/maintenance";
 import { listArchivedRehearsals, undoRehearsalArchive } from "@/lib/rehearsal/storage";
 import type { Rehearsal } from "@/lib/rehearsal/session";
 import { Button } from "@/components/ui/Button";
@@ -26,6 +26,8 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
   const freshDialog = useRef<HTMLDialogElement>(null);
   const messageRef = useRef<HTMLParagraphElement>(null);
   const focusedFragment = useRef<string | null>(null);
+  const fallbackFocused = useRef<string | null>(null);
+  const checkRecoveryRequested = useRef<string | null>(null);
   const [confirmFresh, setConfirmFresh] = useState(false);
   const [freshError, setFreshError] = useState("");
   const [diagnostics, setDiagnostics] = useState<SupportBundleCreateResponse | null>(null);
@@ -40,11 +42,11 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
   const [status, setStatus] = useState<JournalStatus | null>(null);
   const [removal, setRemoval] = useState<{ id: string; kind: "attempt" | "rehearsal"; files: number; retained: number; fingerprint?: string } | null>(null);
   const [archived, setArchived] = useState<Rehearsal[]>([]);
-  const run = async (action: (signal: AbortSignal) => Promise<void>, onError: (detail: string) => void = setError) => {
+  const run = async (action: (signal: AbortSignal) => Promise<void>, onError: (detail: string, cause: unknown) => void | Promise<void> = setError) => {
     setError(""); setMessage(""); setBusy(true);
     const abort = new AbortController(); controller.current = abort;
     try { await action(abort.signal); await cache.invalidateQueries(); }
-    catch (cause) { onError(cause instanceof Error ? cause.message : String(cause)); }
+    catch (cause) { await onError(cause instanceof Error ? cause.message : String(cause), cause); }
     finally { controller.current = null; setBusy(false); setCommitting(false); window.dispatchEvent(new Event("journal-recovery-changed")); }
   };
   const progress = (done: number, total: number) => setMessage(t("journal.progress", { done, total }));
@@ -98,9 +100,20 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
     const element = target && document.getElementById(target);
     if (!element) return;
     element.scrollIntoView?.({ block: "start" });
+    if (element instanceof HTMLButtonElement && element.disabled) {
+      if (fallbackFocused.current !== location.key) {
+        document.getElementById("your-data-title")?.focus();
+        fallbackFocused.current = location.key;
+      } else if (!busy && checkRecoveryRequested.current === location.key) {
+        checkRecoveryRequested.current = null;
+        if (!error) document.getElementById("journal-check-recovery")?.focus();
+      }
+      return;
+    }
+    checkRecoveryRequested.current = null;
     element.focus();
-    focusedFragment.current = location.key;
-  }, [location.hash, location.key, status]);
+    if (document.activeElement === element) focusedFragment.current = location.key;
+  }, [location.hash, location.key, status, busy, error]);
   const refresh = async () => { setStatus(await journalRecoveryStatus()); setArchived(await listArchivedRehearsals()); };
   const retryRecovery = async (rollback = false) => {
     try {
@@ -138,7 +151,17 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
     {preview && <div className={`${styles.actionGroup} ${styles.actionCard}`} role="region" aria-labelledby="journal-preview-heading"><h3 id="journal-preview-heading" tabIndex={-1}>{t("journal.preview", { attempts: preview.attempts, rehearsals: preview.browser.sessions.length })}</h3><p>{t("journal.restore_note")}</p>
       {!!(preview.skipped_attempts.length + preview.skipped_rehearsals.length) && <p>{t("journal.skipped", { count: preview.skipped_attempts.length + preview.skipped_rehearsals.length })}</p>}
       {!!preview.missing.length && <p>{t("journal.missing", { count: preview.missing.length })}</p>}
-      <Button variant="primary" disabled={busy} onClick={() => void run(async signal => { try { await commitLearnerRestore(preview, signal, progress, () => setCommitting(true)); beginNewSession(); } finally { setPreview(null); setRestoreName(""); setStatus(await journalRecoveryStatus()); } setMessage(t("journal.restored")); await refresh(); })}>{t("journal.confirm_restore")}</Button>
+      <Button variant="primary" disabled={busy} onClick={() => { let restoreSucceeded = false; void run(async signal => {
+        try { await commitLearnerRestore(preview, signal, progress, () => setCommitting(true)); restoreSucceeded = true; beginNewSession(); }
+        finally { setPreview(null); setRestoreName(""); if (!restoreSucceeded) await refresh(); }
+        setStatus(null); setMessage(t("journal.restored")); await refresh();
+      }, async detail => {
+        if (restoreSucceeded) {
+          try { await cache.invalidateQueries(); }
+          catch (cause) { detail = `${detail}; ${cause instanceof Error ? cause.message : String(cause)}`; }
+        }
+        setError(restoreSucceeded ? t("your_data.restore_refresh_failed", { detail }) : detail);
+      }); }}>{t("journal.confirm_restore")}</Button>
       <Button disabled={busy} onClick={() => void run(async () => { await retryRecovery(true); setMessage(t("journal.cancelled")); })}>{t("journal.cancel")}</Button>
     </div>}
     {status?.recovery_error && <div className={`${styles.actionGroup} ${styles.dangerCard}`}>
@@ -152,10 +175,48 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
       {freshError && <div id="fresh-error" tabIndex={-1}><StatusBanner title={freshError} tone="error" urgent /></div>}
       <div className={styles.dialogActions}>
         <Button id="fresh-cancel" variant="secondary" disabled={busy} onClick={cancelFresh}>{t("your_data.fresh_cancel")}</Button>
-        <Button variant="danger" disabled={busy || activeTransaction} onClick={() => { setFreshError(""); let resetSucceeded = false; void run(async () => {
-          await startFreshJournal(); resetSucceeded = true; beginNewSession(); setConfirmFresh(false); setStatus(null); setRestoreName("");
-          await refresh(); setMessage(t("journal.fresh_done"));
-        }, detail => resetSucceeded ? setError(t("your_data.fresh_refresh_failed", { detail })) : setFreshError(detail)); }}>{t("journal.confirm_fresh")}</Button>
+        <Button variant="danger" disabled={busy || activeTransaction} onClick={() => {
+          setFreshError("");
+          const requestId = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("");
+          let browserTransaction: string | undefined;
+          let resetSucceeded = false;
+          void run(async () => {
+            await startFreshJournal(requestId, id => { browserTransaction = id; }); resetSucceeded = true; beginNewSession(); setConfirmFresh(false); setStatus(null); setRestoreName("");
+            await refresh(); setMessage(t("journal.fresh_done"));
+          }, async (detail, cause) => {
+            if (resetSucceeded) { setError(t("your_data.fresh_refresh_failed", { detail })); return; }
+            if (cause instanceof JournalHttpError) { setFreshError(detail); return; }
+            let result: Awaited<ReturnType<typeof reconcileFreshJournal>>;
+            try { result = await reconcileFreshJournal(requestId, browserTransaction); }
+            catch {
+              try {
+                const current = await journalStatus();
+                if (current.completed.includes(requestId) && !current.recovery_error) {
+                  beginNewSession(); setConfirmFresh(false); setStatus(current); setRestoreName("");
+                  setError(current.transaction ? t("your_data.fresh_followup_pending") : t("your_data.fresh_refresh_failed", { detail }));
+                  return;
+                }
+                if (!current.recovery_error && !current.transaction) {
+                  setConfirmFresh(false); setStatus(current); setError(t("your_data.fresh_outcome_unverified", { detail })); return;
+                }
+                if (current.transaction) { setConfirmFresh(false); setStatus(current); setError(detail); return; }
+              } catch { /* Keep the original error when status is unavailable. */ }
+              setFreshError(detail); return;
+            }
+            if (!result.applied) {
+              setStatus(result.status);
+              if (result.status.transaction) { setConfirmFresh(false); setError(detail); }
+              else if (!result.status.recovery_error) { setConfirmFresh(false); setError(t("your_data.fresh_outcome_unverified", { detail })); }
+              else setFreshError(detail);
+              return;
+            }
+            beginNewSession(); setConfirmFresh(false); setRestoreName("");
+            if (result.pendingRecovery) { setStatus(result.status); setError(t("your_data.fresh_followup_pending")); return; }
+            setStatus(null);
+            if (result.cleanupError) { setError(t("your_data.fresh_refresh_failed", { detail: result.cleanupError })); return; }
+            try { await refresh(); setMessage(t("journal.fresh_done")); }
+            catch (cause) { setError(t("your_data.fresh_refresh_failed", { detail: cause instanceof Error ? cause.message : String(cause) })); }
+          }); }}>{t("journal.confirm_fresh")}</Button>
       </div>
     </dialog>}
     <div className={`${styles.actionGroup} ${styles.actionCard}`}><h3>{t("your_data.backup_heading")}</h3><p>{t("journal.limit")}</p>
@@ -165,7 +226,7 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
       {!!backup?.missing.length && <p>{t("journal.missing", { count: backup.missing.length })}</p>}
     </div>
     {busy && !committing && <Button onClick={() => controller.current?.abort()}>{t("journal.cancel")}</Button>}
-    <Button disabled={busy} onClick={() => void run(refresh)}>{t("journal.check_recovery")}</Button>
+    <Button id="journal-check-recovery" disabled={busy} onClick={() => { checkRecoveryRequested.current = location.key; void run(refresh); }}>{t("journal.check_recovery")}</Button>
     {pendingTransaction && status?.transaction?.id !== preview?.id && <div className={styles.actionGroup}><p>{t("journal.recovery_needed")}</p>
       <Button disabled={busy} onClick={() => void run(async () => { await retryRecovery(); setMessage(t("journal.recovered")); })}>{t("journal.recover")}</Button>
       <Button disabled={busy} onClick={() => void run(async () => { await retryRecovery(true); setMessage(t("journal.rolled_back")); })}>{t("journal.rollback")}</Button>

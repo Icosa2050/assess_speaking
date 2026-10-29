@@ -275,12 +275,34 @@ const attachAudio = async (page: Page) => {
   );
 };
 
+test("report finalization marks Coach complete and Finalizing current", async ({ page }) => {
+  await installVisualBackend(page);
+  await page.unroute("**/v1/assessments/*");
+  await page.route("**/v1/assessments/*", route => fulfillJson(route, {
+    assessment_id: "visual-assessment-clean", status: "running", phase: "finalizing_report", progress: 0.95,
+    created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    worker_seen_at: new Date().toISOString(), error: null,
+  }));
+  await page.goto("/");
+  await page.getByTestId("home.start_new").click();
+  await page.getByTestId("setup.speaker_id").fill("finalize-test");
+  await page.getByTestId("setup.recommended_start").click();
+  await page.getByTestId("setup.continue").click();
+  await attachAudio(page);
+  await page.getByTestId("speak.submit").click();
+  const progress = page.getByTestId("speak.assessment_progress");
+  await expect(progress.locator('li[aria-current="step"]')).toHaveText("Finalizing the report.");
+  await expect(progress.getByRole("listitem").filter({ hasText: "Coach" })).toContainText("Completed");
+  await expect(page.getByTestId("speak.retry_assessment")).toHaveCount(0);
+});
+
 test("assessment wait explains a stall and recovers without a second upload", async ({ page }) => {
   await installVisualBackend(page);
   const shots = process.env.ASSESSMENT_WAIT_SCREENSHOT_DIR;
   let uploads = 0;
   let cancels = 0;
   let workerFresh = true;
+  let pollNetworkError = false;
   let phaseAgeMs = 180_000;
   let currentId = "";
   let state: "stalled" | "failed" | "running" | "cancelled" = "stalled";
@@ -301,6 +323,7 @@ test("assessment wait explains a stall and recovers without a second upload", as
     return fulfillJson(route, { assessment_id: currentId, status: "cancelled", phase: "cancelled", last_phase: "scoring_rubric", progress: 1 });
   });
   await page.route("**/v1/assessments/*", route => {
+    if (pollNetworkError) return route.abort("failed");
     const old = new Date(Date.now() - phaseAgeMs).toISOString();
     const recent = new Date().toISOString();
     const stopped = state === "failed" || state === "cancelled";
@@ -326,6 +349,11 @@ test("assessment wait explains a stall and recovers without a second upload", as
   await expect(page.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "false");
   await expect(page.getByTestId("speak.wait_time")).toContainText("Last progress update 3 min");
   await expect(page.getByTestId("speak.cancel_assessment")).toBeVisible();
+  pollNetworkError = true;
+  await expect(page.getByTestId("speak.status_panel")).toContainText("Could not refresh progress", { timeout: 15_000 });
+  await expect(page.getByTestId("speak.cancel_assessment")).toBeVisible();
+  pollNetworkError = false;
+  await expect(page.getByTestId("speak.status_panel")).not.toContainText("Could not refresh progress", { timeout: 15_000 });
   phaseAgeMs = 240_000;
   await expect(page.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "true");
   await expect(page.getByTestId("speak.media_state")).toContainText("Audio uploaded and retained");
@@ -349,8 +377,10 @@ test("assessment wait explains a stall and recovers without a second upload", as
 
   await page.getByTestId("speak.cancel_assessment").click();
   await expect(page.getByTestId("speak.assessment_progress")).toHaveCount(0);
+  await expect(page.getByTestId("speak.submit")).toHaveCount(0);
   await page.getByTestId("speak.retry_assessment").click();
   await expect(page.getByTestId("speak.status_panel")).toContainText("Model request failed");
+  await expect(page.getByTestId("speak.submit")).toHaveCount(0);
   await page.getByTestId("speak.retry_assessment").click();
   await expect(page.getByTestId("speak.cancel_assessment")).toBeVisible();
   await page.getByTestId("speak.cancel_assessment").click();

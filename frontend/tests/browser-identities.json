@@ -18,6 +18,26 @@
     [
       "e2e/dataSafety.spec.ts",
       "",
+      "a lost fresh-start reply reports the backend-applied reset after reconciliation"
+    ],
+    [
+      "e2e/dataSafety.spec.ts",
+      "",
+      "a rejected fresh start preserves an unrelated pending restore"
+    ],
+    [
+      "e2e/dataSafety.spec.ts",
+      "",
+      "recovery notice retries focus on Export diagnostics only when repair enables it"
+    ],
+    [
+      "e2e/dataSafety.spec.ts",
+      "",
+      "recovery notice retries focus on Start a fresh journal when repair enables it"
+    ],
+    [
+      "e2e/dataSafety.spec.ts",
+      "",
       "recovery notice focuses Export diagnostics only after delayed journal status"
     ],
     [
@@ -142,6 +162,11 @@
       "e2e/visualRefreshSmoke.spec.ts",
       "",
       "cancelled upload keeps local media without claiming a lost confirmation"
+    ],
+    [
+      "e2e/visualRefreshSmoke.spec.ts",
+      "",
+      "report finalization marks Coach complete and Finalizing current"
     ],
     [
       "e2e/visualRefreshSmoke.spec.ts",

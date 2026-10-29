@@ -53,6 +53,78 @@ test("damaged journal offers a safe first action and confirms start fresh withou
   }, rehearsal.id)).toEqual({ retained: true, audio: "retained audio" });
 });
 
+test("a lost fresh-start reply reports the backend-applied reset after reconciliation", async ({ page }) => {
+  let fresh = false;
+  let requestId = "";
+  let requests = 0;
+  await page.route("**/v1/journal/status", route => route.fulfill({json: fresh ? {...damaged, recovery_error: null, completed: [requestId]} : damaged}));
+  await page.route("**/v1/journal/start-fresh", route => {
+    requests += 1;
+    requestId = route.request().postDataJSON().fresh_request;
+    fresh = true;
+    return route.abort("failed");
+  });
+  await page.goto("/settings");
+  const panel = page.getByTestId("journal-panel");
+  await expect(panel.getByTestId("journal-state")).toContainText("Journal damaged");
+  await panel.getByRole("button", {name: "Start a fresh journal"}).click();
+  await page.getByRole("dialog", {name: "Start a fresh journal?"}).getByRole("button", {name: "Confirm: start fresh"}).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(panel.getByText("A fresh recovery journal is ready. You can practise again.")).toBeVisible();
+  await expect(panel.getByTestId("journal-state")).toContainText("Journal healthy");
+  await expect(panel.getByRole("alert")).toHaveCount(0);
+  expect(requests).toBe(1);
+});
+
+test("a rejected fresh start preserves an unrelated pending restore", async ({page}) => {
+  let pending = false;
+  await page.route("**/v1/journal/status", route => route.fulfill({json: pending
+    ? {...damaged, recovery_error: null, transaction: {id: "other", phase: "backend_staged"}}
+    : damaged}));
+  await page.route("**/v1/journal/start-fresh", route => {
+    pending = true;
+    return route.fulfill({status: 409, json: {detail: {detail: "The journal is not damaged."}}});
+  });
+  await page.goto("/settings");
+  const panel = page.getByTestId("journal-panel");
+  await expect(panel.getByTestId("journal-state")).toContainText("Journal damaged");
+  await panel.getByRole("button", {name: "Start a fresh journal"}).click();
+  const dialog = page.getByRole("dialog", {name: "Start a fresh journal?"});
+  await dialog.getByRole("button", {name: "Confirm: start fresh"}).click();
+  await expect(dialog.getByRole("alert")).toContainText("The journal is not damaged.");
+  await dialog.getByRole("button", {name: "Cancel and keep current state"}).click();
+  await expect(dialog).toHaveCount(0);
+  await panel.getByRole("button", {name: "Check recovery and archived items"}).click();
+  await expect(panel.getByTestId("journal-state")).toContainText("Recovery pending");
+  await expect(panel.getByText("A fresh recovery journal is ready. You can practise again.")).toHaveCount(0);
+});
+
+for (const action of ["Export diagnostics only", "Start a fresh journal"]) {
+  test(`recovery notice retries focus on ${action} when repair enables it`, async ({page}) => {
+    let retryable = false;
+    await page.route("**/v1/journal/status", route => route.fulfill({json: {
+      ...damaged, transaction: {id: "repair", phase: "backend_staged"}, recovery_retryable: retryable,
+    }}));
+    await page.goto("/");
+    const notice = page.getByTestId("journal-recovery-notice");
+    await expect(notice).toBeVisible();
+    await notice.getByRole("link", {name: action, exact: true}).click();
+    const panel = page.getByTestId("journal-panel");
+    const target = panel.getByRole("button", {name: action, exact: true});
+    await expect(target).toBeDisabled();
+    await expect(panel.getByRole("heading", {name: "Your data", exact: true})).toBeFocused();
+    const check = panel.getByRole("button", {name: "Check recovery and archived items"});
+    await check.click();
+    await expect(check).toBeEnabled();
+    await expect(target).toBeDisabled();
+    await expect(check).toBeFocused();
+    retryable = true;
+    await check.click();
+    await expect(target).toBeEnabled();
+    await expect(target).toBeFocused();
+  });
+}
+
 test("a backup can be previewed before restore from the damaged view", async ({ page }, info) => {
   await page.goto("/settings");
   await expect(page.getByTestId("journal-state")).toContainText("Journal healthy");

@@ -57,6 +57,7 @@ export const AssessmentStatusPanel = ({
   uploaded,
   pollFailed,
   canRetry,
+  retryDisabled,
   mediaMessage,
 }: {
   canCancel: boolean;
@@ -84,6 +85,7 @@ export const AssessmentStatusPanel = ({
   uploaded: boolean;
   pollFailed: boolean;
   canRetry: boolean;
+  retryDisabled: boolean;
   mediaMessage: string;
 }) => {
   const contextFields = (
@@ -245,7 +247,7 @@ export const AssessmentStatusPanel = ({
         gap: "0.75rem",
       }}
     >
-      <Button
+      {!canRetry && <Button
         type="button"
         onClick={onSubmit}
         disabled={submitDisabled}
@@ -255,7 +257,7 @@ export const AssessmentStatusPanel = ({
         data-semantic-id="speak.submit"
       >
         {translate("speak.submit")}
-      </Button>
+      </Button>}
       {canCancel ? (
         <Button
           type="button"
@@ -267,7 +269,8 @@ export const AssessmentStatusPanel = ({
           {translate("speak.cancel_assessment")}
         </Button>
       ) : null}
-      {canRetry && <Button onClick={onRetry} data-testid="speak.retry_assessment">
+      {canRetry && <Button type="button" variant="primary" disabled={retryDisabled} onClick={onRetry}
+        data-testid="speak.retry_assessment" data-semantic-id="speak.retry_assessment">
         {translate("speak.wait_retry")}
       </Button>}
     </div>
