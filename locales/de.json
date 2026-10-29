@@ -982,6 +982,10 @@
     "saved_success": "Thema '{theme}' wurde gespeichert."
   },
   "settings": {
+    "appearance": "Erscheinungsbild",
+    "appearance_system": "System",
+    "appearance_light": "Hell",
+    "appearance_dark": "Dunkel",
     "support_native_unavailable": "Aktualisiere die Desktop-App, um Supportpakete über einen nativen Dialog zu speichern.",
     "support_bundle_saved": "Supportpaket gespeichert.",
     "support_bundle_cancelled": "Speichern abgebrochen. Das Paket kann weiterhin gespeichert werden.",

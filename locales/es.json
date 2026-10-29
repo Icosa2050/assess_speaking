@@ -982,6 +982,10 @@
     "saved_success": "Se ha guardado el tema «{theme}»."
   },
   "settings": {
+    "appearance": "Apariencia",
+    "appearance_system": "Sistema",
+    "appearance_light": "Claro",
+    "appearance_dark": "Oscuro",
     "support_native_unavailable": "Actualiza la app de escritorio para guardar paquetes de soporte con un diálogo nativo.",
     "support_bundle_saved": "Paquete de soporte guardado.",
     "support_bundle_cancelled": "Guardado cancelado. El paquete sigue disponible para guardarlo.",

@@ -1,3 +1,5 @@
+import { readAppearance, type Appearance } from "./appearance";
+
 export const DEFAULT_UI_LOCALE = "en";
 export const SUPPORTED_UI_LOCALES = ["en", "de", "es", "fr", "it"] as const;
 export const CEFR_LEVELS = ["B1", "B2", "C1"] as const;
@@ -45,6 +47,7 @@ export type RuntimeSetupConnectionTestState =
 
 export interface AppPreferencesState {
   uiLocale: UiLocale;
+  appearance: Appearance;
   activeConnectionId: string;
   setupComplete: boolean;
 }
@@ -116,6 +119,7 @@ export const buildAppPreferences = (
   overrides: Partial<AppPreferencesState> = {},
 ): AppPreferencesState => ({
   uiLocale: overrides.uiLocale ?? DEFAULT_UI_LOCALE,
+  appearance: overrides.appearance ?? readAppearance(),
   activeConnectionId: overrides.activeConnectionId ?? "",
   setupComplete: overrides.setupComplete ?? false,
 });

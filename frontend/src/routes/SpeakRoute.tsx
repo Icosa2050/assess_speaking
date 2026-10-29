@@ -44,10 +44,10 @@ const cardStyle = {
   display: "grid",
   gap: "0.875rem",
   padding: "1.25rem",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
+  border: "1px solid var(--color-border-decorative)",
   borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.94)",
-  boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
+  backgroundColor: "var(--color-surface)",
+  boxShadow: "0 18px 40px var(--color-shadow-ambient)",
 } as const;
 
 const phaseMessage = (
@@ -680,7 +680,7 @@ export const SpeakRoute = () => {
           style={{
             margin: 0,
             fontSize: "1.45rem",
-            color: "#10201c",
+            color: "var(--color-text)",
           }}
         >
           {translate("speak.prompt_title")}
@@ -688,7 +688,7 @@ export const SpeakRoute = () => {
         <p
           style={{
             margin: 0,
-            color: "#33514b",
+            color: "var(--color-text-muted)",
             fontWeight: 600,
           }}
         >
@@ -697,7 +697,7 @@ export const SpeakRoute = () => {
         <p
           style={{
             margin: 0,
-            color: "#48645e",
+            color: "var(--color-text-muted)",
             fontWeight: 600,
           }}
           data-testid="speak.session_summary"
@@ -709,10 +709,10 @@ export const SpeakRoute = () => {
           style={{
             margin: 0,
             padding: "1rem",
-            borderLeft: "4px solid rgba(15, 118, 110, 0.4)",
+            borderLeft: "4px solid var(--color-selected-border)",
             borderRadius: "0 8px 8px 0",
-            backgroundColor: "rgba(239, 248, 245, 0.98)",
-            color: "#10201c",
+            backgroundColor: "var(--color-surface-subtle)",
+            color: "var(--color-text)",
             fontSize: "1.05rem",
             lineHeight: 1.55,
             fontWeight: 600,

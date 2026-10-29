@@ -41,10 +41,10 @@ const cardStyle = {
   maxWidth: "100%",
   overflowWrap: "anywhere",
   padding: "1.25rem",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
+  border: "1px solid var(--color-border-decorative)",
   borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.94)",
-  boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
+  backgroundColor: "var(--color-surface)",
+  boxShadow: "0 18px 40px var(--color-shadow-ambient)",
 } as const;
 
 const actionButtonStyle = {
@@ -54,9 +54,9 @@ const actionButtonStyle = {
   minHeight: "44px",
   padding: "0.75rem 1rem",
   borderRadius: "8px",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
-  backgroundColor: "rgba(255, 255, 255, 0.95)",
-  color: "#10201c",
+  border: "1px solid var(--color-border-decorative)",
+  backgroundColor: "var(--color-surface)",
+  color: "var(--color-text)",
   fontWeight: 600,
   font: "inherit",
 } as const;
@@ -69,8 +69,8 @@ const inputStyle = {
   border: "1px solid var(--color-border-control)",
   padding: "0.7rem 0.8rem",
   font: "inherit",
-  color: "#10201c",
-  backgroundColor: "rgba(255, 255, 255, 0.96)",
+  color: "var(--color-text)",
+  backgroundColor: "var(--color-surface)",
 } as const;
 
 const findDiagnostic = (items: DiagnosticItem[], key: string): DiagnosticItem | undefined =>
@@ -153,12 +153,12 @@ const buildDraftFromConnection = (
 
 const formStateColor = (tone: "success" | "warning" | "error"): string => {
   if (tone === "success") {
-    return "#166534";
+    return "var(--color-success)";
   }
   if (tone === "error") {
-    return "#b42318";
+    return "var(--color-error)";
   }
-  return "#9a6700";
+  return "var(--color-warning)";
 };
 
 export const SetupRoute = () => {
@@ -526,16 +526,16 @@ export const SetupRoute = () => {
           style={{
             margin: 0,
             fontSize: "1.2rem",
-            color: "#10201c",
+            color: "var(--color-text)",
           }}
         >
           {translate("runtime_setup.section_whisper")}
         </h2>
-        <p style={{ margin: 0, lineHeight: 1.6, color: "#33514b" }}>
+        <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
           {translate("runtime_setup.whisper_guidance")}
         </p>
         <label style={{ display: "grid", gap: "0.35rem" }}>
-          <span style={{ fontWeight: 600, color: "#33514b" }}>
+          <span style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>
             {translate("runtime_setup.whisper_model")}
           </span>
           <select
@@ -560,7 +560,7 @@ export const SetupRoute = () => {
           style={{
             margin: 0,
             lineHeight: 1.55,
-            color: whisperStatusQuery.data?.cached ? "#166534" : "#9a6700",
+            color: whisperStatusQuery.data?.cached ? "var(--color-success)" : "var(--color-warning)",
           }}
           {...semanticAttributes(SEMANTIC_IDS.runtimeSetup.whisperStatus, {
             cached: Boolean(whisperStatusQuery.data?.cached),
@@ -628,7 +628,7 @@ export const SetupRoute = () => {
           style={{
             cursor: "pointer",
             fontWeight: 700,
-            color: "#10201c",
+            color: "var(--color-text)",
           }}
         >
           {translate("runtime_setup.connection_diagnostics")}

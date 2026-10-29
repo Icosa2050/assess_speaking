@@ -41,10 +41,10 @@ const cardStyle = {
   display: "grid",
   gap: "0.875rem",
   padding: "1.25rem",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
+  border: "1px solid var(--color-border-decorative)",
   borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.94)",
-  boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
+  backgroundColor: "var(--color-surface)",
+  boxShadow: "0 18px 40px var(--color-shadow-ambient)",
 } as const;
 
 const actionButtonStyle = {
@@ -54,9 +54,9 @@ const actionButtonStyle = {
   minHeight: "44px",
   padding: "0.75rem 1rem",
   borderRadius: "8px",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
-  backgroundColor: "rgba(255, 255, 255, 0.95)",
-  color: "#10201c",
+  border: "1px solid var(--color-border-decorative)",
+  backgroundColor: "var(--color-surface)",
+  color: "var(--color-text)",
   fontWeight: 600,
   font: "inherit",
 } as const;
@@ -67,8 +67,8 @@ const inputStyle = {
   border: "1px solid var(--color-border-control)",
   padding: "0.7rem 0.8rem",
   font: "inherit",
-  color: "#10201c",
-  backgroundColor: "rgba(255, 255, 255, 0.96)",
+  color: "var(--color-text)",
+  backgroundColor: "var(--color-surface)",
 } as const;
 
 const returnPathMap: Record<SettingsOrigin, string> = {
@@ -154,6 +154,7 @@ export const SettingsRoute = () => {
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const preferences = useAppStore((state) => state.preferences);
   const setUiLocale = useAppStore((state) => state.setUiLocale);
+  const setAppearance = useAppStore((state) => state.setAppearance);
   const setActiveConnectionId = useAppStore((state) => state.setActiveConnectionId);
   const setSetupComplete = useAppStore((state) => state.setSetupComplete);
   const setCurrentPage = useAppStore((state) => state.setCurrentPage);
@@ -436,14 +437,14 @@ export const SettingsRoute = () => {
       {...semanticAttributes(SEMANTIC_IDS.settings.screen)}
     >
       <section style={cardStyle}>
-        <h2 style={{ margin: 0, fontSize: "1.75rem", color: "#10201c" }}>
+        <h2 style={{ margin: 0, fontSize: "1.75rem", color: "var(--color-text)" }}>
           {translate("settings.title")}
         </h2>
-        <p style={{ margin: 0, lineHeight: 1.6, color: "#33514b" }}>
+        <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
           {translate("settings.body")}
         </p>
         {!readinessQuery.isPending && !runtimeReady ? (
-          <p style={{ margin: 0, color: "#9a6700", lineHeight: 1.6 }}>
+          <p style={{ margin: 0, color: "var(--color-warning)", lineHeight: 1.6 }}>
             {translate("settings.needs_setup_info")}
           </p>
         ) : null}
@@ -470,21 +471,41 @@ export const SettingsRoute = () => {
       />
 
       <CloudSettingsPanel locale={locale} connections={runtimeSettingsQuery.data?.connections ?? []} />
+      <section style={cardStyle}>
+        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
+          {translate("settings.appearance")}
+        </h2>
+        <label style={{ display: "grid", gap: "0.35rem" }}>
+          <span style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>
+            {translate("settings.appearance")}
+          </span>
+          <select
+            value={preferences.appearance}
+            onChange={(event) => setAppearance(event.currentTarget.value as "system" | "light" | "dark")}
+            style={inputStyle}
+            {...semanticAttributes(SEMANTIC_IDS.settings.appearance)}
+          >
+            <option value="system">{translate("settings.appearance_system")}</option>
+            <option value="light">{translate("settings.appearance_light")}</option>
+            <option value="dark">{translate("settings.appearance_dark")}</option>
+          </select>
+        </label>
+      </section>
       <section
         style={cardStyle}
         {...semanticAttributes(SEMANTIC_IDS.settings.sectionRuntimeDefaults)}
       >
         <div style={{ display: "grid", gap: "0.35rem" }}>
-          <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
+          <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
             {translate("settings.ui_locale")}
           </h2>
-          <p style={{ margin: 0, lineHeight: 1.6, color: "#33514b" }}>
+          <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
             {translate("settings.body")}
           </p>
         </div>
 
         <label style={{ display: "grid", gap: "0.35rem" }}>
-          <span style={{ fontWeight: 600, color: "#33514b" }}>
+          <span style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>
             {translate("settings.ui_locale")}
           </span>
           <select
@@ -505,7 +526,7 @@ export const SettingsRoute = () => {
         </label>
 
         <label style={{ display: "grid", gap: "0.35rem" }}>
-          <span style={{ fontWeight: 600, color: "#33514b" }}>
+          <span style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>
             {translate("settings.whisper_model")}
           </span>
           <select
@@ -525,7 +546,7 @@ export const SettingsRoute = () => {
           </select>
         </label>
 
-        <p style={{ margin: 0, lineHeight: 1.55, color: whisperStatusQuery.data?.cached ? "#166534" : "#9a6700" }}>
+        <p style={{ margin: 0, lineHeight: 1.55, color: whisperStatusQuery.data?.cached ? "var(--color-success)" : "var(--color-warning)" }}>
           {whisperStatusMessage}
         </p>
 
@@ -548,16 +569,16 @@ export const SettingsRoute = () => {
           }}
         >
           <article style={cardStyle}>
-            <strong style={{ color: "#33514b" }}>{translate("settings.provider")}</strong>
-            <span style={{ color: "#10201c" }}>{activeConnection?.provider_label || runtimeQuery.data?.provider || "-"}</span>
+            <strong style={{ color: "var(--color-text-muted)" }}>{translate("settings.provider")}</strong>
+            <span style={{ color: "var(--color-text)" }}>{activeConnection?.provider_label || runtimeQuery.data?.provider || "-"}</span>
           </article>
           <article style={cardStyle}>
-            <strong style={{ color: "#33514b" }}>{translate("settings.model")}</strong>
-            <span style={{ color: "#10201c" }}>{activeConnection?.model || runtimeQuery.data?.model || "-"}</span>
+            <strong style={{ color: "var(--color-text-muted)" }}>{translate("settings.model")}</strong>
+            <span style={{ color: "var(--color-text)" }}>{activeConnection?.model || runtimeQuery.data?.model || "-"}</span>
           </article>
           <article style={cardStyle}>
-            <strong style={{ color: "#33514b" }}>{translate("settings.base_url")}</strong>
-            <span style={{ color: "#10201c", lineHeight: 1.5 }}>
+            <strong style={{ color: "var(--color-text-muted)" }}>{translate("settings.base_url")}</strong>
+            <span style={{ color: "var(--color-text)", lineHeight: 1.5 }}>
               {activeConnection?.base_url || runtimeQuery.data?.base_url || "-"}
             </span>
           </article>
@@ -597,7 +618,7 @@ export const SettingsRoute = () => {
       />
 
       <section style={cardStyle}>
-        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
+        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
           {translate("settings.return_title")}
         </h2>
         <button

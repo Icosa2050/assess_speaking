@@ -34,6 +34,7 @@ vi.mock("@/lib/api/client", () => ({
 
 import { apiClient } from "@/lib/api/client";
 import { AppFrame } from "@/App";
+import { practiceReadinessPercent } from "@/routes/HomeRoute";
 
 const mockedGetRuntime = vi.mocked(apiClient.getRuntime);
 const mockedGetDiagnostics = vi.mocked(apiClient.getDiagnostics);
@@ -52,6 +53,10 @@ const optionalTutorReadiness = () => {
 };
 
 describe("Home and Runtime Setup routes", () => {
+  it("keeps readiness finite when no checks are required", () => {
+    expect(practiceReadinessPercent(0, 0)).toBe(0);
+    expect(practiceReadinessPercent(3, 4)).toBe(75);
+  });
   afterEach(() => vi.unstubAllGlobals());
   beforeEach(() => {
     vi.clearAllMocks();

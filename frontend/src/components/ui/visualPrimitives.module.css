@@ -10,7 +10,7 @@
 
 .progressRing {
   --progress-ring-size: 7.25rem;
-  --progress-ring-track: rgba(206, 216, 210, 0.84);
+  --progress-ring-track: var(--color-score-track);
   --progress-ring-fill: var(--color-accent);
   --progress-ring-center: var(--color-surface);
   --progress-ring-text: var(--color-ink);

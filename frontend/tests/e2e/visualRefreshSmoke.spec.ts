@@ -1,5 +1,5 @@
 import { stubReadyReadiness } from "../readinessStub";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { expect, test, type Page, type Route } from "../fixtures";
@@ -745,8 +745,7 @@ test("light routes and opt-in dark journal card stay usable at desktop sizes", a
     await captureScreenshot(page, `migration-archive-${suffix}`);
     await expectNoPageHorizontalOverflow(page);
 
-    // Dark tokens are opt-in for migrated surfaces; legacy fixed-light panels
-    // are outside this preview until the remaining routes migrate.
+    // Exercise an explicit theme override on the journal, form and focus state.
     await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
     await page.goBack();
     await page.goBack();
@@ -800,4 +799,136 @@ test("light routes and opt-in dark journal card stay usable at desktop sizes", a
   expect(contrastRatio(darkDangerColors.foreground, darkDangerColors.background)).toBeGreaterThanOrEqual(4.5);
   await page.mouse.move(0, 0);
   await page.mouse.up();
+});
+
+test("semantic light and dark surfaces keep primary routes readable at both desktop sizes", async ({ page }) => {
+  test.setTimeout(180_000);
+  await installVisualBackend(page);
+  const output = process.env.THEME_MIGRATION_SCREENSHOT_DIR;
+  const contrastChecks: Array<{ route: string; theme: string; viewport: string; text: number; border: number }> = [];
+
+  const audit = async (route: string, theme: string) => {
+    for (const viewport of [{ width: 1360, height: 900 }, { width: 1100, height: 760 }]) {
+      await page.setViewportSize(viewport);
+      await expect(page.locator("main").getByRole("heading").first()).toBeVisible();
+      await expectNoPageHorizontalOverflow(page);
+      const computed = await page.evaluate(() => {
+        const parse = (value: string): [number, number, number, number] => {
+          const values = value.match(/[\d.]+/g)?.map(Number) ?? [];
+          return values.length >= 3 ? [values[0], values[1], values[2], values[3] ?? 1] : [0, 0, 0, 0];
+        };
+        const blend = (top: number[], bottom: number[]) => {
+          const alpha = top[3] + bottom[3] * (1 - top[3]);
+          return [0, 1, 2].map(index => (top[index] * top[3] + bottom[index] * bottom[3] * (1 - top[3])) / alpha).concat(alpha);
+        };
+        const background = (element: Element) => {
+          const chain: Element[] = [];
+          for (let node: Element | null = element; node; node = node.parentElement) chain.unshift(node);
+          return chain.reduce<number[]>((result, node) => blend(parse(getComputedStyle(node).backgroundColor), result), [255, 255, 255, 1]);
+        };
+        const luminance = (rgb: number[]) => {
+          const channels = rgb.slice(0, 3).map(value => {
+            const fraction = value / 255;
+            return fraction <= 0.04045 ? fraction / 12.92 : ((fraction + 0.055) / 1.055) ** 2.4;
+          });
+          return .2126 * channels[0] + .7152 * channels[1] + .0722 * channels[2];
+        };
+        const ratio = (first: number[], second: number[]) => {
+          const values = [luminance(first), luminance(second)].sort((a, b) => b - a);
+          return (values[0] + .05) / (values[1] + .05);
+        };
+        const visible = (element: Element) => {
+          const style = getComputedStyle(element);
+          return style.display !== "none" && style.visibility === "visible" && element.getClientRects().length > 0;
+        };
+        const text = [...document.querySelectorAll("header h1, header p, nav a, main h2, main h3, main p, main label, main input, main select, main textarea")]
+          .filter(element => visible(element) && element.getAttribute("aria-disabled") !== "true" && Boolean(element.textContent?.trim())).slice(0, 30)
+          .map(element => ({ label: element.textContent?.trim().slice(0, 55), ratio: ratio(parse(getComputedStyle(element).color), background(element)) }));
+        const border = [...document.querySelectorAll("main input, main select, main textarea")]
+          .filter(element => visible(element) && !(element as HTMLInputElement).disabled).slice(0, 4)
+          .map(element => ({ label: element.tagName, ratio: ratio(parse(getComputedStyle(element).borderTopColor), background(element)) }));
+        return { text, border };
+      });
+      for (const item of computed.text) expect(item.ratio, `${theme} ${route} ${viewport.width}: ${item.label}`).toBeGreaterThanOrEqual(4.5);
+      for (const item of computed.border) expect(item.ratio, `${theme} ${route} ${viewport.width}: ${item.label} border`).toBeGreaterThanOrEqual(3);
+      contrastChecks.push({ route, theme, viewport: `${viewport.width}x${viewport.height}`,
+        text: Math.min(...computed.text.map(item => item.ratio)),
+        border: computed.border.length ? Math.min(...computed.border.map(item => item.ratio)) : -1 });
+      if (output) {
+        mkdirSync(output, { recursive: true });
+        if (route !== "your-data" && route !== "speak-wait") await page.evaluate(() => window.scrollTo(0, 0));
+        await page.screenshot({ path: path.join(output, `${theme}-${route}-${viewport.width}x${viewport.height}.png`) });
+        if (route === "settings") {
+          await page.getByTestId("settings.appearance").scrollIntoViewIfNeeded();
+          await page.screenshot({ path: path.join(output, `${theme}-settings-appearance-${viewport.width}x${viewport.height}.png`) });
+        }
+      }
+    }
+  };
+
+  for (const theme of ["light", "dark"] as const) {
+    await page.goto("/settings");
+    await page.getByTestId("settings.appearance").selectOption(theme);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+    await expect(page.locator("html")).toHaveCSS("color-scheme", theme);
+    for (const [route, url] of [
+      ["home", "/"], ["setup", "/runtime-setup"], ["history", "/history"],
+      ["library", "/library"], ["guide", "/guide"], ["settings", "/settings"],
+      ["your-data", "/settings#your-data"], ["rehearsal", "/rehearsal"],
+    ]) {
+      await page.goto(url);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      await audit(route, theme);
+    }
+
+    await page.goto("/");
+    await page.getByTestId("home.start_new").click();
+    await audit("session-setup", theme);
+    await page.getByTestId("setup.speaker_id").fill(speakerId);
+    await page.getByTestId("setup.recommended_start").click();
+    await page.getByTestId("setup.continue").click();
+    await audit("speak", theme);
+    await attachAudio(page);
+    await page.unroute("**/v1/assessments/*");
+    let complete = false;
+    await page.route("**/v1/assessments/*", route => fulfillJson(route, complete
+      ? { assessment_id: "visual-assessment-clean", status: "completed", phase: "finalizing_report", progress: 1,
+          report_path: "/tmp/visual-second.json", payload: reportPayload, summary: assessmentSummary(reportPayload) }
+      : { assessment_id: "visual-assessment-clean", status: "running", phase: "scoring_rubric", progress: .6,
+          created_at: new Date().toISOString(), updated_at: new Date().toISOString(), worker_seen_at: new Date().toISOString() }));
+    await page.getByTestId("speak.submit").click();
+    await expect(page.getByTestId("speak.assessment_progress")).toBeVisible();
+    await audit("speak-wait", theme);
+    complete = true;
+    await expect(page).toHaveURL(/\/review$/, { timeout: 15000 });
+    await audit("review", theme);
+    await page.unroute("**/v1/assessments/*");
+    await page.route("**/v1/assessments/*", route => fulfillJson(route, {
+      assessment_id: "visual-assessment-clean", status: "completed", phase: "finalizing_report", progress: 1,
+      report_path: "/tmp/visual-second.json", payload: reportPayload, summary: assessmentSummary(reportPayload),
+    }));
+
+    await page.goto("/");
+    await page.setViewportSize({ width: 1100, height: 760 });
+    await page.keyboard.press("Tab");
+    const skip = page.getByRole("link", { name: "Skip to content" });
+    await expect(skip).toBeFocused();
+    await expect(skip).toHaveCSS("outline-width", "3px");
+    const focus = await skip.evaluate(element => ({
+      outline: getComputedStyle(element).outlineColor,
+      surface: getComputedStyle(element).backgroundColor,
+    }));
+    expect(contrastRatio(focus.outline, focus.surface)).toBeGreaterThanOrEqual(3);
+    await page.keyboard.press("Enter");
+    await expect(page.locator("main")).toBeFocused();
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--motion-fast").trim())).toBe("0ms");
+    await page.evaluate(() => { document.documentElement.style.zoom = "200%"; });
+    await expectNoPageHorizontalOverflow(page);
+    await page.evaluate(() => { document.documentElement.style.zoom = ""; });
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+  }
+
+  if (output) writeFileSync(path.join(output, "computed-contrast.json"), JSON.stringify(contrastChecks, null, 2));
 });

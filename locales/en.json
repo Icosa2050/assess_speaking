@@ -982,6 +982,10 @@
     "saved_success": "Theme '{theme}' was saved."
   },
   "settings": {
+    "appearance": "Appearance",
+    "appearance_system": "System",
+    "appearance_light": "Light",
+    "appearance_dark": "Dark",
     "support_native_unavailable": "Update the desktop app to save support packages with a native dialog.",
     "support_bundle_saved": "Support package saved.",
     "support_bundle_cancelled": "Saving cancelled. The package is still available to save again.",

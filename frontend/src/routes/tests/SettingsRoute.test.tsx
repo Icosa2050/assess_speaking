@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 
 import { renderWithProviders } from "@/test/renderWithProviders";
@@ -126,6 +126,7 @@ const createDeferred = <T,>() => {
 };
 
 describe("Settings route", () => {
+  afterEach(() => vi.unstubAllGlobals());
   beforeEach(() => {
     vi.clearAllMocks();
     mockedGetReadiness.mockResolvedValue(readyReadiness);
@@ -568,6 +569,31 @@ describe("Settings route", () => {
       );
       expect(store.getState().preferences.uiLocale).toBe("de");
     });
+  });
+
+  it("applies and persists Appearance, including a System appearance change", async () => {
+    let onSystemChange: (() => void) | undefined;
+    const media = {
+      matches: false,
+      addEventListener: vi.fn((_event: string, callback: () => void) => { onSystemChange = callback; }),
+      removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal("matchMedia", vi.fn(() => media));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/settings"], locale: "en" });
+
+    const appearance = await screen.findByTestId("settings.appearance");
+    expect(appearance).toHaveValue("light");
+    fireEvent.change(appearance, { target: { value: "dark" } });
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("dark"));
+    expect(document.documentElement.style.colorScheme).toBe("dark");
+    expect(window.localStorage.getItem("vostavo.appearance.v1")).toBe("dark");
+
+    fireEvent.change(appearance, { target: { value: "system" } });
+    await waitFor(() => expect(onSystemChange).toBeDefined());
+    expect(document.documentElement.dataset.theme).toBe("light");
+    await act(async () => { media.matches = true; onSystemChange?.(); });
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(window.localStorage.getItem("vostavo.appearance.v1")).toBe("system");
   });
 
   it("keeps the explicit create-new draft selected across runtime settings refreshes", async () => {

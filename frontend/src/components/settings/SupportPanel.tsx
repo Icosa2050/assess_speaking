@@ -15,10 +15,10 @@ const cardStyle = {
   display: "grid",
   gap: "0.875rem",
   padding: "1.25rem",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
+  border: "1px solid var(--color-border-decorative)",
   borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.94)",
-  boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
+  backgroundColor: "var(--color-surface)",
+  boxShadow: "0 18px 40px var(--color-shadow-ambient)",
 } as const;
 
 const actionButtonStyle = {
@@ -28,9 +28,9 @@ const actionButtonStyle = {
   minHeight: "44px",
   padding: "0.75rem 1rem",
   borderRadius: "8px",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
-  backgroundColor: "rgba(255, 255, 255, 0.95)",
-  color: "#10201c",
+  border: "1px solid var(--color-border-decorative)",
+  backgroundColor: "var(--color-surface)",
+  color: "var(--color-text)",
   fontWeight: 600,
   font: "inherit",
 } as const;
@@ -204,23 +204,23 @@ export const SupportPanel = ({
   return (
     <section style={cardStyle}>
       <div style={{ display: "grid", gap: "0.35rem" }}>
-        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
+        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
           {translate("settings.support_title")}
         </h2>
-        <p style={{ margin: 0, lineHeight: 1.6, color: "#33514b" }}>
+        <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
           {translate("settings.support_body")}
         </p>
-        <p style={{ margin: 0, lineHeight: 1.6, color: "#33514b" }}>
+        <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
           {translate("settings.support_privacy_note")}
         </p>
       </div>
 
-      {message ? <p role="status" style={{ margin: 0, color: "#166534" }}>{message}</p> : null}
-      {error ? <p role="alert" style={{ margin: 0, color: "#b42318" }}>{error}</p> : null}
+      {message ? <p role="status" style={{ margin: 0, color: "var(--color-success)" }}>{message}</p> : null}
+      {error ? <p role="alert" style={{ margin: 0, color: "var(--color-error)" }}>{error}</p> : null}
       {warnings.map((warning) => (
         <p
           key={warning}
-          style={{ margin: 0, color: "#9a6700" }}
+          style={{ margin: 0, color: "var(--color-warning)" }}
         >
           {translate("settings.support_backend_warning", { detail: warning })}
         </p>
@@ -284,9 +284,9 @@ export const SupportPanel = ({
       ) : null}
 
       <div style={{ display: "grid", gap: "0.75rem" }}>
-        <strong style={{ color: "#10201c" }}>{translate("settings.support_storage_title")}</strong>
+        <strong style={{ color: "var(--color-text)" }}>{translate("settings.support_storage_title")}</strong>
         {storageRows.length === 0 ? (
-          <p style={{ margin: 0, color: "#33514b" }}>{translate("settings.support_storage_empty")}</p>
+          <p style={{ margin: 0, color: "var(--color-text-muted)" }}>{translate("settings.support_storage_empty")}</p>
         ) : (
           <div style={storageGridStyle}>
             {storageRows.map(([areaKey, area]) => (
@@ -296,16 +296,16 @@ export const SupportPanel = ({
                 data-testid="settings.storage_row"
                 data-area-key={areaKey}
               >
-                <strong style={{ color: "#10201c" }}>
+                <strong style={{ color: "var(--color-text)" }}>
                   {translate(`settings.storage_area_${areaKey}`)}
                 </strong>
-                <span style={{ color: "#33514b", lineHeight: 1.5 }}>
+                <span style={{ color: "var(--color-text-muted)", lineHeight: 1.5 }}>
                   {translate("settings.support_storage_row_detail", {
                     size: formatByteCount(area.size_bytes),
                     file_count: area.file_count,
                   })}
                 </span>
-                <span style={{ color: "#33514b", lineHeight: 1.5 }}>{area.path}</span>
+                <span style={{ color: "var(--color-text-muted)", lineHeight: 1.5 }}>{area.path}</span>
               </article>
             ))}
           </div>
@@ -313,11 +313,11 @@ export const SupportPanel = ({
       </div>
 
       <div style={{ display: "grid", gap: "0.75rem" }}>
-        <strong style={{ color: "#10201c" }}>{translate("settings.support_bundle_title")}</strong>
-        <p style={{ margin: 0, lineHeight: 1.6, color: "#33514b" }}>
+        <strong style={{ color: "var(--color-text)" }}>{translate("settings.support_bundle_title")}</strong>
+        <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
           {translate("settings.support_bundle_body")}
         </p>
-        <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", color: "#33514b" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", color: "var(--color-text-muted)" }}>
           <input
             checked={includeReports}
             onChange={(event) => { setIncludeReports(event.target.checked); setBundle(null); }}
@@ -325,7 +325,7 @@ export const SupportPanel = ({
           />
           <span>{translate("settings.support_bundle_include_reports")}</span>
         </label>
-        <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", color: "#33514b" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", color: "var(--color-text-muted)" }}>
           <input
             checked={includeRecordings}
             onChange={(event) => { setIncludeRecordings(event.target.checked); setBundle(null); }}
@@ -333,7 +333,7 @@ export const SupportPanel = ({
           />
           <span>{translate("settings.support_bundle_include_recordings")}</span>
         </label>
-        <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", color: "#33514b" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", color: "var(--color-text-muted)" }}>
           <input
             checked={includeUploads}
             onChange={(event) => { setIncludeUploads(event.target.checked); setBundle(null); }}
@@ -341,7 +341,7 @@ export const SupportPanel = ({
           />
           <span>{translate("settings.support_bundle_include_uploads")}</span>
         </label>
-        <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", color: "#33514b" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", color: "var(--color-text-muted)" }}>
           <input
             checked={includeRuntimeHealth}
             onChange={(event) => { setIncludeRuntimeHealth(event.target.checked); setBundle(null); }}

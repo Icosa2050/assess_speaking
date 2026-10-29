@@ -8,16 +8,16 @@ const cardStyle = {
   display: "grid",
   gap: "0.875rem",
   padding: "1.25rem",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
+  border: "1px solid var(--color-border-decorative)",
   borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.94)",
-  boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
+  backgroundColor: "var(--color-surface)",
+  boxShadow: "0 18px 40px var(--color-shadow-ambient)",
 } as const;
 
 const fieldStyle = {
   display: "grid",
   gap: "0.375rem",
-  color: "#10201c",
+  color: "var(--color-text)",
   fontWeight: 600,
 } as const;
 
@@ -26,8 +26,8 @@ const controlStyle = {
   padding: "0.75rem 0.875rem",
   borderRadius: "8px",
   border: "1px solid var(--color-border-control)",
-  backgroundColor: "#fff",
-  color: "#10201c",
+  backgroundColor: "var(--color-surface)",
+  color: "var(--color-text)",
   font: "inherit",
 } as const;
 
@@ -131,7 +131,7 @@ export const AssessmentStatusPanel = ({
       style={{
         margin: 0,
         fontSize: "1.35rem",
-        color: "#10201c",
+        color: "var(--color-text)",
       }}
     >
       {translate("speak.assessment_title")}
@@ -139,7 +139,7 @@ export const AssessmentStatusPanel = ({
     <p
       style={{
         margin: 0,
-        color: "#33514b",
+        color: "var(--color-text-muted)",
       }}
     >
       {translate("speak.assessment_caption")}
@@ -148,7 +148,7 @@ export const AssessmentStatusPanel = ({
       <p
         style={{
           margin: 0,
-          color: "#9a6700",
+          color: "var(--color-warning)",
           lineHeight: 1.55,
         }}
         data-testid="speak.openrouter_key_warning"
@@ -163,7 +163,7 @@ export const AssessmentStatusPanel = ({
         data-semantic-id="speak.optional_context"
         style={{ display: "grid", gap: "0.75rem" }}
       >
-        <summary style={{ cursor: "pointer", fontWeight: 700, color: "#10201c" }}>
+        <summary style={{ cursor: "pointer", fontWeight: 700, color: "var(--color-text)" }}>
           {translate("speak.optional_context_summary")}
         </summary>
         <div style={{ display: "grid", gap: "0.875rem", paddingTop: "0.75rem" }}>
@@ -201,7 +201,7 @@ export const AssessmentStatusPanel = ({
       <p
         style={{
           margin: 0,
-          color: "#33514b",
+          color: "var(--color-text-muted)",
           lineHeight: 1.55,
           fontWeight: 600,
         }}
@@ -214,7 +214,7 @@ export const AssessmentStatusPanel = ({
         <p
           style={{
             margin: 0,
-            color: "#33514b",
+            color: "var(--color-text-muted)",
             lineHeight: 1.55,
           }}
         >
@@ -230,7 +230,7 @@ export const AssessmentStatusPanel = ({
         id="speak-submit-help"
         style={{
           margin: 0,
-          color: "#33514b",
+          color: "var(--color-text-muted)",
           fontSize: "0.92rem",
           lineHeight: 1.5,
         }}
@@ -277,7 +277,7 @@ export const AssessmentStatusPanel = ({
     <p
       style={{
         margin: 0,
-        color: "#6b7a76",
+        color: "var(--color-text-muted)",
         fontSize: "0.84rem",
         lineHeight: 1.45,
       }}

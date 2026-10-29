@@ -23,10 +23,10 @@ const cardStyle = {
   display: "grid",
   gap: "0.875rem",
   padding: "1.25rem",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
+  border: "1px solid var(--color-border-decorative)",
   borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.94)",
-  boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
+  backgroundColor: "var(--color-surface)",
+  boxShadow: "0 18px 40px var(--color-shadow-ambient)",
 } as const;
 
 const primaryButtonStyle = {
@@ -37,9 +37,9 @@ const primaryButtonStyle = {
   minHeight: "44px",
   padding: "0.75rem 1rem",
   borderRadius: "8px",
-  border: "1px solid rgba(15, 118, 110, 0.2)",
-  backgroundColor: "#d7ebe5",
-  color: "#10201c",
+  border: "1px solid var(--color-selected-border)",
+  backgroundColor: "var(--color-selected)",
+  color: "var(--color-text)",
   fontWeight: 600,
   font: "inherit",
   cursor: "pointer",
@@ -47,21 +47,21 @@ const primaryButtonStyle = {
 
 const secondaryButtonStyle = {
   ...primaryButtonStyle,
-  backgroundColor: "rgba(255, 255, 255, 0.95)",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
+  backgroundColor: "var(--color-surface)",
+  border: "1px solid var(--color-border-decorative)",
 } as const;
 
 const tertiaryButtonStyle = {
   ...secondaryButtonStyle,
   backgroundColor: "transparent",
   border: "1px solid transparent",
-  color: "#33514b",
+  color: "var(--color-text-muted)",
 } as const;
 
 const nextStepCardStyle = {
   ...cardStyle,
-  border: "1px solid rgba(15, 118, 110, 0.22)",
-  backgroundColor: "rgba(250, 253, 252, 0.98)",
+  border: "1px solid var(--color-selected-border)",
+  backgroundColor: "var(--color-surface-subtle)",
 } as const;
 
 const focusChipGroupStyle = {
@@ -76,10 +76,10 @@ const focusChipStyle = {
   width: "fit-content",
   maxWidth: "100%",
   padding: "0.6rem 0.75rem",
-  border: "1px solid rgba(15, 118, 110, 0.16)",
+  border: "1px solid var(--color-selected-border)",
   borderRadius: "8px",
-  backgroundColor: "rgba(215, 235, 229, 0.62)",
-  color: "#10201c",
+  backgroundColor: "var(--color-selected)",
+  color: "var(--color-text)",
   fontWeight: 650,
   lineHeight: 1.45,
   textWrap: "pretty",
@@ -127,7 +127,7 @@ const GuardCard = ({
       style={{
         margin: 0,
         fontSize: "1.5rem",
-        color: "#10201c",
+        color: "var(--color-text)",
       }}
     >
       {title}
@@ -136,7 +136,7 @@ const GuardCard = ({
       style={{
         margin: 0,
         lineHeight: 1.6,
-        color: "#33514b",
+        color: "var(--color-text-muted)",
       }}
     >
       {body}
@@ -263,8 +263,8 @@ export const ReviewRoute = () => {
   if (!hasReview && assessmentId && assessmentQuery.isPending && !isStillAssessing) {
     return (
       <section style={cardStyle} data-testid="review-route" data-semantic-id="review-route">
-        <h2 style={{ margin: 0, fontSize: "1.5rem", color: "#10201c" }}>{translate("review.title")}</h2>
-        <p style={{ margin: 0, color: "#33514b", lineHeight: 1.6 }}>
+        <h2 style={{ margin: 0, fontSize: "1.5rem", color: "var(--color-text)" }}>{translate("review.title")}</h2>
+        <p style={{ margin: 0, color: "var(--color-text-muted)", lineHeight: 1.6 }}>
           {translate("review.answer_result_pending")}
         </p>
       </section>
@@ -371,12 +371,12 @@ export const ReviewRoute = () => {
                 margin: 0,
                 fontSize: "0.875rem",
                 fontWeight: 700,
-                color: "#0f766e",
+                color: "var(--color-brand)",
               }}
             >
               {translate("review.coach_note_eyebrow")}
             </p>
-            <h2 style={{ margin: 0, fontSize: "1.5rem", color: "#10201c" }}>
+            <h2 style={{ margin: 0, fontSize: "1.5rem", color: "var(--color-text)" }}>
               {translate("review.next_step_title")}
             </h2>
             <p
@@ -404,8 +404,8 @@ export const ReviewRoute = () => {
                 <div
                   style={{
                     ...focusChipStyle,
-                    backgroundColor: "rgba(255, 255, 255, 0.72)",
-                    color: "#33514b",
+                    backgroundColor: "var(--color-surface)",
+                    color: "var(--color-text-muted)",
                   }}
                   data-testid="review-next-step-exercise"
                   data-semantic-id="review-next-step-exercise"
@@ -437,7 +437,7 @@ export const ReviewRoute = () => {
                 role="status"
                 style={{
                   margin: 0,
-                  color: "#8f1f14",
+                  color: "var(--color-error)",
                   lineHeight: 1.5,
                   fontWeight: 650,
                 }}

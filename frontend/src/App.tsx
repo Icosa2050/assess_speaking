@@ -1,4 +1,5 @@
 import { lazy, useEffect, useMemo } from "react";
+import { applyAppearance, systemPrefersDark } from "@/lib/state/appearance";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
@@ -57,6 +58,15 @@ const routeDefinitions: AppRouteDefinition[] = [
 export const AppFrame = () => {
   const location = useLocation();
   const locale = useAppStore((state) => state.preferences.uiLocale);
+  const appearance = useAppStore((state) => state.preferences.appearance);
+  useEffect(() => {
+    applyAppearance(appearance, systemPrefersDark());
+    if (appearance !== "system" || typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = () => applyAppearance("system", media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [appearance]);
   const hasReview = useAppStore((state) => Boolean(state.review.reportId));
   const hasDraft = useAppStore((state) => hasSetupDraft(state.draft));
   const fromRoute = typeof location.state?.from === "string" && isPracticePath(location.state.from)

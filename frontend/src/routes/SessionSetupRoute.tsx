@@ -402,14 +402,14 @@ const SessionSetupContent = () => {
           gap: "0.75rem",
           padding: "1.25rem",
           borderRadius: "8px",
-          border: "1px solid rgba(180, 35, 24, 0.16)",
-          backgroundColor: "rgba(255, 245, 245, 0.94)",
+          border: "1px solid var(--color-error-border)",
+          backgroundColor: "var(--color-error-bg)",
         }}
       >
         <h2
           style={{
             margin: 0,
-            color: "#10201c",
+            color: "var(--color-text)",
           }}
         >
           {translate("setup.title")}
@@ -417,7 +417,7 @@ const SessionSetupContent = () => {
         <p
           style={{
             margin: 0,
-            color: "#b42318",
+            color: "var(--color-error)",
           }}
         >
           {translate("setup.no_languages")}

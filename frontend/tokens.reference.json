@@ -102,7 +102,10 @@
       "color-cefr-c1-bg": "#eeebfa",
       "color-cefr-c1-text": "#564b87",
       "color-cefr-c2-bg": "#f3eafa",
-      "color-cefr-c2-text": "#644077"
+      "color-cefr-c2-text": "#644077",
+      "color-on-brand-tint": "rgba(255, 255, 255, 0.13)",
+      "color-on-brand-border": "rgba(255, 255, 255, 0.54)",
+      "color-shadow-ambient": "rgba(16, 32, 28, 0.06)"
     },
     "dark": {
       "color-canvas": "#111b19",
@@ -156,7 +159,10 @@
       "color-cefr-c1-bg": "#37304f",
       "color-cefr-c1-text": "#d0c0ff",
       "color-cefr-c2-bg": "#42304b",
-      "color-cefr-c2-text": "#e2bef5"
+      "color-cefr-c2-text": "#e2bef5",
+      "color-on-brand-tint": "rgba(16, 37, 30, 0.13)",
+      "color-on-brand-border": "rgba(16, 37, 30, 0.65)",
+      "color-shadow-ambient": "rgba(0, 0, 0, 0.24)"
     }
   },
   "contrastChecks": [

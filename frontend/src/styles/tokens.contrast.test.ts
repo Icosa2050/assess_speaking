@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import tokens from "./tokens.json";
+import tokens from "../../tokens.reference.json";
 
 const tokenSheet = ["src/styles/tokens.css", "frontend/src/styles/tokens.css"]
   .map(path => resolve(process.cwd(), path)).find(existsSync);

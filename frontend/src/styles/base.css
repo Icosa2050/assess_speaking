@@ -1,7 +1,7 @@
 @import "./tokens.css";
 
 :root {
-  /* Compatibility aliases for routes that have not migrated yet. */
+  /* Compatibility aliases retained while component names converge. */
   --font-size-headline: 1.75rem;
   --font-size-label: 0.8125rem;
   --line-height-tight: 1.12;
@@ -58,6 +58,18 @@ textarea {
   font: inherit;
 }
 
+button {
+  color: var(--color-text);
+  background-color: var(--color-surface);
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+select,
+textarea {
+  color: var(--color-text);
+  background-color: var(--color-surface);
+}
+
 #root {
   min-height: 100vh;
 }
@@ -65,22 +77,6 @@ textarea {
 :focus-visible {
   outline: var(--focus-width) solid var(--color-focus);
   outline-offset: var(--focus-offset);
-}
-
-/* Legacy forms still use inline light colors. Keep their control boundaries
-   legible when the explicit dark token preview is used. */
-[data-theme="dark"] :where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea) {
-  background-color: var(--color-surface) !important;
-  color: var(--color-text) !important;
-}
-
-[data-theme="dark"] :where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea):not([aria-invalid="true"]):not(:hover) {
-  border-color: var(--color-border-control) !important;
-}
-
-[data-theme="dark"] :where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea):disabled {
-  background-color: var(--color-disabled-surface) !important;
-  color: var(--color-disabled-text) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -38,15 +38,15 @@ const cardStyle = {
   display: "grid",
   gap: "0.875rem",
   padding: "1.25rem",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
+  border: "1px solid var(--color-border-decorative)",
   borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.94)",
-  boxShadow: "0 18px 40px rgba(16, 32, 28, 0.05)",
+  backgroundColor: "var(--color-surface)",
+  boxShadow: "0 18px 40px var(--color-shadow-ambient)",
 } as const;
 
 const secondaryPanelStyle = {
   ...cardStyle,
-  backgroundColor: "rgba(248, 251, 250, 0.76)",
+  backgroundColor: "var(--color-surface-subtle)",
   boxShadow: "none",
 } as const;
 
@@ -56,8 +56,8 @@ const inputStyle = {
   border: "1px solid var(--color-border-control)",
   padding: "0.7rem 0.8rem",
   font: "inherit",
-  color: "#10201c",
-  backgroundColor: "rgba(255, 255, 255, 0.96)",
+  color: "var(--color-text)",
+  backgroundColor: "var(--color-surface)",
 } as const;
 
 const actionButtonStyle = {
@@ -67,9 +67,9 @@ const actionButtonStyle = {
   minHeight: "44px",
   padding: "0.75rem 1rem",
   borderRadius: "8px",
-  border: "1px solid rgba(15, 118, 110, 0.2)",
-  backgroundColor: "#d7ebe5",
-  color: "#10201c",
+  border: "1px solid var(--color-selected-border)",
+  backgroundColor: "var(--color-selected)",
+  color: "var(--color-text)",
   font: "inherit",
   fontWeight: 600,
   cursor: "pointer",
@@ -163,7 +163,7 @@ export const LibraryRoute = () => {
 
   const samplesContent = samplesQuery.isLoading ? (
     <p
-      style={{ margin: 0, color: "#33514b" }}
+      style={{ margin: 0, color: "var(--color-text-muted)" }}
       data-testid="library-samples-loading"
       data-semantic-id="library.samples_loading"
     >
@@ -172,7 +172,7 @@ export const LibraryRoute = () => {
   ) : samplesQuery.isError ? (
     <p
       role="alert"
-      style={{ margin: 0, color: "#b42318" }}
+      style={{ margin: 0, color: "var(--color-error)" }}
       data-testid="library-samples-error"
       data-semantic-id="library.samples_error"
     >
@@ -219,17 +219,17 @@ export const LibraryRoute = () => {
       {...semanticAttributes(SEMANTIC_IDS.library.screen)}
     >
       <section style={cardStyle}>
-        <h2 style={{ margin: 0, fontSize: "1.75rem", color: "#10201c" }}>
+        <h2 style={{ margin: 0, fontSize: "1.75rem", color: "var(--color-text)" }}>
           {translate("library.title")}
         </h2>
-        <p style={{ margin: 0, lineHeight: 1.6, color: "#33514b" }}>
+        <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
           {translate("library.body")}
         </p>
       </section>
 
       <section style={secondaryPanelStyle}>
         <label style={fieldStyle}>
-          <span style={{ fontWeight: 600, color: "#33514b" }}>
+          <span style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>
             {translate("library.language_filter")}
           </span>
           <select
@@ -251,26 +251,26 @@ export const LibraryRoute = () => {
       </section>
 
       <section style={cardStyle}>
-        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
+        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
           {translate("library.samples_title")}
         </h2>
-        <p style={{ margin: 0, lineHeight: 1.6, color: "#33514b" }}>
+        <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
           {translate("library.samples_body")}
         </p>
         {samplesContent}
       </section>
 
       <section style={cardStyle}>
-        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
+        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
           {translate("library.existing_title")}
         </h2>
         {selectedThemes.length > 0 ? (
           <div style={{ overflowX: "auto" }}>
-            <table style={{ borderCollapse: "collapse", minWidth: "100%", color: "#10201c" }}>
+            <table style={{ borderCollapse: "collapse", minWidth: "100%", color: "var(--color-text)" }}>
               <thead>
                 <tr>
                   {[translate("library.table_title"), translate("library.table_level"), translate("library.table_task_family")].map((label) => (
-                    <th key={label} style={{ padding: "0.65rem", textAlign: "left", color: "#33514b" }}>
+                    <th key={label} style={{ padding: "0.65rem", textAlign: "left", color: "var(--color-text-muted)" }}>
                       {label}
                     </th>
                   ))}
@@ -279,13 +279,13 @@ export const LibraryRoute = () => {
               <tbody>
                 {selectedThemes.map((theme, index) => (
                   <tr key={`${theme.level}-${theme.title}-${theme.task_family}-${index}`}>
-                    <td style={{ borderTop: "1px solid rgba(18, 61, 55, 0.08)", padding: "0.65rem" }}>
+                    <td style={{ borderTop: "1px solid var(--color-border-decorative)", padding: "0.65rem" }}>
                       {theme.title}
                     </td>
-                    <td style={{ borderTop: "1px solid rgba(18, 61, 55, 0.08)", padding: "0.65rem" }}>
+                    <td style={{ borderTop: "1px solid var(--color-border-decorative)", padding: "0.65rem" }}>
                       {theme.level}
                     </td>
-                    <td style={{ borderTop: "1px solid rgba(18, 61, 55, 0.08)", padding: "0.65rem" }}>
+                    <td style={{ borderTop: "1px solid var(--color-border-decorative)", padding: "0.65rem" }}>
                       {taskFamilyLabel(translate, theme.task_family)}
                     </td>
                   </tr>
@@ -294,7 +294,7 @@ export const LibraryRoute = () => {
             </table>
           </div>
         ) : (
-          <p style={{ margin: 0, color: "#33514b" }}>
+          <p style={{ margin: 0, color: "var(--color-text-muted)" }}>
             {selectedLanguage ? translate("library.empty_language") : translate("library.empty_library")}
           </p>
         )}
@@ -305,15 +305,15 @@ export const LibraryRoute = () => {
         data-testid="library.custom_theme_builder"
         data-semantic-id="library.custom_theme_builder"
       >
-        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
+        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
           {translate("library.add_title")}
         </h2>
-        <p style={{ margin: 0, color: "#6b7a76", lineHeight: 1.55 }}>
+        <p style={{ margin: 0, color: "var(--color-text-muted)", lineHeight: 1.55 }}>
           {translate("library.custom_theme_caption")}
         </p>
-        {successMessage ? <p style={{ margin: 0, color: "#166534" }}>{successMessage}</p> : null}
+        {successMessage ? <p style={{ margin: 0, color: "var(--color-success)" }}>{successMessage}</p> : null}
         <label style={fieldStyle}>
-          <span style={{ fontWeight: 600, color: "#33514b" }}>
+          <span style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>
             {translate("setup.learning_language")}
           </span>
           <select
@@ -329,21 +329,21 @@ export const LibraryRoute = () => {
             ))}
           </select>
         </label>
-        <p style={{ margin: 0, color: "#33514b" }}>
+        <p style={{ margin: 0, color: "var(--color-text-muted)" }}>
           {translate("library.saving_under", {
             code: manageLanguage,
             label: languageLabel(library, manageLanguage),
           })}
         </p>
         <label style={fieldStyle}>
-          <span style={{ fontWeight: 600, color: "#33514b" }}>
+          <span style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>
             {translate("library.theme_title")}
           </span>
           <input value={themeTitle} onChange={(event) => setThemeTitle(event.target.value)} style={inputStyle} />
-          {errors.theme_title ? <span style={{ color: "#b42318" }}>{translate("library.error_theme_title")}</span> : null}
+          {errors.theme_title ? <span style={{ color: "var(--color-error)" }}>{translate("library.error_theme_title")}</span> : null}
         </label>
         <label style={fieldStyle}>
-          <span style={{ fontWeight: 600, color: "#33514b" }}>
+          <span style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>
             {translate("library.theme_level")}
           </span>
           <select value={themeLevel} onChange={(event) => setThemeLevel(event.target.value as CefrLevel)} style={inputStyle}>
@@ -355,7 +355,7 @@ export const LibraryRoute = () => {
           </select>
         </label>
         <label style={fieldStyle}>
-          <span style={{ fontWeight: 600, color: "#33514b" }}>
+          <span style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>
             {translate("library.theme_family")}
           </span>
           <select value={themeFamily} onChange={(event) => setThemeFamily(event.target.value as TaskFamily)} style={inputStyle}>

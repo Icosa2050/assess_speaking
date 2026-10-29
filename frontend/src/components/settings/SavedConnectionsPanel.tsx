@@ -6,9 +6,9 @@ const cardStyle = {
   display: "grid",
   gap: "0.75rem",
   padding: "1rem",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
+  border: "1px solid var(--color-border-decorative)",
   borderRadius: "8px",
-  backgroundColor: "rgba(255, 255, 255, 0.94)",
+  backgroundColor: "var(--color-surface)",
 } as const;
 
 const fieldStyle = {
@@ -23,9 +23,9 @@ const actionButtonStyle = {
   minHeight: "44px",
   padding: "0.75rem 1rem",
   borderRadius: "8px",
-  border: "1px solid rgba(18, 61, 55, 0.12)",
-  backgroundColor: "rgba(255, 255, 255, 0.95)",
-  color: "#10201c",
+  border: "1px solid var(--color-border-decorative)",
+  backgroundColor: "var(--color-surface)",
+  color: "var(--color-text)",
   fontWeight: 600,
   font: "inherit",
 } as const;
@@ -90,10 +90,10 @@ export const SavedConnectionsPanel = ({
       {...semanticAttributes(SEMANTIC_IDS.settings.sectionConnections)}
     >
       <div style={{ display: "grid", gap: "0.4rem" }}>
-        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#10201c" }}>
+        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
           {translate("settings.saved_connections")}
         </h2>
-        <p style={{ margin: 0, lineHeight: 1.6, color: "#33514b" }}>
+        <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
           {connections.length === 0
             ? translate("settings.no_saved_connections")
             : translate("settings.body")}
@@ -101,7 +101,7 @@ export const SavedConnectionsPanel = ({
       </div>
 
       <label style={fieldStyle}>
-        <span style={{ fontWeight: 600, color: "#33514b" }}>
+        <span style={{ fontWeight: 600, color: "var(--color-text-muted)" }}>
           {translate("settings.saved_connection")}
         </span>
         <select
@@ -113,8 +113,8 @@ export const SavedConnectionsPanel = ({
             border: "1px solid var(--color-border-control)",
             padding: "0.7rem 0.8rem",
             font: "inherit",
-            color: "#10201c",
-            backgroundColor: "rgba(255, 255, 255, 0.96)",
+            color: "var(--color-text)",
+            backgroundColor: "var(--color-surface)",
           }}
           {...semanticAttributes(SEMANTIC_IDS.settings.connectionId)}
         >
@@ -176,8 +176,8 @@ export const SavedConnectionsPanel = ({
                 key={connection.connectionId}
                 style={{
                   ...cardStyle,
-                  borderColor: selected ? "rgba(15, 118, 110, 0.4)" : cardStyle.border,
-                  boxShadow: selected ? "0 0 0 1px rgba(15, 118, 110, 0.12)" : "none",
+                  borderColor: selected ? "var(--color-selected-border)" : cardStyle.border,
+                  boxShadow: selected ? "0 0 0 1px var(--color-selected-border)" : "none",
                 }}
                 {...semanticAttributes(SEMANTIC_IDS.settings.connectionRow, {
                   connectionId: connection.connectionId,
@@ -185,14 +185,14 @@ export const SavedConnectionsPanel = ({
                 })}
               >
                 <div style={{ display: "grid", gap: "0.25rem" }}>
-                  <strong style={{ color: "#10201c" }}>{connection.label}</strong>
-                  <span style={{ color: "#33514b", lineHeight: 1.5 }}>
+                  <strong style={{ color: "var(--color-text)" }}>{connection.label}</strong>
+                  <span style={{ color: "var(--color-text-muted)", lineHeight: 1.5 }}>
                     {buildConnectionDetailLine(connection, translate)}
                   </span>
                 </div>
                 {connection.isDefault ? (
                   <span
-                    style={{ color: "#33514b", fontWeight: 600 }}
+                    style={{ color: "var(--color-text-muted)", fontWeight: 600 }}
                     {...semanticAttributes(SEMANTIC_IDS.settings.defaultConnectionIndicator, {
                       connectionId: connection.connectionId,
                     })}
@@ -201,13 +201,13 @@ export const SavedConnectionsPanel = ({
                   </span>
                 ) : null}
                 {connection.baseUrl ? (
-                  <span style={{ color: "#33514b", lineHeight: 1.5 }}>{connection.baseUrl}</span>
+                  <span style={{ color: "var(--color-text-muted)", lineHeight: 1.5 }}>{connection.baseUrl}</span>
                 ) : null}
                 {secretStateCopy ? (
-                  <span style={{ color: "#33514b", lineHeight: 1.5 }}>{secretStateCopy}</span>
+                  <span style={{ color: "var(--color-text-muted)", lineHeight: 1.5 }}>{secretStateCopy}</span>
                 ) : null}
                 {connection.lastTestedAt ? (
-                  <span style={{ color: "#33514b", lineHeight: 1.5 }}>
+                  <span style={{ color: "var(--color-text-muted)", lineHeight: 1.5 }}>
                     {translate("settings.last_tested", { value: connection.lastTestedAt })}
                   </span>
                 ) : null}
