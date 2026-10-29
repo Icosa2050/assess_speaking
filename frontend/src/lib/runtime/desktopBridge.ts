@@ -1,5 +1,54 @@
 export type DesktopLaunchMode = "repo" | "packaged";
 export type DesktopAuthMode = "guest" | "optional" | "required";
+import type { SessionDraft } from "@/lib/state/sessionDraft";
+
+export interface SavedTake {
+  mediaId: string;
+  originalFilename: string;
+  mime: string;
+  size: number;
+  sha256: string;
+  durationSec: number;
+  captureEndedAt: number;
+  inputMethod: "record" | "upload";
+}
+
+export interface DraftSubmission {
+  uploadRequestId: string;
+  audioId: string;
+  assessmentRequestId: string;
+  assessmentId: string;
+  requestFingerprint: string;
+  frozenRequestBody: string;
+  lastConfirmedPhase: "none" | "upload" | "assessment" | "completed";
+}
+
+export interface SavedDraft {
+  version: 1;
+  draftId: string;
+  speakerId: string;
+  setup: SessionDraft;
+  createdAt: number;
+  updatedAt: number;
+  expiresAt: number;
+  revision: number;
+  status: "setup" | "take_ready" | "upload_uncertain" | "uploaded" | "assessment_uncertain" | "assessing";
+  take: SavedTake | null;
+  submission: DraftSubmission | null;
+}
+
+export interface DesktopDraftStoreBridge {
+  list(): Promise<SavedDraft[]>;
+  saveSetup(setup: SessionDraft, draftId?: string, expectedRevision?: number): Promise<SavedDraft>;
+  beginTake(draftId: string, expectedRevision: number, take: Omit<SavedTake, "mediaId">): Promise<string>;
+  writeTakeChunk(transferId: string, bytes: number[]): Promise<number>;
+  abortTake(transferId: string): Promise<void>;
+  finishTake(transferId: string): Promise<SavedDraft>;
+  loadTakeChunk(draftId: string, mediaId: string, index: number): Promise<number[]>;
+  markSubmission(draftId: string, expectedRevision: number, status: SavedDraft["status"], submission: DraftSubmission): Promise<SavedDraft>;
+  discard(draftId: string): Promise<void>;
+  expire(): Promise<number>;
+}
 
 export interface DesktopRuntimeBridge {
   apiBaseUrl: string;
@@ -12,6 +61,7 @@ export interface DesktopRuntimeBridge {
   saveLearnerBackup?: (backupId: string) => Promise<{ status: "saved" | "cancelled" }>;
   draftSupportEmail?: (bundleId: string, recipient: string) => Promise<{ status: "drafted" }>;
   saveSupportBundle?: (bundleId: string) => Promise<{ status: "saved" | "cancelled" }>;
+  draftStore?: DesktopDraftStoreBridge;
 }
 
 type DesktopBridgeWindow = Window &
@@ -42,6 +92,15 @@ const isLaunchMode = (value: string): value is DesktopLaunchMode =>
 const isAuthMode = (value: string): value is DesktopAuthMode =>
   value === "guest" || value === "optional" || value === "required";
 
+const isDraftStore = (value: unknown): value is DesktopDraftStoreBridge => {
+  if (!value || typeof value !== "object") return false;
+  return ["list", "saveSetup", "beginTake", "writeTakeChunk", "abortTake", "finishTake", "loadTakeChunk", "markSubmission", "discard", "expire"]
+    .every((method) => typeof (value as Record<string, unknown>)[method] === "function");
+};
+
+export const hasDesktopDraftStore = (): boolean =>
+  isDraftStore(readDesktopWindow()?.__VOSTAVO_DESKTOP__?.draftStore);
+
 export const isDesktopRuntime = (): boolean => {
   const desktopWindow = readDesktopWindow();
   return Boolean(desktopWindow?.__TAURI_INTERNALS__ || desktopWindow?.__VOSTAVO_DESKTOP__);
@@ -61,6 +120,7 @@ export const readDesktopRuntimeBridge = (): DesktopRuntimeBridge => {
     saveLearnerBackup: typeof candidate?.saveLearnerBackup === "function" ? candidate.saveLearnerBackup : undefined,
     draftSupportEmail: typeof candidate?.draftSupportEmail === "function" ? candidate.draftSupportEmail : undefined,
     saveSupportBundle: typeof candidate?.saveSupportBundle === "function" ? candidate.saveSupportBundle : undefined,
+    draftStore: isDraftStore(candidate?.draftStore) ? candidate.draftStore : undefined,
     deploymentMode: "local",
     launchMode: isLaunchMode(String(candidate?.launchMode || ""))
       ? candidate!.launchMode!
@@ -79,4 +139,5 @@ export const desktopBridge = {
   defaultRuntime: DEFAULT_DESKTOP_RUNTIME,
   isDesktopRuntime,
   readRuntime: readDesktopRuntimeBridge,
+  hasDraftStore: hasDesktopDraftStore,
 } as const;

@@ -1,16 +1,30 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod desktop;
+mod draft_store;
 mod support;
 use std::sync::Mutex;
 use tauri::Manager;
 
+const DRAFT_BRIDGE_JS: &str = r#"({
+    list: () => window.__TAURI_INTERNALS__.invoke("draft_list"),
+    saveSetup: (setup, draftId, expectedRevision) => window.__TAURI_INTERNALS__.invoke("draft_save_setup", { setup, draftId, expectedRevision }),
+    beginTake: (draftId, expectedRevision, take) => window.__TAURI_INTERNALS__.invoke("draft_begin_take", { draftId, expectedRevision, take }),
+    writeTakeChunk: (transferId, bytes) => window.__TAURI_INTERNALS__.invoke("draft_write_take_chunk", { transferId, bytes }),
+    abortTake: (transferId) => window.__TAURI_INTERNALS__.invoke("draft_abort_take", { transferId }),
+    finishTake: (transferId) => window.__TAURI_INTERNALS__.invoke("draft_finish_take", { transferId }),
+    loadTakeChunk: (draftId, mediaId, index) => window.__TAURI_INTERNALS__.invoke("draft_load_take_chunk", { draftId, mediaId, index }),
+    markSubmission: (draftId, expectedRevision, status, submission) => window.__TAURI_INTERNALS__.invoke("draft_mark_submission", { draftId, expectedRevision, status, submission }),
+    discard: (draftId) => window.__TAURI_INTERNALS__.invoke("draft_discard", { draftId }),
+    expire: () => window.__TAURI_INTERNALS__.invoke("draft_expire")
+})"#;
+
 fn bridge(runtime: &desktop::Runtime) -> String {
-    format!("window.__VOSTAVO_DESKTOP__ = Object.freeze(Object.assign({{}}, {}, {{ saveLearnerBackup: (backupId) => window.__TAURI_INTERNALS__.invoke(\"save_learner_backup\", {{ backupId }}), draftSupportEmail: (bundleId, recipient) => window.__TAURI_INTERNALS__.invoke(\"draft_support_email\", {{ bundleId, recipient }}), saveSupportBundle: (bundleId) => window.__TAURI_INTERNALS__.invoke(\"save_support_bundle\", {{ bundleId }}) }}));", serde_json::json!({
+    format!("window.__VOSTAVO_DESKTOP__ = Object.freeze(Object.assign({{}}, {}, {{ saveLearnerBackup: (backupId) => window.__TAURI_INTERNALS__.invoke(\"save_learner_backup\", {{ backupId }}), draftSupportEmail: (bundleId, recipient) => window.__TAURI_INTERNALS__.invoke(\"draft_support_email\", {{ bundleId, recipient }}), saveSupportBundle: (bundleId) => window.__TAURI_INTERNALS__.invoke(\"save_support_bundle\", {{ bundleId }}), draftStore: Object.freeze({}) }}));", serde_json::json!({
         "apiBaseUrl": runtime.api_base_url, "sessionToken": runtime.session_token,
         "mediaToken": runtime.media_token,
         "deploymentMode": "local", "launchMode": runtime.launch_mode,
         "packagingSafe": true, "authMode": "guest"
-    }))
+    }), DRAFT_BRIDGE_JS)
 }
 
 fn main() {
@@ -31,8 +45,12 @@ fn main() {
     #[cfg(target_os = "macos")]
     context.set_default_window_icon(None);
     let app = tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![support::save_support_bundle, support::save_learner_backup, support::draft_support_email])
+        .invoke_handler(tauri::generate_handler![support::save_support_bundle, support::save_learner_backup, support::draft_support_email,
+            draft_store::draft_list, draft_store::draft_save_setup, draft_store::draft_begin_take,
+            draft_store::draft_write_take_chunk, draft_store::draft_abort_take, draft_store::draft_finish_take, draft_store::draft_load_take_chunk,
+            draft_store::draft_mark_submission, draft_store::draft_discard, draft_store::draft_expire])
         .manage(Mutex::new(None::<desktop::BackendOwner>))
+        .manage(draft_store::open_store())
         .setup(|app| {
             tauri::WebviewWindowBuilder::new(app, "loading", tauri::WebviewUrl::App("loading.html".into()))
                 .title("Vostavo").inner_size(560.0, 300.0).resizable(false).build()?;
