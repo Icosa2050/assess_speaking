@@ -98,6 +98,8 @@
     "readiness_backend_unavailable": "No se pudo ejecutar la comprobación del servidor.",
     "readiness_retry_backend": "Comprueba que el servicio de la aplicación esté activo y actualiza el estado.",
     "readiness_configure_cloud_speech": "Configurar transcripción en la nube",
+    "readiness_changed_title": "La preparación para la práctica ha cambiado",
+    "readiness_changed_body": "Mantén esta página abierta: tu grabación se conserva. Soluciona el problema y actualiza el estado antes de enviarla.",
     "choose_task": "Elegir una tarea",
     "checks_ready": "Todas las comprobaciones necesarias han pasado. Ya puedes elegir una tarea.",
     "checks_loading": "Comprobando las herramientas de voz y el micrófono…",

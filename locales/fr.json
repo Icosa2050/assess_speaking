@@ -98,6 +98,8 @@
     "readiness_backend_unavailable": "La vérification du serveur n’a pas pu s’exécuter.",
     "readiness_retry_backend": "Vérifiez que le service de l’application fonctionne, puis actualisez le statut.",
     "readiness_configure_cloud_speech": "Configurer la transcription cloud",
+    "readiness_changed_title": "La préparation à l’exercice a changé",
+    "readiness_changed_body": "Garde cette page ouverte : ton enregistrement est conservé. Résous le problème et actualise le statut avant de l’envoyer.",
     "choose_task": "Choisir une tâche",
     "checks_ready": "Toutes les vérifications requises sont réussies. Tu peux choisir une tâche.",
     "checks_loading": "Vérification des outils vocaux et du micro…",

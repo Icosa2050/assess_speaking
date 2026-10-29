@@ -209,9 +209,6 @@ export const SpeakRoute = () => {
     [runtimeSettingsQuery.data],
   );
 
-  const guardTarget = !hasSetupDraft(draft) ? "/session-setup"
-    : !speakingChecksPending && !canEnterSpeak(speakingChecks) ? "/runtime-setup" : null;
-
   useEffect(() => {
     setCurrentPage("speak");
   }, [setCurrentPage]);
@@ -238,6 +235,13 @@ export const SpeakRoute = () => {
   const savedUpload = useRef<{ file: File; audioId: string } | null>(null);
   const uploadIdentity = useRef<{ file: File; requestId: string } | null>(null);
   const previewUrlRef = useRef("");
+  const readinessBlocked = !speakingChecksPending && !canEnterSpeak(speakingChecks);
+  const ownsTake = recordingActive || Boolean(attachedFile) || hasRecordingAttachment(recording) ||
+    isSubmitting || uploadProgress !== null || lifecycleState === "queued" || lifecycleState === "running";
+  const guardTarget = !hasSetupDraft(draft) ? "/session-setup"
+    : readinessBlocked && !ownsTake ? "/runtime-setup" : null;
+  const blockedReadinessCheck = speakingChecks.find((row) =>
+    row.key !== "microphone" && row.key !== "sample_check" && row.status !== "ready");
 
   const clearAttachment = () => {
     savedUpload.current = null;
@@ -415,7 +419,8 @@ export const SpeakRoute = () => {
     lifecycleState === "queued" || lifecycleState === "running";
   const hasAttachment = assessmentOwnsAttachment ? storeHasAttachment : Boolean(attachedFile);
   const shortRecording = recordedDurationSec !== null && recordedDurationSec < MIN_REVIEW_SECONDS;
-  const canSubmitLiveAttachment = canSubmitAssessment && Boolean(attachedFile) && !shortRecording && Boolean(sharingQuery.data?.available);
+  const canSubmitLiveAttachment = !readinessBlocked && canSubmitAssessment && Boolean(attachedFile) &&
+    !shortRecording && Boolean(sharingQuery.data?.available);
   const statusMessage = cancelError ? translate("speak.wait_cancel_failed", { detail: cancelError })
     : retryError ? translate(retryResponseUnknown ? "speak.wait_retry_unconfirmed" : "speak.wait_retry_not_ready", { detail: retryError })
     : pollError ? translate("speak.wait_status_failed", { detail: pollError })
@@ -441,7 +446,9 @@ export const SpeakRoute = () => {
     whisper: effectiveWhisperModel,
   });
   const assessmentContextMode = hasAttachment ? "optional" : "inline";
-  const submitDisabledHelp = shortRecording ? translate("speak.recording_too_short") : !hasAttachment ? translate("speak.submit_disabled_no_audio") : null;
+  const submitDisabledHelp = readinessBlocked ? translate("first_run.readiness_changed_body")
+    : shortRecording ? translate("speak.recording_too_short")
+      : !hasAttachment ? translate("speak.submit_disabled_no_audio") : null;
   const confidencePhase: SpeakConfidencePhase =
     lifecycleState === "failed" || lifecycleState === "cancelled"
       ? "failed"
@@ -477,7 +484,7 @@ export const SpeakRoute = () => {
         : "";
 
   const handleSubmit = async (resumeAssessmentId?: string) => {
-    if (submittingRef.current || !attachedFile || shortRecording || !sharingQuery.data?.available) {
+    if (readinessBlocked || submittingRef.current || !attachedFile || shortRecording || !sharingQuery.data?.available) {
       return;
     }
 
@@ -661,6 +668,16 @@ export const SpeakRoute = () => {
 
   return (
     <div style={{ display: "grid", gap: "1rem" }}>
+      {readinessBlocked && ownsTake ? (
+        <div data-testid="speak.readiness_changed">
+          <StatusBanner title={translate("first_run.readiness_changed_title")} tone="warning">
+            <p>{translate(blockedReadinessCheck?.detailKey ?? "first_run.readiness_backend_unavailable")}</p>
+            <p>{translate(blockedReadinessCheck?.rescueKey ?? "first_run.readiness_retry_backend")}</p>
+            <p>{translate("first_run.readiness_changed_body")}</p>
+            <Button onClick={() => void readinessQuery.refetch()}>{translate("first_run.check_readiness")}</Button>
+          </StatusBanner>
+        </div>
+      ) : null}
       <section style={cardStyle}>
         <h2
           style={{
@@ -783,7 +800,7 @@ export const SpeakRoute = () => {
           uploadUpdatedAt={uploadUpdatedAt}
           uploading={uploadProgress !== null}
           uploaded={uploaded}
-          canRetry={Boolean(attachedFile) && !shortRecording && Boolean(sharingQuery.data?.available) && !isSubmitting && (lifecycleState === "failed" || lifecycleState === "cancelled")}
+          canRetry={!readinessBlocked && Boolean(attachedFile) && !shortRecording && Boolean(sharingQuery.data?.available) && !isSubmitting && (lifecycleState === "failed" || lifecycleState === "cancelled")}
           mediaMessage={mediaMessage}
           canCancel={uploadProgress !== null || lifecycleState === "queued" || lifecycleState === "running"}
           contextMode={assessmentContextMode}

@@ -98,6 +98,8 @@
     "readiness_backend_unavailable": "Die Bereitschaftsprüfung des Backends konnte nicht ausgeführt werden.",
     "readiness_retry_backend": "Prüfe, ob der App-Dienst läuft, und aktualisiere den Status.",
     "readiness_configure_cloud_speech": "Cloud-Transkription einrichten",
+    "readiness_changed_title": "Bereitschaft für die Übung hat sich geändert",
+    "readiness_changed_body": "Lass diese Seite geöffnet: Deine Aufnahme bleibt erhalten. Behebe das Problem und aktualisiere den Status, bevor du sie einreichst.",
     "choose_task": "Übungsaufgabe wählen",
     "checks_ready": "Alle erforderlichen Prüfungen sind bestanden. Du kannst eine Aufgabe wählen.",
     "checks_loading": "Sprachwerkzeuge und Mikrofon werden geprüft …",

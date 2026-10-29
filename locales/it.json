@@ -98,6 +98,8 @@
     "readiness_backend_unavailable": "Impossibile eseguire il controllo di disponibilità del backend.",
     "readiness_retry_backend": "Verifica che il servizio dell’app sia attivo, poi aggiorna lo stato.",
     "readiness_configure_cloud_speech": "Configura trascrizione cloud",
+    "readiness_changed_title": "La disponibilità per l’esercizio è cambiata",
+    "readiness_changed_body": "Lascia aperta questa pagina: la registrazione è conservata. Risolvi il problema e aggiorna lo stato prima di inviarla.",
     "choose_task": "Scegli un esercizio",
     "checks_ready": "Tutti i controlli richiesti sono superati. Puoi scegliere un esercizio.",
     "checks_loading": "Controllo degli strumenti vocali e del microfono…",

@@ -774,6 +774,51 @@ describe("Speak route", () => {
     expect(FakeMediaRecorder.instances.at(-1)?.state).toBe("recording");
   });
 
+  it("keeps recording when a successful readiness refresh reports an unreachable tutor", async () => {
+    const { queryClient } = renderWithProviders(<AppFrame />, {
+      initialEntries: ["/speak"], locale: "en", appState: validDraftState,
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Start recording" }));
+    const panel = screen.getByTestId("speak.recording_panel");
+    await screen.findByRole("button", { name: "Stop recording" });
+    expect(FakeMediaRecorder.instances.at(-1)?.state).toBe("recording");
+
+    mockedGetReadiness.mockResolvedValue(readinessWith("ai_tutor", "local_service_unreachable", "unavailable"));
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.readiness }); });
+
+    expect(queryClient.getQueryState(queryKeys.readiness)?.status).toBe("success");
+    expect(screen.getByTestId("speak.recording_panel")).toBe(panel);
+    expect(screen.getByRole("button", { name: "Stop recording" })).toBeVisible();
+    expect(FakeMediaRecorder.instances.at(-1)?.state).toBe("recording");
+    expect(await screen.findByTestId("speak.readiness_changed")).toHaveTextContent("The local tutor service cannot be reached.");
+    expect(screen.getByTestId("speak.readiness_changed")).toHaveTextContent("your take is preserved");
+  });
+
+  it("preserves an attached take and blocks submission until readiness recovers", async () => {
+    const { queryClient } = renderWithProviders(<AppFrame />, {
+      initialEntries: ["/speak"], locale: "en", appState: validDraftState,
+    });
+    fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    const panel = screen.getByTestId("speak.recording_panel");
+
+    mockedGetReadiness.mockResolvedValue(readinessWith("ai_tutor", "local_service_unreachable", "unavailable"));
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.readiness }); });
+
+    expect(queryClient.getQueryState(queryKeys.readiness)?.status).toBe("success");
+    expect(screen.getByTestId("speak.recording_panel")).toBe(panel);
+    expect(screen.getByRole("button", { name: "Remove recording" })).toBeVisible();
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeDisabled());
+    expect(screen.getByTestId("speak.readiness_changed")).toHaveTextContent("Start the local tutor app");
+
+    mockedGetReadiness.mockResolvedValue(readyReadiness);
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.readiness }); });
+    await waitFor(() => expect(screen.queryByTestId("speak.readiness_changed")).not.toBeInTheDocument());
+    expect(screen.getByTestId("speak.recording_panel")).toBe(panel);
+    expect(screen.getByTestId("speak.submit")).toBeEnabled();
+  });
+
   it("clears the previous attachment when switching between record and upload modes", async () => {
     renderWithProviders(<AppFrame />, {
       initialEntries: ["/speak"],

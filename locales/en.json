@@ -98,6 +98,8 @@
     "readiness_backend_unavailable": "The backend readiness check could not run.",
     "readiness_retry_backend": "Check that the app service is running, then refresh setup status.",
     "readiness_configure_cloud_speech": "Configure cloud transcription",
+    "readiness_changed_title": "Practice readiness changed",
+    "readiness_changed_body": "Keep this page open: your take is preserved. Restore the missing requirement, then refresh setup status before submitting.",
     "choose_task": "Choose a practice task",
     "checks_ready": "All required checks passed. You can choose a task.",
     "checks_loading": "Checking the speech tools and microphone…",
