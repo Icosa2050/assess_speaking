@@ -54,7 +54,7 @@ jobs:
           python - <<'PY'
           import os
           from pathlib import Path
-          from asr import transcribe
+          from assessment_runtime.asr import transcribe
 
           result = transcribe(
               Path("samples/cefr/it/B1/travel_story.wav"),
