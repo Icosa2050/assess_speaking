@@ -355,6 +355,9 @@ export const SpeakRoute = () => {
 
     const nextStatus = assessmentStatusQuery.data;
     setPollError("");
+    if (nextStatus.status === "completed" || nextStatus.status === "failed" || nextStatus.status === "cancelled") {
+      setCancelError("");
+    }
     setRecordingJob({
       assessmentId: nextStatus.assessment_id,
       status: nextStatus.status,
@@ -591,7 +594,10 @@ export const SpeakRoute = () => {
         reportPath: "",
       });
     } catch (error) {
-      if (uploadAttempted && (error instanceof DOMException || error instanceof TypeError)) setUploadUnconfirmed(true);
+      if (uploadAttempted && (error instanceof TypeError ||
+          (error instanceof DOMException && (error.name === "NetworkError" || error.name === "TimeoutError")))) {
+        setUploadUnconfirmed(true);
+      }
       if (error instanceof ApiClientError && error.code === "sharing_changed") {
         await Promise.all([runtimeQuery.refetch(), runtimeSettingsQuery.refetch(), sharingQuery.refetch()]);
       }

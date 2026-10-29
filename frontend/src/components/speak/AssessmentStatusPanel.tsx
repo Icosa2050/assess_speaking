@@ -176,8 +176,8 @@ export const AssessmentStatusPanel = ({
       }}
     >
       <p
-        role="status"
-        aria-live="polite"
+        role={uploading ? undefined : "status"}
+        aria-live={uploading ? "off" : "polite"}
         aria-atomic="true"
         style={{
           margin: 0,

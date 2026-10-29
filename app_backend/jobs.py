@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import logging
+import math
 import multiprocessing
 import os
 from pathlib import Path
@@ -35,6 +36,9 @@ from assess_core.settings import practice_llm_timeout_sec
 INCOMPLETE_JOB_STATUSES = {JobStatus.QUEUED.value, JobStatus.RUNNING.value}
 TERMINAL_JOB_STATUSES = {JobStatus.COMPLETED.value, JobStatus.FAILED.value, JobStatus.CANCELLED.value}
 TERMINAL_JOB_STATUSES_NORMALIZED = {status.lower() for status in TERMINAL_JOB_STATUSES}
+QUIET_WARNING_MARGIN_SEC = 30
+CLOUD_ASR_RESPONSE_TIMEOUT_SEC = 660
+CLOUD_LLM_RESPONSE_TIMEOUT_SEC = 360
 
 logger = logging.getLogger(__name__)
 
@@ -276,7 +280,7 @@ def _job_worker(job_file: str, request_payload: dict[str, Any], audio_path: str,
         message = {**message, "rpc_id": uuid4().hex}
         try:
             credentials.send(message)
-            if not credentials.poll(660 if message.get("operation") == "asr" else 360):
+            if not credentials.poll(CLOUD_ASR_RESPONSE_TIMEOUT_SEC if message.get("operation") == "asr" else CLOUD_LLM_RESPONSE_TIMEOUT_SEC):
                 cloud_transport_dead = True
                 raise LLMClientError("Cloud request timed out. Retained work can be resumed.")
             result = credentials.recv()
@@ -673,6 +677,13 @@ class JobManager:
         payload = self._reconcile_process(assessment_id, _read_json(job_file))
         process = self._processes.get(assessment_id)
         worker_seen_at = _now_iso() if process is not None and process.is_alive() and payload.get("status") in INCOMPLETE_JOB_STATUSES else None
+        request = payload.get("request") if isinstance(payload.get("request"), dict) else {}
+        phase = str(payload.get("phase") or "")
+        phase_timeout = practice_llm_timeout_sec()
+        if request.get("cloud_broker") and phase == "transcribing" and request.get("asr_provider") == "groq":
+            phase_timeout = max(phase_timeout, CLOUD_ASR_RESPONSE_TIMEOUT_SEC)
+        elif request.get("cloud_broker") and phase in {"scoring_rubric", "generating_coaching"}:
+            phase_timeout = max(phase_timeout, CLOUD_LLM_RESPONSE_TIMEOUT_SEC)
         from assessment_runtime.eligibility import annotate_payload
         return AssessmentStatusResponse(
             assessment_id=assessment_id,
@@ -684,6 +695,7 @@ class JobManager:
             phase_started_at=payload.get("phase_started_at") or payload.get("updated_at") or payload.get("created_at") or None,
             last_phase=payload.get("last_phase") or None,
             worker_seen_at=worker_seen_at,
+            quiet_warning_after_sec=math.ceil(phase_timeout + QUIET_WARNING_MARGIN_SEC),
             error=(ErrorResponse(**payload["error"]) if isinstance(payload.get("error"), dict) else None),
             report_path=str(payload.get("report_path") or "") or None,
             summary=_build_summary(payload.get("payload")),

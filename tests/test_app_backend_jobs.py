@@ -9,11 +9,24 @@ from unittest import mock
 
 from app_backend.config import build_backend_runtime_config
 from app_backend.contracts import AssessmentCreateRequest, ErrorCode, JobStatus
-from app_backend.jobs import AssessmentBusyError, JobManager, _job_worker, _update_job_file, prunable_job_metadata_files
+from app_backend.jobs import AssessmentBusyError, JobManager, QUIET_WARNING_MARGIN_SEC, _job_worker, _update_job_file, prunable_job_metadata_files
 from assessment_runtime.runner import AssessmentRunResult
 
 
 class BackendJobsTests(unittest.TestCase):
+    def test_status_warning_deadline_uses_configured_model_timeout_and_cloud_phase(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)
+            manager = JobManager(config)
+            job_file = config.jobs_dir / "asmt_deadline.json"
+            job_file.write_text(json.dumps({"assessment_id": "asmt_deadline", "status": "running",
+                "phase": "scoring_rubric", "request": {"cloud_broker": False}}), encoding="utf-8")
+            with mock.patch.dict(os.environ, {"LLM_TIMEOUT_SEC": "240.5"}):
+                self.assertEqual(manager.get_status("asmt_deadline").quiet_warning_after_sec, 241 + QUIET_WARNING_MARGIN_SEC)
+            job_file.write_text(json.dumps({"assessment_id": "asmt_deadline", "status": "running",
+                "phase": "transcribing", "request": {"cloud_broker": True, "asr_provider": "groq"}}), encoding="utf-8")
+            self.assertGreaterEqual(manager.get_status("asmt_deadline").quiet_warning_after_sec, 660 + QUIET_WARNING_MARGIN_SEC)
+
     def test_status_timestamps_change_only_for_meaningful_transitions(self):
         with tempfile.TemporaryDirectory() as directory:
             job_file = Path(directory) / "asmt_test.json"

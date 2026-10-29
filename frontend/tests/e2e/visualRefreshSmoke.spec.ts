@@ -278,6 +278,7 @@ test("assessment wait explains a stall and recovers without a second upload", as
   const shots = process.env.ASSESSMENT_WAIT_SCREENSHOT_DIR;
   let uploads = 0;
   let cancels = 0;
+  let workerFresh = true;
   let currentId = "";
   let state: "stalled" | "failed" | "running" | "cancelled" = "stalled";
   const requests: Record<string, unknown>[] = [];
@@ -297,14 +298,15 @@ test("assessment wait explains a stall and recovers without a second upload", as
     return fulfillJson(route, { assessment_id: currentId, status: "cancelled", phase: "cancelled", last_phase: "scoring_rubric", progress: 1 });
   });
   await page.route("**/v1/assessments/*", route => {
-    const old = new Date(Date.now() - 180_000).toISOString();
+    const old = new Date(Date.now() - 240_000).toISOString();
     const recent = new Date().toISOString();
     const stopped = state === "failed" || state === "cancelled";
     return fulfillJson(route, { assessment_id: currentId, status: state === "stalled" ? "running" : state,
       phase: stopped ? state : "scoring_rubric", progress: 0,
       created_at: state === "stalled" ? old : recent,
       updated_at: state === "stalled" ? old : recent,
-      worker_seen_at: stopped ? null : recent,
+      worker_seen_at: stopped ? null : state === "stalled" && !workerFresh ? old : recent,
+      quiet_warning_after_sec: 210,
       phase_started_at: state === "stalled" ? old : recent,
       last_phase: stopped ? "scoring_rubric" : null,
       error: state === "failed" ? { code: "runtime_error", detail: "Model request failed" } : null });
@@ -318,9 +320,9 @@ test("assessment wait explains a stall and recovers without a second upload", as
   await page.getByTestId("setup.continue").click();
   await attachAudio(page);
   await page.getByTestId("speak.submit").click();
-  await expect(page.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "true");
+  await expect(page.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "false");
   await expect(page.getByTestId("speak.media_state")).toContainText("Audio uploaded and retained");
-  await expect(page.getByTestId("speak.wait_time")).toContainText("Last progress update 3 min");
+  await expect(page.getByTestId("speak.wait_time")).toContainText("Last progress update 4 min");
   await expect(page.getByTestId("speak.cancel_assessment")).toBeVisible();
   await expect(page.getByTestId("speak.retry_assessment")).toHaveCount(0);
   await page.getByTestId("speak.status_panel").scrollIntoViewIfNeeded();
@@ -334,6 +336,9 @@ test("assessment wait explains a stall and recovers without a second upload", as
   await page.getByTestId("speak.status_panel").scrollIntoViewIfNeeded();
   await expect(page.getByTestId("speak.cancel_assessment")).toBeInViewport();
   if (shots) await page.screenshot({ path: path.join(shots, "after-assessment-stall-1100x760.png") });
+
+  workerFresh = false;
+  await expect(page.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "true");
 
   await page.getByTestId("speak.cancel_assessment").click();
   await expect(page.getByTestId("speak.assessment_progress")).toHaveCount(0);
@@ -350,6 +355,31 @@ test("assessment wait explains a stall and recovers without a second upload", as
   expect(requests[1]).toMatchObject({ audio_id: "wait-audio", resume_assessment_id: "wait-1" });
   expect(requests[2]).toMatchObject({ audio_id: "wait-audio", resume_assessment_id: "wait-2" });
   expect(new Set(requests.map(request => request.request_id)).size).toBe(3);
+});
+
+test("cancelled upload keeps local media without claiming a lost confirmation", async ({ page }) => {
+  await installVisualBackend(page);
+  let uploadStarted!: () => void;
+  const started = new Promise<void>(resolve => { uploadStarted = resolve; });
+  await page.route("**/v1/uploads", async route => {
+    uploadStarted();
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      audio_id: "should-not-be-used", stored_path: "/tmp/should-not-be-used.wav", sha1: "unused", original_name: "wait.wav",
+    }) }).catch(() => undefined);
+  });
+  await page.goto("/");
+  await page.getByTestId("home.start_new").click();
+  await page.getByTestId("setup.speaker_id").fill("upload-abort-test");
+  await page.getByTestId("setup.recommended_start").click();
+  await page.getByTestId("setup.continue").click();
+  await attachAudio(page);
+  await page.getByTestId("speak.submit").click();
+  await started;
+  await page.getByTestId("speak.cancel_assessment").click();
+  await expect(page.getByTestId("speak.status_panel")).toContainText("Upload cancelled");
+  await expect(page.getByTestId("speak.media_state")).not.toContainText("Upload confirmation was lost");
+  await expect(page.getByTestId("speak.media_state")).toContainText("selected on this device");
 });
 
 const visibleFontFamilies = async (page: Page) =>

@@ -399,6 +399,26 @@ describe("Speak route", () => {
     expect(mockedUploadAudio.mock.calls[1][1]?.requestId).toBe(first);
   });
 
+  it("keeps upload percentages out of the live status and describes an aborted upload accurately", async () => {
+    mockedUploadAudio.mockImplementationOnce((_file, options) => new Promise((_resolve, reject) => {
+      options?.signal?.addEventListener("abort", () => reject(new DOMException("Upload cancelled", "AbortError")));
+      options?.onProgress?.(12);
+      options?.onProgress?.(38);
+    }));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+    fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    const panel = await screen.findByTestId("speak.status_panel");
+    await waitFor(() => expect(panel).toHaveTextContent("38%"));
+    expect(within(panel).queryByRole("status")).toBeNull();
+    fireEvent.click(screen.getByTestId("speak.cancel_assessment"));
+    await waitFor(() => expect(panel).toHaveTextContent("Upload cancelled"));
+    expect(screen.getByTestId("speak.media_state")).not.toHaveTextContent("Upload confirmation was lost");
+    expect(mockedCreateAssessment).not.toHaveBeenCalled();
+  });
+
   it("shows a failure returned by Cancel without calling it a cancellation", async () => {
     mockedCancelAssessment.mockResolvedValueOnce({ assessment_id: "asmt-1", status: "failed", phase: "failed", last_phase: "scoring_rubric", progress: 1,
       error: { code: "runtime_error", detail: "Scoring failed" }, report_path: null, payload: null, summary: null });
@@ -452,9 +472,10 @@ describe("Speak route", () => {
 
   it("explains a stall and retries only after cancellation with retained audio", async () => {
     mockedGetAssessmentStatus.mockResolvedValue({ assessment_id: "asmt-1", status: "running",
-      phase: "scoring_rubric", progress: 0, created_at: new Date(Date.now() - 150_000).toISOString(),
-      updated_at: new Date(Date.now() - 150_000).toISOString(),
-      phase_started_at: new Date(Date.now() - 150_000).toISOString() });
+      phase: "scoring_rubric", progress: 0, created_at: new Date(Date.now() - 240_000).toISOString(),
+      updated_at: new Date(Date.now() - 240_000).toISOString(),
+      phase_started_at: new Date(Date.now() - 240_000).toISOString(),
+      worker_seen_at: new Date(Date.now() - 240_000).toISOString(), quiet_warning_after_sec: 210 });
     mockedCreateAssessment.mockResolvedValueOnce({ assessment_id: "asmt-1", status: "queued" })
       .mockResolvedValueOnce({ assessment_id: "asmt-2", status: "queued" });
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
@@ -480,8 +501,9 @@ describe("Speak route", () => {
 
   it("keeps monitoring a stalled job when cancellation fails", async () => {
     mockedGetAssessmentStatus.mockResolvedValue({ assessment_id: "asmt-1", status: "running",
-      phase: "scoring_rubric", progress: 0, created_at: new Date(Date.now() - 180_000).toISOString(),
-      updated_at: new Date(Date.now() - 180_000).toISOString() });
+      phase: "scoring_rubric", progress: 0, created_at: new Date(Date.now() - 240_000).toISOString(),
+      updated_at: new Date(Date.now() - 240_000).toISOString(),
+      worker_seen_at: new Date(Date.now() - 240_000).toISOString(), quiet_warning_after_sec: 210 });
     mockedCancelAssessment.mockRejectedValueOnce(new ApiClientError(503, { code: "runtime_error", detail: "Connection lost" }));
     const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
     fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
@@ -496,6 +518,25 @@ describe("Speak route", () => {
     expect(screen.getByTestId("speak.cancel_assessment")).toBeVisible();
     expect(screen.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "true");
     expect(mockedCreateAssessment).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces a failed cancellation message when the worker later fails", async () => {
+    const { queryClient } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+    mockedCancelAssessment.mockRejectedValueOnce(new ApiClientError(503, { code: "runtime_error", detail: "Connection lost" }));
+    fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    fireEvent.click(await screen.findByTestId("speak.cancel_assessment"));
+    await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Cancellation did not finish"));
+    act(() => { queryClient.setQueryData(queryKeys.assessment("asmt-1"), {
+      assessment_id: "asmt-1", status: "failed", phase: "failed", last_phase: "scoring_rubric", progress: 1,
+      error: { code: "runtime_error", detail: "Scoring failed" },
+    }); });
+    const panel = screen.getByTestId("speak.status_panel");
+    await waitFor(() => expect(panel).toHaveTextContent("Scoring failed"));
+    expect(panel).not.toHaveTextContent("Cancellation did not finish");
+    expect(within(panel).getByRole("status")).toHaveTextContent("Scoring failed");
   });
 
   it("clears a polling error after an unchanged status response recovers", async () => {

@@ -7,7 +7,6 @@ import styles from "./AssessmentProgress.module.css";
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
 
-const STALL_MS = 120_000;
 const phases = ["upload", "transcribing", "scoring_rubric", "generating_coaching"] as const;
 
 export function AssessmentProgress({ status, uploadStartedAt, uploadUpdatedAt, uploading, uploaded, translate }: {
@@ -40,7 +39,8 @@ export function AssessmentProgress({ status, uploadStartedAt, uploadUpdatedAt, u
   const elapsed = Number.isFinite(started) && started !== null ? Math.max(0, Math.floor((now - started) / 1000)) : null;
   const sinceUpdate = Number.isFinite(updated) && updated !== null ? Math.max(0, Math.floor((now - updated) / 1000)) : null;
   const sinceWorkerSeen = Number.isFinite(workerSeen) ? Math.max(0, Math.floor((now - workerSeen) / 1000)) : null;
-  const stalled = active && sinceUpdate !== null && sinceUpdate * 1000 >= STALL_MS;
+  const stalled = active && !uploading && sinceWorkerSeen !== null &&
+    status?.quiet_warning_after_sec != null && sinceWorkerSeen >= status.quiet_warning_after_sec;
   const format = (seconds: number) => seconds < 60
     ? translate("speak.wait_seconds", { count: seconds })
     : seconds % 60 === 0 ? translate("speak.wait_minutes", { count: seconds / 60 })

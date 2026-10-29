@@ -254,6 +254,7 @@ export interface AssessmentStatusResponse {
   phase_started_at?: string | null;
   last_phase?: string | null;
   worker_seen_at?: string | null;
+  quiet_warning_after_sec?: number | null;
   error?: ErrorResponse | null;
   report_path?: string | null;
   summary?: AssessmentSummary | null;

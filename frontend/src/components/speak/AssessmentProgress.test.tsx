@@ -8,23 +8,26 @@ import { createTranslator } from "@/lib/i18n";
 
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
-it("explains a scoring stall at the boundary without announcing a changing timer", () => {
+it("warns only after the backend deadline when worker liveness is stale", () => {
   const started = Date.parse("2026-10-29T12:00:00Z");
   vi.useFakeTimers();
-  vi.setSystemTime(started + 119_000);
-  render(<AssessmentProgress status={{ assessment_id: "asmt-1", status: "running",
+  vi.setSystemTime(started + 180_000);
+  const status = { assessment_id: "asmt-1", status: "running" as const,
     phase: "scoring_rubric", progress: 0, created_at: "2026-10-29T12:00:00Z",
     updated_at: "2026-10-29T12:00:00Z", phase_started_at: "2026-10-29T12:00:00Z",
-    worker_seen_at: "2026-10-29T12:01:59Z" }}
+    worker_seen_at: "2026-10-29T12:02:59Z", quiet_warning_after_sec: 210 };
+  const { rerender } = render(<AssessmentProgress status={status}
     uploadStartedAt={null} uploadUpdatedAt={null} uploading={false} uploaded translate={createTranslator("en")} />);
 
   expect(screen.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "false");
   const announcement = screen.getByText("Working on Score.");
-  act(() => { vi.advanceTimersByTime(1_000); });
+  act(() => { vi.advanceTimersByTime(31_000); });
+  expect(screen.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "false");
+  rerender(<AssessmentProgress status={{ ...status, worker_seen_at: "2026-10-29T12:00:00Z" }}
+    uploadStartedAt={null} uploadUpdatedAt={null} uploading={false} uploaded translate={createTranslator("en")} />);
   expect(screen.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "true");
   expect(screen.getByText("Still working")).toBeVisible();
-  expect(screen.getByTestId("speak.wait_time")).toHaveTextContent("Last progress update 2 min ago");
-  expect(screen.getByTestId("speak.wait_time")).toHaveTextContent("Worker confirmed active 1 sec ago");
+  expect(screen.getByTestId("speak.wait_time")).toHaveTextContent("Last progress update 3 min");
   expect(screen.getByTestId("speak.wait_time")).toHaveAttribute("role", "timer");
   expect(screen.getByTestId("speak.wait_time")).toHaveAttribute("aria-live", "off");
   expect(screen.getByText("Score").closest("li")).toHaveAttribute("aria-current", "step");
@@ -52,6 +55,6 @@ it("describes an unfinished upload as selected locally", () => {
   vi.spyOn(Date, "now").mockReturnValue(now);
   render(<AssessmentProgress uploadStartedAt={now - 180_000} uploadUpdatedAt={now - 180_000}
     uploading uploaded={false} translate={createTranslator("en")} />);
-  expect(screen.getByText(/recording remains selected on this device/i)).toBeVisible();
+  expect(screen.getByTestId("speak.wait_time")).toHaveTextContent("3 min elapsed");
   expect(screen.queryByText(/retained audio/i)).not.toBeInTheDocument();
 });
