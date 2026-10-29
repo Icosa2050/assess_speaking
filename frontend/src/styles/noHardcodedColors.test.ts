@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const colorLiteral = /#[\da-f]{3,8}\b|\b(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch)\s*\(/gi;
-const namedColor = /\b(?:color|background|backgroundColor|background-color|borderColor|border-color|fill|stroke)\s*:\s*["']?(?:white|black|red|blue|green|yellow|orange|purple)\b/gi;
+const namedColor = /\b(?:color|background(?:Color|-color)?|border(?:Color|-color|-(?:top|right|bottom|left)(?:-color)?)?|outline(?:Color|-color)?|boxShadow|box-shadow|textShadow|text-shadow|fill|stroke)\s*:\s*[^;{}\n]*?(?<![-\w])(?:white|black|red|blue|green|yellow|orange|purple)\b/gi;
 
 const violations = (source: string): string[] =>
   [...source.matchAll(colorLiteral), ...source.matchAll(namedColor)].map(match => match[0]);
@@ -20,7 +20,8 @@ describe("semantic color boundary", () => {
     const hash = String.fromCharCode(35);
     expect(violations(`color: ${hash}abc`)).toHaveLength(1);
     expect(violations(`backgroundColor: "${"rgb"}(1, 2, 3)"`)).toHaveLength(1);
-    expect(violations("color: " + "white")).toHaveLength(1);
+    expect(violations(["color", "white"].join(": "))).toHaveLength(1);
+    expect(violations(["border", "1px solid", "red"].join(" ").replace("border ", "border: "))).toHaveLength(1);
     expect(violations("color: var(--color-text)")).toHaveLength(0);
   });
 

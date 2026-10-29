@@ -856,7 +856,7 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
           const style = getComputedStyle(element);
           return style.display !== "none" && style.visibility === "visible" && element.getClientRects().length > 0;
         };
-        const text = [...document.querySelectorAll("header h1, header p, nav a, main h2, main h3, main p, main label, main input, main select, main textarea")]
+        const text = [...document.querySelectorAll("header h1, header p, nav a, main h2, main h3, main p, main label, main button, main a, main input, main select, main textarea")]
           .filter(element => visible(element) && element.getAttribute("aria-disabled") !== "true" && Boolean(element.textContent?.trim())).slice(0, 30)
           .map(element => ({ label: element.textContent?.trim().slice(0, 55), ratio: ratio(parse(getComputedStyle(element).color), background(element)) }));
         const border = [...document.querySelectorAll("main input, main select, main textarea")]
