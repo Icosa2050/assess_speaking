@@ -16,6 +16,14 @@ const row = (id: string, score: number | null, day: string): HistoryRow => ({
 });
 
 describe("PracticeProgress chart alternative", () => {
+  it("describes a single scored take without implying a comparison", () => {
+    const selected = row("first", 3, "01");
+    render(<PracticeProgress rows={[selected]} selected={selected} locale="en" onSelect={() => {}} onRetry={() => {}} />);
+    expect(screen.getByRole("img", { name: "Overall performance" }).querySelector("desc"))
+      .toHaveTextContent(/^1 take in the data table; 1 plotted point:/);
+    expect(within(screen.getByTestId("practice-chart-table")).getAllByRole("row")).toHaveLength(2);
+    expect(screen.getByTestId("practice-comparison")).toHaveTextContent("No earlier comparable attempt");
+  });
   it("exposes every comparable chart row as a labelled table and switches the values with the metric", () => {
     const first = { ...row("first", 3, "02"), duration_sec: null };
     const selected = row("selected", 4, "03");
@@ -30,7 +38,7 @@ describe("PracticeProgress chart alternative", () => {
     const duration = within(screen.getByTestId("practice-chart-table")).getByRole("table", { name: "Chart data: Recording duration (seconds)" });
     expect(within(duration).getByRole("row", { name: /Task first/ })).toHaveTextContent("—");
     expect(within(duration).getByRole("row", { name: /Task selected/ })).toHaveTextContent("90");
-    expect(screen.getByRole("img", { name: "Recording duration (seconds)" }).querySelector("desc")).toHaveTextContent(/^1 plotted point:/);
+    expect(screen.getByRole("img", { name: "Recording duration (seconds)" }).querySelector("desc")).toHaveTextContent(/^2 takes in the data table; 1 plotted point:/);
   });
 
   it("withholds change claims without a verified eligible parent", () => {
@@ -58,7 +66,7 @@ describe("PracticeProgress chart alternative", () => {
     expect(within(table).getByRole("row", { name: /Task middle/ })).toHaveTextContent("4");
     expect(within(table).getByRole("row", { name: /Task selected/ })).toHaveTextContent("3");
     expect(screen.getByText(/^3 comparable attempts/)).toBeVisible();
-    expect(screen.getByRole("img", { name: "Overall performance" }).querySelector("desc")).toHaveTextContent(/^3 plotted points/);
+    expect(screen.getByRole("img", { name: "Overall performance" }).querySelector("desc")).toHaveTextContent(/^3 takes in the data table; 3 plotted points/);
   });
 
   it("shows an unscored selected take as progress without implying an estimate or comparison", () => {

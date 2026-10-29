@@ -8,8 +8,8 @@ type Segment = { text: string; suggestion?: Suggestion };
 const isWordChar = (value: string | undefined): boolean => Boolean(value && /[\p{L}\p{N}_]/u.test(value));
 export function transcriptSegments(transcript: string, suggestions: Suggestion[]): Segment[] {
   const matches: { start: number; end: number; suggestion: Suggestion }[] = [];
-  for (const suggestion of suggestions) {
-    if (!suggestion.original.trim() || !suggestion.explanation.trim()) continue;
+  const addAvailableMatches = (suggestion: Suggestion, firstOnly: boolean) => {
+    if (!suggestion.original.trim() || !suggestion.explanation.trim()) return;
     let start = transcript.indexOf(suggestion.original);
     while (start >= 0) {
       const end = start + suggestion.original.length;
@@ -17,11 +17,14 @@ export function transcriptSegments(transcript: string, suggestions: Suggestion[]
         !(isWordChar(transcript[end]) && isWordChar(suggestion.original.at(-1)));
       if (wholePhrase && !matches.some(match => start < match.end && end > match.start)) {
         matches.push({ start, end, suggestion });
-        break;
+        if (firstOnly) return;
       }
       start = transcript.indexOf(suggestion.original, start + 1);
     }
-  }
+  };
+  // First preserve one available location per suggestion, then mark every remaining free occurrence.
+  for (const suggestion of suggestions) addAvailableMatches(suggestion, true);
+  for (const suggestion of suggestions) addAvailableMatches(suggestion, false);
   matches.sort((a, b) => a.start - b.start);
   const segments: Segment[] = [];
   let cursor = 0;

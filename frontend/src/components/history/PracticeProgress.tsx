@@ -90,7 +90,7 @@ export function PracticeProgress({ rows, selected, locale, onSelect, onRetry, ve
           {cohort.length > 0 ? <>
             {valid.length ? <svg ref={chartRef} viewBox={`0 0 ${chartWidth} 220`} role="img" aria-label={t(`practice.${metric}`)} className={styles.chart}>
               <title>{t(`practice.${metric}`)}</title>
-              <desc>{t(valid.length === 1 ? "history_slice10.chart_point_summary" : "history_slice10.chart_points_summary", { count: valid.length, first: `${date(valid[0].timestamp)}: ${format(metricValue(valid[0], metric))}`, last: `${date(valid.at(-1)!.timestamp)}: ${format(metricValue(valid.at(-1), metric))}` })}</desc>
+              <desc>{t(valid.length === 1 && cohort.length === 1 ? "history_slice10.chart_one_take_summary" : valid.length === 1 ? "history_slice10.chart_point_summary" : "history_slice10.chart_points_summary", { count: cohort.length, points: valid.length, first: `${date(valid[0].timestamp)}: ${format(metricValue(valid[0], metric))}`, last: `${date(valid.at(-1)!.timestamp)}: ${format(metricValue(valid.at(-1), metric))}` })}</desc>
               <line x1="36" y1="174" x2={chartWidth - 18} y2="174" stroke="currentColor" opacity="0.2" />
               <line x1="36" y1="34" x2={chartWidth - 18} y2="34" stroke="currentColor" opacity="0.12" />
               <text x="26" y="178" textAnchor="end">0</text><text x="26" y="38" textAnchor="end">{format(max)}</text>

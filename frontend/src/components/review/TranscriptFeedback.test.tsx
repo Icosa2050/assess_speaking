@@ -22,6 +22,18 @@ describe("TranscriptFeedback", () => {
     expect(segments.map(part => part.text).join("")).toBe("I goes and I goes");
     expect(segments.filter(part => part.suggestion).map(part => part.text)).toEqual(["I goes", "goes"]);
   });
+  it("marks every non-overlapping repeat of a suggestion", () => {
+    const transcript = "I goes, and then I goes again.";
+    expect(transcriptSegments(transcript, suggestions).filter(part => part.suggestion).map(part => part.text))
+      .toEqual(["I goes", "I goes"]);
+    render(<TranscriptFeedback transcript={transcript} suggestions={suggestions} translate={createTranslator("en")} />);
+    const phrases = screen.getAllByRole("button", { name: "Feedback for “I goes”" });
+    expect(phrases).toHaveLength(2);
+    expect(phrases[0].getAttribute("aria-controls")).not.toBe(phrases[1].getAttribute("aria-controls"));
+    fireEvent.click(phrases[1]);
+    expect(phrases[1]).toHaveAttribute("aria-expanded", "true");
+    expect(phrases[0]).toHaveAttribute("aria-expanded", "false");
+  });
   it("offers a named, described, focusable phrase control", () => {
     render(<TranscriptFeedback transcript="I goes home." suggestions={suggestions} translate={createTranslator("en")} />);
     const phrase = screen.getByRole("button", { name: "Feedback for “I goes”" });
