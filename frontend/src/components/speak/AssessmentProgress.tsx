@@ -36,6 +36,7 @@ export function AssessmentProgress({ status, uploadStartedAt, uploadUpdatedAt, u
   const completedThrough = uploading ? 0 : status?.phase === "finalizing_report" ? 4
     : current ? phases.indexOf(current) : uploaded ? 1 : 0;
   const active = uploading || status?.status === "queued" || status?.status === "running";
+  const finalizing = active && !uploading && status?.phase === "finalizing_report";
   const started = uploading ? uploadStartedAt : Date.parse(status?.created_at || "");
   const updated = uploading ? uploadUpdatedAt ?? uploadStartedAt : Date.parse(status?.updated_at || status?.created_at || "");
   const workerSeen = Date.parse(status?.worker_seen_at || "");
@@ -62,6 +63,7 @@ export function AssessmentProgress({ status, uploadStartedAt, uploadUpdatedAt, u
           {done && <span className={styles.visuallyHidden}> {translate("speak.wait_completed")}</span>}
         </li>;
       })}
+      {finalizing && <li className={styles.current} aria-current="step">{translate("speak.wait_finalizing")}</li>}
     </ol>
     {active && <>
       <p className={styles.announcement} aria-live="polite" aria-atomic="true">

@@ -232,20 +232,21 @@ for (const language of ["en", "it"] as const) {
     const failed = await submit(page);
     await expect.poll(async () => (await (await request.get(`${backend}/v1/assessments/${failed.id}`)).json()).status).toBe("failed");
     await expect(page.getByTestId("speak.status_panel")).toContainText("Journey fixture: assessment failed");
+    await expect(page.getByTestId("speak.retry_assessment")).toBeEnabled();
+    await expect(page.getByTestId("speak.submit")).toHaveCount(0);
     await setup(page, language, "B1", `recovery-${language}`, "journey-fixture-cancel");
     await upload(page, language, "B1");
     const cancelled = await submit(page);
     await expect.poll(async () => (await (await request.get(`${backend}/v1/assessments/${cancelled.id}`)).json()).phase).toBe("scoring_rubric");
     await page.getByTestId("speak.cancel_assessment").click();
     await expect.poll(async () => (await (await request.get(`${backend}/v1/assessments/${cancelled.id}`)).json()).status).toBe("cancelled");
-    await expect(page.getByTestId("speak.submit")).toBeEnabled();
-    // Outlast the fixture's six-second work: a surviving worker must not save a late report.
-    await page.waitForTimeout(7000);
-    expect((await (await request.get(`${backend}/v1/assessments/${cancelled.id}`)).json()).status).toBe("cancelled");
+    await expect(page.getByTestId("speak.retry_assessment")).toBeEnabled();
+    await expect(page.getByTestId("speak.submit")).toHaveCount(0);
     await setup(page, language, "B1", `recovery-${language}`, "My library / La biblioteca");
     await upload(page, language, "B1");
     await submit(page);
     await review(page, language);
+    expect((await (await request.get(`${backend}/v1/assessments/${cancelled.id}`)).json()).status).toBe("cancelled");
     const history = await (await request.get(`${backend}/v1/history`)).json();
     expect(history.items.filter((row: { speaker_id: string }) => row.speaker_id === `recovery-${language}`)).toHaveLength(1);
   });

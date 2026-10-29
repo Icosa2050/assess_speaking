@@ -41,7 +41,7 @@ it("warns after the backend deadline only while the worker is recently confirmed
   expect(screen.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "false");
 });
 
-it("does not claim transcription while queued or coaching during finalization", () => {
+it("marks finalization current after coaching completes", () => {
   const now = Date.parse("2026-10-29T12:03:00Z");
   vi.spyOn(Date, "now").mockReturnValue(now);
   const status = { assessment_id: "asmt-1", status: "running" as const, phase: "queued", progress: 0,
@@ -52,8 +52,9 @@ it("does not claim transcription while queued or coaching during finalization", 
   expect(screen.getByText("Transcribe").closest("li")).not.toHaveAttribute("aria-current");
   rerender(<AssessmentProgress status={{ ...status, phase: "finalizing_report" }} uploadStartedAt={null} uploadUpdatedAt={null}
     uploading={false} uploaded translate={createTranslator("en")} />);
-  expect(screen.getByText("Finalizing the report.")).toBeVisible();
+  expect(screen.getByText("Finalizing the report.", { selector: "p" })).toBeVisible();
   expect(screen.getByText("Coach").closest("li")).toHaveTextContent("Completed");
+  expect(screen.getByText("Finalizing the report.", { selector: "li" })).toHaveAttribute("aria-current", "step");
 });
 
 it("describes an unfinished upload as selected locally", () => {

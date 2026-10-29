@@ -498,29 +498,49 @@ class JobManager:
         return candidate
 
     def submit(self, request: AssessmentCreateRequest, *, credential_ref: str = "", cloud_runtime=None, llm_connection_id: str = "") -> AssessmentCreateResponse:
-        with self._submit_lock, locked_file(self._config.jobs_dir / "retention.lock"):
-            if request.request_id:
-                identity = _sanitize_request_metadata(request.model_dump())
-                for path in self._config.jobs_dir.glob("*.json"):
-                    prior = _read_json(path)
-                    saved = prior.get("request", {})
-                    if saved.get("request_id") != request.request_id:
-                        continue
-                    comparable = {key: saved.get(key) for key in identity}
-                    if comparable != identity:
-                        raise AssessmentIdentityConflictError("This submission ID already belongs to a different request or sharing route.")
-                    return AssessmentCreateResponse(assessment_id=prior["assessment_id"], status=JobStatus(prior["status"]))
-            self.wait_for_finished_workers()
-            deadline = time.monotonic() + 2.0
-            while any(active.is_set() for active in self._active_cloud_requests.values()) and time.monotonic() < deadline:
-                time.sleep(0.05)
-            if any(active.is_set() for active in self._active_cloud_requests.values()):
-                raise AssessmentBusyError("A prior provider request is still finishing. Wait for it to finish before retrying.")
-            if any(process.is_alive() for process in list(self._processes.values())):
-                raise AssessmentBusyError("Another attempt is still being analysed. Wait for it to finish or cancel it, then retry.")
-            if upload_limits(self.uploads_dir)["available_bytes"] <= 0:
-                raise OSError("Not enough free disk space to analyse audio. Free some space and retry.")
-            return self._submit(request, credential_ref=credential_ref, cloud_runtime=cloud_runtime, llm_connection_id=llm_connection_id)
+        identity = _sanitize_request_metadata(request.model_dump()) if request.request_id else None
+
+        def existing_response() -> AssessmentCreateResponse | None:
+            if identity is None:
+                return None
+            for path in self._config.jobs_dir.glob("*.json"):
+                prior = _read_json(path)
+                saved = prior.get("request", {})
+                if saved.get("request_id") != request.request_id:
+                    continue
+                comparable = {key: saved.get(key) for key in identity}
+                if comparable != identity:
+                    raise AssessmentIdentityConflictError("This submission ID already belongs to a different request or sharing route.")
+                return AssessmentCreateResponse(assessment_id=prior["assessment_id"], status=JobStatus(prior["status"]))
+            return None
+
+        deadline: float | None = None
+        first_pass = True
+        while True:
+            with self._submit_lock, locked_file(self._config.jobs_dir / "retention.lock"):
+                initial = first_pass
+                if initial:
+                    if prior := existing_response():
+                        return prior
+                    self.wait_for_finished_workers()
+                    first_pass = False
+                if any(active.is_set() for active in self._active_cloud_requests.values()):
+                    if deadline is None:
+                        deadline = time.monotonic() + 2.0
+                    if time.monotonic() >= deadline:
+                        raise AssessmentBusyError("A prior provider request is still finishing. Wait for it to finish before retrying.")
+                else:
+                    # A competing submit may have accepted this request while
+                    # the cloud wait released both locks.
+                    if not initial and (prior := existing_response()):
+                        return prior
+                    if any(process.is_alive() for process in list(self._processes.values())):
+                        raise AssessmentBusyError("Another attempt is still being analysed. Wait for it to finish or cancel it, then retry.")
+                    if upload_limits(self.uploads_dir)["available_bytes"] <= 0:
+                        raise OSError("Not enough free disk space to analyse audio. Free some space and retry.")
+                    return self._submit(request, credential_ref=credential_ref, cloud_runtime=cloud_runtime, llm_connection_id=llm_connection_id)
+            assert deadline is not None
+            time.sleep(min(0.05, max(0, deadline - time.monotonic())))
 
     def _submit(self, request: AssessmentCreateRequest, *, credential_ref: str = "", cloud_runtime=None, llm_connection_id: str = "") -> AssessmentCreateResponse:
         assessment_id = f"asmt_{uuid4().hex}"
@@ -598,14 +618,21 @@ class JobManager:
             raise
         self._processes[assessment_id] = process
         if child is not None:
-            child.close()
-            if cloud_runtime:
-                active = threading.Event()
-                self._active_cloud_requests[assessment_id] = active
-                service = threading.Thread(target=self._serve_cloud, args=(process, parent, cloud_runtime, active), daemon=True)
-            else:
-                service = threading.Thread(target=self._serve_credentials, args=(process, parent, credential_ref), daemon=True)
-            service.start()
+            try:
+                child.close()
+                if cloud_runtime:
+                    active = threading.Event()
+                    self._active_cloud_requests[assessment_id] = active
+                    service = threading.Thread(target=self._serve_cloud, args=(process, parent, cloud_runtime, active), daemon=True)
+                else:
+                    service = threading.Thread(target=self._serve_credentials, args=(process, parent, credential_ref), daemon=True)
+                service.start()
+            except BaseException:  # quality: allow[broad-except] an unserved worker must be stopped before retry
+                if cloud_runtime:
+                    self._active_cloud_requests.pop(assessment_id, None)
+                parent.close()
+                self._cancel_locked(assessment_id)
+                raise
         return AssessmentCreateResponse(assessment_id=assessment_id, status=JobStatus.QUEUED)
 
     def _serve_cloud(self, process, channel, runtime, active: threading.Event):
@@ -635,11 +662,13 @@ class JobManager:
             pass
         finally:
             active.clear()
-            channel.close()
-            with self._submit_lock:
-                for assessment_id, pending in list(self._active_cloud_requests.items()):
-                    if pending is active:
-                        self._active_cloud_requests.pop(assessment_id, None)
+            try:
+                channel.close()
+            finally:
+                with self._submit_lock:
+                    for assessment_id, pending in list(self._active_cloud_requests.items()):
+                        if pending is active:
+                            self._active_cloud_requests.pop(assessment_id, None)
 
     @staticmethod
     def _serve_credentials(process, channel, credential_ref):
@@ -663,12 +692,13 @@ class JobManager:
             channel.close()
 
     def has_active_provider(self, provider: str) -> bool:
-        for assessment_id in set(self._processes) | set(self._active_cloud_requests):
-            process = self._processes.get(assessment_id)
-            active = self._active_cloud_requests.get(assessment_id)
-            busy = (process is not None and process.is_alive()) or (active is not None and active.is_set())
-            if busy and _read_json(_job_file(self._config.jobs_dir, assessment_id)).get("request", {}).get("provider") == provider:
-                return True
+        with self._submit_lock:
+            for assessment_id in set(self._processes) | set(self._active_cloud_requests):
+                process = self._processes.get(assessment_id)
+                active = self._active_cloud_requests.get(assessment_id)
+                busy = (process is not None and process.is_alive()) or (active is not None and active.is_set())
+                if busy and _read_json(_job_file(self._config.jobs_dir, assessment_id)).get("request", {}).get("provider") == provider:
+                    return True
         return False
 
     def cancel_provider(self, provider: str) -> None:
@@ -757,13 +787,19 @@ class JobManager:
             return status
         process = self._processes.get(assessment_id)
         if process is not None and process.is_alive():
-            process.terminate()
+            try:
+                process.terminate()
+            except (ProcessLookupError, OSError):
+                pass  # The final liveness check still refuses an unconfirmed stop.
             process.join(timeout=1.0)
             observed = _read_json(_job_file(self._config.jobs_dir, assessment_id))
             if observed.get("status") in TERMINAL_JOB_STATUSES_NORMALIZED:
                 return self.get_status(assessment_id)
             if process.is_alive():
-                process.kill()
+                try:
+                    process.kill()
+                except (ProcessLookupError, OSError):
+                    pass
                 process.join(timeout=1.0)
             if process.is_alive():
                 raise AssessmentBusyError("The assessment is still stopping. Keep this page open and try Cancel again before retrying.")
