@@ -28,6 +28,7 @@ from assessment_runtime.runner import AssessmentRunRequest, execute_assessment_r
 from assessment_runtime.recording_policy import RecordingTooShortError
 from app_backend.uploads import COPY_CHUNK_BYTES, MAX_UPLOAD_BYTES, UploadRejected, ensure_copy_space, upload_limits, validate_audio_duration
 from app_core.cloud_policy import locked_file
+from assess_core.settings import practice_llm_timeout_sec
 
 INCOMPLETE_JOB_STATUSES = {JobStatus.QUEUED.value, JobStatus.RUNNING.value}
 TERMINAL_JOB_STATUSES = {JobStatus.COMPLETED.value, JobStatus.FAILED.value, JobStatus.CANCELLED.value}
@@ -315,6 +316,7 @@ def _job_worker(job_file: str, request_payload: dict[str, Any], audio_path: str,
                 expected_language=request_payload.get("expected_language"),
                 language_profile_key=request_payload.get("language_profile_key"),
                 feedback_language=request_payload.get("feedback_language"),
+                llm_timeout_sec=practice_llm_timeout_sec(),
                 llm_base_url=request_payload.get("llm_base_url"),
                 llm_connection_id=request_payload.get("llm_connection_id", ""),
                 llm_api_key="" if request_payload.get("cloud_broker") else current_access_token if credentials is not None else (request_payload.get("llm_api_key") or None),

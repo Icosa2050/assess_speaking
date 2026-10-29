@@ -2,10 +2,26 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 
 from app_core.runtime_providers import DEFAULT_PROVIDER, default_base_url
+
+
+PRACTICE_LLM_TIMEOUT_SEC = 180.0
+
+
+def practice_llm_timeout_sec() -> float:
+    """Resolve the practice app timeout without changing the CLI default."""
+    configured = os.getenv("LLM_TIMEOUT_SEC")
+    if configured is None:
+        return PRACTICE_LLM_TIMEOUT_SEC
+    try:
+        timeout = float(configured)
+    except ValueError:
+        return PRACTICE_LLM_TIMEOUT_SEC
+    return timeout if math.isfinite(timeout) and timeout > 0 else PRACTICE_LLM_TIMEOUT_SEC
 
 
 @dataclass(frozen=True)
