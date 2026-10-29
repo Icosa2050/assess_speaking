@@ -11,6 +11,7 @@ from unittest import mock
 from app_backend.config import build_backend_runtime_config
 from app_backend.contracts import AssessmentCreateRequest, ErrorCode, JobStatus
 from app_backend.jobs import AssessmentBusyError, JobManager, QUIET_WARNING_MARGIN_SEC, _job_worker, _read_json, _update_job_file, _write_json, prunable_job_metadata_files
+from app_core.cloud_policy import locked_file
 from assessment_runtime.runner import AssessmentRunResult
 
 
@@ -67,6 +68,111 @@ class BackendJobsTests(unittest.TestCase):
                 manager.cancel_provider("chatgpt")
             active.clear()
             self.assertFalse(manager.has_active_provider("chatgpt"))
+
+    def test_finishing_cloud_services_prune_request_events(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)
+            manager = JobManager(config)
+            for index in range(20):
+                assessment_id = f"asmt_cloud_{index}"
+                active = threading.Event()
+                manager._active_cloud_requests[assessment_id] = active
+                state = {"alive": True}
+                process = mock.Mock()
+                process.is_alive.side_effect = lambda: state["alive"]
+                channel = mock.Mock()
+                channel.recv.return_value = {"rpc_id": index}
+
+                def finish(_message):
+                    self.assertTrue(active.is_set())
+                    state["alive"] = False
+                    return "done"
+
+                runtime = SimpleNamespace(handle=finish)
+                manager._serve_cloud(process, channel, runtime, active)
+                channel.send.assert_called_once_with({"value": "done", "rpc_id": index})
+                channel.close.assert_called_once()
+                self.assertNotIn(assessment_id, manager._active_cloud_requests)
+            self.assertEqual(manager._active_cloud_requests, {})
+
+    def test_cloud_wait_releases_submit_and_retention_locks_then_rechecks(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)
+            manager = JobManager(config)
+            active = threading.Event()
+            active.set()
+            manager._active_cloud_requests["asmt_finishing"] = active
+            waiting = threading.Event()
+            resume = threading.Event()
+            retention_acquired = threading.Event()
+            outcomes = []
+            request = AssessmentCreateRequest(audio_id="unused", whisper="tiny", provider="ollama",
+                llm_model="test", expected_language="en", feedback_language="en", speaker_id="test",
+                task_family="generic", theme="test", target_duration_sec=90)
+
+            def pause_wait(_seconds):
+                waiting.set()
+                self.assertTrue(resume.wait(2))
+
+            def take_retention_lock():
+                with locked_file(config.jobs_dir / "retention.lock"):
+                    retention_acquired.set()
+
+            with mock.patch("app_backend.jobs.time.sleep", side_effect=pause_wait), mock.patch.object(
+                manager, "_submit", return_value="admitted"
+            ) as submit:
+                worker = threading.Thread(target=lambda: outcomes.append(manager.submit(request)))
+                worker.start()
+                try:
+                    self.assertTrue(waiting.wait(2))
+                    self.assertTrue(manager._submit_lock.acquire(blocking=False))
+                    manager._submit_lock.release()
+                    retention = threading.Thread(target=take_retention_lock)
+                    retention.start()
+                    self.assertTrue(retention_acquired.wait(1))
+                finally:
+                    active.clear()
+                    resume.set()
+                    worker.join(2)
+                    if "retention" in locals():
+                        retention.join(2)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(outcomes, ["admitted"])
+            submit.assert_called_once()
+
+    def test_cloud_wait_rechecks_request_id_before_starting_another_worker(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)
+            manager = JobManager(config)
+            active = threading.Event()
+            active.set()
+            manager._active_cloud_requests["asmt_finishing"] = active
+            waiting = threading.Event()
+            resume = threading.Event()
+            outcomes = []
+            request = AssessmentCreateRequest(audio_id="same-audio", request_id="same-submit", whisper="tiny",
+                provider="ollama", llm_model="test", expected_language="en", feedback_language="en",
+                speaker_id="test", task_family="generic", theme="test", target_duration_sec=90)
+
+            def pause_wait(_seconds):
+                waiting.set()
+                self.assertTrue(resume.wait(2))
+
+            with mock.patch("app_backend.jobs.time.sleep", side_effect=pause_wait), mock.patch.object(manager, "_submit") as submit:
+                worker = threading.Thread(target=lambda: outcomes.append(manager.submit(request)))
+                worker.start()
+                try:
+                    self.assertTrue(waiting.wait(2))
+                    _write_json(config.jobs_dir / "asmt_accepted.json", {
+                        "assessment_id": "asmt_accepted", "status": "queued", "request": request.model_dump(),
+                    })
+                finally:
+                    active.clear()
+                    resume.set()
+                    worker.join(2)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(outcomes[0].assessment_id, "asmt_accepted")
+            submit.assert_not_called()
 
     def test_status_warning_deadline_uses_configured_model_timeout_and_cloud_phase(self):
         with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
