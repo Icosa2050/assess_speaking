@@ -1,208 +1,89 @@
 import { describe, expect, it } from "vitest";
 
-import type { DiagnosticItem, RuntimeResponse } from "@/lib/api/types";
+import type { ReadinessCheck, ReadinessResponse } from "@/lib/api/types";
+import { buildSetupReadinessRows, canEnterSpeak, canRecord, resolveSetupReadinessAction } from "./readiness";
 
-import { buildSetupReadinessRows, resolveSetupReadinessAction } from "./readiness";
-
-const diagnostic = (key: string, status: string): DiagnosticItem => ({
-  key,
-  status,
-  title_key: `diagnostics.${key}_title`,
-  detail_key: `diagnostics.${key}_${status}_detail`,
-  detail_args: {},
+const available = (key: ReadinessCheck["key"]): ReadinessCheck => ({
+  key, state: "available", blocking: true, reason: "available", detail_args: {},
+});
+const ready: ReadinessResponse = {
+  checks: [available("speech_recognition"), available("ai_tutor"), available("media_decoder"), available("storage")],
+  ready: true,
+};
+const withReason = (key: ReadinessCheck["key"], reason: ReadinessCheck["reason"], state: ReadinessCheck["state"] = "needs_setup"): ReadinessResponse => ({
+  checks: ready.checks.map((check) => check.key === key ? { ...check, state, reason } : check),
+  ready: false,
 });
 
-const configuredRuntime: RuntimeResponse = {
-  configured: true,
-  provider: "ollama",
-  model: "llama3.2:3b",
-  base_url: "http://localhost:11434/v1",
-  requires_api_key: false,
-  has_api_key: false,
-};
+const mapped = [
+  ["ai_tutor", "not_configured", "first_run.readiness_not_configured", "first_run.readiness_configure"],
+  ["ai_tutor", "credential_missing", "first_run.readiness_credential_missing", "first_run.readiness_add_credential"],
+  ["ai_tutor", "local_service_unreachable", "first_run.readiness_service_unreachable", "first_run.readiness_start_service"],
+  ["ai_tutor", "model_unavailable", "first_run.readiness_model_unavailable", "first_run.readiness_select_model"],
+  ["speech_recognition", "model_not_cached", "first_run.readiness_model_not_cached", "first_run.readiness_download_model"],
+  ["speech_recognition", "credential_missing", "first_run.readiness_credential_missing", "first_run.readiness_add_credential"],
+  ["media_decoder", "media_decoder_missing", "first_run.readiness_media_missing", "first_run.readiness_install_media"],
+  ["storage", "storage_not_writable", "first_run.readiness_storage_unwritable", "first_run.readiness_fix_storage"],
+] as const;
 
-const unconfiguredRuntime: RuntimeResponse = {
-  configured: false,
-  provider: "",
-  model: "",
-  base_url: "",
-  requires_api_key: false,
-  has_api_key: false,
-};
-
-describe("buildSetupReadinessRows", () => {
-  it("uses browser microphone results even when backend diagnostics cannot run", () => {
-    expect(buildSetupReadinessRows({ diagnostics: [], diagnosticsError: true, microphoneStatus: "ready", microphoneSetupPassed: true })[2].status).toBe("ready");
-    expect(buildSetupReadinessRows({ diagnostics: [diagnostic("microphone", "ok")] })[2].status).toBe("setup");
-    expect(buildSetupReadinessRows({ diagnostics: [], microphoneStatus: "denied" })[2].status).toBe("unavailable");
-  });
-  it("maps missing runtime dependencies to setup actions and blocks the sample check", () => {
-    const rows = buildSetupReadinessRows({
-      diagnostics: [diagnostic("whisper", "warning"), diagnostic("runtime", "warning")],
-      runtime: unconfiguredRuntime,
-      whisperCached: false,
-    });
-
-    expect(rows.map((row) => [row.key, row.status, row.disabled])).toEqual([
-      ["speech_recognition", "setup", false],
-      ["ai_tutor", "setup", false],
-      ["microphone", "setup", false],
-      ["sample_check", "setup", true],
-    ]);
-    expect(rows[0].actionKey).toBe("runtime_setup.setup_guide_download_model");
-    expect(rows[1].actionKey).toBe("runtime_setup.setup_guide_connect_ai");
-    expect(rows[3].detailKey).toBe("runtime_setup.setup_guide_sample_blocked");
+describe("backend readiness mapping", () => {
+  it.each(mapped)("maps %s/%s to Needs setup with specific rescue", (key, reason, detailKey, rescueKey) => {
+    const rows = buildSetupReadinessRows({ readiness: withReason(key, reason, "unavailable") });
+    const row = rows.find((item) => item.key === key);
+    expect(row).toMatchObject({ status: "setup", detailKey, rescueKey });
+    expect(canEnterSpeak(rows)).toBe(false);
+    expect(rows.find((item) => item.key === "sample_check")?.disabled).toBe(true);
   });
 
-  it("requires a confirmed microphone sample even when speech and AI are ready", () => {
-    const rows = buildSetupReadinessRows({
-      diagnostics: [
-        diagnostic("whisper", "ok"),
-        diagnostic("runtime", "ok"),
-        diagnostic("microphone", "info"),
-      ],
-      runtime: configuredRuntime,
-      whisperCached: true,
-    });
-
-    expect(rows.map((row) => [row.key, row.status, row.disabled])).toEqual([
-      ["speech_recognition", "ready", false],
-      ["ai_tutor", "configured", false],
-      ["microphone", "setup", false],
-      ["sample_check", "setup", true],
-    ]);
-    expect(rows[3].actionKey).toBe("runtime_setup.setup_guide_run_sample");
+  it("marks a cached speech model and reachable local tutor ready from backend checks", () => {
+    const rows = buildSetupReadinessRows({ readiness: ready, microphoneStatus: "ready", microphoneSetupPassed: true });
+    expect(rows.map((row) => row.status)).toEqual(["ready", "ready", "ready", "ready", "ready", "ready"]);
+    expect(canEnterSpeak(rows)).toBe(true);
+    expect(canRecord(rows)).toBe(true);
+    expect(rows.map((row) => row.status)).not.toContain("configured");
   });
 
-  it("does not mark a configured cloud tutor ready without its required credential", () => {
-    const rows = buildSetupReadinessRows({
-      diagnostics: [diagnostic("runtime", "ok"), diagnostic("runtime_api_key", "error")],
-      runtime: { ...configuredRuntime, requires_api_key: true, has_api_key: false },
-      whisperCached: true,
+  it("routes a missing Groq speech credential to cloud setup copy", () => {
+    const response = withReason("speech_recognition", "credential_missing");
+    response.checks[0].detail_args = { provider: "groq", model: "whisper-large-v3" };
+    expect(buildSetupReadinessRows({ readiness: response })[0]).toMatchObject({
+      status: "setup", detailKey: "first_run.cloud_speech_missing",
+      rescueKey: "first_run.rescue_cloud_speech",
+      actionKey: "first_run.readiness_configure_cloud_speech",
     });
-    expect(rows[1].status).toBe("unavailable");
-    expect(rows[1].detailKey).toBe("first_run.ai_missing_key");
-    expect(rows[1].rescueKey).toBe("first_run.rescue_ai_credential");
-    expect(rows[3].disabled).toBe(true);
   });
 
-  it("ignores a previous cloud credential error after switching to a valid local tutor", () => {
-    const rows = buildSetupReadinessRows({
-      diagnostics: [{
-        ...diagnostic("runtime_api_key", "error"),
-        detail_args: { provider: "openrouter", model: "old-model", base_url: "https://openrouter.ai/api/v1" },
-      }],
-      runtime: configuredRuntime,
-    });
-    expect(rows[1].status).toBe("configured");
-    expect(rows[1].detailKey).toBe("first_run.ai_configured");
+  it("requires microphone confirmation for recording but allows entry to Speak", () => {
+    const rows = buildSetupReadinessRows({ readiness: ready, microphoneStatus: "ready" });
+    expect(rows.find((row) => row.key === "microphone")?.status).toBe("setup");
+    expect(canEnterSpeak(rows)).toBe(true);
+    expect(canRecord(rows)).toBe(false);
+    expect(buildSetupReadinessRows({ readiness: ready, microphoneStatus: "denied" }).find((row) => row.key === "microphone")?.status).toBe("unavailable");
   });
 
-  it.each([
-    { provider: "groq", model: "current-model", base_url: "https://current.example/v1" },
-    { provider: "openrouter", model: "old-model", base_url: "https://current.example/v1" },
-    { provider: "openrouter", model: "current-model", base_url: "https://old.example/v1" },
-  ])("ignores a credential diagnostic for another runtime identity: $provider/$model/$base_url", (identity) => {
-    const rows = buildSetupReadinessRows({
-      diagnostics: [{ ...diagnostic("runtime_api_key", "error"), detail_args: identity }],
-      runtime: {
-        ...configuredRuntime, provider: "openrouter", model: "current-model",
-        base_url: "https://current.example/v1", requires_api_key: true, has_api_key: true,
-      },
-    });
-    expect(rows[1].status).toBe("ready");
+  it("does not let missing backend checks or a first load pass the guard", () => {
+    expect(canEnterSpeak(buildSetupReadinessRows({ readiness: { checks: [], ready: true } }))).toBe(false);
+    const rows = buildSetupReadinessRows({ readinessPending: true });
+    expect(rows.slice(0, 4).every((row) => row.status === "loading" && row.disabled)).toBe(true);
+    expect(canEnterSpeak(rows)).toBe(false);
   });
 
-  it("honors a credential error for the current runtime identity", () => {
-    const runtime = {
-      ...configuredRuntime, provider: "openrouter", model: "current-model",
-      base_url: "https://current.example/v1", requires_api_key: true, has_api_key: true,
-    };
-    const rows = buildSetupReadinessRows({
-      diagnostics: [{ ...diagnostic("runtime_api_key", "error"), detail_args: {
-        provider: runtime.provider, model: runtime.model, base_url: runtime.base_url,
-      } }],
-      runtime,
+  it("shows an unavailable backend only without cached readiness", () => {
+    expect(buildSetupReadinessRows({ readinessError: true })[0]).toMatchObject({
+      status: "unavailable", detailKey: "first_run.readiness_backend_unavailable",
+      rescueKey: "first_run.readiness_retry_backend",
     });
-    expect(rows[1].status).toBe("unavailable");
+    const rows = buildSetupReadinessRows({ readiness: ready, readinessError: true });
+    expect(rows[0].status).toBe("ready");
+    expect(canEnterSpeak(rows)).toBe(true);
   });
 
-  it("allows continuation without calling an untested local tutor ready", () => {
-    const rows = buildSetupReadinessRows({
-      diagnostics: [diagnostic("whisper", "ok"), diagnostic("runtime", "ok")],
-      runtime: configuredRuntime, whisperCached: true,
-      microphoneStatus: "ready", microphoneSetupPassed: true,
-    });
-    expect(rows.map((row) => row.status)).toEqual(["ready", "configured", "ready", "configured"]);
-    expect(rows[3].disabled).toBe(false);
-  });
-
-  it("marks a local tutor ready only after a recent user-triggered connection test", () => {
-    const rows = buildSetupReadinessRows({
-      diagnostics: [diagnostic("whisper", "ok"), diagnostic("runtime", "ok")],
-      runtime: configuredRuntime, connectionTestPassed: true,
-      microphoneStatus: "ready", microphoneSetupPassed: true,
-    });
-    expect(rows.slice(0, 3).map((row) => row.status)).toEqual(["ready", "ready", "ready"]);
-  });
-
-  it("keeps a missing selected speech model and unselected Groq account out of Ready", () => {
-    const local = buildSetupReadinessRows({
-      diagnostics: [diagnostic("whisper", "ok")], runtime: configuredRuntime,
-      whisperChecked: true, whisperCached: false,
-    });
-    expect(local[0].status).toBe("setup");
-
-    const cloud = buildSetupReadinessRows({
-      diagnostics: [diagnostic("whisper", "ok")], runtime: configuredRuntime,
-      cloudSpeechSelected: true, cloudSpeechConnected: false,
-    });
-    expect(cloud[0].status).toBe("setup");
-  });
-
-  it("does not claim speech ready when its settings cannot be checked", () => {
-    const rows = buildSetupReadinessRows({
-      diagnostics: [diagnostic("whisper", "ok")], runtime: configuredRuntime,
-      cloudSpeechError: true,
-    });
-    expect(rows[0].status).toBe("unavailable");
-  });
-
-  it("shows loading rows while runtime or diagnostics are still pending", () => {
-    const rows = buildSetupReadinessRows({
-      diagnostics: [],
-      diagnosticsPending: true,
-      runtimePending: true,
-      whisperPending: true,
-    });
-
-    expect(rows.map((row) => row.status)).toEqual([
-      "loading",
-      "loading",
-      "loading",
-      "loading",
-    ]);
-    expect(rows.every((row) => row.disabled)).toBe(true);
-  });
-});
-
-describe("resolveSetupReadinessAction", () => {
-  it("keeps provider setup actions local and enters Session Setup for practice checks", () => {
-    expect(resolveSetupReadinessAction("speech_recognition")).toEqual({
-      kind: "section",
-      value: "runtime-setup-whisper",
-    });
-    expect(resolveSetupReadinessAction("ai_tutor")).toEqual({
-      kind: "section",
-      value: "runtime-setup-connection",
-    });
-    expect(resolveSetupReadinessAction("microphone")).toEqual({
-      kind: "section",
-      value: "runtime-setup-microphone",
-    });
-    expect(resolveSetupReadinessAction("sample_check")).toEqual({
-      kind: "route",
-      value: "/session-setup",
-    });
+  it("keeps setup actions and retry actions on the right destinations", () => {
+    expect(resolveSetupReadinessAction("ai_tutor")).toEqual({ kind: "section", value: "runtime-setup-connection" });
+    expect(resolveSetupReadinessAction("speech_recognition")).toEqual({ kind: "section", value: "runtime-setup-whisper" });
+    expect(resolveSetupReadinessAction("microphone")).toEqual({ kind: "section", value: "runtime-setup-microphone" });
+    expect(resolveSetupReadinessAction("storage")).toEqual({ kind: "refresh" });
+    expect(resolveSetupReadinessAction("media_decoder")).toEqual({ kind: "refresh" });
+    expect(resolveSetupReadinessAction("sample_check")).toEqual({ kind: "route", value: "/session-setup" });
   });
 });

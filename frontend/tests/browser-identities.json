@@ -79,6 +79,11 @@
       "short upload is rejected by the real local worker without a review or history entry"
     ],
     [
+      "e2e/readinessContract.spec.ts",
+      "",
+      "unreachable local tutor shows rescue and refreshes to Ready before Speak"
+    ],
+    [
       "e2e/reviewChangeTaskFlow.spec.ts",
       "",
       "review change-task browser flow",

@@ -18,6 +18,9 @@ vi.mock("@/lib/api/client", () => ({
     getSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
     getResumeSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
     getDiagnostics: vi.fn(),
+    getReadiness: vi.fn().mockResolvedValue({ ready: true, checks: [
+      "speech_recognition", "ai_tutor", "media_decoder", "storage",
+    ].map(key => ({ key, state: "available", blocking: true, reason: "available", detail_args: {} })) }),
     getRuntime: vi.fn(),
     getSamples: vi.fn(),
   },

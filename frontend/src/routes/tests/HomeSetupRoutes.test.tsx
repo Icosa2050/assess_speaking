@@ -4,6 +4,8 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/renderWithProviders";
+import { queryKeys } from "@/lib/query/queryClient";
+import { readyReadiness, readinessWith } from "@/test/readinessFixtures";
 
 vi.mock("@/lib/api/client", () => ({
   ApiClientError: class ApiClientError extends Error {
@@ -18,6 +20,9 @@ vi.mock("@/lib/api/client", () => ({
     getSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
     getResumeSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
     getDiagnostics: vi.fn(),
+    getReadiness: vi.fn().mockResolvedValue({ ready: true, checks: [
+      "speech_recognition", "ai_tutor", "media_decoder", "storage",
+    ].map(key => ({ key, state: "available", blocking: true, reason: "available", detail_args: {} })) }),
     getRuntime: vi.fn(),
     getRuntimeSettings: vi.fn(),
     getWhisperModelStatus: vi.fn(),
@@ -32,6 +37,7 @@ import { AppFrame } from "@/App";
 
 const mockedGetRuntime = vi.mocked(apiClient.getRuntime);
 const mockedGetDiagnostics = vi.mocked(apiClient.getDiagnostics);
+const mockedGetReadiness = vi.mocked(apiClient.getReadiness);
 const mockedGetRuntimeSettings = vi.mocked(apiClient.getRuntimeSettings);
 const mockedGetWhisperModelStatus = vi.mocked(apiClient.getWhisperModelStatus);
 const mockedPostWhisperModelDownload = vi.mocked(apiClient.postWhisperModelDownload);
@@ -42,6 +48,7 @@ describe("Home and Runtime Setup routes", () => {
   afterEach(() => vi.unstubAllGlobals());
   beforeEach(() => {
     vi.clearAllMocks();
+    mockedGetReadiness.mockResolvedValue(readyReadiness);
     mockedGetRuntimeSettings.mockResolvedValue({
       ui_locale: "en", whisper_model: "small", active_connection_id: "",
       connections: [], asr_provider: "local",
@@ -113,7 +120,7 @@ describe("Home and Runtime Setup routes", () => {
     expect(startNewButton.closest("section")?.className).toContain("primaryPracticeCard");
     expect(readinessMeter).toHaveAttribute("aria-valuemin", "0");
     expect(readinessMeter).toHaveAttribute("aria-valuemax", "100");
-    expect(readinessMeter).toHaveAttribute("aria-valuenow", "0");
+    expect(readinessMeter).toHaveAttribute("aria-valuenow", "80");
     expect(diagnosticsHeading.closest("section")?.className).toContain("supportCard");
     expect(screen.getByRole("button", { name: "Open Setup Guide" })).toHaveAttribute(
       "data-semantic-id",
@@ -135,10 +142,15 @@ describe("Home and Runtime Setup routes", () => {
     expect(await screen.findByText("Next step")).toBeVisible();
 
     mockedGetDiagnostics.mockRejectedValue(new Error("offline"));
+    mockedGetReadiness.mockRejectedValue(new Error("offline"));
     await act(async () => {
-      await queryClient.invalidateQueries({ queryKey: ["diagnostics"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["diagnostics"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.readiness }),
+      ]);
     });
     expect(queryClient.getQueryState(["diagnostics"])?.status).toBe("error");
+    expect(queryClient.getQueryState(queryKeys.readiness)?.status).toBe("error");
     expect(screen.getByText("Next step")).toBeVisible();
     expect(screen.queryByText("The setup checks could not run. Open setup to check your connections.")).not.toBeInTheDocument();
   });
@@ -203,6 +215,7 @@ describe("Home and Runtime Setup routes", () => {
   });
 
   it("does not call stale saved preferences ready when the runtime is not configured", async () => {
+    mockedGetReadiness.mockResolvedValue(readinessWith("ai_tutor", "not_configured"));
     mockedGetRuntime.mockResolvedValue({ configured: false, provider: "", model: "", base_url: "", requires_api_key: false, has_api_key: false });
     mockedGetDiagnostics.mockResolvedValue({ items: [
       { key: "whisper", status: "ok", title_key: "", detail_key: "", detail_args: {} },
@@ -215,11 +228,12 @@ describe("Home and Runtime Setup routes", () => {
     } });
 
     expect(await screen.findByRole("button", { name: "Get ready to practice" })).toBeVisible();
-    await waitFor(() => expect(screen.getByRole("progressbar", { name: "Practice readiness" })).toHaveAttribute("aria-valuenow", "67"));
+    await waitFor(() => expect(screen.getByRole("progressbar", { name: "Practice readiness" })).toHaveAttribute("aria-valuenow", "80"));
     expect(screen.queryByText("Ready on this device")).not.toBeInTheDocument();
   });
 
   it("keeps a cloud tutor without its key unavailable on Home and Runtime Setup", async () => {
+    mockedGetReadiness.mockResolvedValue(readinessWith("ai_tutor", "credential_missing"));
     mockedGetRuntime.mockResolvedValue({
       configured: true, provider: "openrouter", model: "vendor/model", base_url: "https://example.test",
       requires_api_key: true, has_api_key: false,
@@ -234,13 +248,13 @@ describe("Home and Runtime Setup routes", () => {
       appState: { microphoneStatus: "ready", microphoneSetupPassed: true },
     });
 
-    await waitFor(() => expect(screen.getByRole("progressbar", { name: "Practice readiness" })).toHaveAttribute("aria-valuenow", "67"));
+    await waitFor(() => expect(screen.getByRole("progressbar", { name: "Practice readiness" })).toHaveAttribute("aria-valuenow", "80"));
     expect(screen.queryByText("Ready on this device")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Open Setup Guide" }));
     const tutor = await screen.findByTestId("runtime_setup.setup_guide.ai_tutor");
-    await waitFor(() => expect(tutor).toHaveAttribute("data-status", "unavailable"));
-    expect(tutor).toHaveTextContent("This service needs an account key before feedback can run.");
-    expect(tutor).toHaveTextContent("Add the key to the chosen connection below");
+    await waitFor(() => expect(tutor).toHaveAttribute("data-status", "setup"));
+    expect(tutor).toHaveTextContent("The selected service needs a saved account key.");
+    expect(tutor).toHaveTextContent("Add the key to the selected connection");
   });
 
   it("treats ok and informational diagnostics as healthy after actual microphone capture", async () => {
@@ -290,12 +304,11 @@ describe("Home and Runtime Setup routes", () => {
       },
     });
 
-    expect(await screen.findByText("Run the guided checks to prepare your first recording.")).toBeVisible();
-    expect(screen.queryByText("Ready on this device")).not.toBeInTheDocument();
+    expect(await screen.findByText("Ready on this device")).toBeVisible();
     expect(screen.queryByText("Please review these notices")).not.toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Practice readiness" })).toHaveAttribute(
       "aria-valuenow",
-      "67",
+      "100",
     );
   });
 
@@ -308,14 +321,14 @@ describe("Home and Runtime Setup routes", () => {
     const { store } = renderWithProviders(<AppFrame />, { locale: "en" });
     await screen.findByText("Please review these notices");
     const meter = screen.getByRole("progressbar", { name: "Practice readiness" });
-    expect(meter).toHaveAttribute("aria-valuenow", "33");
+    expect(meter).toHaveAttribute("aria-valuenow", "80");
     act(() => store.getState().setMicrophoneStatus("ready"));
-    expect(meter).toHaveAttribute("aria-valuenow", "33");
+    expect(meter).toHaveAttribute("aria-valuenow", "80");
     act(() => store.getState().setMicrophoneSetupPassed(true));
-    expect(meter).toHaveAttribute("aria-valuenow", "67");
+    expect(meter).toHaveAttribute("aria-valuenow", "100");
     expect(screen.getByText("Please review these notices")).toBeVisible();
     act(() => store.getState().setMicrophoneStatus("denied"));
-    expect(meter).toHaveAttribute("aria-valuenow", "33");
+    expect(meter).toHaveAttribute("aria-valuenow", "80");
   });
 
   it("counts only actionable diagnostics in the attention summary", async () => {
@@ -635,6 +648,9 @@ describe("Home and Runtime Setup routes", () => {
   });
 
   it("does not call cloud transcription ready without its selected Groq account", async () => {
+    const readiness = readinessWith("speech_recognition", "credential_missing");
+    readiness.checks[0].detail_args = { provider: "groq" };
+    mockedGetReadiness.mockResolvedValue(readiness);
     mockedGetRuntime.mockResolvedValue({
       configured: true, provider: "groq", model: "test", base_url: "https://example.test",
       requires_api_key: true, has_api_key: true,
@@ -653,6 +669,7 @@ describe("Home and Runtime Setup routes", () => {
     expect(screen.getByTestId("runtime_setup.local_path")).toHaveTextContent("Your current setup");
     expect(screen.getByTestId("runtime_setup.local_path")).not.toHaveTextContent("Recommended local path");
     expect(screen.queryByRole("button", { name: "Choose a practice task" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("runtime_setup.setup_guide.speech_recognition.action")).toHaveTextContent("Configure cloud transcription");
   });
 
   it("marks Groq transcription ready only with its selected saved account and key", async () => {
@@ -684,11 +701,12 @@ describe("Home and Runtime Setup routes", () => {
     });
 
     await waitFor(() => expect(screen.getByTestId("runtime_setup.setup_guide.speech_recognition")).toHaveAttribute("data-status", "ready"));
-    expect(screen.getByText("All three checks passed. You can choose a task.")).toBeVisible();
+    expect(screen.getByText("All required checks passed. You can choose a task.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Choose a practice task" })).toBeEnabled();
   });
 
   it("shares a recent user-triggered local connection test with Home", async () => {
+    mockedGetReadiness.mockResolvedValueOnce(readinessWith("ai_tutor", "local_service_unreachable")).mockResolvedValue(readyReadiness);
     mockedGetRuntime.mockResolvedValue({
       configured: true, provider: "ollama", model: "llama3.2:3b", base_url: "http://localhost:11434/v1",
       requires_api_key: false, has_api_key: false,
@@ -722,11 +740,11 @@ describe("Home and Runtime Setup routes", () => {
     });
 
     const tutor = await screen.findByTestId("runtime_setup.setup_guide.ai_tutor");
-    await waitFor(() => expect(tutor).toHaveAttribute("data-status", "configured"));
-    expect(screen.getByText(/The setup is configured/)).toBeVisible();
+    await waitFor(() => expect(tutor).toHaveAttribute("data-status", "setup"));
+    expect(screen.getByText("Follow the next action in the checklist below; a check is ready only after it passes.")).toBeVisible();
     fireEvent.click(screen.getByTestId("runtime_connection.test_connection"));
     await waitFor(() => expect(tutor).toHaveAttribute("data-status", "ready"));
-    expect(screen.getByText("All three checks passed. You can choose a task.")).toBeVisible();
+    expect(screen.getByText("All required checks passed. You can choose a task.")).toBeVisible();
 
     fireEvent.click(screen.getByRole("link", { name: "Practice" }));
     expect(await screen.findByText("Ready on this device")).toBeVisible();
@@ -766,6 +784,7 @@ describe("Home and Runtime Setup routes", () => {
   });
 
   it("keeps a successful test on a new connection after saving and activating it", async () => {
+    mockedGetReadiness.mockResolvedValue(readinessWith("ai_tutor", "not_configured"));
     mockedGetRuntime.mockResolvedValue({
       configured: false, provider: "", model: "", base_url: "",
       requires_api_key: false, has_api_key: false,
@@ -786,6 +805,7 @@ describe("Home and Runtime Setup routes", () => {
       tested_at: "2026-10-27T09:00:00Z", content_preview: "ok",
     });
     mockedPutRuntimeSettings.mockImplementation(async () => {
+      mockedGetReadiness.mockResolvedValue(readyReadiness);
       mockedGetRuntime.mockResolvedValue({
         configured: true, provider: "ollama", model: "local-model", base_url: "http://localhost:11434/v1",
         requires_api_key: false, has_api_key: false,
@@ -807,10 +827,11 @@ describe("Home and Runtime Setup routes", () => {
     await screen.findByText(/Connection to .* succeeded/);
     fireEvent.click(screen.getByTestId("runtime_connection.save_connection"));
     await waitFor(() => expect(screen.getByTestId("runtime_setup.setup_guide.ai_tutor")).toHaveAttribute("data-status", "ready"));
-    expect(screen.getByText("The setup is configured. Live connection availability is checked when you start; the checklist does not yet claim every check passed.")).toBeVisible();
+    expect(screen.getByText("Start speaking opens the recording step. Finish the device checks before you record; the microphone check is required there.")).toBeVisible();
   });
 
   it("refreshes speech diagnostics after a model download before entering Session Setup", async () => {
+    mockedGetReadiness.mockResolvedValue(readinessWith("speech_recognition", "model_not_cached"));
     mockedGetRuntime.mockResolvedValue({
       configured: true, provider: "ollama", model: "llama3.2:3b", base_url: "http://localhost:11434/v1",
       requires_api_key: false, has_api_key: false,
@@ -833,9 +854,9 @@ describe("Home and Runtime Setup routes", () => {
         model: "small", repo_id: "systran/faster-whisper-small", cached: true, cached_path: "/tmp/small",
         recommended: true, recommendation_reason: "Practice tier",
       });
-    mockedPostWhisperModelDownload.mockResolvedValue({
-      model: "small", repo_id: "systran/faster-whisper-small", cached: true, cached_path: "/tmp/small",
-      recommended: true, recommendation_reason: "Practice tier",
+    mockedPostWhisperModelDownload.mockImplementation(async () => {
+      mockedGetReadiness.mockResolvedValue(readyReadiness);
+      return { model: "small", repo_id: "systran/faster-whisper-small", cached: true, cached_path: "/tmp/small", recommended: true, recommendation_reason: "Practice tier" };
     });
 
     renderWithProviders(<AppFrame />, {
@@ -850,12 +871,13 @@ describe("Home and Runtime Setup routes", () => {
     fireEvent.click(screen.getByRole("button", { name: "Choose a practice task" }));
     fireEvent.change(await screen.findByLabelText("Learner name or nickname"), { target: { value: "maria" } });
     fireEvent.click(screen.getByTestId("setup.recommended_start"));
-    expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Continue to the recording step");
+    expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Ready to record");
     expect(screen.getByRole("button", { name: "Start speaking" })).toBeVisible();
   });
 
   it("does not continue with a downloaded speech model until that model is saved", async () => {
     let savedModel = "small";
+    mockedGetReadiness.mockImplementation(async () => savedModel === "medium" ? readyReadiness : readinessWith("speech_recognition", "model_not_cached"));
     let mediumCached = false;
     const connection = {
       connection_id: "local-1", provider_key: "ollama", provider_choice: "ollama_local", provider_label: "Ollama local",
@@ -912,7 +934,7 @@ describe("Home and Runtime Setup routes", () => {
     fireEvent.click(screen.getByRole("button", { name: "Choose a practice task" }));
     fireEvent.change(await screen.findByLabelText("Learner name or nickname"), { target: { value: "maria" } });
     fireEvent.click(screen.getByTestId("setup.recommended_start"));
-    expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Continue to the recording step");
+    expect(screen.getByTestId("setup.runtime_callout")).toHaveTextContent("Ready to record");
     expect(screen.getByRole("button", { name: "Start speaking" })).toBeVisible();
   });
 

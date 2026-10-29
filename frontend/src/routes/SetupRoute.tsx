@@ -22,12 +22,14 @@ import { createTranslator, semanticAttributes, SEMANTIC_IDS } from "@/lib/i18n";
 import { queryKeys } from "@/lib/query/queryClient";
 import {
   buildSetupReadinessRows,
+  canEnterSpeak,
+  canRecord,
   canContinueWithCheck,
   resolveSetupReadinessAction,
   type SetupReadinessKey,
 } from "@/lib/setup/readiness";
-import { useCloudSpeechConnection } from "@/lib/setup/cloudSpeech";
-import { markConnectionTest, useRecentConnectionTest } from "@/lib/setup/connectionVerification";
+import { markConnectionTest } from "@/lib/setup/connectionVerification";
+import { useReadiness } from "@/lib/setup/useReadiness";
 import { useAppStore } from "@/lib/state/appStore";
 import styles from "./SetupRoute.module.css";
 
@@ -228,8 +230,7 @@ export const SetupRoute = () => {
   const whisperItem = findDiagnostic(diagnosticsItems, "whisper");
   const runtime = runtimeQuery.data;
   const runtimeSettings = runtimeSettingsQuery.data;
-  const cloudSpeech = useCloudSpeechConnection(runtimeSettings);
-  const connectionTestPassed = useRecentConnectionTest(runtime);
+  const readinessQuery = useReadiness();
 
   const activeConnection = useMemo(() => {
     if (!runtimeSettings) {
@@ -258,20 +259,12 @@ export const SetupRoute = () => {
   const whisperStatusMessage = whisperStatusQuery.data?.cached
     ? translate("runtime_setup.cache_ready", { path: whisperStatusQuery.data.cached_path })
     : whisperMessage || whisperMessageFromDiagnostics;
-  const setupReadinessRows = buildSetupReadinessRows({
-    diagnostics: diagnosticsItems,
+  const readinessRows = buildSetupReadinessRows({
+    readiness: readinessQuery.data,
+    readinessError: readinessQuery.isError && !readinessQuery.data,
+    readinessPending: readinessQuery.isPending,
     microphoneStatus: microphoneTest.status,
     microphoneSetupPassed: microphoneTest.passed,
-    diagnosticsError: diagnosticsQuery.isError && !diagnosticsQuery.data,
-    diagnosticsPending: diagnosticsQuery.isPending,
-    runtime,
-    runtimeError: runtimeQuery.isError && !runtimeQuery.data,
-    runtimePending: runtimeQuery.isPending,
-    connectionTestPassed,
-    cloudSpeechSelected: cloudSpeech.selected,
-    cloudSpeechConnected: cloudSpeech.connected,
-    cloudSpeechPending: cloudSpeech.pending || runtimeSettingsQuery.isPending,
-    cloudSpeechError: cloudSpeech.error || (runtimeSettingsQuery.isError && !runtimeSettingsQuery.data),
   });
 
   const cloudAsr = runtimeSettings?.asr_provider === "groq";
@@ -281,24 +274,9 @@ export const SetupRoute = () => {
   }, [cloudDisclosureOpen]);
   const recommendedLocalPath = !cloudAsr && (!runtime?.configured ||
     ["ollama", "ollama_local"].includes(activeConnection?.provider_choice ?? runtime.provider));
-  const cloudCopy = {
-    en: ["Groq cloud transcription selected", "Configure cloud transcription"],
-    it: ["Trascrizione cloud Groq selezionata", "Configura trascrizione cloud"],
-    de: ["Groq Cloud-Transkription ausgewählt", "Cloud-Transkription einrichten"],
-    es: ["Transcripción Groq en la nube seleccionada", "Configurar transcripción en la nube"],
-    fr: ["Transcription cloud Groq sélectionnée", "Configurer la transcription cloud"],
-  }[locale];
-  const truthfulRows = setupReadinessRows.map((row) => row.key === "ai_tutor" && !runtime?.configured && row.status === "ready"
-    ? { ...row, status: "setup" as const } : row);
-  const readinessRows = cloudAsr ? truthfulRows.map(row => row.key === "speech_recognition"
-    ? {...row, detailKey: row.status === "ready" ? "cloud.speech" : "first_run.cloud_speech_missing", actionKey: "cloud.configure"} : row) : truthfulRows;
-  const readinessTranslate = (key: string, vars?: Record<string, string | number>) =>
-    key === "cloud.speech" ? cloudCopy[0] : key === "cloud.configure" ? cloudCopy[1] : translate(key, vars);
   const requiredRows = readinessRows.filter((row) => row.key !== "sample_check");
-  const setupReady = Boolean(runtime?.configured) &&
-    requiredRows.every((row) => row.status === "ready");
-  const setupCanContinue = Boolean(runtime?.configured) &&
-    requiredRows.filter((row) => row.key !== "microphone").every((row) => canContinueWithCheck(row.status));
+  const setupReady = canRecord(requiredRows);
+  const setupCanContinue = canEnterSpeak(requiredRows);
   const returnCheck = requiredRows.find((row) => row.key !== "microphone" && !canContinueWithCheck(row.status));
 
   const initialDraft = buildDraftFromConnection(activeConnection, translate);
@@ -316,6 +294,7 @@ export const SetupRoute = () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.runtime }),
       queryClient.invalidateQueries({ queryKey: queryKeys.diagnostics }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.readiness }),
       queryClient.invalidateQueries({ queryKey: ["runtime", "settings"] }),
       queryClient.invalidateQueries({ queryKey: ["runtime", "whisper", selectedWhisperModel] }),
     ]);
@@ -334,6 +313,7 @@ export const SetupRoute = () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["runtime", "whisper", selectedWhisperModel] }),
         queryClient.invalidateQueries({ queryKey: queryKeys.diagnostics }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.readiness }),
       ]);
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
@@ -404,6 +384,7 @@ export const SetupRoute = () => {
     }
     if (key === "speech_recognition" && cloudAsr) { scrollToSetupSection("runtime-setup-cloud"); return; }
     const target = resolveSetupReadinessAction(key);
+    if (target.kind === "refresh") { void readinessQuery.refetch(); return; }
     if (target.kind === "section") {
       scrollToSetupSection(target.value);
       return;
@@ -426,6 +407,7 @@ export const SetupRoute = () => {
         connection.base_url === activeConnection.base_url) {
         markConnectionTest(queryClient, runtime, true);
       }
+      await queryClient.invalidateQueries({ queryKey: queryKeys.readiness });
       setFormStatus("test-succeeded");
       setFormStatusMessage(
         translate("runtime_setup.test_message", {
@@ -447,6 +429,7 @@ export const SetupRoute = () => {
       if (runtime?.configured && activeConnection && connection.connection_id === activeConnection.connection_id) {
         markConnectionTest(queryClient, runtime, false);
       }
+      await queryClient.invalidateQueries({ queryKey: queryKeys.readiness });
       setFormStatusMessage(translate("runtime_setup.test_error", { detail }));
     } finally {
       setIsBusy(false);
@@ -529,13 +512,13 @@ export const SetupRoute = () => {
           {setupCanContinue ? <Button onClick={() => navigate("/session-setup")}>{translate("first_run.choose_task")}</Button> : null}
         </div>
         <p role="status" className={styles.checkStatus}>
-          {translate(setupReady ? "first_run.checks_ready" : setupCanContinue ? "first_run.checks_configured" : requiredRows.some((row) => row.status === "loading") ? "first_run.checks_loading" : "first_run.checks_next")}
+          {translate(setupReady ? "first_run.checks_ready" : setupCanContinue ? "first_run.continue_to_speak_body" : requiredRows.some((row) => row.status === "loading") ? "first_run.checks_loading" : "first_run.checks_next")}
         </p>
       </Card>
 
       <SetupReadinessPanel
         rows={readinessRows}
-        translate={readinessTranslate}
+        translate={translate}
         onAction={handleSetupReadinessAction}
       />
 

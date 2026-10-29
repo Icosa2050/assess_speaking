@@ -6,6 +6,7 @@ import type {
   AssessmentCreateResponse,
   AssessmentStatusResponse,
   DiagnosticsResponse,
+  ReadinessResponse,
   ErrorCode,
   ErrorResponse,
   FrozenApiRoute,
@@ -173,6 +174,8 @@ export const createApiClient = (baseUrl?: string) => ({
 
   getDiagnostics: (options?: ClientOptions) =>
     requestJson<DiagnosticsResponse>("/v1/diagnostics", { method: "GET" }, { ...options, baseUrl }),
+  getReadiness: (options?: ClientOptions) =>
+    requestJson<ReadinessResponse>("/v1/readiness", { method: "GET" }, { ...options, baseUrl }),
 
   getRuntime: (options?: ClientOptions) =>
     requestJson<RuntimeResponse>("/v1/runtime", { method: "GET" }, { ...options, baseUrl }),

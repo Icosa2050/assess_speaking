@@ -1,3 +1,4 @@
+import { stubReadyReadiness } from "../readinessStub";
 import { expect, test } from "../fixtures";
 
 const syntheticWav = (seconds: number) => {
@@ -14,6 +15,7 @@ const syntheticWav = (seconds: number) => {
 };
 
 test("short upload is rejected by the real local worker without a review or history entry", async ({ page }) => {
+  await stubReadyReadiness(page);
   await page.route("**/v1/runtime", (route) => route.fulfill({ json: {
     configured: true, provider: "ollama", model: "synthetic-no-model-needed",
     base_url: "http://127.0.0.1:11434/v1", requires_api_key: false, has_api_key: false,

@@ -1,3 +1,4 @@
+import { stubReadyReadiness } from "../readinessStub";
 import { expect, test, type Page, type Route } from "../fixtures";
 
 const runtimeSettings = {
@@ -79,6 +80,7 @@ const fulfillJson = (route: Route, json: unknown) =>
   });
 
 const installReviewBackend = async (page: Page) => {
+  await stubReadyReadiness(page);
   await page.route("**/v1/diagnostics", (route) => fulfillJson(route, { items: [] }));
   await page.route("**/v1/runtime", (route) =>
     fulfillJson(route, {

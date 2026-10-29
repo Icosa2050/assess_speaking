@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppFrame } from "@/App";
 import { renderWithProviders } from "@/test/renderWithProviders";
+import { readyReadiness, readinessWith } from "@/test/readinessFixtures";
 import { queryKeys } from "@/lib/query/queryClient";
 
 vi.mock("@/lib/api/client", () => ({
@@ -27,6 +28,9 @@ vi.mock("@/lib/api/client", () => ({
     getAssessmentStatus: vi.fn(),
     getRuntime: vi.fn(),
     getDiagnostics: vi.fn(),
+    getReadiness: vi.fn().mockResolvedValue({ ready: true, checks: [
+      "speech_recognition", "ai_tutor", "media_decoder", "storage",
+    ].map(key => ({ key, state: "available", blocking: true, reason: "available", detail_args: {} })) }),
     getRuntimeSettings: vi.fn(),
     getWhisperModelStatus: vi.fn(),
     uploadAudio: vi.fn(),
@@ -41,6 +45,7 @@ const mockedCreateAssessment = vi.mocked(apiClient.createAssessment);
 const mockedGetAssessmentStatus = vi.mocked(apiClient.getAssessmentStatus);
 const mockedGetRuntime = vi.mocked(apiClient.getRuntime);
 const mockedGetDiagnostics = vi.mocked(apiClient.getDiagnostics);
+const mockedGetReadiness = vi.mocked(apiClient.getReadiness);
 const mockedGetRuntimeSettings = vi.mocked(apiClient.getRuntimeSettings);
 const mockedUploadAudio = vi.mocked(apiClient.uploadAudio);
 
@@ -213,6 +218,7 @@ describe("Speak route", () => {
   });
 
   it("redirects a direct Speak link when saved setup points to a missing runtime", async () => {
+    mockedGetReadiness.mockResolvedValue(readinessWith("ai_tutor", "not_configured"));
     mockedGetRuntime.mockResolvedValue({
       configured: false, provider: "", model: "", base_url: "",
       requires_api_key: false, has_api_key: false,
@@ -224,10 +230,7 @@ describe("Speak route", () => {
     expect(screen.getByText(/needs attention before you can continue/)).toBeVisible();
     expect(screen.queryByTestId("speak.record_start")).not.toBeInTheDocument();
 
-    act(() => queryClient.setQueryData(["runtime"], {
-      configured: true, provider: "ollama_local", model: "llama3.2:3b", base_url: "http://localhost:11434",
-      requires_api_key: false, has_api_key: false,
-    }));
+    act(() => queryClient.setQueryData(queryKeys.readiness, readyReadiness));
     fireEvent.click(await screen.findByRole("button", { name: "Return to the recording step" }));
     expect(await screen.findByTestId("speak.recording_panel", {}, { timeout: 5_000 })).toBeVisible();
   });
@@ -241,6 +244,7 @@ describe("Speak route", () => {
   });
 
   it("redirects a direct Speak link when a selected cloud tutor lacks its key", async () => {
+    mockedGetReadiness.mockResolvedValue(readinessWith("ai_tutor", "credential_missing"));
     mockedGetRuntime.mockResolvedValue({
       configured: true, provider: "openrouter", model: "vendor/model", base_url: "https://example.test",
       requires_api_key: true, has_api_key: false,
@@ -257,6 +261,7 @@ describe("Speak route", () => {
     window.localStorage.removeItem("assess-speaking.first-take-recorded");
     vi.mocked(apiClient.getUploadLimits).mockResolvedValue({ max_bytes: 104857600, available_bytes: 104857600 });
     vi.clearAllMocks();
+    mockedGetReadiness.mockResolvedValue(readyReadiness);
     vi.mocked(apiClient.getSharingRoute).mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null });
     stopTrack.mockClear();
     FakeMediaRecorder.instances = [];
@@ -739,8 +744,9 @@ describe("Speak route", () => {
     await screen.findByRole("button", { name: "Stop recording" });
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
 
-    act(() => { void queryClient.invalidateQueries({ queryKey: ["runtime", "cloud"] }); });
-    await waitFor(() => expect(queryClient.getQueryState(["runtime", "cloud"])?.fetchStatus).toBe("fetching"));
+    mockedGetReadiness.mockImplementation(() => new Promise(() => undefined));
+    act(() => { void queryClient.invalidateQueries({ queryKey: queryKeys.readiness }); });
+    await waitFor(() => expect(queryClient.getQueryState(queryKeys.readiness)?.fetchStatus).toBe("fetching"));
     expect(screen.getByTestId("speak.recording_panel")).toBe(panel);
     expect(screen.getByRole("button", { name: "Stop recording" })).toBeVisible();
     expect(FakeMediaRecorder.instances.at(-1)?.state).toBe("recording");
@@ -753,21 +759,15 @@ describe("Speak route", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Start recording" }));
     const panel = screen.getByTestId("speak.recording_panel");
     await screen.findByRole("button", { name: "Stop recording" });
-    mockedGetDiagnostics.mockRejectedValue(new Error("offline"));
-    mockedGetRuntime.mockRejectedValue(new Error("offline"));
-    mockedGetRuntimeSettings.mockRejectedValue(new Error("offline"));
+    mockedGetReadiness.mockRejectedValue(new Error("offline"));
 
     act(() => {
       void Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["diagnostics"] }),
-        queryClient.invalidateQueries({ queryKey: ["runtime"] }),
-        queryClient.invalidateQueries({ queryKey: ["runtime", "settings"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.readiness }),
       ]);
     });
     await waitFor(() => {
-      expect(queryClient.getQueryState(["diagnostics"])?.status).toBe("error");
-      expect(queryClient.getQueryState(["runtime"])?.status).toBe("error");
-      expect(queryClient.getQueryState(["runtime", "settings"])?.status).toBe("error");
+      expect(queryClient.getQueryState(queryKeys.readiness)?.status).toBe("error");
     }, { timeout: 5_000 });
     expect(screen.getByTestId("speak.recording_panel")).toBe(panel);
     expect(screen.getByRole("button", { name: "Stop recording" })).toBeVisible();

@@ -303,6 +303,7 @@ export const SettingsRoute = () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.runtime }),
       queryClient.invalidateQueries({ queryKey: queryKeys.diagnostics }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.readiness }),
       queryClient.invalidateQueries({ queryKey: ["runtime", "settings"] }),
       queryClient.invalidateQueries({ queryKey: ["runtime", "whisper", selectedWhisperModel] }),
     ]);
@@ -422,6 +423,7 @@ export const SettingsRoute = () => {
         }),
       );
       await queryClient.invalidateQueries({ queryKey: ["runtime", "whisper", selectedWhisperModel] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.readiness });
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
       setWhisperMessage(translate("settings.whisper_download_failed", { detail }));

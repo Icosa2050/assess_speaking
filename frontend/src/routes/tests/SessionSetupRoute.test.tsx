@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppFrame } from "@/App";
 import { renderWithProviders } from "@/test/renderWithProviders";
+import { readyReadiness, readinessWith } from "@/test/readinessFixtures";
 
 vi.mock("@/lib/api/client", () => ({
   ApiClientError: class ApiClientError extends Error {
@@ -22,6 +23,9 @@ vi.mock("@/lib/api/client", () => ({
     getSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
     getResumeSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
     getDiagnostics: vi.fn(),
+    getReadiness: vi.fn().mockResolvedValue({ ready: true, checks: [
+      "speech_recognition", "ai_tutor", "media_decoder", "storage",
+    ].map(key => ({ key, state: "available", blocking: true, reason: "available", detail_args: {} })) }),
     getHistory: vi.fn(),
     getRuntime: vi.fn(),
     getRuntimeSettings: vi.fn(),
@@ -33,6 +37,7 @@ import { apiClient } from "@/lib/api/client";
 const mockedGetRuntime = vi.mocked(apiClient.getRuntime);
 const mockedGetRuntimeSettings = vi.mocked(apiClient.getRuntimeSettings);
 const mockedGetDiagnostics = vi.mocked(apiClient.getDiagnostics);
+const mockedGetReadiness = vi.mocked(apiClient.getReadiness);
 const mockedGetHistory = vi.mocked(apiClient.getHistory);
 const STORAGE_KEY = "assess-speaking.session-setup.theme-library";
 const createLocalStorageMock = () => {
@@ -55,6 +60,7 @@ const createLocalStorageMock = () => {
 describe("Session Setup route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockedGetReadiness.mockResolvedValue(readyReadiness);
     Object.defineProperty(window, "localStorage", {
       configurable: true,
       value: createLocalStorageMock(),
@@ -227,6 +233,7 @@ describe("Session Setup route", () => {
   });
 
   it("does not call cloud transcription ready without its selected Groq account", async () => {
+    mockedGetReadiness.mockResolvedValue(readinessWith("speech_recognition", "credential_missing"));
     mockedGetRuntime.mockResolvedValue({
       configured: true, provider: "groq", model: "test", base_url: "https://example.test",
       requires_api_key: true, has_api_key: true,
@@ -252,6 +259,7 @@ describe("Session Setup route", () => {
   });
 
   it("keeps a configured local tutor out of Speak when the speech model is missing", async () => {
+    mockedGetReadiness.mockResolvedValue(readinessWith("speech_recognition", "model_not_cached"));
     mockedGetRuntime.mockResolvedValue({
       configured: true, provider: "ollama", model: "llama3.2:3b", base_url: "http://localhost:11434/v1",
       requires_api_key: false, has_api_key: false,
@@ -271,6 +279,7 @@ describe("Session Setup route", () => {
   });
 
   it("sends stale saved preferences to device setup when the backend has no runtime", async () => {
+    mockedGetReadiness.mockResolvedValue(readinessWith("ai_tutor", "not_configured"));
     mockedGetRuntime.mockResolvedValue({
       configured: false, provider: "", model: "", base_url: "",
       requires_api_key: false, has_api_key: false,
@@ -470,6 +479,7 @@ describe("Session Setup route", () => {
   });
 
   it("lets learners customize details and routes to runtime setup when no runtime connection exists", async () => {
+    mockedGetReadiness.mockResolvedValue(readinessWith("ai_tutor", "not_configured"));
     mockedGetRuntime.mockResolvedValue({
       configured: false,
       provider: "",

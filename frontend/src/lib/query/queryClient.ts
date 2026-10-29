@@ -9,6 +9,7 @@ export const pollingIntervals = {
 export const queryKeys = {
   health: ["health"] as const,
   diagnostics: ["diagnostics"] as const,
+  readiness: ["readiness"] as const,
   runtime: ["runtime"] as const,
   samples: ["samples"] as const,
   history: ["history"] as const,

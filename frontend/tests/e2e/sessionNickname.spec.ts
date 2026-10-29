@@ -1,6 +1,8 @@
+import { stubReadyReadiness } from "../readinessStub";
 import { expect, test } from "../fixtures";
 
 test("nickname survives navigation and starting another practice, including edits and clearing", async ({ page }) => {
+  await stubReadyReadiness(page);
   await page.route("**/v1/runtime", (route) => route.fulfill({ json: {
     configured: true, provider: "ollama", model: "nickname-fixture",
     base_url: "http://127.0.0.1:11434/v1", requires_api_key: false, has_api_key: false,

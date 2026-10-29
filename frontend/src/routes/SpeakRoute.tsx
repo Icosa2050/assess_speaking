@@ -21,16 +21,15 @@ import { MIN_REVIEW_SECONDS } from "@/lib/recordingPolicy";
 import { hasFirstTakeMilestone, recordFirstTakeMilestone } from "@/lib/history/firstTakeMilestone";
 import { StatusBanner } from "@/components/ui/StatusBanner";
 import { pollingIntervals, queryKeys } from "@/lib/query/queryClient";
-import { buildSetupReadinessRows, canContinueWithCheck } from "@/lib/setup/readiness";
-import { useCloudSpeechConnection } from "@/lib/setup/cloudSpeech";
-import { useRecentConnectionTest } from "@/lib/setup/connectionVerification";
+import { buildSetupReadinessRows, canEnterSpeak } from "@/lib/setup/readiness";
+import { useReadiness } from "@/lib/setup/useReadiness";
 import {
-  resolveSpeakRouteGuardTarget,
   selectAssessmentLifecycleState,
   selectCanSubmitAssessment,
   useAppStore,
 } from "@/lib/state/appStore";
 import {
+  hasSetupDraft,
   hasRecordingAttachment,
   type RecordingInputMethod,
 } from "@/lib/state/sessionDraft";
@@ -161,7 +160,6 @@ export const SpeakRoute = () => {
   const navigate = useNavigate();
   const setMicrophoneStatus = useAppStore(state => state.setMicrophoneStatus);
   const locale = useAppStore((state) => state.preferences.uiLocale);
-  const preferences = useAppStore((state) => state.preferences);
   const draft = useAppStore((state) => state.draft);
   const retryRestorePending = useAppStore((state) => state.retryRestorePending);
   const confirmRetryRestore = useAppStore((state) => state.confirmRetryRestore);
@@ -196,27 +194,13 @@ export const SpeakRoute = () => {
     queryKey: ["runtime", "settings"],
     queryFn: () => apiClient.getRuntimeSettings(),
   });
-  const diagnosticsQuery = useQuery({
-    queryKey: queryKeys.diagnostics,
-    queryFn: () => apiClient.getDiagnostics(),
-  });
-  const cloudSpeech = useCloudSpeechConnection(runtimeSettingsQuery.data);
-  const connectionTestPassed = useRecentConnectionTest(runtimeQuery.data);
+  const readinessQuery = useReadiness();
   const speakingChecks = buildSetupReadinessRows({
-    diagnostics: diagnosticsQuery.data?.items ?? [],
-    diagnosticsError: diagnosticsQuery.isError && !diagnosticsQuery.data,
-    diagnosticsPending: diagnosticsQuery.isPending,
-    runtime: runtimeQuery.data,
-    runtimeError: runtimeQuery.isError && !runtimeQuery.data,
-    runtimePending: runtimeQuery.isPending,
-    connectionTestPassed,
-    cloudSpeechSelected: cloudSpeech.selected,
-    cloudSpeechConnected: cloudSpeech.connected,
-    cloudSpeechPending: cloudSpeech.pending || (cloudSpeech.selected && runtimeSettingsQuery.isPending),
-    cloudSpeechError: cloudSpeech.error || (cloudSpeech.selected && runtimeSettingsQuery.isError && !runtimeSettingsQuery.data),
-  }).filter((row) => row.key === "speech_recognition" || row.key === "ai_tutor");
-  const speakingChecksPending = speakingChecks.some((row) => row.status === "loading");
-  const speakingChecksBlocked = speakingChecks.some((row) => !canContinueWithCheck(row.status));
+    readiness: readinessQuery.data,
+    readinessError: readinessQuery.isError && !readinessQuery.data,
+    readinessPending: readinessQuery.isPending,
+  });
+  const speakingChecksPending = !readinessQuery.data && readinessQuery.isPending;
 
   const effectiveWhisperModel =
     String(runtimeSettingsQuery.data?.whisper_model || "").trim() || DEFAULT_SCORING_WHISPER_MODEL;
@@ -225,22 +209,8 @@ export const SpeakRoute = () => {
     [runtimeSettingsQuery.data],
   );
 
-  const effectivePreferences = useMemo(
-    () => ({
-      ...preferences,
-      activeConnectionId: runtimeQuery.data?.configured
-        ? preferences.activeConnectionId ||
-          `${runtimeQuery.data.provider || "runtime"}:${runtimeQuery.data.model || "active"}`
-        : "",
-      setupComplete: Boolean(runtimeQuery.data?.configured),
-    }),
-    [preferences, runtimeQuery.data],
-  );
-
-  const guardTarget = resolveSpeakRouteGuardTarget({
-    draft,
-    preferences: effectivePreferences,
-  }) ?? (speakingChecksBlocked && !speakingChecksPending ? "/runtime-setup" : null);
+  const guardTarget = !hasSetupDraft(draft) ? "/session-setup"
+    : !speakingChecksPending && !canEnterSpeak(speakingChecks) ? "/runtime-setup" : null;
 
   useEffect(() => {
     setCurrentPage("speak");
