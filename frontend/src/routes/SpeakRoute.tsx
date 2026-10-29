@@ -1,7 +1,7 @@
 import { useSharingRoute, SharingSummary } from "@/lib/setup/sharing";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { AssessmentStatusPanel } from "@/components/speak/AssessmentStatusPanel";
 import { RecorderPanel } from "@/components/speak/RecorderPanel";
@@ -50,6 +50,7 @@ const cardStyle = {
 const phaseMessage = (
   translate: ReturnType<typeof createTranslator>,
   phase: string,
+  lifecycleState: string,
 ): string => {
   if (!phase) {
     return "";
@@ -57,6 +58,9 @@ const phaseMessage = (
 
   const translated = translate(`speak.job_phase_${phase}`);
   const resolvedPhase = translated.startsWith("[") ? phase.replaceAll("_", " ") : translated;
+  if (lifecycleState === "failed" || lifecycleState === "cancelled") {
+    return ["failed", "cancelled", "done"].includes(phase) ? "" : translate("speak.wait_stopped_phase", { phase: resolvedPhase });
+  }
   return translate("speak.job_phase", { phase: resolvedPhase });
 };
 
@@ -149,6 +153,7 @@ const toReviewState = (
 };
 
 export const SpeakRoute = () => {
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const setMicrophoneStatus = useAppStore(state => state.setMicrophoneStatus);
   const locale = useAppStore((state) => state.preferences.uiLocale);
@@ -248,6 +253,7 @@ export const SpeakRoute = () => {
   const [uploadStartedAt, setUploadStartedAt] = useState<number | null>(null);
   const [uploadUpdatedAt, setUploadUpdatedAt] = useState<number | null>(null);
   const [cancelError, setCancelError] = useState("");
+  const [retryError, setRetryError] = useState("");
   const [pollError, setPollError] = useState("");
   const uploadController = useRef<AbortController | null>(null);
   const submittingRef = useRef(false);
@@ -330,7 +336,7 @@ export const SpeakRoute = () => {
   const sharingQuery = useSharingRoute(sharingSelection, Boolean(runtimeQuery.data?.configured));
   const assessmentStatusQuery = useQuery({
     queryKey: queryKeys.assessment(recording.job.assessmentId || "pending"),
-    queryFn: () => apiClient.getAssessmentStatus(recording.job.assessmentId),
+    queryFn: ({ signal }) => apiClient.getAssessmentStatus(recording.job.assessmentId, { signal }),
     enabled:
       Boolean(recording.job.assessmentId) &&
       (lifecycleState === "queued" || lifecycleState === "running"),
@@ -350,7 +356,7 @@ export const SpeakRoute = () => {
     setRecordingJob({
       assessmentId: nextStatus.assessment_id,
       status: nextStatus.status,
-      phase: nextStatus.phase,
+      phase: nextStatus.status === "failed" || nextStatus.status === "cancelled" ? nextStatus.last_phase || nextStatus.phase : nextStatus.phase,
       progress: nextStatus.progress,
       error: nextStatus.error?.code === "recording_too_short" ? translate("speak.recording_too_short") : nextStatus.error?.detail ?? "",
       reportPath: nextStatus.report_path ?? "",
@@ -429,6 +435,7 @@ export const SpeakRoute = () => {
   const shortRecording = recordedDurationSec !== null && recordedDurationSec < MIN_REVIEW_SECONDS;
   const canSubmitLiveAttachment = canSubmitAssessment && Boolean(attachedFile) && !shortRecording && Boolean(sharingQuery.data?.available);
   const statusMessage = cancelError ? translate("speak.wait_cancel_failed", { detail: cancelError })
+    : retryError ? translate("speak.wait_retry_not_ready", { detail: retryError })
     : pollError ? translate("speak.wait_status_failed", { detail: pollError })
     : shortRecording ? translate("speak.recording_too_short") : buildStatusMessage({
     errorMessage: recording.error || recording.job.error,
@@ -493,6 +500,7 @@ export const SpeakRoute = () => {
     try {
       submittingRef.current = true;
       setCancelError("");
+      setRetryError("");
       setPollError("");
       setIsSubmitting(true);
       const refreshed = await sharingQuery.refetch();
@@ -579,6 +587,12 @@ export const SpeakRoute = () => {
       if (error instanceof ApiClientError && error.code === "sharing_changed") {
         await Promise.all([runtimeQuery.refetch(), runtimeSettingsQuery.refetch(), sharingQuery.refetch()]);
       }
+      if (error instanceof ApiClientError && error.responseStatus === 409 && recording.job.assessmentId &&
+          (recording.job.status === "failed" || recording.job.status === "cancelled")) {
+        setRecordingJob({});
+        setRetryError(error.detail);
+        return;
+      }
       if (error instanceof ApiClientError && error.responseStatus === 404) savedUpload.current = null;
       setRecordingError(
         error instanceof DOMException && error.name === "AbortError"
@@ -619,11 +633,13 @@ export const SpeakRoute = () => {
     try {
       setCancelError("");
       const response = await apiClient.cancelAssessment(recording.job.assessmentId);
+      await queryClient.cancelQueries({ queryKey: queryKeys.assessment(response.assessment_id) });
+      queryClient.setQueryData(queryKeys.assessment(response.assessment_id), response);
       setPollError("");
       setRecordingJob({
         assessmentId: response.assessment_id,
         status: response.status,
-        phase: response.phase,
+        phase: response.status === "failed" || response.status === "cancelled" ? response.last_phase || response.phase : response.phase,
         progress: response.progress,
         error: response.status === "failed" ? response.error?.detail ?? ""
           : response.status === "cancelled" ? translate("speak.job_status_cancelled") : "",
@@ -740,7 +756,7 @@ export const SpeakRoute = () => {
           showReadyCheckpoint={hasAttachment && lifecycleState === "idle" && !isSubmitting}
           statusMessage={statusMessage}
           statusTone={
-            cancelError || pollError || lifecycleState === "failed"
+            cancelError || retryError || pollError || lifecycleState === "failed"
               ? "error"
               : lifecycleState === "cancelled"
                 ? "warning"
@@ -770,7 +786,7 @@ export const SpeakRoute = () => {
           onLabelChange={(value) => updateRecordingInputs(value, recording.notesInput)}
           onNotesChange={(value) => updateRecordingInputs(recording.labelInput, value)}
           onSubmit={() => void handleSubmit()}
-          phaseMessage={phaseMessage(translate, recording.job.phase)}
+          phaseMessage={phaseMessage(translate, recording.job.phase, lifecycleState)}
           runtimeDetail={runtimeDetail}
           statusMessage={uploadProgress !== null ? translate("speak.upload_progress", { percent: uploadProgress }) : isSubmitting ? translate("speak.assessing") : statusMessage}
           submitDisabled={!canSubmitLiveAttachment || isSubmitting}

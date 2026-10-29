@@ -96,8 +96,32 @@ class BackendJobsTests(unittest.TestCase):
             process.terminate.assert_called_once()
             process.kill.assert_called_once()
             self.assertIs(manager._processes[assessment_id], process)
-            self.assertEqual(manager.get_status(assessment_id).status, JobStatus.RUNNING)
+            running_status = manager.get_status(assessment_id)
+            self.assertEqual(running_status.status, JobStatus.RUNNING)
+            self.assertIsNotNone(running_status.worker_seen_at)
             with self.assertRaises(AssessmentBusyError):
+                manager.submit(AssessmentCreateRequest(audio_id="unused", whisper="tiny", provider="ollama",
+                    llm_model="test", expected_language="en", feedback_language="en", speaker_id="test",
+                    task_family="generic", theme="test", target_duration_sec=90))
+
+    def test_provider_request_must_finish_before_a_cancelled_job_can_be_retried(self):
+        with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
+            config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8767)
+            manager = JobManager(config)
+            assessment_id = "asmt_cloud"
+            (config.jobs_dir / f"{assessment_id}.json").write_text(json.dumps({
+                "assessment_id": assessment_id, "status": "running", "phase": "scoring_rubric", "progress": 0.5,
+            }), encoding="utf-8")
+            state = {"alive": True}
+            process = mock.Mock()
+            process.is_alive.side_effect = lambda: state["alive"]
+            process.terminate.side_effect = lambda: state.update(alive=False)
+            manager._processes[assessment_id] = process
+            service = mock.Mock()
+            service.is_alive.return_value = True
+            manager._service_threads[assessment_id] = service
+            self.assertEqual(manager.cancel(assessment_id).status, JobStatus.CANCELLED)
+            with self.assertRaisesRegex(AssessmentBusyError, "provider request is still finishing"):
                 manager.submit(AssessmentCreateRequest(audio_id="unused", whisper="tiny", provider="ollama",
                     llm_model="test", expected_language="en", feedback_language="en", speaker_id="test",
                     task_family="generic", theme="test", target_duration_sec=90))
@@ -136,6 +160,7 @@ class BackendJobsTests(unittest.TestCase):
             self.assertFalse(cancel_thread.is_alive())
             self.assertEqual(created[0].assessment_id, job_file.stem)
             self.assertEqual(cancelled[0].status, JobStatus.CANCELLED)
+            self.assertEqual(cancelled[0].last_phase, "queued")
             self.assertEqual(json.loads(job_file.read_text())["status"], "cancelled")
 
     def test_recovered_job_reports_terminal_update_timestamps(self):
@@ -149,6 +174,7 @@ class BackendJobsTests(unittest.TestCase):
             manager = JobManager(config)
             status = manager.get_status(assessment_id)
             self.assertEqual(status.status, JobStatus.FAILED)
+            self.assertEqual(status.last_phase, "transcribing")
             self.assertEqual(status.updated_at, status.phase_started_at)
             self.assertNotEqual(status.updated_at, status.created_at)
             from fastapi.testclient import TestClient

@@ -399,7 +399,7 @@ describe("Speak route", () => {
   });
 
   it("shows a failure returned by Cancel without calling it a cancellation", async () => {
-    mockedCancelAssessment.mockResolvedValueOnce({ assessment_id: "asmt-1", status: "failed", phase: "failed", progress: 1,
+    mockedCancelAssessment.mockResolvedValueOnce({ assessment_id: "asmt-1", status: "failed", phase: "failed", last_phase: "scoring_rubric", progress: 1,
       error: { code: "runtime_error", detail: "Scoring failed" }, report_path: null, payload: null, summary: null });
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
     fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
@@ -409,7 +409,28 @@ describe("Speak route", () => {
     await screen.findByTestId("speak.cancel_assessment");
     fireEvent.click(screen.getByTestId("speak.cancel_assessment"));
     await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Assessment failed: Scoring failed"));
+    expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Stopped during Scoring rubric.");
     expect(screen.getByTestId("speak.status_panel")).not.toHaveTextContent("Assessment failed: The assessment was cancelled");
+  });
+
+  it("keeps a cancelled assessment resumable while its provider request finishes", async () => {
+    mockedCreateAssessment.mockResolvedValueOnce({ assessment_id: "asmt-1", status: "queued" })
+      .mockRejectedValueOnce(new ApiClientError(409, { code: "runtime_error", detail: "A prior provider request is still finishing." }))
+      .mockResolvedValueOnce({ assessment_id: "asmt-2", status: "queued" });
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+    fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    fireEvent.click(await screen.findByTestId("speak.cancel_assessment"));
+    fireEvent.click(await screen.findByTestId("speak.retry_assessment"));
+    await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Retry is not ready yet"));
+    expect(store.getState().recording.job.assessmentId).toBe("asmt-1");
+    expect(screen.getByTestId("speak.retry_assessment")).toBeVisible();
+    fireEvent.click(screen.getByTestId("speak.retry_assessment"));
+    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(3));
+    expect(mockedCreateAssessment.mock.calls[2][0]).toMatchObject({ resume_assessment_id: "asmt-1", audio_id: "audio-1" });
+    expect(mockedUploadAudio).toHaveBeenCalledTimes(1);
   });
 
   it("recovers a lost accepted response with the same submission ID", async () => {

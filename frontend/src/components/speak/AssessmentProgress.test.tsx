@@ -14,7 +14,8 @@ it("explains a scoring stall at the boundary without announcing a changing timer
   vi.setSystemTime(started + 119_000);
   render(<AssessmentProgress status={{ assessment_id: "asmt-1", status: "running",
     phase: "scoring_rubric", progress: 0, created_at: "2026-10-29T12:00:00Z",
-    updated_at: "2026-10-29T12:00:00Z", phase_started_at: "2026-10-29T12:00:00Z" }}
+    updated_at: "2026-10-29T12:00:00Z", phase_started_at: "2026-10-29T12:00:00Z",
+    worker_seen_at: "2026-10-29T12:01:59Z" }}
     uploadStartedAt={null} uploadUpdatedAt={null} uploading={false} uploaded translate={createTranslator("en")} />);
 
   expect(screen.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "false");
@@ -23,6 +24,7 @@ it("explains a scoring stall at the boundary without announcing a changing timer
   expect(screen.getByTestId("speak.assessment_progress")).toHaveAttribute("data-stalled", "true");
   expect(screen.getByText("Still working")).toBeVisible();
   expect(screen.getByTestId("speak.wait_time")).toHaveTextContent("Last progress update 2 min ago");
+  expect(screen.getByTestId("speak.wait_time")).toHaveTextContent("Worker confirmed active 1 sec ago");
   expect(screen.getByTestId("speak.wait_time")).toHaveAttribute("role", "timer");
   expect(screen.getByTestId("speak.wait_time")).toHaveAttribute("aria-live", "off");
   expect(screen.getByText("Score").closest("li")).toHaveAttribute("aria-current", "step");

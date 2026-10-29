@@ -326,6 +326,8 @@ class AssessmentStatusResponse(BaseModel):
     created_at: str | None = None
     updated_at: str | None = None
     phase_started_at: str | None = None
+    last_phase: str | None = None
+    worker_seen_at: str | None = None
     error: ErrorResponse | None = None
     report_path: str | None = None
     summary: AssessmentSummary | None = None

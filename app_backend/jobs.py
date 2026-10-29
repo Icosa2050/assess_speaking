@@ -105,6 +105,7 @@ def recover_incomplete_job_metadata(jobs_dir: Path) -> int:
         payload = _read_json(job_file)
         if payload.get("status") not in INCOMPLETE_JOB_STATUSES:
             continue
+        payload["last_phase"] = payload.get("phase") or ""
         payload["status"] = JobStatus.FAILED.value
         payload["phase"] = "failed"
         payload["progress"] = 1.0
@@ -207,6 +208,8 @@ def _update_job_file(
     if changed_phase or changed_status:
         current["updated_at"] = _now_iso()
     if changed_phase:
+        if phase in {"done", "failed", "cancelled"} and current.get("phase") not in {"done", "failed", "cancelled"}:
+            current["last_phase"] = current.get("phase") or ""
         current["phase_started_at"] = current["updated_at"]
     if status is not None:
         current["status"] = status
@@ -377,6 +380,7 @@ class JobManager:
         self._config = config
         self._ctx = multiprocessing.get_context("spawn")
         self._processes: dict[str, multiprocessing.Process] = {}
+        self._service_threads: dict[str, threading.Thread] = {}
         self._submit_lock = threading.RLock()
         self._recover_existing_jobs()
 
@@ -482,6 +486,8 @@ class JobManager:
                         raise AssessmentIdentityConflictError("This submission ID already belongs to a different request or sharing route.")
                     return AssessmentCreateResponse(assessment_id=prior["assessment_id"], status=JobStatus(prior["status"]))
             self.wait_for_finished_workers()
+            if any(thread.is_alive() for thread in self._service_threads.values()):
+                raise AssessmentBusyError("A prior provider request is still finishing. Wait for it to finish before retrying.")
             if any(process.is_alive() for process in list(self._processes.values())):
                 raise AssessmentBusyError("Another attempt is still being analysed. Wait for it to finish or cancel it, then retry.")
             if upload_limits(self.uploads_dir)["available_bytes"] <= 0:
@@ -559,7 +565,10 @@ class JobManager:
         self._processes[assessment_id] = process
         if child is not None:
             child.close()
-            threading.Thread(target=self._serve_cloud if cloud_runtime else self._serve_credentials, args=(process, parent, cloud_runtime or credential_ref), daemon=True).start()
+            service = threading.Thread(target=self._serve_cloud if cloud_runtime else self._serve_credentials,
+                                       args=(process, parent, cloud_runtime or credential_ref), daemon=True)
+            self._service_threads[assessment_id] = service
+            service.start()
         return AssessmentCreateResponse(assessment_id=assessment_id, status=JobStatus.QUEUED)
 
     @staticmethod
@@ -625,6 +634,7 @@ class JobManager:
             return payload
         process.join(timeout=0.1)
         if payload.get("status") in {JobStatus.QUEUED.value, JobStatus.RUNNING.value}:
+            payload["last_phase"] = payload.get("phase") or ""
             payload["status"] = JobStatus.FAILED.value
             payload["phase"] = "failed"
             payload["progress"] = 1.0
@@ -648,6 +658,8 @@ class JobManager:
         if not job_file.exists():
             return None
         payload = self._reconcile_process(assessment_id, _read_json(job_file))
+        process = self._processes.get(assessment_id)
+        worker_seen_at = _now_iso() if process is not None and process.is_alive() and payload.get("status") in INCOMPLETE_JOB_STATUSES else None
         from assessment_runtime.eligibility import annotate_payload
         return AssessmentStatusResponse(
             assessment_id=assessment_id,
@@ -657,6 +669,8 @@ class JobManager:
             created_at=payload.get("created_at") or None,
             updated_at=payload.get("updated_at") or payload.get("created_at") or None,
             phase_started_at=payload.get("phase_started_at") or payload.get("updated_at") or payload.get("created_at") or None,
+            last_phase=payload.get("last_phase") or None,
+            worker_seen_at=worker_seen_at,
             error=(ErrorResponse(**payload["error"]) if isinstance(payload.get("error"), dict) else None),
             report_path=str(payload.get("report_path") or "") or None,
             summary=_build_summary(payload.get("payload")),
@@ -692,6 +706,7 @@ class JobManager:
         cancelled_at = _now_iso()
         payload.update(
             {
+                "last_phase": payload.get("phase") or "",
                 "status": JobStatus.CANCELLED.value,
                 "phase": "cancelled",
                 "progress": 1.0,

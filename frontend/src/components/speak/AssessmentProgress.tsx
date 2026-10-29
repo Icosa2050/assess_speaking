@@ -36,8 +36,10 @@ export function AssessmentProgress({ status, uploadStartedAt, uploadUpdatedAt, u
   const active = uploading || status?.status === "queued" || status?.status === "running";
   const started = uploading ? uploadStartedAt : Date.parse(status?.created_at || "");
   const updated = uploading ? uploadUpdatedAt ?? uploadStartedAt : Date.parse(status?.updated_at || status?.created_at || "");
+  const workerSeen = Date.parse(status?.worker_seen_at || "");
   const elapsed = Number.isFinite(started) && started !== null ? Math.max(0, Math.floor((now - started) / 1000)) : null;
   const sinceUpdate = Number.isFinite(updated) && updated !== null ? Math.max(0, Math.floor((now - updated) / 1000)) : null;
+  const sinceWorkerSeen = Number.isFinite(workerSeen) ? Math.max(0, Math.floor((now - workerSeen) / 1000)) : null;
   const stalled = active && sinceUpdate !== null && sinceUpdate * 1000 >= STALL_MS;
   const format = (seconds: number) => seconds < 60
     ? translate("speak.wait_seconds", { count: seconds })
@@ -62,6 +64,7 @@ export function AssessmentProgress({ status, uploadStartedAt, uploadUpdatedAt, u
       <p className={styles.time} role="timer" aria-live="off" data-testid="speak.wait_time">
         {elapsed !== null && translate("speak.wait_elapsed", { duration: format(elapsed) })}
         {sinceUpdate !== null && ` · ${translate("speak.wait_last_update", { duration: format(sinceUpdate) })}`}
+        {sinceWorkerSeen !== null && ` · ${translate("speak.wait_worker_seen", { duration: format(sinceWorkerSeen) })}`}
       </p>
       {stalled && <StatusBanner title={translate("speak.wait_stalled_title")} tone="warning">
         {translate(uploaded ? "speak.wait_stalled_body" : "speak.wait_stalled_upload_body")}

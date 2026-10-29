@@ -294,7 +294,7 @@ test("assessment wait explains a stall and recovers without a second upload", as
   await page.route("**/v1/assessments/*/cancel", route => {
     cancels += 1;
     state = "cancelled";
-    return fulfillJson(route, { assessment_id: currentId, status: "cancelled", phase: "cancelled", progress: 1 });
+    return fulfillJson(route, { assessment_id: currentId, status: "cancelled", phase: "cancelled", last_phase: "scoring_rubric", progress: 1 });
   });
   await page.route("**/v1/assessments/*", route => {
     const old = new Date(Date.now() - 180_000).toISOString();
@@ -304,7 +304,9 @@ test("assessment wait explains a stall and recovers without a second upload", as
       phase: stopped ? state : "scoring_rubric", progress: 0,
       created_at: state === "stalled" ? old : recent,
       updated_at: state === "stalled" ? old : recent,
+      worker_seen_at: stopped ? null : recent,
       phase_started_at: state === "stalled" ? old : recent,
+      last_phase: stopped ? "scoring_rubric" : null,
       error: state === "failed" ? { code: "runtime_error", detail: "Model request failed" } : null });
   });
 
