@@ -222,7 +222,7 @@ export const ThemeForm = ({
       minHeight: "44px",
       padding: "0.7rem 0.8rem",
       borderRadius: "8px",
-      border: active ? "1px solid var(--color-selected-border)" : "1px solid var(--color-border-decorative)",
+      border: active ? "1px solid var(--color-selected-border)" : "1px solid var(--color-border-control)",
       backgroundColor: active ? "var(--color-selected)" : "var(--color-surface)",
       color: "var(--color-text)",
       cursor: "pointer",

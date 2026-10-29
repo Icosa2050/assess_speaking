@@ -23,7 +23,7 @@ const actionButtonStyle = {
   minHeight: "44px",
   padding: "0.75rem 1rem",
   borderRadius: "8px",
-  border: "1px solid var(--color-border-decorative)",
+  border: "1px solid var(--color-border-control)",
   backgroundColor: "var(--color-surface)",
   color: "var(--color-text)",
   fontWeight: 600,

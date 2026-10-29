@@ -65,7 +65,7 @@
 .banner.success { border-color: var(--color-success-border); background: var(--color-success-bg); color: var(--color-success); }
 .card { min-width: 0; padding: var(--space-6); border: 1px solid var(--color-border-decorative); border-radius: var(--radius-card); background: var(--color-surface); color: var(--color-text); box-shadow: var(--shadow-card); }
 .cardSubtle { background: var(--color-surface-subtle); }
-.disclosure { border: 1px solid var(--color-border-decorative); border-radius: var(--radius-card); background: var(--color-surface); color: var(--color-text); }
+.disclosure { border: 1px solid var(--color-border-control); border-radius: var(--radius-card); background: var(--color-surface); color: var(--color-text); }
 .disclosure summary { min-height: var(--control-height); padding: 10px 16px; font-weight: var(--weight-semibold); cursor: pointer; }
 .disclosure summary > h3 { display: inline; margin: 0; font: inherit; }
 .disclosureBody { padding: 0 16px 16px; }

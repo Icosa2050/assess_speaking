@@ -54,7 +54,7 @@ const digestValueStyle = {
 } as const;
 
 const detailsStyle = {
-  border: "1px solid var(--color-border-decorative)",
+  border: "1px solid var(--color-border-control)",
   borderRadius: "8px",
   backgroundColor: "var(--color-surface)",
 } as const;

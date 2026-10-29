@@ -48,7 +48,7 @@ const primaryButtonStyle = {
 const secondaryButtonStyle = {
   ...primaryButtonStyle,
   backgroundColor: "var(--color-surface)",
-  border: "1px solid var(--color-border-decorative)",
+  border: "1px solid var(--color-border-control)",
 } as const;
 
 const tertiaryButtonStyle = {

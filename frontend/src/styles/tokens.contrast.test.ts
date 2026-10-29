@@ -26,18 +26,29 @@ const contrast = (first: string, second: string) => {
   return (lighter + 0.05) / (darker + 0.05);
 };
 
+const blend = (overlay: string, background: string): string => {
+  const channels = overlay.match(/[\d.]+/g)?.map(Number);
+  if (!channels || channels.length !== 4) throw new Error(`Expected RGBA, got ${overlay}`);
+  const alpha = channels[3];
+  const rgb = [0, 1, 2].map(index =>
+    Math.round(channels[index] * alpha + Number.parseInt(background.slice(1 + index * 2, 3 + index * 2), 16) * (1 - alpha)));
+  return `#${rgb.map(channel => channel.toString(16).padStart(2, "0")).join("")}`;
+};
+
 const pairs = [
   ["color-text", "color-surface", 4.5],
   ["color-text-muted", "color-surface", 4.5],
   ["color-brand", "color-surface", 4.5],
-  ["color-brand", "color-selected", 3],
+  ["color-brand", "color-selected", 4.5],
   ["color-on-brand", "color-brand", 4.5],
+  ["color-on-brand", "color-score-fill", 4.5],
   ["color-border-control", "color-surface", 3],
   ["color-border-control", "color-surface-subtle", 3],
   ["color-border-control", "color-canvas", 3],
   ["color-focus", "color-surface", 3],
   ["color-focus", "color-surface-subtle", 3],
   ["color-focus", "color-canvas", 3],
+  ["color-focus", "color-selected", 3],
   ["color-focus-on-brand", "color-brand", 3],
   ["color-selected-border", "color-selected", 3],
   ["color-disabled-text", "color-disabled-surface", 4.5],
@@ -62,6 +73,20 @@ describe("used design token contrast", () => {
     it(`${theme}: danger button text meets 4.5:1`, () => {
       const foreground = theme === "light" ? colors["color-surface"] : colors["color-canvas"];
       expect(contrast(foreground, colors["color-error"])).toBeGreaterThanOrEqual(4.5);
+    });
+    it(`${theme}: the hero secondary action has visible text and both border edges`, () => {
+      const brand = colors["color-brand"];
+      const tintedFill = blend(colors["color-on-brand-tint"], brand);
+      const border = blend(colors["color-on-brand-border"], brand);
+      expect(contrast(colors["color-on-brand"], tintedFill)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(border, tintedFill)).toBeGreaterThanOrEqual(3);
+      expect(contrast(border, brand)).toBeGreaterThanOrEqual(3);
+    });
+    it(`${theme}: every CEFR badge label meets normal-text contrast`, () => {
+      for (const level of ["a1", "a2", "b1", "b2", "c1", "c2"] as const) {
+        expect(contrast(colors[`color-cefr-${level}-text`], colors[`color-cefr-${level}-bg`]), level)
+          .toBeGreaterThanOrEqual(4.5);
+      }
     });
   }
 });

@@ -67,7 +67,7 @@ const diagnosticsIcon = (state: DiagnosticsCardState): IconName => {
 };
 
 export const practiceReadinessPercent = (ready: number, required: number): number =>
-  required === 0 ? 0 : Math.round(100 * ready / required);
+  required === 0 ? 100 : Math.round(100 * ready / required);
 
 export const HomeRoute = () => {
   const navigate = useNavigate();
@@ -110,7 +110,7 @@ export const HomeRoute = () => {
   }).filter(row => row.key !== "sample_check");
   const requiredPracticeChecks = practiceChecks.filter(isBlockingSetupReadinessRow);
   const readyChecks = requiredPracticeChecks.filter(row => row.status === "ready").length;
-  const allChecksReady = canRecord(practiceChecks);
+  const allChecksReady = requiredPracticeChecks.length === 0 || canRecord(practiceChecks);
   const diagnosticsCardState: DiagnosticsCardState = (() => {
     if (readinessQuery.isPending || diagnosticsQuery.isPending) return "loading";
     if ((readinessQuery.isError && !readinessQuery.data) || (diagnosticsQuery.isError && !diagnosticsQuery.data)) return "unavailable";

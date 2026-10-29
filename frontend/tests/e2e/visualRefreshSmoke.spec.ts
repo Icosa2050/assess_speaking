@@ -468,16 +468,23 @@ const expectNoPageHorizontalOverflow = async (page: Page) => {
     const overflowingElements = [...document.body.querySelectorAll<HTMLElement>("*")]
       .map((element) => {
         const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        if (style.display === "none" || style.visibility !== "visible" || rect.width === 0) return null;
+        for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+          if (/(auto|scroll)/.test(getComputedStyle(parent).overflowX) && parent.scrollWidth > parent.clientWidth) return null;
+        }
 
         return {
           className: element.className ? String(element.className) : "",
           tagName: element.tagName.toLowerCase(),
           testId: element.dataset.testid ?? "",
           width: Math.ceil(rect.width),
+          left: Math.floor(rect.left),
           right: Math.ceil(rect.right),
         };
       })
-      .filter((element) => element.width > viewportWidth || element.right > viewportWidth)
+      .filter((element): element is NonNullable<typeof element> => element !== null)
+      .filter((element) => element.width > viewportWidth + 1 || element.right > viewportWidth + 1 || element.left < -1)
       .sort((left, right) => Math.max(right.width, right.right) - Math.max(left.width, left.right))
       .slice(0, 8);
 
@@ -491,6 +498,7 @@ const expectNoPageHorizontalOverflow = async (page: Page) => {
   expect(overflow, JSON.stringify(overflow, null, 2)).toMatchObject({
     documentWidth: overflow.viewportWidth,
   });
+  expect(overflow.overflowingElements, JSON.stringify(overflow, null, 2)).toEqual([]);
 };
 
 const contrastRatio = (foreground: string, background: string) => {
@@ -689,6 +697,34 @@ test("renders primary visual-refresh artifacts without serif typography", async 
   await expectMobileRouteAudit(page, "visual-refresh-smoke-history-expanded-mobile.png");
 });
 
+test("stored appearance is applied before loading and main DOM content is ready", async ({ page }) => {
+  await installVisualBackend(page);
+  await page.addInitScript(() => {
+    document.addEventListener("DOMContentLoaded", () => {
+      document.documentElement.setAttribute("data-theme-at-dom-ready", document.documentElement.dataset.theme ?? "");
+    });
+  });
+  await page.goto("/");
+  for (const [appearance, system, theme] of [
+    ["dark", "light", "dark"], ["system", "dark", "dark"], ["light", "dark", "light"],
+  ] as const) {
+    await page.evaluate(value => localStorage.setItem("vostavo.appearance.v1", value), appearance);
+    await page.emulateMedia({ colorScheme: system });
+    for (const url of ["/loading.html", "/"]) {
+      await page.goto(url);
+      await expect(page.locator("html")).toHaveAttribute("data-theme-at-dom-ready", theme);
+      await expect(page.locator("html")).toHaveCSS("color-scheme", theme);
+      const colors = await page.evaluate(() => ({
+        text: getComputedStyle(document.body).color,
+        background: getComputedStyle(document.body).backgroundColor,
+      }));
+      expect(contrastRatio(colors.text, colors.background), `${appearance} ${url} first surface`).toBeGreaterThanOrEqual(4.5);
+      const opposite = theme === "dark" ? "rgb(255, 255, 255)" : "rgb(0, 0, 0)";
+      expect(contrastRatio(opposite, colors.background), `${appearance} ${url} surface polarity`).toBeGreaterThanOrEqual(4.5);
+    }
+  }
+});
+
 test("light routes and opt-in dark journal card stay usable at desktop sizes", async ({ page }) => {
   test.setTimeout(120_000);
   await installVisualBackend(page);
@@ -819,8 +855,13 @@ test("light routes and opt-in dark journal card stay usable at desktop sizes", a
 test("semantic light and dark surfaces keep primary routes readable at both desktop sizes", async ({ page }) => {
   test.setTimeout(180_000);
   await installVisualBackend(page);
+  const healthyJournal = (route: Route) => fulfillJson(route, {
+    transaction: null, archived: [], completed: [], recovery_error: null,
+  });
+  await page.route("**/v1/journal/status", healthyJournal);
+  await page.emulateMedia({ reducedMotion: "reduce" });
   const output = process.env.THEME_MIGRATION_SCREENSHOT_DIR;
-  const contrastChecks: Array<{ route: string; theme: string; viewport: string; text: number; border: number }> = [];
+  const contrastChecks: Array<{ route: string; theme: string; viewport: string; text: number; border: number; textCount: number; borderCount: number }> = [];
 
   const audit = async (route: string, theme: string) => {
     for (const viewport of [{ width: 1360, height: 900 }, { width: 1100, height: 760 }]) {
@@ -828,6 +869,7 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
       await expect(page.locator("main").getByRole("heading").first()).toBeVisible();
       await expectNoPageHorizontalOverflow(page);
       const computed = await page.evaluate(() => {
+        const scope = document.querySelector("dialog[open]") ?? document.body;
         const parse = (value: string): [number, number, number, number] => {
           const values = value.match(/[\d.]+/g)?.map(Number) ?? [];
           return values.length >= 3 ? [values[0], values[1], values[2], values[3] ?? 1] : [0, 0, 0, 0];
@@ -854,22 +896,69 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
         };
         const visible = (element: Element) => {
           const style = getComputedStyle(element);
-          return style.display !== "none" && style.visibility === "visible" && element.getClientRects().length > 0;
+          return style.display !== "none" && style.visibility === "visible" && style.opacity !== "0" &&
+            element.getClientRects().length > 0;
         };
-        const text = [...document.querySelectorAll("header h1, header p, nav a, main h2, main h3, main p, main label, main button, main a, main input, main select, main textarea")]
-          .filter(element => visible(element) && element.getAttribute("aria-disabled") !== "true" && Boolean(element.textContent?.trim())).slice(0, 30)
-          .map(element => ({ label: element.textContent?.trim().slice(0, 55), ratio: ratio(parse(getComputedStyle(element).color), background(element)) }));
-        const border = [...document.querySelectorAll("main input, main select, main textarea")]
-          .filter(element => visible(element) && !(element as HTMLInputElement).disabled).slice(0, 4)
-          .map(element => ({ label: element.tagName, ratio: ratio(parse(getComputedStyle(element).borderTopColor), background(element)) }));
+        const text: Array<{ label: string; ratio: number; foreground: string; background: number[] }> = [];
+        const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {
+          const node = walker.currentNode;
+          const element = node.parentElement;
+          const label = node.textContent?.trim();
+          if (!element || !label || !visible(element) ||
+              element.closest("button:disabled, [aria-disabled='true'], script, style, noscript")) continue;
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          if (!range.getClientRects().length) continue;
+          const style = getComputedStyle(element);
+          const foreground = element instanceof SVGElement ? style.fill : style.color;
+          if (foreground === "none") continue;
+          const surface = background(element);
+          text.push({ label: label.slice(0, 55), ratio: ratio(blend(parse(foreground), surface), surface), foreground, background: surface });
+        }
+        for (const element of scope.querySelectorAll("input, select, textarea")) {
+          if (!visible(element) || (element as HTMLInputElement).disabled) continue;
+          const surface = background(element);
+          const foreground = getComputedStyle(element).color;
+          text.push({ label: element.getAttribute("aria-label") ?? element.tagName,
+            ratio: ratio(parse(foreground), surface), foreground, background: surface });
+        }
+        const border = [...scope.querySelectorAll("button, input, select, textarea, summary, [role='button'], [role='tab']")]
+          .filter(element => visible(element) && !(element as HTMLButtonElement).disabled && element.getAttribute("aria-disabled") !== "true")
+          .flatMap(element => {
+            const style = getComputedStyle(element);
+            const fill = background(element);
+            const outside = background(element.parentElement ?? element);
+            if (ratio(fill, outside) >= 3) return [];
+            const edges = ["Top", "Right", "Bottom", "Left"] as const;
+            const ratios = edges.flatMap(edge => {
+              const width = Number.parseFloat(style[`border${edge}Width`]);
+              if (!width || style[`border${edge}Style`] === "none") return [];
+              const borderColor = parse(style[`border${edge}Color`]);
+              if (borderColor[3] === 0) return [];
+              const ink = blend(borderColor, fill);
+              return [Math.min(ratio(ink, fill), ratio(ink, outside))];
+            });
+            return ratios.length ? [{ label: (element.textContent?.trim() || element.getAttribute("aria-label") || element.tagName).slice(0, 55),
+              ratio: Math.min(...ratios) }] : [];
+          });
         return { text, border };
       });
-      for (const item of computed.text) expect(item.ratio, `${theme} ${route} ${viewport.width}: ${item.label}`).toBeGreaterThanOrEqual(4.5);
+      expect(computed.text.length, `${theme} ${route} ${viewport.width} text coverage`).toBeGreaterThan(0);
+      if (route === "review") {
+        expect(computed.text.some(item => item.label === "1"), "score-scale tick coverage").toBe(true);
+        expect(computed.text.some(item => item.label.includes("Provisional CEFR")), "CEFR badge coverage").toBe(true);
+      }
+      if (route === "settings-error") {
+        expect(computed.text.some(item => item.label.includes("Recovery files are unavailable")), "error-banner coverage").toBe(true);
+      }
+      for (const item of computed.text) expect(item.ratio, `${theme} ${route} ${viewport.width}: ${JSON.stringify(item)}`).toBeGreaterThanOrEqual(4.5);
       for (const item of computed.border) expect(item.ratio, `${theme} ${route} ${viewport.width}: ${item.label} border`).toBeGreaterThanOrEqual(3);
       if (route === "speak" || route === "speak-wait") await expectStatusRailIconContrast(page, "active");
       contrastChecks.push({ route, theme, viewport: `${viewport.width}x${viewport.height}`,
         text: Math.min(...computed.text.map(item => item.ratio)),
-        border: computed.border.length ? Math.min(...computed.border.map(item => item.ratio)) : -1 });
+        border: computed.border.length ? Math.min(...computed.border.map(item => item.ratio)) : -1,
+        textCount: computed.text.length, borderCount: computed.border.length });
       if (output) {
         mkdirSync(output, { recursive: true });
         if (route !== "your-data" && route !== "speak-wait") await page.evaluate(() => window.scrollTo(0, 0));
@@ -879,6 +968,37 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
           await page.screenshot({ path: path.join(output, `${theme}-settings-appearance-${viewport.width}x${viewport.height}.png`) });
         }
       }
+    }
+    // A 1100px window at 200% browser zoom has roughly a 550px CSS viewport.
+    await page.setViewportSize({ width: 550, height: 380 });
+    await expectNoPageHorizontalOverflow(page);
+    const controlRoot = await page.locator("dialog[open]").count() ? "dialog[open]" : "main";
+    const controls = page.locator(`${controlRoot} button:visible, ${controlRoot} a:visible, ${controlRoot} input:visible, ${controlRoot} select:visible, ${controlRoot} summary:visible`);
+    for (let index = 0; index < Math.min(await controls.count(), 10); index++) {
+      const control = controls.nth(index);
+      await control.scrollIntoViewIfNeeded();
+      const reachability = await control.evaluate(element => {
+        const box = element.getBoundingClientRect();
+        const center = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+        const hitPoints = [0.2, 0.5, 0.8].map(fraction =>
+          document.elementFromPoint(box.left + box.width * fraction, box.top + box.height / 2));
+        return { left: box.left, right: box.right, top: box.top, width: box.width, viewport: innerWidth,
+          label: element.getAttribute("data-testid") || element.textContent?.trim().slice(0, 40),
+          covering: center?.getAttribute("data-testid") || center?.tagName,
+          element: element.outerHTML.slice(0, 180), cover: center?.outerHTML.slice(0, 180),
+          hidden: (() => {
+            for (let node: Element | null = element; node; node = node.parentElement) {
+              const style = getComputedStyle(node);
+              if (style.opacity === "0" || style.clipPath === "inset(50%)" || style.clip === "rect(0px, 0px, 0px, 0px)") return true;
+            }
+            return false;
+          })(),
+          hittable: hitPoints.some(target => Boolean(target && (element === target || element.contains(target)))) };
+      });
+      if (reachability.hidden) continue;
+      expect(reachability.left, `${theme} ${route} 200% left edge`).toBeGreaterThanOrEqual(-1);
+      expect(reachability.right, `${theme} ${route} 200% right edge`).toBeLessThanOrEqual(reachability.viewport + 1);
+      expect(reachability.hittable, `${theme} ${route} 200% control hit target ${JSON.stringify(reachability)}`).toBe(true);
     }
   };
 
@@ -895,6 +1015,20 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
       await page.goto(url);
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       await audit(route, theme);
+      if (route === "your-data") {
+        await page.unroute("**/v1/journal/status");
+        await page.route("**/v1/journal/status", response => fulfillJson(response, {
+          transaction: null, archived: [], completed: [], recovery_error: "Recovery files are unavailable.",
+        }));
+        await page.reload();
+        await audit("settings-error", theme);
+        await page.getByRole("button", { name: "Start a fresh journal" }).click();
+        await expect(page.locator("dialog[open]")).toBeVisible();
+        await audit("settings-dialog", theme);
+        await page.locator("#fresh-cancel").click();
+        await page.unroute("**/v1/journal/status");
+        await page.route("**/v1/journal/status", healthyJournal);
+      }
     }
 
     await page.goto("/");
@@ -904,33 +1038,51 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
     await page.getByTestId("setup.recommended_start").click();
     await page.getByTestId("setup.continue").click();
     await audit("speak", theme);
+    const meter = page.getByTestId("speak.recording_visualizer");
+    await meter.evaluate(element => element.setAttribute("data-recording-state", "recording"));
+    const recordingColors = await meter.evaluate(element => {
+      const bar = element.querySelector("span");
+      if (!bar) throw new Error("Recording meter bar is missing");
+      const background = getComputedStyle(element).backgroundColor;
+      const ink = getComputedStyle(bar);
+      const base = background.match(/[\d.]+/g)?.slice(0, 3).map(Number) ?? [];
+      const top = ink.backgroundColor.match(/[\d.]+/g)?.slice(0, 3).map(Number) ?? [];
+      const alpha = Number(ink.opacity);
+      return { background, bar: `rgb(${top.map((value, index) => Math.round(value * alpha + base[index] * (1 - alpha))).join(", ")})` };
+    });
+    expect(contrastRatio(recordingColors.bar, recordingColors.background), `${theme} recording meter`).toBeGreaterThanOrEqual(3);
+    await meter.evaluate(element => element.setAttribute("data-recording-state", "idle"));
     await attachAudio(page);
+    await page.unroute("**/v1/assessments");
     await page.unroute("**/v1/assessments/*");
+    let submission = 0;
     let complete = false;
-    await page.route("**/v1/assessments/*", route => fulfillJson(route, complete
-      ? { assessment_id: "visual-assessment-clean", status: "completed", phase: "finalizing_report", progress: 1,
+    await page.route("**/v1/assessments", route => {
+      submission += 1;
+      return fulfillJson(route, { assessment_id: `visual-${theme}-${submission}`, status: "queued" });
+    });
+    await page.route("**/v1/assessments/*", route => {
+      const id = route.request().url().split("/").pop();
+      return fulfillJson(route, complete
+      ? { assessment_id: id, status: "completed", phase: "finalizing_report", progress: 1,
           report_path: "/tmp/visual-second.json", payload: reportPayload, summary: assessmentSummary(reportPayload) }
-      : { assessment_id: "visual-assessment-clean", status: "running", phase: "scoring_rubric", progress: .6,
-          created_at: new Date().toISOString(), updated_at: new Date().toISOString(), worker_seen_at: new Date().toISOString() }));
+      : { assessment_id: id, status: "running", phase: "scoring_rubric", progress: .6,
+          created_at: new Date().toISOString(), updated_at: new Date().toISOString(), worker_seen_at: new Date().toISOString() });
+    });
     await page.getByTestId("speak.submit").click();
     await expect(page.getByTestId("speak.assessment_progress")).toBeVisible();
     await audit("speak-wait", theme);
     complete = true;
     await expect(page).toHaveURL(/\/review$/, { timeout: 15000 });
     await audit("review", theme);
+    complete = false;
     await page.getByTestId("review-action-try-again").click();
     await attachAudio(page);
-    complete = false;
     await page.getByTestId("speak.submit").click();
     const retryGoal = page.getByTestId("speak-retry-goal");
     await expect(retryGoal).toBeDisabled();
     await expect(retryGoal).toHaveCSS("background-color", theme === "light" ? "rgb(227, 233, 229)" : "rgb(51, 69, 61)");
     await expect(retryGoal).toHaveCSS("color", theme === "light" ? "rgb(65, 88, 80)" : "rgb(198, 215, 206)");
-    await page.unroute("**/v1/assessments/*");
-    await page.route("**/v1/assessments/*", route => fulfillJson(route, {
-      assessment_id: "visual-assessment-clean", status: "completed", phase: "finalizing_report", progress: 1,
-      report_path: "/tmp/visual-second.json", payload: reportPayload, summary: assessmentSummary(reportPayload),
-    }));
 
     await page.goto("/");
     await page.setViewportSize({ width: 1100, height: 760 });
@@ -948,10 +1100,14 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
 
     await page.emulateMedia({ reducedMotion: "reduce" });
     expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--motion-fast").trim())).toBe("0ms");
-    await page.evaluate(() => { document.documentElement.style.zoom = "200%"; });
+    const transitionMs = await page.getByTestId("home.start_new").evaluate(element =>
+      getComputedStyle(element).transitionDuration.split(",").map(value => {
+        const duration = Number.parseFloat(value);
+        return value.trim().endsWith("ms") ? duration : duration * 1000;
+      }));
+    expect(Math.max(...transitionMs), `${theme} reduced-motion action transition`).toBeLessThanOrEqual(0.01);
+    await page.setViewportSize({ width: 550, height: 380 });
     await expectNoPageHorizontalOverflow(page);
-    await page.evaluate(() => { document.documentElement.style.zoom = ""; });
-    await page.emulateMedia({ reducedMotion: "no-preference" });
   }
 
   if (output) writeFileSync(path.join(output, "computed-contrast.json"), JSON.stringify(contrastChecks, null, 2));

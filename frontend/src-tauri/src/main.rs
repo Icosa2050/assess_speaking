@@ -2,7 +2,7 @@
 mod desktop;
 mod support;
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::{webview::PageLoadEvent, Manager};
 
 fn bridge(runtime: &desktop::Runtime) -> String {
     format!("window.__VOSTAVO_DESKTOP__ = Object.freeze(Object.assign({{}}, {}, {{ saveLearnerBackup: (backupId) => window.__TAURI_INTERNALS__.invoke(\"save_learner_backup\", {{ backupId }}), draftSupportEmail: (bundleId, recipient) => window.__TAURI_INTERNALS__.invoke(\"draft_support_email\", {{ bundleId, recipient }}), saveSupportBundle: (bundleId) => window.__TAURI_INTERNALS__.invoke(\"save_support_bundle\", {{ bundleId }}) }}));", serde_json::json!({
@@ -35,7 +35,10 @@ fn main() {
         .manage(Mutex::new(None::<desktop::BackendOwner>))
         .setup(|app| {
             tauri::WebviewWindowBuilder::new(app, "loading", tauri::WebviewUrl::App("loading.html".into()))
-                .title("Vostavo").inner_size(560.0, 300.0).resizable(false).build()?;
+                .title("Vostavo").inner_size(560.0, 300.0).resizable(false).visible(false)
+                .on_page_load(|window, payload| {
+                    if payload.event() == PageLoadEvent::Finished { let _ = window.show(); }
+                }).build()?;
             let handle = app.handle().clone();
             let config = app.config().app.windows.iter().find(|window| window.label == "main").cloned().ok_or("Main window configuration is missing")?;
             std::thread::spawn(move || {
@@ -49,10 +52,15 @@ fn main() {
                             .and_then(|builder| builder.on_navigation(|url| {
                                 matches!((url.scheme(), url.host_str()), ("tauri", Some("localhost")) | ("http", Some("tauri.localhost")) | ("https", Some("tauri.localhost")))
                                     || cfg!(debug_assertions) && url.host_str() == Some("127.0.0.1") && url.port() == Some(4173)
+                            }).visible(false).on_page_load(|window, payload| {
+                                if payload.event() == PageLoadEvent::Finished {
+                                    let _ = window.show();
+                                    if let Some(loading) = window.app_handle().get_webview_window("loading") { let _ = loading.close(); }
+                                }
                             }).initialization_script(&bridge(&runtime)).build());
                         if let Err(error) = result {
                             startup_failure(&handle, &error.to_string());
-                        } else if let Some(window) = handle.get_webview_window("loading") { let _ = window.close(); }
+                        }
                     }
                     Err(error) => startup_failure(&handle, &error),
                 }
