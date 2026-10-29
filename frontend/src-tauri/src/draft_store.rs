@@ -329,7 +329,7 @@ impl Submission {
         if !self.frozen_request_body.is_empty() {
             let body: serde_json::Value = serde_json::from_str(&self.frozen_request_body)
                 .map_err(|_| err("Invalid submission request"))?;
-            if !body.is_object() || contains_secret_field(&body) {
+            if !safe_request_body(&body) {
                 return Err(err("Submission request contains prohibited fields"));
             }
         }
@@ -348,29 +348,49 @@ impl Submission {
         {
             return Err(err("Incomplete submission receipt"));
         }
+        if matches!(status, "assessment_uncertain" | "assessing") {
+            let body: serde_json::Value = serde_json::from_str(&self.frozen_request_body)
+                .map_err(|_| err("Invalid submission request"))?;
+            if body["request_id"].as_str() != Some(self.assessment_request_id.as_str())
+                || body["audio_id"].as_str() != Some(self.audio_id.as_str())
+                || body["sharing_fingerprint"].as_str() != Some(self.request_fingerprint.as_str())
+            {
+                return Err(err("Submission request identity mismatch"));
+            }
+        }
         Ok(())
     }
 }
-fn contains_secret_field(value: &serde_json::Value) -> bool {
-    match value {
-        serde_json::Value::Object(fields) => fields.iter().any(|(name, value)| {
-            let name = name.to_ascii_lowercase();
-            [
-                "secret",
-                "apikey",
-                "api_key",
-                "token",
-                "password",
-                "authorization",
-                "credential",
-            ]
-            .iter()
-            .any(|part| name.contains(part))
-                || contains_secret_field(value)
-        }),
-        serde_json::Value::Array(values) => values.iter().any(contains_secret_field),
-        _ => false,
-    }
+fn safe_request_body(value: &serde_json::Value) -> bool {
+    let Some(fields) = value.as_object() else {
+        return false;
+    };
+    const ALLOWED: &[&str] = &[
+        "sharing_fingerprint",
+        "request_id",
+        "resume_assessment_id",
+        "audio_id",
+        "whisper",
+        "provider",
+        "llm_model",
+        "expected_language",
+        "feedback_language",
+        "speaker_id",
+        "task_family",
+        "theme",
+        "target_duration_sec",
+        "target_cefr",
+        "prompt_id",
+        "prompt_text",
+        "retry_of_session_id",
+        "language_profile_key",
+        "label",
+        "notes",
+        "dry_run",
+    ];
+    fields.iter().all(|(name, value)| {
+        ALLOWED.contains(&name.as_str()) && !value.is_object() && !value.is_array()
+    })
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1476,6 +1496,14 @@ mod tests {
             last_confirmed_phase: "none".into(),
         };
         assert!(receipt.validate().is_err());
+        let safe = Submission { frozen_request_body: r#"{"audio_id":"audio-1","request_id":"request-2","sharing_fingerprint":"fingerprint"}"#.into(),
+            audio_id: "audio-1".into(), assessment_request_id: "request-2".into(), request_fingerprint: "fingerprint".into(), ..receipt.clone() };
+        assert!(safe.validate_for("assessment_uncertain").is_ok());
+        let unsafe_connection = Submission {
+            frozen_request_body: r#"{"llm_base_url":"http://example.com?key=secret"}"#.into(),
+            ..safe.clone()
+        };
+        assert!(unsafe_connection.validate().is_err());
     }
     #[test]
     fn old_transfer_cannot_overwrite_new_revision_and_permissions_are_private() {
