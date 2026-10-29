@@ -78,6 +78,9 @@ class BackendJobsTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {"LLM_TIMEOUT_SEC": "240.5"}):
                 self.assertEqual(manager.get_status("asmt_deadline").quiet_warning_after_sec, 241 + QUIET_WARNING_MARGIN_SEC)
             job_file.write_text(json.dumps({"assessment_id": "asmt_deadline", "status": "running",
+                "phase": "transcribing", "request": {"cloud_broker": False}}), encoding="utf-8")
+            self.assertIsNone(manager.get_status("asmt_deadline").quiet_warning_after_sec)
+            job_file.write_text(json.dumps({"assessment_id": "asmt_deadline", "status": "running",
                 "phase": "transcribing", "request": {"cloud_broker": True, "asr_provider": "groq"}}), encoding="utf-8")
             self.assertGreaterEqual(manager.get_status("asmt_deadline").quiet_warning_after_sec, 660 + QUIET_WARNING_MARGIN_SEC)
 

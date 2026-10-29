@@ -708,11 +708,13 @@ class JobManager:
         worker_seen_at = _now_iso() if process is not None and process.is_alive() and payload.get("status") in INCOMPLETE_JOB_STATUSES else None
         request = payload.get("request") if isinstance(payload.get("request"), dict) else {}
         phase = str(payload.get("phase") or "")
-        phase_timeout = practice_llm_timeout_sec()
+        phase_timeout = None
         if request.get("cloud_broker") and phase == "transcribing" and request.get("asr_provider") == "groq":
-            phase_timeout = max(phase_timeout, CLOUD_ASR_RESPONSE_TIMEOUT_SEC)
-        elif request.get("cloud_broker") and phase in {"scoring_rubric", "generating_coaching"}:
-            phase_timeout = max(phase_timeout, CLOUD_LLM_RESPONSE_TIMEOUT_SEC)
+            phase_timeout = max(practice_llm_timeout_sec(), CLOUD_ASR_RESPONSE_TIMEOUT_SEC)
+        elif phase in {"scoring_rubric", "generating_coaching"}:
+            phase_timeout = practice_llm_timeout_sec()
+            if request.get("cloud_broker"):
+                phase_timeout = max(phase_timeout, CLOUD_LLM_RESPONSE_TIMEOUT_SEC)
         from assessment_runtime.eligibility import annotate_payload
         return AssessmentStatusResponse(
             assessment_id=assessment_id,
@@ -724,7 +726,7 @@ class JobManager:
             phase_started_at=payload.get("phase_started_at") or payload.get("updated_at") or payload.get("created_at") or None,
             last_phase=payload.get("last_phase") or None,
             worker_seen_at=worker_seen_at,
-            quiet_warning_after_sec=math.ceil(phase_timeout + QUIET_WARNING_MARGIN_SEC),
+            quiet_warning_after_sec=math.ceil(phase_timeout + QUIET_WARNING_MARGIN_SEC) if phase_timeout is not None else None,
             error=(ErrorResponse(**payload["error"]) if isinstance(payload.get("error"), dict) else None),
             report_path=str(payload.get("report_path") or "") or None,
             summary=_build_summary(payload.get("payload")),
