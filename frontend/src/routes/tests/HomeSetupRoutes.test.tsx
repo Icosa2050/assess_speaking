@@ -148,6 +148,7 @@ describe("Home and Runtime Setup routes", () => {
       configured: true, provider: "ollama", model: "local-model", base_url: "http://localhost:11434",
       requires_api_key: false, has_api_key: false,
     });
+    mockedGetDiagnostics.mockResolvedValue({ items: [] });
     const rows = vi.spyOn(setupReadiness, "buildSetupReadinessRows").mockReturnValue([]);
     try {
       renderWithProviders(<AppFrame />, { initialEntries: ["/"], locale: "en" });
@@ -156,6 +157,7 @@ describe("Home and Runtime Setup routes", () => {
       expect(meter).toHaveTextContent("0/0");
       expect(meter).not.toHaveTextContent("NaN");
       expect(screen.getByText("0 of 0 checks ready")).toBeVisible();
+      expect(await screen.findByText("Ready on this device")).toBeVisible();
     } finally {
       rows.mockRestore();
     }
