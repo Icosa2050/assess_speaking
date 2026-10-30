@@ -2,6 +2,7 @@
 """Build an internal DMG or a Developer ID notarized release from locked inputs."""
 from __future__ import annotations
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -18,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / '.build-macos'
 PYTHON_VERSION = '3.12.11'
 MINIMUM_MACOS = '14.0'  # The native audit of the built app requires this floor.
+PROFILE_ENV = 'VOSTAVO_PROVISIONING_PROFILE'
 
 
 def run(args, **kwargs):
@@ -28,11 +30,21 @@ def output(args):
     return run(args, capture_output=True, text=True).stdout.strip()
 
 
+def cargo_environment() -> dict[str, str]:
+    env = dict(os.environ, MACOSX_DEPLOYMENT_TARGET=MINIMUM_MACOS)
+    for key in ('RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'CARGO_BUILD_RUSTFLAGS'):
+        env.pop(key, None)
+    env['CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS'] = 'false'
+    return env
+
+
 def assert_delivery_feature(shell_binary: Path, *, release: bool) -> None:
     binary = shell_binary.read_bytes()
     markers = (b'VOSTAVO_INTERNAL_DMG_ACCEPTANCE', b'VOSTAVO_INTERNAL_DMG_KEY_SERVICE')
     if any((marker in binary) == release for marker in markers):
         raise RuntimeError('Internal draft acceptance feature does not match the DMG mode')
+    if (b'VOSTAVO_DEVICE_ONLY_DRAFTS_REQUIRED' in binary) != release:
+        raise RuntimeError('Device-only draft policy does not match the DMG mode')
 
 
 def macho_files(bundle):
@@ -78,7 +90,78 @@ def audit(bundle):
     return {'minimum_macos': '.'.join(map(str, minimum)), 'native_files': entries}
 
 
-def sign(bundle, identity, release):
+def signing_certificate_sha1(identity: str, identities: str) -> str:
+    matches = [match.group(1).upper() for line in identities.splitlines()
+               if (match := re.fullmatch(r'\s*\d+\)\s+([0-9a-fA-F]{40})\s+"' + re.escape(identity) + r'"\s*', line))]
+    if len(matches) != 1:
+        raise RuntimeError('The requested Developer ID identity is missing or ambiguous in the signing keychain')
+    return matches[0]
+
+
+def validate_profile(profile: dict, bundle_id: str, team_id: str, signing_cert_sha1: str) -> dict:
+    if not isinstance(profile, dict):
+        raise RuntimeError('Developer ID provisioning profile is malformed')
+    app_id = f'{team_id}.{bundle_id}'
+    approved = profile.get('Entitlements', {})
+    teams = profile.get('TeamIdentifier', [])
+    certificates = profile.get('DeveloperCertificates', [])
+    expiry = profile.get('ExpirationDate')
+    if (not isinstance(approved, dict) or not isinstance(teams, list)
+            or not isinstance(certificates, list) or not isinstance(expiry, datetime)):
+        raise RuntimeError('Developer ID provisioning profile has missing or malformed claims')
+    if (expiry.replace(tzinfo=timezone.utc) if expiry.tzinfo is None else expiry) <= datetime.now(timezone.utc):
+        raise RuntimeError('Developer ID provisioning profile has expired')
+    groups = approved.get('keychain-access-groups', [])
+    if not isinstance(groups, list):
+        raise RuntimeError('Developer ID provisioning profile has malformed Keychain groups')
+    if (profile.get('ProvisionsAllDevices') is not True
+            or team_id not in teams
+            or approved.get('com.apple.application-identifier') != app_id
+            or approved.get('com.apple.developer.team-identifier') != team_id
+            or not any(group in (app_id, f'{team_id}.*') for group in groups)
+            or not any(isinstance(cert, bytes) and hashlib.sha1(cert).hexdigest().upper() == signing_cert_sha1
+                       for cert in certificates)
+            or bool(approved.get('get-task-allow'))):
+        raise RuntimeError('Developer ID provisioning profile does not authorize this signing certificate, team, app ID, and Keychain group')
+    return {
+        'com.apple.application-identifier': app_id,
+        'com.apple.developer.team-identifier': team_id,
+        'keychain-access-groups': [app_id],
+    }
+
+
+def load_profile(path: Path, bundle_id: str, team_id: str, signing_cert_sha1: str) -> dict:
+    if not path.is_file():
+        raise RuntimeError(f'Provisioning profile is missing: {path}')
+    try:
+        decoded = run(['security', 'cms', '-D', '-i', path], capture_output=True).stdout
+        profile = plistlib.loads(decoded)
+    except (subprocess.CalledProcessError, plistlib.InvalidFileException, ValueError, TypeError) as exc:
+        raise RuntimeError('Developer ID provisioning profile cannot be decoded') from exc
+    return validate_profile(profile, bundle_id, team_id, signing_cert_sha1)
+
+
+def embed_profile(bundle: Path, source: Path, claims: dict, entitlements: Path) -> Path:
+    shutil.copy2(source, bundle / 'Contents/embedded.provisionprofile')
+    entitlements.write_bytes(plistlib.dumps({
+        **plistlib.loads((ROOT / 'packaging/entitlements.plist').read_bytes()), **claims,
+    }))
+    return entitlements
+
+
+def verify_signed_profile_claims(bundle: Path, claims: dict) -> None:
+    if not (bundle / 'Contents/embedded.provisionprofile').is_file():
+        raise RuntimeError('Signed release app is missing its embedded provisioning profile')
+    try:
+        signed = plistlib.loads(run(['codesign', '-d', '--entitlements', ':-', bundle],
+                                   capture_output=True).stdout)
+    except (subprocess.CalledProcessError, plistlib.InvalidFileException, ValueError, TypeError) as exc:
+        raise RuntimeError('Signed release app entitlements cannot be read') from exc
+    if not isinstance(signed, dict) or any(signed.get(key) != value for key, value in claims.items()):
+        raise RuntimeError('Signed release app is missing the authorized Keychain entitlements')
+
+
+def sign(bundle, identity, release, entitlements):
     options = ['--force', '--sign', identity, '--options', 'runtime', '--timestamp' if release else '--timestamp=none']
     for path in sorted(macho_files(bundle), key=lambda value: len(value.parts), reverse=True):
         run(['codesign', *options, path])
@@ -90,7 +173,7 @@ def sign(bundle, identity, release):
     # their embedded Python libraries. Developer ID releases keep validation.
     helper_entitlements = [] if release else ['--entitlements', ROOT / 'packaging/internal-helper-entitlements.plist']
     run(['codesign', *options, *helper_entitlements, helper])
-    run(['codesign', *options, '--entitlements', ROOT / 'packaging/entitlements.plist', bundle])
+    run(['codesign', *options, '--entitlements', entitlements, bundle])
     run(['codesign', '--verify', '--deep', '--strict', '--verbose=2', bundle])
 
 
@@ -106,21 +189,44 @@ def main(argv=None):
     parser.add_argument('--mode', choices=['internal', 'release'], required=True)
     parser.add_argument('--identity', default='')
     parser.add_argument('--notary-profile', default='')
+    parser.add_argument('--local-sign-only', action='store_true',
+                        help='Developer ID sign app and DMG locally without notarizing or uploading.')
+    parser.add_argument('--allow-drafts-disabled', action='store_true',
+                        help='Acknowledge that a local signed build without a provisioning profile cannot save drafts.')
     parser.add_argument('--python', default=PYTHON_VERSION)
     parser.add_argument('--reuse-helper', action='store_true', help='Local iteration only; forbidden for releases.')
     args = parser.parse_args(argv)
     if sys.platform != 'darwin' or platform.machine() != 'arm64':
         parser.error('This build requires an Apple Silicon Mac.')
     release = args.mode == 'release'
+    if args.local_sign_only and not release:
+        parser.error('--local-sign-only requires --mode release')
+    if args.allow_drafts_disabled and not (release and args.local_sign_only):
+        parser.error('--allow-drafts-disabled requires a local-sign-only release')
+    signing_cert_sha1 = None
     if release:
-        if args.reuse_helper or not args.identity.startswith('Developer ID Application:') or not args.notary_profile:
-            parser.error('Release requires a Developer ID Application identity and Keychain notary profile; no reused helper.')
-        if args.identity not in output(['security', 'find-identity', '-v', '-p', 'codesigning']):
-            parser.error('The requested Developer ID identity is not available.')
+        if args.reuse_helper or not args.identity.startswith('Developer ID Application:') or (not args.local_sign_only and not args.notary_profile):
+            parser.error('Release requires a Developer ID Application identity and, unless local-sign-only, a Keychain notary profile; no reused helper.')
+        if not args.local_sign_only and not os.environ.get(PROFILE_ENV):
+            parser.error(f'Notarized release requires {PROFILE_ENV} for device-only draft storage.')
+        if args.local_sign_only and not os.environ.get(PROFILE_ENV) and not args.allow_drafts_disabled:
+            parser.error(f'Local signed release without {PROFILE_ENV} requires --allow-drafts-disabled.')
+        try:
+            signing_cert_sha1 = signing_certificate_sha1(
+                args.identity, output(['security', 'find-identity', '-v', '-p', 'codesigning']))
+        except RuntimeError as exc:
+            parser.error(str(exc))
     config = json.loads((ROOT / 'frontend/src-tauri/tauri.conf.json').read_text())
     version = config['version']
     if tomllib.loads((ROOT / 'frontend/src-tauri/Cargo.toml').read_text())['package']['version'] != version:
         raise RuntimeError('Rust and Tauri versions differ')
+    profile_source = Path(os.environ[PROFILE_ENV]).expanduser() if release and os.environ.get(PROFILE_ENV) else None
+    profile_claims = None
+    if profile_source:
+        team = re.search(r'\(([A-Z0-9]{10})\)$', args.identity)
+        if not team:
+            raise RuntimeError('Developer ID signing identity must include its Team ID')
+        profile_claims = load_profile(profile_source, config['identifier'], team.group(1), signing_cert_sha1)
     BUILD.mkdir(exist_ok=True)
     python = BUILD / 'venv/bin/python'
     if not python.exists():
@@ -140,9 +246,9 @@ def main(argv=None):
         raise RuntimeError('Packaging requires pinned CPython 3.12.11 arm64')
     if plistlib.loads((helper / 'Contents/Info.plist').read_bytes())['CFBundleShortVersionString'] != version:
         raise RuntimeError('Helper version differs')
-    env = dict(os.environ, MACOSX_DEPLOYMENT_TARGET=MINIMUM_MACOS)
+    env = cargo_environment()
     cargo = shutil.which('cargo') or str(Path.home() / '.cargo/bin/cargo')
-    features = 'custom-protocol,internal-dmg-acceptance' if not release else 'custom-protocol'
+    features = 'custom-protocol,internal-dmg-acceptance' if not release else 'custom-protocol,device-only-drafts'
     run([cargo, 'build', '--release', '--locked', '--features', features, '--manifest-path', ROOT / 'frontend/src-tauri/Cargo.toml'], env=env)
     assert_delivery_feature(ROOT / 'frontend/src-tauri/target/release/vostavo-desktop', release=release)
     stage = BUILD / 'stage'
@@ -175,14 +281,19 @@ def main(argv=None):
     helper_plist = plistlib.loads(helper_info.read_bytes())
     helper_plist['LSMinimumSystemVersion'] = evidence['minimum_macos']
     helper_info.write_bytes(plistlib.dumps(helper_plist))
-    sign(bundle, args.identity if release else '-', release)
+    entitlements = ROOT / 'packaging/entitlements.plist'
+    if profile_source and profile_claims:
+        entitlements = embed_profile(bundle, profile_source, profile_claims, BUILD / 'release-entitlements.plist')
+    sign(bundle, signing_cert_sha1 if release else '-', release, entitlements)
+    if profile_claims:
+        verify_signed_profile_claims(bundle, profile_claims)
     smoke_env = {key: os.environ[key] for key in ('HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG') if key in os.environ}
     smoke_env['PATH'] = '/usr/bin:/bin:/usr/sbin:/sbin'
     smoke = run([bundle / 'Contents/Helpers/VostavoBackend.app/Contents/MacOS/vostavo-backend', '--self-test'], cwd='/', env=smoke_env, capture_output=True, text=True, timeout=90)
     evidence['frozen_self_test'] = json.loads(smoke.stdout)
     if not evidence['frozen_self_test'].get('ok'):
         raise RuntimeError('Signed frozen helper self-test failed')
-    if release:
+    if release and not args.local_sign_only:
         archive = BUILD / 'Vostavo.zip'
         run(['ditto', '-c', '-k', '--keepParent', bundle, archive])
         evidence['app_notarization'] = notarize(archive, args.notary_profile)
@@ -190,17 +301,21 @@ def main(argv=None):
         run(['xcrun', 'stapler', 'validate', bundle])
         run(['spctl', '-a', '-t', 'exec', '-vvv', bundle])
     (stage / 'Applications').symlink_to('/Applications')
-    suffix = 'arm64' if release else 'arm64-internal-adhoc'
+    suffix = 'arm64-signed-unnotarized' if args.local_sign_only else 'arm64' if release else 'arm64-internal-adhoc'
     artifact = BUILD / f'Vostavo-{version}-{suffix}.dmg'
     run(['hdiutil', 'create', '-ov', '-volname', 'Vostavo', '-srcfolder', stage, '-format', 'UDZO', artifact])
-    run(['codesign', '--force', '--sign', args.identity if release else '-', '--timestamp' if release else '--timestamp=none', artifact])
-    if release:
+    run(['codesign', '--force', '--sign', signing_cert_sha1 if release else '-', '--timestamp' if release else '--timestamp=none', artifact])
+    if release and not args.local_sign_only:
         evidence['dmg_notarization'] = notarize(artifact, args.notary_profile)
         run(['xcrun', 'stapler', 'staple', artifact])
         run(['xcrun', 'stapler', 'validate', artifact])
         run(['spctl', '-a', '-t', 'open', '--context', 'context:primary-signature', '-vvv', artifact])
     run(['codesign', '--verify', '--deep', '--strict', bundle])
-    evidence.update(mode=args.mode, gatekeeper_accepted=release, version=version, artifact=str(artifact), sha256=hashlib.sha256(artifact.read_bytes()).hexdigest(), lock_sha256=hashlib.sha256((ROOT / 'packaging/requirements-macos-arm64.txt').read_bytes()).hexdigest(), python=output([python, '--version']), pyinstaller=output([python, '-m', 'PyInstaller', '--version']), rust=output([cargo, '--version']))
+    evidence.update(mode=args.mode, notarization_skipped=args.local_sign_only,
+                    provisioning_profile_embedded=bool(profile_source),
+                    draft_storage='device-only' if release and profile_source else 'unavailable' if release else 'development-fallback',
+                    gatekeeper_accepted=release and not args.local_sign_only,
+                    version=version, artifact=str(artifact), sha256=hashlib.sha256(artifact.read_bytes()).hexdigest(), lock_sha256=hashlib.sha256((ROOT / 'packaging/requirements-macos-arm64.txt').read_bytes()).hexdigest(), python=output([python, '--version']), pyinstaller=output([python, '-m', 'PyInstaller', '--version']), rust=output([cargo, '--version']))
     report = BUILD / 'build-report.json'
     report.write_text(json.dumps(evidence, indent=2))
     (BUILD / (artifact.name + '.sha256')).write_text(f'{evidence["sha256"]}  {artifact.name}\n')
