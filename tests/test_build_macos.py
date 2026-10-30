@@ -92,11 +92,16 @@ def test_profile_is_embedded_and_its_claims_are_signed(tmp_path: Path) -> None:
     assert signed['com.apple.security.device.audio-input'] is True
 
 
-def test_notarized_release_refuses_missing_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_notarized_release_refuses_missing_profile(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.delenv(build_macos.PROFILE_ENV, raising=False)
+    monkeypatch.setattr(build_macos.sys, 'platform', 'darwin')
     monkeypatch.setattr(build_macos.platform, 'machine', lambda: 'arm64')
     monkeypatch.setattr(build_macos, 'output', lambda _: 'Developer ID Application: Markus Frommherz (L98MZWWR98)')
-    with pytest.raises(SystemExit, match='2'):
+    with pytest.raises(SystemExit) as exc_info:
         build_macos.main(['--mode', 'release', '--identity',
                           'Developer ID Application: Markus Frommherz (L98MZWWR98)',
                           '--notary-profile', 'vostavo-notary'])
+    assert exc_info.value.code == 2
+    assert build_macos.PROFILE_ENV in capsys.readouterr().err
