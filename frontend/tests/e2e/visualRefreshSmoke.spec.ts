@@ -1,10 +1,16 @@
 import { stubReadyReadiness } from "../readinessStub";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { expect, test, type Page, type Route } from "../fixtures";
-
 const speakerId = "visual-refresh-smoke";
+const localeMessages = Object.fromEntries(
+  (["de", "en", "es", "fr", "it"] as const).map(locale => [locale,
+    JSON.parse(readFileSync(new URL(`../../../locales/${locale}.json`, import.meta.url), "utf8"))]),
+) as Record<"de" | "en" | "es" | "fr" | "it", {
+  your_data: { state_damaged: string };
+  speak: { assessment_error: string; job_status_cancelled: string };
+}>;
 const screenshotDir = process.env.VISUAL_REFRESH_SCREENSHOT_DIR ?? "";
 const desktopViewport = { width: 1280, height: 720 };
 const mobileViewport = { width: 390, height: 844 };
@@ -53,7 +59,7 @@ const historyRows = [
     topic_pass: true,
     language_pass: true,
     min_words_pass: true,
-    top_priorities: ["Stay closer to the travel theme", "Add one clearer closing sentence"],
+    top_priorities: ["Stay closer to the travel theme, explain why the journey mattered, give a concrete example of what changed during the trip, and close with one personal reflection that connects the experience to your next journey.", "Add one clearer closing sentence"],
     grammar_error_categories: [],
     coherence_issue_categories: [],
     final_score: 3.8,
@@ -190,7 +196,7 @@ const fulfillJson = (route: Route, json: unknown) =>
     json,
   });
 
-const installVisualBackend = async (page: Page) => {
+const installVisualBackend = async (page: Page, locale = "en") => {
   await stubReadyReadiness(page);
   let assessmentCount = 0;
   let activeAssessment: {
@@ -214,7 +220,7 @@ const installVisualBackend = async (page: Page) => {
       has_api_key: false,
     }),
   );
-  await page.route("**/v1/runtime/settings", (route) => fulfillJson(route, runtimeSettings));
+  await page.route("**/v1/runtime/settings", (route) => fulfillJson(route, { ...runtimeSettings, ui_locale: locale }));
   await page.route("**/v1/uploads", (route) =>
     fulfillJson(route, {
       audio_id: "visual-audio",
@@ -270,9 +276,7 @@ const attachAudio = async (page: Page) => {
     mimeType: "audio/wav",
     buffer: Buffer.from("visual smoke audio"),
   });
-  await expect(page.getByTestId("speak.recording_status")).toHaveText(
-    "A recording is attached and ready for assessment.",
-  );
+  await expect(page.getByTestId("speak.recording_status")).toHaveAttribute("data-tone", "success");
 };
 
 test("report finalization marks Coach complete and Finalizing current", async ({ page }) => {
@@ -706,9 +710,12 @@ test("stored appearance is applied before loading and main DOM content is ready"
   });
   await page.goto("/");
   for (const [appearance, system, theme] of [
+    ["", "light", "light"], ["", "dark", "dark"],
     ["dark", "light", "dark"], ["system", "dark", "dark"], ["light", "dark", "light"],
   ] as const) {
-    await page.evaluate(value => localStorage.setItem("vostavo.appearance.v1", value), appearance);
+    await page.evaluate(value => value
+      ? localStorage.setItem("vostavo.appearance.v1", value)
+      : localStorage.removeItem("vostavo.appearance.v1"), appearance);
     await page.emulateMedia({ colorScheme: system });
     for (const url of ["/loading.html", "/"]) {
       await page.goto(url);
@@ -725,12 +732,12 @@ test("stored appearance is applied before loading and main DOM content is ready"
   }
 });
 
-test("light routes and opt-in dark journal card stay usable at desktop sizes", async ({ page }) => {
+test("system default and explicit themes keep the journal card usable at desktop sizes", async ({ page }) => {
   test.setTimeout(120_000);
   await installVisualBackend(page);
   await page.goto("/");
   await page.emulateMedia({ colorScheme: "dark" });
-  await expect(page.locator("body")).toHaveCSS("background-color", "rgb(247, 249, 247)");
+  await expect(page.locator("body")).toHaveCSS("background-color", "rgb(17, 27, 25)");
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto("/runtime-setup");
   const otherRoutes = page.getByText("Choose another route: cloud or expert setup");
@@ -852,22 +859,56 @@ test("light routes and opt-in dark journal card stay usable at desktop sizes", a
   await page.mouse.up();
 });
 
-test("semantic light and dark surfaces keep primary routes readable at both desktop sizes", async ({ page }) => {
+for (const locale of ["de", "en", "es", "fr", "it"] as const) {
+test(`semantic light and dark surfaces keep primary routes readable at both desktop sizes (${locale})`, async ({ page }) => {
   test.setTimeout(180_000);
-  await installVisualBackend(page);
+  await installVisualBackend(page, locale);
   const healthyJournal = (route: Route) => fulfillJson(route, {
     transaction: null, archived: [], completed: [], recovery_error: null,
   });
   await page.route("**/v1/journal/status", healthyJournal);
   await page.emulateMedia({ reducedMotion: "reduce" });
   const output = process.env.THEME_MIGRATION_SCREENSHOT_DIR;
-  const contrastChecks: Array<{ route: string; theme: string; viewport: string; text: number; border: number; textCount: number; borderCount: number }> = [];
+  const contrastChecks: Array<{ locale: string; route: string; theme: string; viewport: string; text: number; border: number | null; focus: number; focusTarget: string; focusLabel: string; textCount: number; borderCount: number; reachabilityCount?: number }> = [];
+  const focusTargets: Record<string, string> = {
+    home: '[data-testid="home.start_new"]',
+    setup: 'main select',
+    history: '[data-testid="history-speaker-filter"]',
+    "history-empty": '[data-testid="history-empty-cta"]',
+    library: 'main select',
+    "library-error": 'main select',
+    guide: 'main a[href="#guide-summary"]',
+    settings: '[data-testid="settings.appearance"]',
+    "your-data": '#journal-restore-action',
+    "settings-error": '#journal-restore-action',
+    "settings-dialog": '#fresh-cancel',
+    rehearsal: '[data-testid="rehearsal-speaker"]',
+    "review-empty": '[data-testid="review-guard-cta"]',
+    "session-setup": '[data-testid="setup.speaker_id"]',
+    speak: '[data-testid="speak.input_mode_record"]',
+    "speak-wait": '[data-testid="speak.cancel_assessment"]',
+    review: '[data-testid="review-action-try-again"]',
+    "speak-failed": '[data-testid="speak.retry_assessment"]',
+    "speak-cancelled": '[data-testid="speak.retry_assessment"]',
+  };
 
   const audit = async (route: string, theme: string) => {
     for (const viewport of [{ width: 1360, height: 900 }, { width: 1100, height: 760 }]) {
       await page.setViewportSize(viewport);
       await expect(page.locator("main").getByRole("heading").first()).toBeVisible();
+      await expect(page.locator("html")).toHaveAttribute("lang", locale);
       await expectNoPageHorizontalOverflow(page);
+      const focusSelector = focusTargets[route];
+      if (!focusSelector) throw new Error(`Missing focus target for ${route}`);
+      const focusTarget = page.locator(focusSelector).first();
+      await expect(focusTarget).toBeVisible();
+      await expect(focusTarget).toBeEnabled();
+      await focusTarget.focus();
+      await page.keyboard.press("Tab");
+      await page.keyboard.press("Shift+Tab");
+      await expect(focusTarget).toBeFocused();
+      expect(await focusTarget.evaluate(element => element.matches(":focus-visible")), `${locale} ${theme} ${route} keyboard focus-visible`).toBe(true);
+      await expect(focusTarget).toHaveCSS("outline-offset", "3px");
       const computed = await page.evaluate(() => {
         const scope = document.querySelector("dialog[open]") ?? document.body;
         const parse = (value: string): [number, number, number, number] => {
@@ -899,7 +940,7 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
           return style.display !== "none" && style.visibility === "visible" && style.opacity !== "0" &&
             element.getClientRects().length > 0;
         };
-        const text: Array<{ label: string; ratio: number; foreground: string; background: number[] }> = [];
+        const text: Array<{ label: string; tag: string; ratio: number; foreground: string; background: number[] }> = [];
         const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
         while (walker.nextNode()) {
           const node = walker.currentNode;
@@ -914,13 +955,13 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
           const foreground = element instanceof SVGElement ? style.fill : style.color;
           if (foreground === "none") continue;
           const surface = background(element);
-          text.push({ label: label.slice(0, 55), ratio: ratio(blend(parse(foreground), surface), surface), foreground, background: surface });
+          text.push({ label: label.slice(0, 55), tag: element.tagName.toLowerCase(), ratio: ratio(blend(parse(foreground), surface), surface), foreground, background: surface });
         }
         for (const element of scope.querySelectorAll("input, select, textarea")) {
           if (!visible(element) || (element as HTMLInputElement).disabled) continue;
           const surface = background(element);
           const foreground = getComputedStyle(element).color;
-          text.push({ label: element.getAttribute("aria-label") ?? element.tagName,
+          text.push({ label: element.getAttribute("aria-label") ?? element.tagName, tag: element.tagName.toLowerCase(),
             ratio: ratio(parse(foreground), surface), foreground, background: surface });
         }
         const border = [...scope.querySelectorAll("button, input, select, textarea, summary, [role='button'], [role='tab']")]
@@ -942,68 +983,172 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
             return ratios.length ? [{ label: (element.textContent?.trim() || element.getAttribute("aria-label") || element.tagName).slice(0, 55),
               ratio: Math.min(...ratios) }] : [];
           });
-        return { text, border };
+        const clippedText = [...scope.querySelectorAll<HTMLElement>("button, a, summary, label, h1, h2, h3, p, span, div, li, td")]
+          .filter(element => visible(element) && element.textContent?.trim())
+          .flatMap(element => {
+            const style = getComputedStyle(element);
+            if (element.clientWidth <= 1 || style.clipPath === "inset(50%)" || style.clip === "rect(0px, 0px, 0px, 0px)") return [];
+            const horizontal = /hidden|clip/.test(style.overflowX) && element.scrollWidth > element.clientWidth + 1;
+            const vertical = (/hidden|clip/.test(style.overflowY) || style.webkitLineClamp !== "none") && element.scrollHeight > element.clientHeight + 1;
+            return horizontal || vertical ? [{ label: element.textContent!.trim().slice(0, 55), width: element.clientWidth,
+              scrollWidth: element.scrollWidth, height: element.clientHeight, scrollHeight: element.scrollHeight }] : [];
+          });
+        const focused = document.activeElement;
+        if (!focused) throw new Error("No focused control to audit");
+        const focusStyle = getComputedStyle(focused);
+        const outside = background(focused.parentElement ?? focused);
+        const focusContrast = (ink: string) => ratio(blend(parse(ink), outside), outside);
+        // A ring matching its surrounding surface must fail this same calculation.
+        const invisibleInk = `rgb(${outside.slice(0, 3).join(", ")})`;
+        const invisibleRatio = focusContrast(invisibleInk);
+        const focus = { width: Number.parseFloat(focusStyle.outlineWidth), style: focusStyle.outlineStyle,
+          alpha: parse(focusStyle.outlineColor)[3],
+          ratio: focusContrast(getComputedStyle(focused).outlineColor), invisibleRatio,
+          label: focused.textContent?.trim().slice(0, 50) ?? focused.tagName,
+          ink: focusStyle.outlineColor,
+          outside };
+        return { text, border, clippedText, focus };
       });
       expect(computed.text.length, `${theme} ${route} ${viewport.width} text coverage`).toBeGreaterThan(0);
+      if (route !== "guide" && route !== "history-empty") {
+        expect(computed.border.length, `${theme} ${route} ${viewport.width} essential border coverage`).toBeGreaterThan(0);
+      }
       if (route === "review") {
-        expect(computed.text.some(item => item.label === "1"), "score-scale tick coverage").toBe(true);
-        expect(computed.text.some(item => item.label.includes("Provisional CEFR")), "CEFR badge coverage").toBe(true);
+        expect(computed.text.some(item => item.tag === "li" && item.label === "1"), "score-scale tick coverage").toBe(true);
+        await expect(page.getByTestId("review-provisional-cefr")).toBeVisible();
+        expect(computed.text.some(item => item.label.includes("B2")), "CEFR badge coverage").toBe(true);
       }
-      if (route === "settings-error") {
-        expect(computed.text.some(item => item.label.includes("Recovery files are unavailable")), "error-banner coverage").toBe(true);
+      if (route === "guide") expect(computed.text.some(item => item.tag === "a"), "guide link contrast coverage").toBe(true);
+      if (route === "history") {
+        expect(await page.getByTestId("history-attempts-list").locator("li").count(), "history list item coverage").toBeGreaterThan(0);
       }
+      if (route === "settings-error") await expect(page.getByTestId("journal-state")).toContainText(localeMessages[locale].your_data.state_damaged);
+      if (route === "speak-failed") await expect(page.getByTestId("speak.status_panel")).toContainText(localeMessages[locale].speak.assessment_error.replace("{detail}", "Model request failed"));
+      if (route === "speak-cancelled") await expect(page.getByTestId("speak.status_panel")).toContainText(localeMessages[locale].speak.job_status_cancelled);
       for (const item of computed.text) expect(item.ratio, `${theme} ${route} ${viewport.width}: ${JSON.stringify(item)}`).toBeGreaterThanOrEqual(4.5);
       for (const item of computed.border) expect(item.ratio, `${theme} ${route} ${viewport.width}: ${item.label} border`).toBeGreaterThanOrEqual(3);
+      expect(computed.focus.width, `${locale} ${theme} ${route} ${viewport.width} focus width`).toBeGreaterThanOrEqual(3);
+      expect(computed.focus.style, `${locale} ${theme} ${route} focus style`).not.toBe("none");
+      expect(computed.focus.alpha, `${locale} ${theme} ${route} focus alpha`).toBeGreaterThan(0);
+      expect(computed.focus.ratio, `${locale} ${theme} ${route} ${viewport.width} focus contrast ${JSON.stringify(computed.focus)}`).toBeGreaterThanOrEqual(3);
+      expect(computed.focus.invisibleRatio, `${locale} ${theme} ${route} invisible focus regression`).toBeLessThan(3);
+      expect(computed.clippedText, `${locale} ${theme} ${route} ${viewport.width} clipped text`).toEqual([]);
       if (route === "speak" || route === "speak-wait") await expectStatusRailIconContrast(page, "active");
-      contrastChecks.push({ route, theme, viewport: `${viewport.width}x${viewport.height}`,
+      if (route === "speak-failed" || route === "speak-cancelled") await expectStatusRailIconContrast(page, "attention");
+      contrastChecks.push({ locale, route, theme, viewport: `${viewport.width}x${viewport.height}`,
         text: Math.min(...computed.text.map(item => item.ratio)),
-        border: computed.border.length ? Math.min(...computed.border.map(item => item.ratio)) : -1,
+        border: computed.border.length ? Math.min(...computed.border.map(item => item.ratio)) : null,
+        focus: computed.focus.ratio, focusTarget: focusSelector, focusLabel: computed.focus.label,
         textCount: computed.text.length, borderCount: computed.border.length });
       if (output) {
         mkdirSync(output, { recursive: true });
         if (route !== "your-data" && route !== "speak-wait") await page.evaluate(() => window.scrollTo(0, 0));
-        await page.screenshot({ path: path.join(output, `${theme}-${route}-${viewport.width}x${viewport.height}.png`) });
+        await page.screenshot({ path: path.join(output, `${locale}-${theme}-${route}-${viewport.width}x${viewport.height}.png`) });
         if (route === "settings") {
           await page.getByTestId("settings.appearance").scrollIntoViewIfNeeded();
-          await page.screenshot({ path: path.join(output, `${theme}-settings-appearance-${viewport.width}x${viewport.height}.png`) });
+          await page.screenshot({ path: path.join(output, `${locale}-${theme}-settings-appearance-${viewport.width}x${viewport.height}.png`) });
         }
       }
+    }
+    if (route === "setup") {
+      await page.setViewportSize({ width: 900, height: 760 });
+      const longAction = page.locator('[data-testid^="runtime_setup.setup_guide."][data-testid$=".action"]:not(:disabled)').first();
+      await expect(longAction).toBeVisible();
+      await longAction.evaluate(element => { element.textContent = "Check the microphone and audio processing settings before continuing with the speaking session"; });
+      const splitWords = await longAction.evaluate(element => {
+        const text = element.firstChild;
+        if (!text?.textContent || text.nodeType !== Node.TEXT_NODE) throw new Error("Missing setup action text");
+        return [...text.textContent.matchAll(/\S+/g)].flatMap(match => {
+          const range = document.createRange();
+          range.setStart(text, match.index);
+          range.setEnd(text, match.index + match[0].length);
+          return range.getClientRects().length > 1 ? [match[0]] : [];
+        });
+      });
+      expect(splitWords, `${locale} ${theme} setup action split a word in the three-column row`).toEqual([]);
+      const minimum = await longAction.evaluate(element => {
+        const clone = element.cloneNode(true) as HTMLElement;
+        clone.style.position = "fixed";
+        clone.style.left = "-10000px";
+        clone.style.width = "min-content";
+        document.body.appendChild(clone);
+        const style = getComputedStyle(clone);
+        const contentWidth = clone.getBoundingClientRect().width -
+          Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight) -
+          Number.parseFloat(style.borderLeftWidth) - Number.parseFloat(style.borderRightWidth);
+        const word = [...(clone.textContent?.matchAll(/\S+/g) ?? [])]
+          .map(match => match[0]).sort((a, b) => b.length - a.length)[0];
+        const measure = document.createElement("span");
+        measure.style.font = style.font;
+        measure.style.letterSpacing = style.letterSpacing;
+        measure.style.whiteSpace = "nowrap";
+        measure.textContent = word;
+        document.body.appendChild(measure);
+        const wordWidth = measure.getBoundingClientRect().width;
+        clone.remove();
+        measure.remove();
+        return { contentWidth, wordWidth, word };
+      });
+      expect(minimum.contentWidth + 1, `${locale} ${theme} setup action min-content must fit ${minimum.word}`).toBeGreaterThanOrEqual(minimum.wordWidth);
     }
     // A 1100px window at 200% browser zoom has roughly a 550px CSS viewport.
     await page.setViewportSize({ width: 550, height: 380 });
     await expectNoPageHorizontalOverflow(page);
     const controlRoot = await page.locator("dialog[open]").count() ? "dialog[open]" : "main";
-    const controls = page.locator(`${controlRoot} button:visible, ${controlRoot} a:visible, ${controlRoot} input:visible, ${controlRoot} select:visible, ${controlRoot} summary:visible`);
-    for (let index = 0; index < Math.min(await controls.count(), 10); index++) {
-      const control = controls.nth(index);
-      await control.scrollIntoViewIfNeeded();
-      const reachability = await control.evaluate(element => {
-        const box = element.getBoundingClientRect();
-        const center = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-        const hitPoints = [0.2, 0.5, 0.8].map(fraction =>
-          document.elementFromPoint(box.left + box.width * fraction, box.top + box.height / 2));
-        return { left: box.left, right: box.right, top: box.top, width: box.width, viewport: innerWidth,
-          label: element.getAttribute("data-testid") || element.textContent?.trim().slice(0, 40),
-          covering: center?.getAttribute("data-testid") || center?.tagName,
-          element: element.outerHTML.slice(0, 180), cover: center?.outerHTML.slice(0, 180),
-          hidden: (() => {
-            for (let node: Element | null = element; node; node = node.parentElement) {
-              const style = getComputedStyle(node);
-              if (style.opacity === "0" || style.clipPath === "inset(50%)" || style.clip === "rect(0px, 0px, 0px, 0px)") return true;
-            }
-            return false;
-          })(),
-          hittable: hitPoints.some(target => Boolean(target && (element === target || element.contains(target)))) };
-      });
-      if (reachability.hidden) continue;
-      expect(reachability.left, `${theme} ${route} 200% left edge`).toBeGreaterThanOrEqual(-1);
-      expect(reachability.right, `${theme} ${route} 200% right edge`).toBeLessThanOrEqual(reachability.viewport + 1);
-      expect(reachability.hittable, `${theme} ${route} 200% control hit target ${JSON.stringify(reachability)}`).toBe(true);
-    }
+    const reachability = await page.evaluate(selector => {
+      const root = document.querySelector(selector);
+      if (!root) throw new Error(`Missing ${selector}`);
+      const candidates = [...root.querySelectorAll<HTMLElement>("button, a[href], input, select, textarea, summary")];
+      const excluded: string[] = [];
+      const issues: Array<{ label: string; left: number; right: number; top: number; bottom: number; viewport: number; height: number; scrollY: number; covering: string; element: string }> = [];
+      let checked = 0;
+      for (const element of candidates) {
+        const label = element.getAttribute("data-testid") || element.textContent?.trim().slice(0, 40) || element.tagName;
+        if (element.matches(":disabled, [aria-disabled='true'], [tabindex='-1']")) { excluded.push(`${label}: disabled or outside tab order`); continue; }
+        const insideClosedDisclosure = [...root.querySelectorAll("details:not([open])")].some(
+          disclosure => disclosure.contains(element) && disclosure.querySelector(":scope > summary") !== element,
+        );
+        if (insideClosedDisclosure) {
+          excluded.push(`${label}: inside closed disclosure`);
+          continue;
+        }
+        let hidden = false;
+        for (let node: Element | null = element; node; node = node.parentElement) {
+          const style = getComputedStyle(node);
+          if (style.display === "none" || style.visibility !== "visible" || style.opacity === "0" ||
+              style.clipPath === "inset(50%)" || style.clip === "rect(0px, 0px, 0px, 0px)") { hidden = true; break; }
+        }
+        if (hidden || !element.getClientRects().length) { excluded.push(`${label}: intentionally hidden`); continue; }
+        element.scrollIntoView({ behavior: "instant" as ScrollBehavior, block: "center", inline: "nearest" });
+        const range = document.createRange();
+        if (element.tagName === "A") range.selectNodeContents(element);
+        const fragments = [...(element.tagName === "A" ? range.getClientRects() : element.getClientRects())]
+          .filter(box => box.width > 1 && box.height > 1);
+        if (!fragments.length) { excluded.push(`${label}: no visible geometry`); continue; }
+        checked += 1;
+        const outside = fragments.some(box => box.left < -1 || box.right > innerWidth + 1);
+        const hit = fragments.some(box => [0.2, 0.5, 0.8].some(fraction => {
+          const target = document.elementFromPoint(box.left + box.width * fraction, box.top + box.height / 2);
+          return Boolean(target && (target === element || element.contains(target)));
+        }));
+        if (outside || !hit) {
+          const box = fragments[0];
+          const covering = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+          issues.push({ label, left: box.left, right: box.right, top: box.top, bottom: box.bottom,
+            viewport: innerWidth, height: innerHeight, scrollY,
+            covering: covering?.getAttribute("data-testid") || covering?.tagName || "none", element: element.outerHTML.slice(0, 180) });
+        }
+      }
+      return { checked, excluded, issues };
+    }, controlRoot);
+    expect(reachability.checked, `${locale} ${theme} ${route} 200% control coverage ${JSON.stringify(reachability.excluded)}`).toBeGreaterThan(0);
+    expect(reachability.issues, `${locale} ${theme} ${route} 200% control reachability`).toEqual([]);
+    for (const item of contrastChecks.slice(-2)) item.reachabilityCount = reachability.checked;
   };
 
   for (const theme of ["light", "dark"] as const) {
     await page.goto("/settings");
+    await expect(page.locator("html")).toHaveAttribute("lang", locale);
     await page.getByTestId("settings.appearance").selectOption(theme);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
     await expect(page.locator("html")).toHaveCSS("color-scheme", theme);
@@ -1022,7 +1167,7 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
         }));
         await page.reload();
         await audit("settings-error", theme);
-        await page.getByRole("button", { name: "Start a fresh journal" }).click();
+        await page.locator("#journal-fresh").click();
         await expect(page.locator("dialog[open]")).toBeVisible();
         await audit("settings-dialog", theme);
         await page.locator("#fresh-cancel").click();
@@ -1030,6 +1175,24 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
         await page.route("**/v1/journal/status", healthyJournal);
       }
     }
+
+    await page.unroute("**/v1/history");
+    await page.route("**/v1/history", response => fulfillJson(response, { items: [] }));
+    await page.goto("/history");
+    await expect(page.getByTestId("history-empty")).toBeVisible();
+    await audit("history-empty", theme);
+    await page.unroute("**/v1/history");
+    await page.route("**/v1/history", response => fulfillJson(response, { items: historyRows }));
+
+    await page.route("**/v1/samples", response => response.fulfill({ status: 503, json: { detail: "Samples unavailable" } }));
+    await page.goto("/library");
+    await expect(page.getByTestId("library-samples-error")).toBeVisible({ timeout: 20_000 });
+    await audit("library-error", theme);
+    await page.unroute("**/v1/samples");
+
+    await page.goto("/review");
+    await expect(page.getByTestId("review-guard-missing-review")).toBeVisible();
+    await audit("review-empty", theme);
 
     await page.goto("/");
     await page.getByTestId("home.start_new").click();
@@ -1056,26 +1219,29 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
     await page.unroute("**/v1/assessments");
     await page.unroute("**/v1/assessments/*");
     let submission = 0;
-    let complete = false;
+    let outcome: "running" | "completed" | "failed" | "cancelled" = "running";
     await page.route("**/v1/assessments", route => {
       submission += 1;
       return fulfillJson(route, { assessment_id: `visual-${theme}-${submission}`, status: "queued" });
     });
     await page.route("**/v1/assessments/*", route => {
       const id = route.request().url().split("/").pop();
-      return fulfillJson(route, complete
+      return fulfillJson(route, outcome === "completed"
       ? { assessment_id: id, status: "completed", phase: "finalizing_report", progress: 1,
           report_path: "/tmp/visual-second.json", payload: reportPayload, summary: assessmentSummary(reportPayload) }
+      : outcome === "failed" || outcome === "cancelled"
+      ? { assessment_id: id, status: outcome, phase: outcome, last_phase: "scoring_rubric", progress: 1,
+          error: outcome === "failed" ? { code: "runtime_error", detail: "Model request failed" } : null }
       : { assessment_id: id, status: "running", phase: "scoring_rubric", progress: .6,
           created_at: new Date().toISOString(), updated_at: new Date().toISOString(), worker_seen_at: new Date().toISOString() });
     });
     await page.getByTestId("speak.submit").click();
     await expect(page.getByTestId("speak.assessment_progress")).toBeVisible();
     await audit("speak-wait", theme);
-    complete = true;
+    outcome = "completed";
     await expect(page).toHaveURL(/\/review$/, { timeout: 15000 });
     await audit("review", theme);
-    complete = false;
+    outcome = "running";
     await page.getByTestId("review-action-try-again").click();
     await attachAudio(page);
     await page.getByTestId("speak.submit").click();
@@ -1083,11 +1249,18 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
     await expect(retryGoal).toBeDisabled();
     await expect(retryGoal).toHaveCSS("background-color", theme === "light" ? "rgb(227, 233, 229)" : "rgb(51, 69, 61)");
     await expect(retryGoal).toHaveCSS("color", theme === "light" ? "rgb(65, 88, 80)" : "rgb(198, 215, 206)");
+    outcome = "failed";
+    await expect(page.getByTestId("speak.retry_assessment")).toBeVisible({ timeout: 15_000 });
+    await audit("speak-failed", theme);
+    outcome = "cancelled";
+    await page.getByTestId("speak.retry_assessment").click();
+    await expect(page.getByTestId("speak.status_panel")).toHaveAttribute("data-assessment-state", "cancelled", { timeout: 15_000 });
+    await audit("speak-cancelled", theme);
 
     await page.goto("/");
     await page.setViewportSize({ width: 1100, height: 760 });
     await page.keyboard.press("Tab");
-    const skip = page.getByRole("link", { name: "Skip to content" });
+    const skip = page.locator('a[href="#main-content"]');
     await expect(skip).toBeFocused();
     await expect(skip).toHaveCSS("outline-width", "3px");
     const focus = await skip.evaluate(element => ({
@@ -1110,5 +1283,6 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
     await expectNoPageHorizontalOverflow(page);
   }
 
-  if (output) writeFileSync(path.join(output, "computed-contrast.json"), JSON.stringify(contrastChecks, null, 2));
+  if (output) writeFileSync(path.join(output, `computed-contrast-${locale}.json`), JSON.stringify(contrastChecks, null, 2));
 });
+}

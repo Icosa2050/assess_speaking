@@ -2,9 +2,8 @@ export type Appearance = "system" | "light" | "dark";
 
 export const APPEARANCE_STORAGE_KEY = "vostavo.appearance.v1";
 
-// System can become the default after every primary screen has passed the
-// rendered dark-theme contrast audit. Until then, first run remains light.
-export const DEFAULT_APPEARANCE: Appearance = "light";
+// First run follows the operating system; an explicit choice remains persisted.
+export const DEFAULT_APPEARANCE: Appearance = "system";
 
 const isAppearance = (value: unknown): value is Appearance =>
   value === "system" || value === "light" || value === "dark";
