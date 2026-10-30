@@ -169,7 +169,7 @@
 }
 
 .rowAction {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 @media (min-width: 860px) {

@@ -1050,13 +1050,49 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
         }
       }
     }
-    // A 1100px window at 200% browser zoom has roughly a 550px CSS viewport.
-    await page.setViewportSize({ width: 550, height: 380 });
     if (route === "setup") {
+      await page.setViewportSize({ width: 900, height: 760 });
       const longAction = page.locator('[data-testid^="runtime_setup.setup_guide."][data-testid$=".action"]:not(:disabled)').first();
       await expect(longAction).toBeVisible();
       await longAction.evaluate(element => { element.textContent = "Check the microphone and audio processing settings before continuing with the speaking session"; });
+      const splitWords = await longAction.evaluate(element => {
+        const text = element.firstChild;
+        if (!text?.textContent || text.nodeType !== Node.TEXT_NODE) throw new Error("Missing setup action text");
+        return [...text.textContent.matchAll(/\S+/g)].flatMap(match => {
+          const range = document.createRange();
+          range.setStart(text, match.index);
+          range.setEnd(text, match.index + match[0].length);
+          return range.getClientRects().length > 1 ? [match[0]] : [];
+        });
+      });
+      expect(splitWords, `${locale} ${theme} setup action split a word in the three-column row`).toEqual([]);
+      const minimum = await longAction.evaluate(element => {
+        const clone = element.cloneNode(true) as HTMLElement;
+        clone.style.position = "fixed";
+        clone.style.left = "-10000px";
+        clone.style.width = "min-content";
+        document.body.appendChild(clone);
+        const style = getComputedStyle(clone);
+        const contentWidth = clone.getBoundingClientRect().width -
+          Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight) -
+          Number.parseFloat(style.borderLeftWidth) - Number.parseFloat(style.borderRightWidth);
+        const word = [...(clone.textContent?.matchAll(/\S+/g) ?? [])]
+          .map(match => match[0]).sort((a, b) => b.length - a.length)[0];
+        const measure = document.createElement("span");
+        measure.style.font = style.font;
+        measure.style.letterSpacing = style.letterSpacing;
+        measure.style.whiteSpace = "nowrap";
+        measure.textContent = word;
+        document.body.appendChild(measure);
+        const wordWidth = measure.getBoundingClientRect().width;
+        clone.remove();
+        measure.remove();
+        return { contentWidth, wordWidth, word };
+      });
+      expect(minimum.contentWidth + 1, `${locale} ${theme} setup action min-content must fit ${minimum.word}`).toBeGreaterThanOrEqual(minimum.wordWidth);
     }
+    // A 1100px window at 200% browser zoom has roughly a 550px CSS viewport.
+    await page.setViewportSize({ width: 550, height: 380 });
     await expectNoPageHorizontalOverflow(page);
     const controlRoot = await page.locator("dialog[open]").count() ? "dialog[open]" : "main";
     const reachability = await page.evaluate(selector => {
