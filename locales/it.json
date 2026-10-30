@@ -728,7 +728,7 @@
     "clear_goal": "Cancella obiettivo",
     "brief_title": "Il tuo piano per riprovare",
     "brief_context": "Stesso compito: {task}",
-    "brief_hint": "Salvato su questo dispositivo fino a sette giorni o fino all’invio. Puoi modificarlo o cancellarlo prima di registrare.",
+    "brief_hint": "Salvato su questo dispositivo fino a sette giorni. Puoi modificarlo o cancellarlo prima di registrare.",
     "resume_title": "Riprendere questo tentativo?",
     "recorded_at": "Registrato il {date}.",
     "edited_at": "Impostazioni modificate il {date}.",

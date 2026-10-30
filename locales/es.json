@@ -728,7 +728,7 @@
     "clear_goal": "Borrar objetivo",
     "brief_title": "Tu plan para repetir",
     "brief_context": "Misma tarea: {task}",
-    "brief_hint": "Guardado en este dispositivo hasta siete días o hasta el envío. Puedes editarlo o borrarlo antes de grabar.",
+    "brief_hint": "Guardado en este dispositivo hasta siete días. Puedes editarlo o borrarlo antes de grabar.",
     "resume_title": "¿Reanudar este intento?",
     "recorded_at": "Grabado el {date}.",
     "edited_at": "Configuración modificada el {date}.",

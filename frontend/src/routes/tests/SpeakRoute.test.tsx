@@ -160,6 +160,25 @@ describe("Speak route", () => {
     expect(store.getState().recording.job.assessmentId).toBe("asmt-1");
   });
 
+  it("removes the local duplicate after a completed report and does not offer it on remount", async () => {
+    const saved = savedDraftFixture();
+    const adapter = draftAdapterFixture([saved]);
+    adapter.list.mockResolvedValueOnce({ drafts: [saved], unreadableIds: [] })
+      .mockResolvedValueOnce({ drafts: [], unreadableIds: [] });
+    const first = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.recording_status")).toHaveTextContent("Saved on this Mac"));
+    act(() => {
+      first.store.getState().setRecordingJob({ assessmentId: "asmt-1", status: "completed" });
+      first.store.getState().updateReview({ reportId: "report-1" });
+    });
+    await waitFor(() => expect(adapter.discard).toHaveBeenCalledWith(saved.draftId));
+    first.unmount();
+    renderWithProviders(<AppFrame />, { initialEntries: ["/"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    await screen.findByTestId("home.resume");
+    expect(screen.queryByTestId("draft.recovery")).not.toBeInTheDocument();
+  });
+
   it("does not mark a second selected file saved while the first finish is pending", async () => {
     const adapter = draftAdapterFixture();
     vi.stubGlobal("OfflineAudioContext", class { decodeAudioData = async () => ({ duration: 32 }); });

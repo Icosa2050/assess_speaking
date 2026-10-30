@@ -728,7 +728,7 @@
     "clear_goal": "Ziel entfernen",
     "brief_title": "Dein Plan für den nächsten Versuch",
     "brief_context": "Gleiche Aufgabe: {task}",
-    "brief_hint": "Bis zu sieben Tage oder bis zum Einreichen auf diesem Gerät gespeichert. Vor der Aufnahme ändern oder entfernen.",
+    "brief_hint": "Bis zu sieben Tage auf diesem Gerät gespeichert. Vor der Aufnahme ändern oder entfernen.",
     "resume_title": "Diesen Versuch fortsetzen?",
     "recorded_at": "Aufgenommen am {date}.",
     "edited_at": "Einstellungen bearbeitet am {date}.",

@@ -728,7 +728,7 @@
     "clear_goal": "Clear goal",
     "brief_title": "Your retry brief",
     "brief_context": "Same task: {task}",
-    "brief_hint": "Saved on this device for up to seven days or until you submit. Clear or edit it before recording.",
+    "brief_hint": "Saved on this device for up to seven days. Clear or edit it before recording.",
     "resume_title": "Resume this retry?",
     "recorded_at": "Recorded {date}.",
     "edited_at": "Setup edited {date}.",

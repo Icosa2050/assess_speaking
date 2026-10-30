@@ -429,7 +429,6 @@ export const SpeakRoute = () => {
 
     if (nextStatus.status === "completed" && nextStatus.payload) {
       updateReview(toReviewState(nextStatus));
-      navigate("/review");
     }
   }, [assessmentStatusQuery.data, navigate, setRecordingJob, updateReview, translate]);
 
@@ -445,7 +444,12 @@ export const SpeakRoute = () => {
 
   useEffect(() => {
     if (lifecycleState === "completed" && review.reportId) {
-      navigate("/review");
+      void (async () => {
+        if (sameDraftAttempt(draftRecovery.active, draft)) {
+          try { await draftRecovery.discardActive(); } catch { /* Review remains available if local cleanup fails. */ }
+        }
+        navigate("/review");
+      })();
     }
   }, [lifecycleState, navigate, review.reportId]);
 
@@ -462,10 +466,9 @@ export const SpeakRoute = () => {
     runtimeQuery.isPending, runtimeSettingsQuery.isPending, speakingChecksPending, guardTarget, lifecycleState]);
 
   if (lifecycleState === "completed") {
-    return review.reportId ? <Navigate replace to="/review" /> :
-      <Card as="section" role="status" data-testid="speak-completed-no-report">
+    return <Card as="section" role="status" data-testid="speak-completed-no-report">
         <h2>{translate("review.status_done")}</h2>
-        <Link to="/history">{translate("review.view_history")}</Link>
+        {review.reportId ? <p>{translate("journey.loading")}</p> : <Link to="/history">{translate("review.view_history")}</Link>}
       </Card>;
   }
 

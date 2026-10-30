@@ -728,7 +728,7 @@
     "clear_goal": "Effacer l’objectif",
     "brief_title": "Votre consigne pour réessayer",
     "brief_context": "Même tâche : {task}",
-    "brief_hint": "Enregistré sur cet appareil jusqu’à sept jours ou jusqu’à l’envoi. Modifiez-le ou effacez-le avant d’enregistrer.",
+    "brief_hint": "Enregistré sur cet appareil jusqu’à sept jours. Modifiez-le ou effacez-le avant d’enregistrer.",
     "resume_title": "Reprendre cet essai ?",
     "recorded_at": "Enregistré le {date}.",
     "edited_at": "Préparation modifiée le {date}.",
