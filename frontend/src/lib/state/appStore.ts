@@ -4,6 +4,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 
 import type { MicrophoneStatus } from "@/lib/setup/microphone";
 import { persistAppearance, type Appearance } from "./appearance";
+import { desktopBridge } from "@/lib/runtime/desktopBridge";
 import { clearRetryDraft, persistRetryDraft, readRetryDraft } from "./retryBriefStorage";
 
 import { detectPreferredUiLocale, resolveUiLocale } from "@/lib/i18n";
@@ -345,13 +346,14 @@ export const AppStoreProvider = ({
   const storeRef = useRef<AppStoreApi | null>(store ?? null);
 
   if (storeRef.current === null) {
-    const restored = readRetryDraft();
+    const restored = desktopBridge.hasDraftStore() ? null : readRetryDraft();
     storeRef.current = createAppStore({ draft: restored ?? undefined, retryRestorePending: Boolean(restored) });
   }
 
   useEffect(() => {
     const activeStore = storeRef.current!;
     const unsubscribeDraft = activeStore.subscribe((state, previous) => {
+      if (desktopBridge.hasDraftStore()) return;
       if (state.recording.assessmentState === "completed") {
         clearRetryDraft();
       } else if (state.draft !== previous.draft) {

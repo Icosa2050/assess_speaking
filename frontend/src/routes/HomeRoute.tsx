@@ -11,6 +11,7 @@ import { queryKeys } from "@/lib/query/queryClient";
 import { buildSetupReadinessRows, canRecord, isBlockingSetupReadinessRow } from "@/lib/setup/readiness";
 import { useReadiness } from "@/lib/setup/useReadiness";
 import { useAppStore } from "@/lib/state/appStore";
+import { useDraftRecovery } from "@/lib/state/DraftRecoveryProvider";
 import { hasReviewState, hasSetupDraft } from "@/lib/state/sessionDraft";
 
 import styles from "./HomeRoute.module.css";
@@ -77,6 +78,7 @@ export const HomeRoute = () => {
   const microphoneSetupPassed = useAppStore(state => state.microphoneSetupPassed);
   const review = useAppStore((state) => state.review);
   const beginNewSession = useAppStore((state) => state.beginNewSession);
+  const draftRecovery = useDraftRecovery();
   const setCurrentPage = useAppStore((state) => state.setCurrentPage);
 
   const translate = createTranslator(locale);
@@ -123,6 +125,8 @@ export const HomeRoute = () => {
   const resumeDisabled = !hasSetupDraft(draft);
 
   const handleStartNew = () => {
+    if (draftRecovery.active?.take && !window.confirm(translate("draft.replace_confirm"))) return;
+    draftRecovery.leaveActive();
     beginNewSession();
     navigate("/session-setup");
   };

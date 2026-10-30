@@ -23,7 +23,9 @@ import {
   type ThemeLibrary,
 } from "@/lib/setup/sessionSetupContent";
 import { useAppStore } from "@/lib/state/appStore";
-import { type CefrLevel, type DurationOption, type TaskFamily } from "@/lib/state/sessionDraft";
+import { useDraftRecovery } from "@/lib/state/DraftRecoveryProvider";
+import { normalizedLearner } from "@/lib/state/draftStore";
+import { buildSessionDraft, type CefrLevel, type DurationOption, type TaskFamily } from "@/lib/state/sessionDraft";
 
 const pageStyle = {
   display: "grid",
@@ -125,6 +127,8 @@ const SessionSetupContent = () => {
   const microphoneStatus = useAppStore((state) => state.microphoneStatus);
   const microphoneSetupPassed = useAppStore((state) => state.microphoneSetupPassed);
   const draft = useAppStore((state) => state.draft);
+  const draftRecovery = useDraftRecovery();
+  const clearRecording = useAppStore(state => state.clearRecording);
   const updateDraft = useAppStore((state) => state.updateDraft);
   const applySetup = useAppStore((state) => state.applySetup);
   const setCurrentPage = useAppStore((state) => state.setCurrentPage);
@@ -346,7 +350,7 @@ const SessionSetupContent = () => {
     setSelectedThemeMode(open ? "custom" : "library");
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const nextErrors: string[] = [];
     if (!speakerId.trim()) {
       nextErrors.push(translate("setup.error_speaker_id"));
@@ -370,7 +374,8 @@ const SessionSetupContent = () => {
       setLibrary(nextLibrary);
     }
 
-    applySetup({
+    const nextSetup = buildSessionDraft({
+      sessionId: draft.sessionId,
       speakerId: speakerId.trim(),
       learningLanguage: selectedLanguage,
       learningLanguageLabel: selectedLanguageLabel,
@@ -382,8 +387,16 @@ const SessionSetupContent = () => {
       themeLabel: resolvedThemeLabel,
       taskFamily: resolvedTaskFamily,
       durationSec: selectedDuration,
+      promptId: `${themeEntryId({ title: resolvedThemeLabel, level: selectedCefr })}-${selectedCefr.toLowerCase()}`,
       promptText: brief.prompt,
     });
+    const existing = draftRecovery.findLearner(nextSetup.speakerId);
+    if (existing?.take && JSON.stringify(existing.setup) !== JSON.stringify(nextSetup)) {
+      if (!window.confirm(translate("draft.replace_setup_confirm", { learner: existing.setup.speakerId }))) return;
+      await draftRecovery.discardDraft(existing.draftId);
+    }
+    applySetup(nextSetup);
+    try { await draftRecovery.saveSetup(nextSetup); } catch { /* The setup stays in memory; Speak shows the local storage failure. */ }
 
     if (canContinueToSpeak) {
       navigate("/speak");
@@ -476,6 +489,11 @@ const SessionSetupContent = () => {
         }}
         onSetupStepChange={setSetupStep}
         onSpeakerIdChange={(value) => {
+          if (draftRecovery.active && normalizedLearner(value) !== draftRecovery.active.speakerId) {
+            if (!window.confirm(translate("draft.learner_switch_confirm", { learner: draftRecovery.active.setup.speakerId }))) return;
+            draftRecovery.leaveActive();
+            clearRecording();
+          }
           updateDraft({ speakerId: value });
           if (errors.length > 0) {
             setErrors([]);

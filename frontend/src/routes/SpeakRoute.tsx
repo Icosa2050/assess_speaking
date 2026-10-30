@@ -18,6 +18,8 @@ import type {
 } from "@/lib/api/types";
 import { createTranslator } from "@/lib/i18n";
 import { MIN_REVIEW_SECONDS } from "@/lib/recordingPolicy";
+import { capturedAudioSeconds } from "@/lib/setup/audioCapture";
+import { useDraftRecovery } from "@/lib/state/DraftRecoveryProvider";
 import { hasFirstTakeMilestone, recordFirstTakeMilestone } from "@/lib/history/firstTakeMilestone";
 import { StatusBanner } from "@/components/ui/StatusBanner";
 import { pollingIntervals, queryKeys } from "@/lib/query/queryClient";
@@ -175,6 +177,7 @@ export const SpeakRoute = () => {
   const setRecordingJob = useAppStore((state) => state.setRecordingJob);
   const clearRecording = useAppStore((state) => state.clearRecording);
   const updateReview = useAppStore((state) => state.updateReview);
+  const draftRecovery = useDraftRecovery();
 
   const translate = useMemo(() => createTranslator(locale), [locale]);
   const lifecycleState = useAppStore(selectAssessmentLifecycleState);
@@ -219,6 +222,8 @@ export const SpeakRoute = () => {
   const [firstTakeJustRecorded, setFirstTakeJustRecorded] = useState(false);
   const [previewUrl, setPreviewUrl] = useState("");
   const [recordingActive, setRecordingActive] = useState(false);
+  const [localSaveState, setLocalSaveState] = useState<"none" | "saving" | "saved" | "failed">(draftRecovery.recoveredFile ? "saved" : "none");
+  const [localSaveProgress, setLocalSaveProgress] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadStartedAt, setUploadStartedAt] = useState<number | null>(null);
@@ -236,7 +241,7 @@ export const SpeakRoute = () => {
   const uploadIdentity = useRef<{ file: File; requestId: string } | null>(null);
   const previewUrlRef = useRef("");
   const readinessBlocked = !speakingChecksPending && !canEnterSpeak(speakingChecks);
-  const ownsTake = recordingActive || Boolean(attachedFile) || hasRecordingAttachment(recording) ||
+  const ownsTake = recordingActive || Boolean(attachedFile) || Boolean(draftRecovery.recoveredFile) || hasRecordingAttachment(recording) ||
     isSubmitting || uploadProgress !== null || lifecycleState === "queued" || lifecycleState === "running";
   const guardTarget = !hasSetupDraft(draft) ? "/session-setup"
     : readinessBlocked && !ownsTake ? "/runtime-setup" : null;
@@ -255,7 +260,45 @@ export const SpeakRoute = () => {
     setAttachedFile(null);
     setRecordedDurationSec(null);
     setFirstTakeJustRecorded(false);
+    setLocalSaveState("none");
     clearRecording({ preserveInputs: true });
+  };
+
+  useEffect(() => {
+    const file = draftRecovery.recoveredFile;
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    previewUrlRef.current = url;
+    setPreviewUrl(url);
+    setAttachedFile(file);
+    setInputMode(draftRecovery.active?.take?.inputMethod || "record");
+    setRecordedDurationSec(draftRecovery.active?.take?.durationSec ?? null);
+    setLocalSaveState("saved");
+    updateRecording({ status: "ready", assessmentState: "idle", audioPath: url,
+      durationSec: draftRecovery.active?.take?.durationSec ?? 0,
+      inputDigest: `${file.name}:${file.size}:${file.lastModified}`,
+      inputMethod: draftRecovery.active?.take?.inputMethod || "record", error: "" });
+    draftRecovery.clearRecoveredFile();
+  }, [draftRecovery.recoveredFile]);
+
+  useEffect(() => {
+    if (draftRecovery.active?.take && !draftRecovery.recoveredFile && !attachedFile) {
+      void draftRecovery.reloadActiveTake();
+    }
+  }, [draftRecovery.active?.draftId]);
+
+  const confirmReplace = () => !draftRecovery.supported || (!attachedFile && !draftRecovery.active?.take) || window.confirm(translate("draft.replace_confirm"));
+
+  const handleRemove = async (): Promise<boolean> => {
+    try {
+      if (draftRecovery.active?.take) {
+        await draftRecovery.discardActive();
+        await draftRecovery.saveSetup(draft);
+      }
+      clearAttachment();
+      return true;
+    } catch { setLocalSaveState("failed"); return false; }
   };
 
   useEffect(
@@ -268,19 +311,34 @@ export const SpeakRoute = () => {
     [],
   );
 
+  useEffect(() => {
+    if (!draftRecovery.supported || !attachedFile || (localSaveState !== "saving" && localSaveState !== "failed")) return;
+    const beforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    const blockLink = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element) || !target.closest("a[href]")) return;
+      if (localSaveState === "saving" || !window.confirm(translate("draft.save_failed"))) event.preventDefault();
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    document.addEventListener("click", blockLink, true);
+    return () => { window.removeEventListener("beforeunload", beforeUnload); document.removeEventListener("click", blockLink, true); };
+  }, [attachedFile, localSaveState, draftRecovery.supported, translate]);
+
   const handleInputModeChange = (nextMode: RecordingInputMethod) => {
     if (nextMode === inputMode) {
       return;
     }
-    clearAttachment();
-    setInputMode(nextMode);
-  };
-
-  const handleFileSelected = (file: File | null, durationSec?: number) => {
-    clearAttachment();
-    if (!file) {
+    if (!draftRecovery.active?.take) {
+      clearAttachment();
+      setInputMode(nextMode);
       return;
     }
+    void handleRemove().then(removed => { if (removed) setInputMode(nextMode); });
+  };
+
+  const handleFileSelected = async (file: File | null, durationSec?: number) => {
+    if (!file) return;
+    clearAttachment();
     if (file.size > 100 * 1024 * 1024 || file.size === 0) {
       setRecordingError(translate("speak.upload_size_error"));
       return;
@@ -311,6 +369,27 @@ export const SpeakRoute = () => {
         reportPath: "",
       },
     });
+    if (inputMode === "record" && draftRecovery.supported && durationSec !== undefined && durationSec > 0) {
+      setLocalSaveState("saving");
+      try {
+        if (!draftRecovery.active) await draftRecovery.saveSetup(draft);
+        await draftRecovery.saveTake(file, durationSec, "record", setLocalSaveProgress);
+        setLocalSaveState("saved");
+      } catch { setLocalSaveState("failed"); }
+    }
+  };
+
+  const keepSelectedFile = async () => {
+    if (!attachedFile || !draftRecovery.supported || inputMode !== "upload") return;
+    setLocalSaveState("saving");
+    try {
+      const duration = recordedDurationSec ?? await capturedAudioSeconds(attachedFile);
+      if (!duration) throw new Error("Could not decode duration");
+      if (!draftRecovery.active) await draftRecovery.saveSetup(draft);
+      await draftRecovery.saveTake(attachedFile, duration, "upload", setLocalSaveProgress);
+      setRecordedDurationSec(duration);
+      setLocalSaveState("saved");
+    } catch { setLocalSaveState("failed"); }
   };
 
   const sharingSelection = { provider: runtimeQuery.data?.provider || "", llm_model: runtimeQuery.data?.model || "", llm_base_url: runtimeQuery.data?.base_url || "", whisper: effectiveWhisperModel };
@@ -420,10 +499,14 @@ export const SpeakRoute = () => {
   const hasAttachment = assessmentOwnsAttachment ? storeHasAttachment : Boolean(attachedFile);
   const shortRecording = recordedDurationSec !== null && recordedDurationSec < MIN_REVIEW_SECONDS;
   const canSubmitLiveAttachment = !readinessBlocked && canSubmitAssessment && Boolean(attachedFile) &&
-    !shortRecording && Boolean(sharingQuery.data?.available);
+    localSaveState !== "saving" && !shortRecording && Boolean(sharingQuery.data?.available);
   const statusMessage = cancelError ? translate("speak.wait_cancel_failed", { detail: cancelError })
-    : retryError ? translate(retryResponseUnknown ? "speak.wait_retry_unconfirmed" : "speak.wait_retry_not_ready", { detail: retryError })
+    : retryError ? translate(retryResponseUnknown && !recording.job.assessmentId ? "draft.submit_uncertain"
+      : retryResponseUnknown ? "speak.wait_retry_unconfirmed" : "speak.wait_retry_not_ready", { detail: retryError })
     : pollError ? translate("speak.wait_status_failed", { detail: pollError })
+    : attachedFile && draftRecovery.supported && lifecycleState === "idle" && !isSubmitting && localSaveState === "saving" ? translate("draft.save_progress", { percent: localSaveProgress })
+    : attachedFile && draftRecovery.supported && lifecycleState === "idle" && !isSubmitting && localSaveState === "saved" ? translate("draft.saved_on_mac")
+    : attachedFile && draftRecovery.supported && lifecycleState === "idle" && !isSubmitting && localSaveState === "failed" ? translate("draft.save_failed")
     : shortRecording ? translate("speak.recording_too_short") : buildStatusMessage({
     errorMessage: recording.error || recording.job.error,
     hasAttachment,
@@ -568,14 +651,8 @@ export const SpeakRoute = () => {
       const signature = JSON.stringify(request);
       if (submission.current?.signature !== signature) submission.current = { signature, requestId: crypto.randomUUID() };
       const body = { ...request, request_id: submission.current.requestId };
-      let created;
       assessmentRequestAttempted = true;
-      try { created = await apiClient.createAssessment(body); }
-      catch (error) {
-        if (!isIndeterminateAssessmentResponse(error)) throw error;
-        // The backend deduplicates this ID even if the accepted response was lost.
-        created = await apiClient.createAssessment(body);
-      }
+      const created = await apiClient.createAssessment(body);
       setRecordingAssessing({
         assessmentId: created.assessment_id,
         status: created.status,
@@ -599,8 +676,8 @@ export const SpeakRoute = () => {
         return;
       }
       if (error instanceof ApiClientError && error.responseStatus === 404) savedUpload.current = null;
-      if (assessmentRequestAttempted && isIndeterminateAssessmentResponse(error) && priorTerminalJob) {
-        setRecordingJob(priorTerminalJob);
+      if (assessmentRequestAttempted && isIndeterminateAssessmentResponse(error)) {
+        if (priorTerminalJob) setRecordingJob(priorTerminalJob);
         setRetryResponseUnknown(true);
         setRetryError(error instanceof Error || error instanceof DOMException
           ? error.message || translate("speak.job_status_unknown")
@@ -665,6 +742,11 @@ export const SpeakRoute = () => {
 
   return (
     <div style={{ display: "grid", gap: "1rem" }}>
+      {draftRecovery.supported && draftRecovery.error ? (
+        <StatusBanner title={translate(draftRecovery.error.kind === "keychain" ? "draft.keychain_error" : "draft.storage_error")} tone="warning">
+          <p>{translate("draft.save_failed")}</p>
+        </StatusBanner>
+      ) : null}
       {readinessBlocked && ownsTake ? (
         <div data-testid="speak.readiness_changed">
           <StatusBanner title={translate("first_run.readiness_changed_title")} tone="warning">
@@ -733,10 +815,17 @@ export const SpeakRoute = () => {
           </p>
           <Field label={translate("retry.goal_label")} value={draft.coachingGoal} maxLength={12000}
             disabled={recordingActive || isSubmitting || lifecycleState === "queued" || lifecycleState === "running"}
-            onChange={event => updateDraft({ coachingGoal: event.target.value })}
+            onChange={event => {
+              const coachingGoal = event.target.value;
+              updateDraft({ coachingGoal });
+              if (draftRecovery.supported) void draftRecovery.saveSetup({ ...draft, coachingGoal }).catch(() => undefined);
+            }}
             hint={translate("retry.brief_hint")} data-testid="speak-retry-goal" />
           <Button variant="quiet" disabled={recordingActive || isSubmitting || lifecycleState === "queued" || lifecycleState === "running"}
-            onClick={() => updateDraft({ coachingGoal: "" })}>
+            onClick={() => {
+              updateDraft({ coachingGoal: "" });
+              if (draftRecovery.supported) void draftRecovery.saveSetup({ ...draft, coachingGoal: "" }).catch(() => undefined);
+            }}>
             {translate("retry.clear_goal")}
           </Button>
         </Card>
@@ -773,22 +862,31 @@ export const SpeakRoute = () => {
           downloadName={attachedFile?.name}
           inputMode={inputMode}
           onFileSelected={handleFileSelected}
+          onBeforeReplace={confirmReplace}
           onInputModeChange={handleInputModeChange}
-          onRemove={clearAttachment}
+          onRemove={() => { void handleRemove(); }}
           previewUrl={previewUrl}
-          showReadyCheckpoint={hasAttachment && lifecycleState === "idle" && !isSubmitting}
+          preferStatusMessage={draftRecovery.supported && localSaveState === "saved" && lifecycleState === "idle" && !isSubmitting}
+          showReadyCheckpoint={(!draftRecovery.supported || localSaveState === "saved") && hasAttachment && lifecycleState === "idle" && !isSubmitting}
           statusMessage={statusMessage}
           statusTone={
-            cancelError || retryError || pollError || lifecycleState === "failed"
+            cancelError || retryError || pollError || localSaveState === "failed" || lifecycleState === "failed"
               ? "error"
               : lifecycleState === "cancelled"
                 ? "warning"
-                : hasAttachment
+                : localSaveState === "saved"
                   ? "success"
                   : "info"
           }
           translate={translate}
         />
+        {!draftRecovery.supported && attachedFile ? <p role="note">{translate("draft.browser_unsupported")}</p> : null}
+        {draftRecovery.supported && inputMode === "upload" && attachedFile && localSaveState !== "saved" && localSaveState !== "saving" ? (
+          <div style={{ display: "grid", gap: "var(--space-2)" }}>
+            <p>{translate("draft.save_upload_note")}</p>
+            <Button onClick={() => void keepSelectedFile()}>{translate("draft.save_upload_action")}</Button>
+          </div>
+        ) : null}
         </fieldset>
         <AssessmentStatusPanel
           assessmentStatus={lifecycleState === "queued" || lifecycleState === "running" ? assessmentStatusQuery.data : undefined}

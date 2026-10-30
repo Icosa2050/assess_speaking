@@ -976,8 +976,26 @@ impl DraftStore {
         draft_id: Option<String>,
         expected_revision: Option<u64>,
     ) -> StoreResult<Manifest> {
+        self.save_setup_internal(setup, draft_id, expected_revision, None)
+    }
+    pub fn import_legacy_brief(&mut self, setup: Setup, created_at: u64) -> StoreResult<Manifest> {
+        if !setup.retry_goal_eligible || setup.retry_of_session_id.is_empty() {
+            return Err(err("Invalid legacy retry brief"));
+        }
+        self.save_setup_internal(setup, None, None, Some(created_at))
+    }
+    fn save_setup_internal(
+        &mut self,
+        setup: Setup,
+        draft_id: Option<String>,
+        expected_revision: Option<u64>,
+        legacy_created_at: Option<u64>,
+    ) -> StoreResult<Manifest> {
         let speaker = setup.validate()?;
         let now = now_ms();
+        if legacy_created_at.is_some_and(|at| at > now || now - at >= TTL) {
+            return Err(err("Legacy retry brief has expired"));
+        }
         self.expire(now)?;
         let key = self.key()?;
         let all = self.manifests(&key, now)?;
@@ -1014,9 +1032,9 @@ impl DraftStore {
             draft_id: new_id()?,
             speaker_id: speaker,
             setup: setup.clone(),
-            created_at: now,
+            created_at: legacy_created_at.unwrap_or(now),
             updated_at: now,
-            expires_at: now + TTL,
+            expires_at: legacy_created_at.unwrap_or(now) + TTL,
             revision: 0,
             status: "setup".into(),
             take: None,
@@ -1026,7 +1044,9 @@ impl DraftStore {
         manifest.updated_at = now.max(manifest.updated_at);
         manifest.revision += 1;
         if manifest.take.is_none() {
-            manifest.expires_at = manifest.updated_at.saturating_add(TTL);
+            manifest.expires_at = legacy_created_at
+                .unwrap_or(manifest.updated_at)
+                .saturating_add(TTL);
         }
         self.commit(&manifest, &key)
             .map_err(|error| error.message)?;
@@ -1614,6 +1634,14 @@ pub async fn draft_save_setup(
     .await
 }
 #[tauri::command]
+pub async fn draft_import_legacy_brief(
+    window: tauri::WebviewWindow,
+    setup: Setup,
+    created_at: u64,
+) -> StoreResult<Manifest> {
+    with_store(window, move |s| s.import_legacy_brief(setup, created_at)).await
+}
+#[tauri::command]
 pub async fn draft_begin_take(
     window: tauri::WebviewWindow,
     draft_id: String,
@@ -2099,6 +2127,30 @@ mod tests {
         let recovered = store.list().unwrap().remove(0);
         assert_eq!(recovered.revision, first.revision);
         assert_eq!(recovered.setup.prompt_text, first.setup.prompt_text);
+    }
+    #[test]
+    fn legacy_retry_import_preserves_original_expiry_and_rejects_duplicate_or_expired() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let mut brief = setup("Alex");
+        brief.retry_of_session_id = "earlier-attempt".into();
+        brief.retry_goal_eligible = true;
+        let created_at = now_ms() - TTL + 60_000;
+        let imported = store
+            .import_legacy_brief(brief.clone(), created_at)
+            .unwrap();
+        assert_eq!(imported.created_at, created_at);
+        assert_eq!(imported.expires_at, created_at + TTL);
+        assert_eq!(store.list().unwrap().len(), 1);
+        assert!(store
+            .import_legacy_brief(brief.clone(), created_at)
+            .is_err());
+        assert_eq!(store.list().unwrap().len(), 1);
+        assert!(store.import_legacy_brief(setup("Bea"), created_at).is_err());
+        let mut expired = setup("Bea");
+        expired.retry_of_session_id = "earlier-attempt".into();
+        expired.retry_goal_eligible = true;
+        assert!(store.import_legacy_brief(expired, now_ms() - TTL).is_err());
     }
     #[test]
     fn expiry_limits_revisions_and_learner_isolation() {

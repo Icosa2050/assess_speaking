@@ -86,8 +86,10 @@ export const RecorderPanel = ({
   inputMode,
   onFileSelected,
   onInputModeChange,
+  onBeforeReplace,
   onRemove,
   previewUrl,
+  preferStatusMessage = false,
   showReadyCheckpoint,
   statusMessage,
   statusTone,
@@ -104,10 +106,12 @@ export const RecorderPanel = ({
   onRecordingActiveChange?: (active: boolean) => void;
   downloadName?: string;
   inputMode: RecordingInputMethod;
-  onFileSelected: (file: File | null, durationSec?: number) => void;
+  onFileSelected: (file: File | null, durationSec?: number) => void | Promise<void>;
   onInputModeChange: (mode: RecordingInputMethod) => void;
+  onBeforeReplace?: () => boolean;
   onRemove: () => void;
   previewUrl: string;
+  preferStatusMessage?: boolean;
   showReadyCheckpoint: boolean;
   statusMessage: string;
   statusTone: "error" | "info" | "success" | "warning";
@@ -221,14 +225,8 @@ export const RecorderPanel = ({
       setRecorderPhase("idle");
       const duration = decodedSeconds ?? Math.max(0, recordedSeconds - (MIN_CAPTURE_SECONDS - MIN_REVIEW_SECONDS));
       setElapsedSeconds(Math.floor(duration));
-      onFileSelected(file, duration);
-      setRecorderMessage(
-        duration < MIN_REVIEW_SECONDS
-          ? translate("speak.recording_too_short")
-          : recordedSeconds >= maxSeconds
-          ? translate("speak.recording_auto_stopped")
-          : translate("speak.recording_saved"),
-      );
+      await onFileSelected(file, duration);
+      if (mountedRef.current) setRecorderMessage(duration < MIN_REVIEW_SECONDS ? translate("speak.recording_too_short") : "");
     },
     [cleanupRecorder, maxSeconds, onFileSelected, onMicrophoneStatusChange, translate],
   );
@@ -283,6 +281,7 @@ export const RecorderPanel = ({
 
   const handleModeChange = (mode: RecordingInputMethod) => {
     if (mode !== inputMode) {
+      if (onBeforeReplace && !onBeforeReplace()) return;
       stopRecording({ discard: true });
       setRecorderMessage("");
       elapsedSecondsRef.current = 0;
@@ -292,6 +291,7 @@ export const RecorderPanel = ({
   };
 
   const handleStartRecording = async () => {
+    if (onBeforeReplace && !onBeforeReplace()) return;
     if (!microphoneSetupPassed) {
       setRecorderMessage(translate("speak.microphone_setup_required"));
       return;
@@ -320,7 +320,6 @@ export const RecorderPanel = ({
     setElapsedSeconds(0);
     chunksRef.current = [];
     setSignalWarning(""); setLevels(idleLevels); signal.current = null;
-    onFileSelected(null);
     // Resume synchronously from the Record gesture, before permission awaits.
     if (typeof AudioContext !== "undefined") {
       try { meterContext.current = microphoneContext(); void meterContext.current.resume().catch(() => undefined); }
@@ -434,7 +433,7 @@ export const RecorderPanel = ({
       ? translate("speak.recording_requesting")
       : recorderPhase === "recording"
         ? translate("speak.recording_live", { seconds: elapsedSeconds })
-        : recorderMessage || statusMessage;
+        : preferStatusMessage ? statusMessage : recorderMessage || statusMessage;
   const visibleStatusTone =
     inputMode === "upload"
       ? statusTone
@@ -580,7 +579,10 @@ export const RecorderPanel = ({
             type="file"
             accept="audio/*"
             aria-label={translate("speak.upload")}
-            onChange={(event) => onFileSelected(event.currentTarget.files?.[0] ?? null)}
+            onChange={(event) => {
+              if (onBeforeReplace && !onBeforeReplace()) { event.currentTarget.value = ""; return; }
+              void onFileSelected(event.currentTarget.files?.[0] ?? null);
+            }}
             style={hiddenFileInputStyle}
             data-testid="speak.upload_input"
             data-semantic-id="speak.upload_input"
@@ -633,7 +635,7 @@ export const RecorderPanel = ({
       {canRemove ? (
         <Button
           type="button"
-          onClick={onRemove}
+          onClick={() => { if (!onBeforeReplace || onBeforeReplace()) onRemove(); }}
           {...{
             "data-testid": "speak.remove_recording",
             "data-semantic-id": "speak.remove_recording",

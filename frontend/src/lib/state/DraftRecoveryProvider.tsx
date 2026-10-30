@@ -1,0 +1,220 @@
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { createTranslator } from "@/lib/i18n";
+import type { SavedDraft } from "@/lib/runtime/desktopBridge";
+import { useAppStore } from "./appStore";
+import { createDraftStoreAdapter, normalizedLearner, type DraftStoreAdapter, type DraftStoreError } from "./draftStore";
+import { clearRetryDraft, readLegacyRetryBrief } from "./retryBriefStorage";
+import type { SessionDraft } from "./sessionDraft";
+
+type LegacyBrief = NonNullable<ReturnType<typeof readLegacyRetryBrief>>;
+type RecoveryContext = {
+  supported: boolean;
+  active: SavedDraft | null;
+  drafts: SavedDraft[];
+  recoveredFile: File | null;
+  error: DraftStoreError | null;
+  saveSetup: (setup: SessionDraft) => Promise<SavedDraft | null>;
+  saveTake: (file: File, duration: number, method: "record" | "upload", progress: (percent: number) => void) => Promise<SavedDraft>;
+  discardActive: () => Promise<void>;
+  discardDraft: (id: string) => Promise<void>;
+  leaveActive: () => void;
+  clearRecoveredFile: () => void;
+  reloadActiveTake: () => Promise<void>;
+  findLearner: (speakerId: string) => SavedDraft | undefined;
+};
+
+const defaultContext: RecoveryContext = {
+  supported: false, active: null, drafts: [], recoveredFile: null, error: null,
+  saveSetup: async () => null,
+  saveTake: async () => { throw new Error("Local draft storage is unavailable"); },
+  discardActive: async () => undefined,
+  discardDraft: async () => undefined,
+  leaveActive: () => undefined,
+  clearRecoveredFile: () => undefined,
+  reloadActiveTake: async () => undefined,
+  findLearner: () => undefined,
+};
+const Context = createContext<RecoveryContext>(defaultContext);
+export const useDraftRecovery = (): RecoveryContext => useContext(Context);
+
+export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdapter() }: { children: ReactNode; adapter?: DraftStoreAdapter }) => {
+  const stableAdapter = useRef(adapter).current;
+  adapter = stableAdapter;
+  const navigate = useNavigate();
+  const locale = useAppStore(state => state.preferences.uiLocale);
+  const applySetup = useAppStore(state => state.applySetup);
+  const clearRecording = useAppStore(state => state.clearRecording);
+  const translate = useMemo(() => createTranslator(locale), [locale]);
+  const [booted, setBooted] = useState(!adapter.supported);
+  const [choosing, setChoosing] = useState(false);
+  const [drafts, setDrafts] = useState<SavedDraft[]>([]);
+  const draftsRef = useRef<SavedDraft[]>([]);
+  const [unreadableIds, setUnreadableIds] = useState<string[]>([]);
+  const [active, setActive] = useState<SavedDraft | null>(null);
+  const activeRef = useRef<SavedDraft | null>(null);
+  const [recoveredFile, setRecoveredFile] = useState<File | null>(null);
+  const [legacy, setLegacy] = useState<LegacyBrief | null>(null);
+  const [error, setError] = useState<DraftStoreError | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const serial = useRef<Promise<unknown>>(Promise.resolve());
+  const bootRun = useRef<Promise<{ drafts: SavedDraft[]; unreadableIds: string[]; legacy: LegacyBrief | null; error: DraftStoreError | null }> | null>(null);
+  const setCurrent = (value: SavedDraft | null) => { activeRef.current = value; setActive(value); };
+  const enqueue = <T,>(work: () => Promise<T>): Promise<T> => {
+    const result = serial.current.then(work, work);
+    serial.current = result.catch(() => undefined);
+    return result;
+  };
+  const replaceListing = (saved: SavedDraft) => {
+    draftsRef.current = [saved, ...draftsRef.current.filter(d => d.draftId !== saved.draftId)];
+    setDrafts(draftsRef.current);
+  };
+
+  useEffect(() => {
+    if (!adapter.supported) return;
+    bootRun.current ??= (async () => {
+      try {
+        const listing = await adapter.list();
+        await adapter.abortAbandoned(listing);
+        const brief = readLegacyRetryBrief();
+        if (brief && !listing.drafts.some(item => item.speakerId === normalizedLearner(brief.draft.speakerId)) && !listing.unreadableIds.length) {
+          try {
+            const imported = await adapter.importLegacyBrief(brief.draft, brief.createdAt);
+            clearRetryDraft();
+            return { drafts: [imported, ...listing.drafts], unreadableIds: listing.unreadableIds, legacy: null, error: null };
+          } catch (importError) {
+            return { ...listing, legacy: brief, error: importError as DraftStoreError };
+          }
+        }
+        return { ...listing, legacy: brief, error: null };
+      } catch (bootError) {
+        let unreadableIds: string[] = [];
+        try { unreadableIds = await adapter.recoveryIds(); } catch { /* The storage root itself is unavailable. */ }
+        return { drafts: [], unreadableIds, legacy: readLegacyRetryBrief(), error: bootError as DraftStoreError };
+      }
+    })();
+    let cancelled = false;
+    void bootRun.current.then(result => {
+      if (cancelled) return;
+      draftsRef.current = result.drafts;
+      setDrafts(result.drafts); setUnreadableIds(result.unreadableIds);
+      setLegacy(result.legacy); setError(result.error);
+      setBooted(true);
+      setChoosing(Boolean(result.drafts.length || result.unreadableIds.length || result.legacy || result.error));
+    });
+    return () => { cancelled = true; };
+  }, [adapter]);
+
+  useEffect(() => { if (booted && choosing) heading.current?.focus(); }, [booted, choosing, drafts.length, unreadableIds.length]);
+
+  const saveSetup = (setup: SessionDraft): Promise<SavedDraft | null> => enqueue(async () => {
+    if (!adapter.supported) return null;
+    const previous = activeRef.current?.speakerId === normalizedLearner(setup.speakerId)
+      ? activeRef.current : draftsRef.current.find(item => item.speakerId === normalizedLearner(setup.speakerId));
+    try {
+      const saved = await adapter.saveSetup(setup, previous);
+      setCurrent(saved); replaceListing(saved); setError(null);
+      return saved;
+    } catch (saveError) { setError(saveError as DraftStoreError); throw saveError; }
+  });
+  const saveTake: RecoveryContext["saveTake"] = (file, duration, method, progress) => enqueue(async () => {
+    let current = activeRef.current;
+    if (!current) throw new Error("Session setup has not been saved locally");
+    try {
+      const saved = await adapter.saveTake(current, file, duration, method, progress);
+      setCurrent(saved); replaceListing(saved); setError(null);
+      return saved;
+    } catch (saveError) { setError(saveError as DraftStoreError); throw saveError; }
+  });
+  const discardActive = async () => {
+    if (!activeRef.current) return;
+    await adapter.discard(activeRef.current.draftId);
+    const id = activeRef.current.draftId;
+    setCurrent(null); setRecoveredFile(null);
+    draftsRef.current = draftsRef.current.filter(item => item.draftId !== id);
+    setDrafts(draftsRef.current);
+  };
+  const discard = async (id: string) => {
+    setBusy(true);
+    try {
+      await adapter.discard(id);
+      draftsRef.current = draftsRef.current.filter(item => item.draftId !== id);
+      setDrafts(draftsRef.current);
+      setUnreadableIds(previous => previous.filter(item => item !== id));
+      if (activeRef.current?.draftId === id) { setCurrent(null); setRecoveredFile(null); clearRecording(); }
+      setConfirmDiscard(null); setError(null);
+    } catch (discardError) { setError(discardError as DraftStoreError); }
+    finally { setBusy(false); }
+  };
+  const resume = async (entry: SavedDraft) => {
+    setBusy(true);
+    try {
+      if (entry.expiresAt <= Date.now()) { await discard(entry.draftId); return; }
+      const file = entry.take ? await adapter.loadTake(entry) : null;
+      applySetup(entry.setup);
+      setCurrent(entry);
+      setRecoveredFile(file);
+      setChoosing(false);
+      setError(null);
+      navigate(entry.take ? "/speak" : "/session-setup", { replace: true });
+    } catch (resumeError) {
+      setError(resumeError as DraftStoreError);
+      setUnreadableIds(previous => [...new Set([...previous, entry.draftId])]);
+      draftsRef.current = draftsRef.current.filter(item => item.draftId !== entry.draftId);
+      setDrafts(draftsRef.current);
+    } finally { setBusy(false); }
+  };
+  const context: RecoveryContext = {
+    supported: adapter.supported, active, drafts, recoveredFile, error,
+    saveSetup, saveTake, discardActive, discardDraft: discard,
+    leaveActive: () => { setCurrent(null); setRecoveredFile(null); },
+    clearRecoveredFile: () => setRecoveredFile(null),
+    reloadActiveTake: async () => {
+      if (!activeRef.current?.take) return;
+      try { setRecoveredFile(await adapter.loadTake(activeRef.current)); setError(null); }
+      catch (loadError) { setError(loadError as DraftStoreError); }
+    },
+    findLearner: speakerId => draftsRef.current.find(item => item.speakerId === normalizedLearner(speakerId)),
+  };
+  const pending = choosing && (drafts.length > 0 || unreadableIds.length > 0 || legacy || error);
+  return <Context.Provider value={context}>
+    {!booted ? <p role="status">{translate("journey.loading")}</p> : pending ? (
+      <Card as="section" data-testid="draft.recovery" style={{ display: "grid", gap: "var(--space-3)" }}>
+        <h1 ref={heading} tabIndex={-1}>{translate("draft.resume_title")}</h1>
+        <p>{translate("draft.privacy")}</p>
+        {drafts.map(entry => <div key={entry.draftId} data-testid="draft.entry">
+          <h2>{entry.setup.speakerId} · {entry.setup.themeLabel || entry.setup.promptText}</h2>
+          <p>{translate(entry.take ? "draft.recorded_at" : "draft.edited_at", { date: new Date(entry.take?.captureEndedAt ?? entry.updatedAt).toLocaleString(locale) })}</p>
+          <p>{translate(entry.take ? "draft.take_saved" : "draft.setup_saved", { date: new Date(entry.expiresAt).toLocaleString(locale) })}</p>
+          {entry.expiresAt - Date.now() < 24 * 60 * 60 * 1000 && <p>{translate("draft.expires_soon")}</p>}
+          {entry.take && <p>{entry.submission ? translate("draft.submission_uncertain") : translate("draft.not_sent")}</p>}
+          {confirmDiscard === entry.draftId ? <div role="group" aria-label={translate("draft.discard_confirm_title")}>
+            <p>{translate("draft.discard_confirm", { learner: entry.setup.speakerId, task: entry.setup.themeLabel, size: entry.take ? `${(entry.take.size / 1024 / 1024).toFixed(1)} MiB` : "0 MiB" })}</p>
+            <Button disabled={busy} onClick={() => void discard(entry.draftId)}>{translate("draft.discard_action")}</Button>
+            <Button onClick={() => setConfirmDiscard(null)}>{translate("draft.cancel")}</Button>
+          </div> : <div style={{ display: "flex", gap: "var(--space-2)" }}>
+            <Button variant="primary" disabled={busy} onClick={() => void resume(entry)}>{translate("draft.resume_action")}</Button>
+            <Button disabled={busy} onClick={() => setConfirmDiscard(entry.draftId)}>{translate("draft.discard_action")}</Button>
+          </div>}
+        </div>)}
+        {unreadableIds.map(id => <div key={id} data-testid="draft.unreadable">
+          <p>{translate("draft.unreadable")}</p>
+          {confirmDiscard === id ? <div><p>{translate("draft.unreadable_discard_confirm")}</p>
+            <Button disabled={busy} onClick={() => void discard(id)}>{translate("draft.discard_action")}</Button>
+            <Button onClick={() => setConfirmDiscard(null)}>{translate("draft.cancel")}</Button></div>
+            : <Button onClick={() => setConfirmDiscard(id)}>{translate("draft.discard_action")}</Button>}
+        </div>)}
+        {legacy && <div data-testid="draft.legacy">
+          <p>{translate("draft.legacy_conflict", { learner: legacy.draft.speakerId, date: new Date(legacy.createdAt + 7 * 24 * 60 * 60 * 1000).toLocaleString(locale) })}</p>
+          <Button onClick={() => { clearRetryDraft(); setLegacy(null); }}>{translate("draft.discard_legacy")}</Button>
+        </div>}
+        {error && <p role="alert">{translate(error.kind === "keychain" ? "draft.keychain_error" : "draft.storage_error")}</p>}
+        <Button variant="quiet" onClick={() => setChoosing(false)}>{translate("draft.continue_without_resume")}</Button>
+      </Card>
+    ) : children}
+  </Context.Provider>;
+};

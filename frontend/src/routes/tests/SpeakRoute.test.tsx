@@ -423,7 +423,6 @@ describe("Speak route", () => {
   ])("keeps the prior job and request ID when %s", async (_scenario, makeError) => {
     mockedCreateAssessment.mockResolvedValueOnce({ assessment_id: "asmt-1", status: "queued" })
       .mockRejectedValueOnce(makeError())
-      .mockRejectedValueOnce(makeError())
       .mockResolvedValueOnce({ assessment_id: "asmt-2", status: "queued" });
     const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
     fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
@@ -437,8 +436,8 @@ describe("Speak route", () => {
     expect(store.getState().recording.job.assessmentId).toBe("asmt-1");
     expect(screen.getByTestId("speak.retry_assessment")).toBeVisible();
     fireEvent.click(screen.getByTestId("speak.retry_assessment"));
-    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(4));
-    expect(mockedCreateAssessment.mock.calls[3][0]).toEqual(mockedCreateAssessment.mock.calls[1][0]);
+    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(3));
+    expect(mockedCreateAssessment.mock.calls[2][0]).toEqual(mockedCreateAssessment.mock.calls[1][0]);
     expect(mockedUploadAudio).toHaveBeenCalledTimes(1);
   });
 
@@ -523,12 +522,16 @@ describe("Speak route", () => {
     expect(mockedCreateAssessment.mock.calls[1][0]).toMatchObject({ resume_assessment_id: "asmt-1" });
   });
 
-  it("recovers a lost accepted response with the same submission ID", async () => {
+  it("waits for a second explicit Submit after a lost response and reuses the submission ID", async () => {
     mockedCreateAssessment.mockRejectedValueOnce(new TypeError("Failed to fetch"));
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
     fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
     fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
     await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Could not confirm submission"));
+    expect(mockedCreateAssessment).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByTestId("speak.submit"));
     await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(2));
     const first = mockedCreateAssessment.mock.calls[0][0];
@@ -937,7 +940,7 @@ describe("Speak route", () => {
       "active",
     );
     expect(screen.getByTestId("speak.recording_ready_checkpoint")).toHaveTextContent(
-      "Saved take",
+      "Take ready",
     );
     expect(screen.getByTestId("speak.recording_ready_checkpoint")).toHaveTextContent(
       "Listen back if you want to check the take before sending it.",
@@ -1037,7 +1040,7 @@ describe("Speak route", () => {
     expect(mockedUploadAudio).not.toHaveBeenCalled();
     expect(mockedCreateAssessment).not.toHaveBeenCalled();
     expect(screen.getByTestId("speak.recording_ready_checkpoint")).toHaveTextContent(
-      "Saved take",
+      "Take ready",
     );
     expect(screen.getByRole("button", { name: "Remove recording" })).toBeVisible();
   });

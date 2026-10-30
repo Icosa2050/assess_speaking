@@ -61,6 +61,33 @@ it("does not claim clear input merely because a recording was saved", async () =
   expect(status).not.toHaveBeenCalledWith("ready");
 });
 
+it("waits for the durable save callback before showing a saved status", async () => {
+  microphone();
+  let recorder!: FakeRecorder;
+  class FakeRecorder {
+    static isTypeSupported() { return true; }
+    state = "inactive"; mimeType = "audio/webm";
+    onstop?: () => void; ondataavailable?: (event: { data: Blob }) => void;
+    constructor() { recorder = this; }
+    start() { this.state = "recording"; }
+    requestData() { this.ondataavailable?.({ data: new Blob(["finalized audio"]) }); }
+    stop() { this.state = "inactive"; this.onstop?.(); }
+  }
+  vi.stubGlobal("MediaRecorder", FakeRecorder);
+  let finish: () => void = () => undefined;
+  const selected = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+  const { rerender } = render(<RecorderPanel {...props} onFileSelected={selected} statusMessage="Take ready in memory" />);
+  fireEvent.click(screen.getByTestId("speak.record_start"));
+  await screen.findByTestId("speak.record_stop");
+  fireEvent.click(screen.getByTestId("speak.record_stop"));
+  await waitFor(() => expect(selected).toHaveBeenCalledOnce());
+  expect(screen.getByTestId("speak.recording_status").textContent).not.toContain("Saved on this Mac");
+  await act(async () => { finish(); await Promise.resolve(); });
+  rerender(<RecorderPanel {...props} onFileSelected={selected} statusMessage="Saved on this Mac" preferStatusMessage />);
+  expect(screen.getByTestId("speak.recording_status").textContent).toContain("Saved on this Mac");
+  expect(recorder.state).toBe("inactive");
+});
+
 it("requires setup confirmation before asking for recording permission", () => {
   microphone(); const setup = vi.fn();
   render(<RecorderPanel {...props} microphoneSetupPassed={false} onFileSelected={vi.fn()} onSetupMicrophone={setup} />);

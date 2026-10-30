@@ -11,6 +11,8 @@ import {
   type AppStoreSeed,
 } from "@/lib/state/appStore";
 import { DEFAULT_UI_LOCALE, type UiLocale } from "@/lib/state/sessionDraft";
+import { DraftRecoveryProvider } from "@/lib/state/DraftRecoveryProvider";
+import type { DraftStoreAdapter } from "@/lib/state/draftStore";
 import { createQueryClient } from "@/lib/query/queryClient";
 
 type RenderWithProvidersOptions = Omit<RenderOptions, "wrapper"> & {
@@ -18,6 +20,7 @@ type RenderWithProvidersOptions = Omit<RenderOptions, "wrapper"> & {
   locale?: UiLocale;
   queryClient?: QueryClient;
   store?: AppStoreApi;
+  draftAdapter?: DraftStoreAdapter;
   /** Ignored when a custom store is provided. */
   appState?: AppStoreSeed;
 };
@@ -75,6 +78,7 @@ export const renderWithProviders = (
     locale = DEFAULT_UI_LOCALE,
     queryClient = createQueryClient(),
     store,
+    draftAdapter,
     appState,
     ...renderOptions
   }: RenderWithProvidersOptions = {},
@@ -102,7 +106,9 @@ export const renderWithProviders = (
   const Wrapper = ({ children }: PropsWithChildren) => (
     <QueryClientProvider client={queryClient}>
       <AppStoreProvider store={resolvedStore}>
-        <MemoryRouter initialEntries={initialEntries}>{children}</MemoryRouter>
+        <MemoryRouter initialEntries={initialEntries}>
+          {draftAdapter ? <DraftRecoveryProvider adapter={draftAdapter}>{children}</DraftRecoveryProvider> : children}
+        </MemoryRouter>
       </AppStoreProvider>
     </QueryClientProvider>
   );
