@@ -1,10 +1,16 @@
 import { stubReadyReadiness } from "../readinessStub";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { expect, test, type Page, type Route } from "../fixtures";
-
 const speakerId = "visual-refresh-smoke";
+const localeMessages = Object.fromEntries(
+  (["de", "en", "es", "fr", "it"] as const).map(locale => [locale,
+    JSON.parse(readFileSync(new URL(`../../../locales/${locale}.json`, import.meta.url), "utf8"))]),
+) as Record<"de" | "en" | "es" | "fr" | "it", {
+  your_data: { state_damaged: string };
+  speak: { assessment_error: string; job_status_cancelled: string };
+}>;
 const screenshotDir = process.env.VISUAL_REFRESH_SCREENSHOT_DIR ?? "";
 const desktopViewport = { width: 1280, height: 720 };
 const mobileViewport = { width: 390, height: 844 };
@@ -53,7 +59,7 @@ const historyRows = [
     topic_pass: true,
     language_pass: true,
     min_words_pass: true,
-    top_priorities: ["Stay closer to the travel theme", "Add one clearer closing sentence"],
+    top_priorities: ["Stay closer to the travel theme, explain why the journey mattered, give a concrete example of what changed during the trip, and close with one personal reflection that connects the experience to your next journey.", "Add one clearer closing sentence"],
     grammar_error_categories: [],
     coherence_issue_categories: [],
     final_score: 3.8,
@@ -863,7 +869,28 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
   await page.route("**/v1/journal/status", healthyJournal);
   await page.emulateMedia({ reducedMotion: "reduce" });
   const output = process.env.THEME_MIGRATION_SCREENSHOT_DIR;
-  const contrastChecks: Array<{ locale: string; route: string; theme: string; viewport: string; text: number; border: number; focus: number; textCount: number; borderCount: number }> = [];
+  const contrastChecks: Array<{ locale: string; route: string; theme: string; viewport: string; text: number; border: number | null; focus: number; focusTarget: string; focusLabel: string; textCount: number; borderCount: number; reachabilityCount?: number }> = [];
+  const focusTargets: Record<string, string> = {
+    home: '[data-testid="home.start_new"]',
+    setup: 'main select',
+    history: '[data-testid="history-speaker-filter"]',
+    "history-empty": '[data-testid="history-empty-cta"]',
+    library: 'main select',
+    "library-error": 'main select',
+    guide: 'main a[href="#guide-summary"]',
+    settings: '[data-testid="settings.appearance"]',
+    "your-data": '#journal-restore-action',
+    "settings-error": '#journal-restore-action',
+    "settings-dialog": '#fresh-cancel',
+    rehearsal: '[data-testid="rehearsal-speaker"]',
+    "review-empty": '[data-testid="review-guard-cta"]',
+    "session-setup": '[data-testid="setup.speaker_id"]',
+    speak: '[data-testid="speak.input_mode_record"]',
+    "speak-wait": '[data-testid="speak.cancel_assessment"]',
+    review: '[data-testid="review-action-try-again"]',
+    "speak-failed": '[data-testid="speak.retry_assessment"]',
+    "speak-cancelled": '[data-testid="speak.retry_assessment"]',
+  };
 
   const audit = async (route: string, theme: string) => {
     for (const viewport of [{ width: 1360, height: 900 }, { width: 1100, height: 760 }]) {
@@ -871,14 +898,16 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
       await expect(page.locator("main").getByRole("heading").first()).toBeVisible();
       await expect(page.locator("html")).toHaveAttribute("lang", locale);
       await expectNoPageHorizontalOverflow(page);
-      // Sample the first keyboard-reachable control in each main or dialog state.
-      const focusScope = await page.locator("dialog[open]").count() ? "dialog[open]" : "main";
-      const focusTarget = page.locator(`${focusScope} button:visible:not(:disabled):not([aria-disabled='true']):not([tabindex='-1']), ${focusScope} input:visible:not(:disabled):not([tabindex='-1']), ${focusScope} select:visible:not(:disabled):not([tabindex='-1']), ${focusScope} a[href]:visible:not([aria-disabled='true']):not([tabindex='-1']), ${focusScope} summary:visible:not([tabindex='-1'])`).first();
+      const focusSelector = focusTargets[route];
+      if (!focusSelector) throw new Error(`Missing focus target for ${route}`);
+      const focusTarget = page.locator(focusSelector).first();
       await expect(focusTarget).toBeVisible();
+      await expect(focusTarget).toBeEnabled();
       await focusTarget.focus();
       await page.keyboard.press("Tab");
       await page.keyboard.press("Shift+Tab");
       await expect(focusTarget).toBeFocused();
+      expect(await focusTarget.evaluate(element => element.matches(":focus-visible")), `${locale} ${theme} ${route} keyboard focus-visible`).toBe(true);
       await expect(focusTarget).toHaveCSS("outline-offset", "3px");
       const computed = await page.evaluate(() => {
         const scope = document.querySelector("dialog[open]") ?? document.body;
@@ -911,7 +940,7 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
           return style.display !== "none" && style.visibility === "visible" && style.opacity !== "0" &&
             element.getClientRects().length > 0;
         };
-        const text: Array<{ label: string; ratio: number; foreground: string; background: number[] }> = [];
+        const text: Array<{ label: string; tag: string; ratio: number; foreground: string; background: number[] }> = [];
         const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
         while (walker.nextNode()) {
           const node = walker.currentNode;
@@ -926,13 +955,13 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
           const foreground = element instanceof SVGElement ? style.fill : style.color;
           if (foreground === "none") continue;
           const surface = background(element);
-          text.push({ label: label.slice(0, 55), ratio: ratio(blend(parse(foreground), surface), surface), foreground, background: surface });
+          text.push({ label: label.slice(0, 55), tag: element.tagName.toLowerCase(), ratio: ratio(blend(parse(foreground), surface), surface), foreground, background: surface });
         }
         for (const element of scope.querySelectorAll("input, select, textarea")) {
           if (!visible(element) || (element as HTMLInputElement).disabled) continue;
           const surface = background(element);
           const foreground = getComputedStyle(element).color;
-          text.push({ label: element.getAttribute("aria-label") ?? element.tagName,
+          text.push({ label: element.getAttribute("aria-label") ?? element.tagName, tag: element.tagName.toLowerCase(),
             ratio: ratio(parse(foreground), surface), foreground, background: surface });
         }
         const border = [...scope.querySelectorAll("button, input, select, textarea, summary, [role='button'], [role='tab']")]
@@ -954,25 +983,26 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
             return ratios.length ? [{ label: (element.textContent?.trim() || element.getAttribute("aria-label") || element.tagName).slice(0, 55),
               ratio: Math.min(...ratios) }] : [];
           });
-        const clippedText = [...scope.querySelectorAll<HTMLElement>("button, a, summary, label, h1, h2, h3, p, span")]
+        const clippedText = [...scope.querySelectorAll<HTMLElement>("button, a, summary, label, h1, h2, h3, p, span, div, li, td")]
           .filter(element => visible(element) && element.textContent?.trim())
           .flatMap(element => {
             const style = getComputedStyle(element);
             if (element.clientWidth <= 1 || style.clipPath === "inset(50%)" || style.clip === "rect(0px, 0px, 0px, 0px)") return [];
-            if (!/hidden|clip/.test(style.overflowX)) return [];
-            return element.scrollWidth > element.clientWidth + 1
-              ? [{ label: element.textContent!.trim().slice(0, 55), width: element.clientWidth, scrollWidth: element.scrollWidth }]
-              : [];
+            const horizontal = /hidden|clip/.test(style.overflowX) && element.scrollWidth > element.clientWidth + 1;
+            const vertical = (/hidden|clip/.test(style.overflowY) || style.webkitLineClamp !== "none") && element.scrollHeight > element.clientHeight + 1;
+            return horizontal || vertical ? [{ label: element.textContent!.trim().slice(0, 55), width: element.clientWidth,
+              scrollWidth: element.scrollWidth, height: element.clientHeight, scrollHeight: element.scrollHeight }] : [];
           });
         const focused = document.activeElement;
         if (!focused) throw new Error("No focused control to audit");
         const focusStyle = getComputedStyle(focused);
         const outside = background(focused.parentElement ?? focused);
-        const focusContrast = (ink: string) => ratio(parse(ink), outside);
+        const focusContrast = (ink: string) => ratio(blend(parse(ink), outside), outside);
         // A ring matching its surrounding surface must fail this same calculation.
         const invisibleInk = `rgb(${outside.slice(0, 3).join(", ")})`;
         const invisibleRatio = focusContrast(invisibleInk);
-        const focus = { width: Number.parseFloat(focusStyle.outlineWidth),
+        const focus = { width: Number.parseFloat(focusStyle.outlineWidth), style: focusStyle.outlineStyle,
+          alpha: parse(focusStyle.outlineColor)[3],
           ratio: focusContrast(getComputedStyle(focused).outlineColor), invisibleRatio,
           label: focused.textContent?.trim().slice(0, 50) ?? focused.tagName,
           ink: focusStyle.outlineColor,
@@ -980,25 +1010,35 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
         return { text, border, clippedText, focus };
       });
       expect(computed.text.length, `${theme} ${route} ${viewport.width} text coverage`).toBeGreaterThan(0);
+      if (route !== "guide" && route !== "history-empty") {
+        expect(computed.border.length, `${theme} ${route} ${viewport.width} essential border coverage`).toBeGreaterThan(0);
+      }
       if (route === "review") {
-        expect(computed.text.some(item => item.label === "1"), "score-scale tick coverage").toBe(true);
+        expect(computed.text.some(item => item.tag === "li" && item.label === "1"), "score-scale tick coverage").toBe(true);
         await expect(page.getByTestId("review-provisional-cefr")).toBeVisible();
         expect(computed.text.some(item => item.label.includes("B2")), "CEFR badge coverage").toBe(true);
       }
-      if (route === "settings-error") {
-        expect(computed.text.some(item => item.label.includes("Recovery files are unavailable")), "error-banner coverage").toBe(true);
+      if (route === "guide") expect(computed.text.some(item => item.tag === "a"), "guide link contrast coverage").toBe(true);
+      if (route === "history") {
+        expect(await page.getByTestId("history-attempts-list").locator("li").count(), "history list item coverage").toBeGreaterThan(0);
       }
+      if (route === "settings-error") await expect(page.getByTestId("journal-state")).toContainText(localeMessages[locale].your_data.state_damaged);
+      if (route === "speak-failed") await expect(page.getByTestId("speak.status_panel")).toContainText(localeMessages[locale].speak.assessment_error.replace("{detail}", "Model request failed"));
+      if (route === "speak-cancelled") await expect(page.getByTestId("speak.status_panel")).toContainText(localeMessages[locale].speak.job_status_cancelled);
       for (const item of computed.text) expect(item.ratio, `${theme} ${route} ${viewport.width}: ${JSON.stringify(item)}`).toBeGreaterThanOrEqual(4.5);
       for (const item of computed.border) expect(item.ratio, `${theme} ${route} ${viewport.width}: ${item.label} border`).toBeGreaterThanOrEqual(3);
       expect(computed.focus.width, `${locale} ${theme} ${route} ${viewport.width} focus width`).toBeGreaterThanOrEqual(3);
+      expect(computed.focus.style, `${locale} ${theme} ${route} focus style`).not.toBe("none");
+      expect(computed.focus.alpha, `${locale} ${theme} ${route} focus alpha`).toBeGreaterThan(0);
       expect(computed.focus.ratio, `${locale} ${theme} ${route} ${viewport.width} focus contrast ${JSON.stringify(computed.focus)}`).toBeGreaterThanOrEqual(3);
       expect(computed.focus.invisibleRatio, `${locale} ${theme} ${route} invisible focus regression`).toBeLessThan(3);
       expect(computed.clippedText, `${locale} ${theme} ${route} ${viewport.width} clipped text`).toEqual([]);
       if (route === "speak" || route === "speak-wait") await expectStatusRailIconContrast(page, "active");
+      if (route === "speak-failed" || route === "speak-cancelled") await expectStatusRailIconContrast(page, "attention");
       contrastChecks.push({ locale, route, theme, viewport: `${viewport.width}x${viewport.height}`,
         text: Math.min(...computed.text.map(item => item.ratio)),
-        border: computed.border.length ? Math.min(...computed.border.map(item => item.ratio)) : -1,
-        focus: computed.focus.ratio,
+        border: computed.border.length ? Math.min(...computed.border.map(item => item.ratio)) : null,
+        focus: computed.focus.ratio, focusTarget: focusSelector, focusLabel: computed.focus.label,
         textCount: computed.text.length, borderCount: computed.border.length });
       if (output) {
         mkdirSync(output, { recursive: true });
@@ -1012,35 +1052,62 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
     }
     // A 1100px window at 200% browser zoom has roughly a 550px CSS viewport.
     await page.setViewportSize({ width: 550, height: 380 });
+    if (route === "setup") {
+      const longAction = page.locator('[data-testid^="runtime_setup.setup_guide."][data-testid$=".action"]:not(:disabled)').first();
+      await expect(longAction).toBeVisible();
+      await longAction.evaluate(element => { element.textContent = "Check the microphone and audio processing settings before continuing with the speaking session"; });
+    }
     await expectNoPageHorizontalOverflow(page);
     const controlRoot = await page.locator("dialog[open]").count() ? "dialog[open]" : "main";
-    const controls = page.locator(`${controlRoot} button:visible, ${controlRoot} a:visible, ${controlRoot} input:visible, ${controlRoot} select:visible, ${controlRoot} summary:visible`);
-    for (let index = 0; index < Math.min(await controls.count(), 10); index++) {
-      const control = controls.nth(index);
-      await control.scrollIntoViewIfNeeded();
-      const reachability = await control.evaluate(element => {
-        const box = element.getBoundingClientRect();
-        const center = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-        const hitPoints = [0.2, 0.5, 0.8].map(fraction =>
-          document.elementFromPoint(box.left + box.width * fraction, box.top + box.height / 2));
-        return { left: box.left, right: box.right, top: box.top, width: box.width, viewport: innerWidth,
-          label: element.getAttribute("data-testid") || element.textContent?.trim().slice(0, 40),
-          covering: center?.getAttribute("data-testid") || center?.tagName,
-          element: element.outerHTML.slice(0, 180), cover: center?.outerHTML.slice(0, 180),
-          hidden: (() => {
-            for (let node: Element | null = element; node; node = node.parentElement) {
-              const style = getComputedStyle(node);
-              if (style.opacity === "0" || style.clipPath === "inset(50%)" || style.clip === "rect(0px, 0px, 0px, 0px)") return true;
-            }
-            return false;
-          })(),
-          hittable: hitPoints.some(target => Boolean(target && (element === target || element.contains(target)))) };
-      });
-      if (reachability.hidden) continue;
-      expect(reachability.left, `${theme} ${route} 200% left edge`).toBeGreaterThanOrEqual(-1);
-      expect(reachability.right, `${theme} ${route} 200% right edge`).toBeLessThanOrEqual(reachability.viewport + 1);
-      expect(reachability.hittable, `${theme} ${route} 200% control hit target ${JSON.stringify(reachability)}`).toBe(true);
-    }
+    const reachability = await page.evaluate(selector => {
+      const root = document.querySelector(selector);
+      if (!root) throw new Error(`Missing ${selector}`);
+      const candidates = [...root.querySelectorAll<HTMLElement>("button, a[href], input, select, textarea, summary")];
+      const excluded: string[] = [];
+      const issues: Array<{ label: string; left: number; right: number; top: number; bottom: number; viewport: number; height: number; scrollY: number; covering: string; element: string }> = [];
+      let checked = 0;
+      for (const element of candidates) {
+        const label = element.getAttribute("data-testid") || element.textContent?.trim().slice(0, 40) || element.tagName;
+        if (element.matches(":disabled, [aria-disabled='true'], [tabindex='-1']")) { excluded.push(`${label}: disabled or outside tab order`); continue; }
+        const insideClosedDisclosure = [...root.querySelectorAll("details:not([open])")].some(
+          disclosure => disclosure.contains(element) && disclosure.querySelector(":scope > summary") !== element,
+        );
+        if (insideClosedDisclosure) {
+          excluded.push(`${label}: inside closed disclosure`);
+          continue;
+        }
+        let hidden = false;
+        for (let node: Element | null = element; node; node = node.parentElement) {
+          const style = getComputedStyle(node);
+          if (style.display === "none" || style.visibility !== "visible" || style.opacity === "0" ||
+              style.clipPath === "inset(50%)" || style.clip === "rect(0px, 0px, 0px, 0px)") { hidden = true; break; }
+        }
+        if (hidden || !element.getClientRects().length) { excluded.push(`${label}: intentionally hidden`); continue; }
+        element.scrollIntoView({ behavior: "instant" as ScrollBehavior, block: "center", inline: "nearest" });
+        const range = document.createRange();
+        if (element.tagName === "A") range.selectNodeContents(element);
+        const fragments = [...(element.tagName === "A" ? range.getClientRects() : element.getClientRects())]
+          .filter(box => box.width > 1 && box.height > 1);
+        if (!fragments.length) { excluded.push(`${label}: no visible geometry`); continue; }
+        checked += 1;
+        const outside = fragments.some(box => box.left < -1 || box.right > innerWidth + 1);
+        const hit = fragments.some(box => [0.2, 0.5, 0.8].some(fraction => {
+          const target = document.elementFromPoint(box.left + box.width * fraction, box.top + box.height / 2);
+          return Boolean(target && (target === element || element.contains(target)));
+        }));
+        if (outside || !hit) {
+          const box = fragments[0];
+          const covering = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+          issues.push({ label, left: box.left, right: box.right, top: box.top, bottom: box.bottom,
+            viewport: innerWidth, height: innerHeight, scrollY,
+            covering: covering?.getAttribute("data-testid") || covering?.tagName || "none", element: element.outerHTML.slice(0, 180) });
+        }
+      }
+      return { checked, excluded, issues };
+    }, controlRoot);
+    expect(reachability.checked, `${locale} ${theme} ${route} 200% control coverage ${JSON.stringify(reachability.excluded)}`).toBeGreaterThan(0);
+    expect(reachability.issues, `${locale} ${theme} ${route} 200% control reachability`).toEqual([]);
+    for (const item of contrastChecks.slice(-2)) item.reachabilityCount = reachability.checked;
   };
 
   for (const theme of ["light", "dark"] as const) {

@@ -49,7 +49,7 @@ export function fixtureConfig(lane: "default" | "connections" | "journeys", back
     outputDir: path.join(output, "artifacts"),
     reporter: [["list"], ["json", { outputFile: process.env.VOSTAVO_BROWSER_RESULTS || path.join(output, "results.json") }]],
     retries: 0, workers: 1, forbidOnly: !!process.env.CI,
-    globalTimeout: lane === "journeys" ? 1_800_000 : lane === "default" ? 900_000 : 480_000,
+    globalTimeout: lane === "journeys" ? 1_800_000 : lane === "default" ? 1_200_000 : 480_000,
     use: { baseURL: frontend, browserName: "chromium", headless: true, launchOptions: { args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", `--use-file-for-fake-audio-capture=${audioPath}`] }, screenshot: "only-on-failure", trace: "retain-on-failure", video: "off" },
     webServer: [
       { command: `${quote(python)} tests/helpers/browser_fixture.py --root ${quote(folder)} --evidence ${quote(output)} -- ${script} ${args}`, cwd: repo, url: `${backend}/v1/health`, env: backendEnv, reuseExistingServer: false, stdout: "pipe", stderr: "pipe", timeout: 90_000, gracefulShutdown: { signal: "SIGTERM", timeout: 5000 } },

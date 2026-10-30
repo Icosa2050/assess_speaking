@@ -169,7 +169,7 @@
 }
 
 .rowAction {
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 @media (min-width: 860px) {
