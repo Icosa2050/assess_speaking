@@ -31,6 +31,7 @@ vi.mock("@/lib/api/client", () => ({
     createAssessment: vi.fn(),
     getAssessmentStatus: vi.fn(),
     getAssessmentByRequest: vi.fn(),
+    getHistoryDetail: vi.fn(),
     getUploadByRequest: vi.fn(),
     getRuntime: vi.fn(),
     getDiagnostics: vi.fn(),
@@ -187,6 +188,14 @@ describe("Speak route", () => {
     try {
       const saved = savedDraftFixture();
       saved.setup = { ...saved.setup, retryOfSessionId: "prior-attempt", coachingGoal: "Finish clearly", retryGoalEligible: true };
+      saved.status = "assessing";
+      saved.submission = { uploadRequestId: "upload-one", audioId: "audio-1", assessmentRequestId: "request-one",
+        assessmentId: "asmt-1", requestFingerprint: "a".repeat(64),
+        frozenRequestBody: JSON.stringify({ audio_id: "audio-1", request_id: "request-one", sharing_fingerprint: "a".repeat(64) }),
+        lastConfirmedPhase: "assessment" };
+      vi.mocked(apiClient.getAssessmentByRequest).mockResolvedValue({ assessment_id: "asmt-1", status: "completed", report_id: "report-1" });
+      vi.mocked(apiClient.getAssessmentByRequest).mockRejectedValueOnce(new ApiClientError(404, { code: "validation_error", detail: "absent" }));
+      vi.mocked(apiClient.getHistoryDetail).mockResolvedValue({ payload: { report: { session_id: "report-1" } } } as Awaited<ReturnType<typeof apiClient.getHistoryDetail>>);
       const adapter = draftAdapterFixture([saved]);
       adapter.list.mockResolvedValueOnce({ drafts: [saved], unreadableIds: [] })
         .mockResolvedValueOnce({ drafts: [], unreadableIds: [] });
@@ -949,6 +958,34 @@ describe("Speak route", () => {
     await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledOnce());
     expect(mockedCreateAssessment.mock.calls[0][0]).toMatchObject({ audio_id: "audio-1", sharing_fingerprint: "b".repeat(64) });
     expect(mockedUploadAudio).not.toHaveBeenCalled();
+  });
+
+  it("releases an absent frozen request after restart and a sharing-route change", async () => {
+    const saved = savedDraftFixture();
+    saved.status = "assessment_uncertain";
+    saved.submission = { uploadRequestId: "upload-one", audioId: "audio-1", assessmentRequestId: "old-request",
+      assessmentId: "", requestFingerprint: "a".repeat(64), lastConfirmedPhase: "upload",
+      frozenRequestBody: JSON.stringify({ request_id: "old-request", audio_id: "audio-1", sharing_fingerprint: "a".repeat(64),
+        speaker_id: saved.setup.speakerId, prompt_text: saved.setup.promptText, label: "Original label" }) };
+    const adapter = draftAdapterFixture([saved]);
+    vi.mocked(apiClient.getSharingRoute).mockResolvedValue({ version: 1, available: true, fingerprint: "b".repeat(64),
+      audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" },
+      analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null });
+    mockedCreateAssessment.mockRejectedValueOnce(new ApiClientError(409, { code: "sharing_changed", detail: "Route changed" }));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledOnce());
+    expect(mockedCreateAssessment.mock.calls[0][0]).toMatchObject({ request_id: "old-request",
+      sharing_fingerprint: "a".repeat(64), label: "Original label" });
+    await waitFor(() => expect(adapter.markSubmission).toHaveBeenCalledWith(expect.anything(), "uploaded",
+      expect.objectContaining({ assessmentRequestId: "", audioId: "audio-1" })));
+    expect(mockedUploadAudio).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(2));
+    expect(mockedCreateAssessment.mock.calls[1][0]).toMatchObject({ audio_id: "audio-1", sharing_fingerprint: "b".repeat(64) });
+    expect(mockedCreateAssessment.mock.calls[1][0].request_id).not.toBe("old-request");
   });
 
   it("retains an uncertain assessment identity if a sharing conflict lookup finds a job", async () => {

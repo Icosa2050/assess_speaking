@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { createTranslator } from "@/lib/i18n";
 import { apiClient, ApiClientError } from "@/lib/api/client";
-import type { JobStatus } from "@/lib/api/types";
+import type { AssessmentRequestLookupResponse, JobStatus } from "@/lib/api/types";
 import type { DraftSubmission, SavedDraft } from "@/lib/runtime/desktopBridge";
 import { useAppStore, useAppStoreApi } from "./appStore";
 import { createDraftStoreAdapter, DraftStoreError, normalizedLearner, sameDraftAttempt, type DraftStoreAdapter } from "./draftStore";
@@ -25,6 +25,18 @@ const withinBootDeadline = async <T,>(work: () => Promise<T>, deadline: number):
       new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Draft recovery timed out")), remaining); }),
     ]);
   } finally { if (timer) clearTimeout(timer); }
+};
+const verifyCompletedReport = async (entry: SavedDraft, found: AssessmentRequestLookupResponse, expectedReportId?: string): Promise<void> => {
+  if (found.status !== "completed" || !found.report_id ||
+      (entry.submission?.assessmentId && entry.submission.assessmentId !== found.assessment_id) ||
+      (expectedReportId && expectedReportId !== found.report_id)) {
+    throw new Error("Completed assessment identity does not match the saved take");
+  }
+  const detail = await apiClient.getHistoryDetail(found.report_id).catch(() => {
+    throw new Error("Completed assessment report is unavailable");
+  });
+  const report = detail.payload.report as { session_id?: string } | undefined;
+  if (report?.session_id !== found.report_id) throw new Error("Completed assessment report is unavailable");
 };
 type RecoveryContext = {
   supported: boolean;
@@ -270,12 +282,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
             receiptStatusesRef.current = { ...receiptStatusesRef.current, [entry.draftId]: found.status };
             setReceiptStatuses(receiptStatusesRef.current);
             if (found.status === "completed") {
-              if (!found.report_id) throw new Error("Completed assessment report is unavailable");
-              const detail = await apiClient.getHistoryDetail(found.report_id).catch(() => {
-                throw new Error("Completed assessment report is unavailable");
-              });
-              const report = detail.payload.report as { session_id?: string } | undefined;
-              if (report?.session_id !== found.report_id) throw new Error("Completed assessment report is unavailable");
+              await verifyCompletedReport(entry, found);
               const latest = draftsRef.current.find(item => item.draftId === entry.draftId);
               if (latest?.revision !== entry.revision || latest.submission?.assessmentRequestId !== receipt.assessmentRequestId) continue;
               await adapter.discard(entry.draftId);
@@ -327,12 +334,27 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   });
   useEffect(() => {
     if (!adapter.supported || assessmentState !== "completed" || !completedReportId ||
-        !sameDraftAttempt(active, currentSetup) || completionCleanupId.current === active.draftId) return;
+        !sameDraftAttempt(active, currentSetup) || !active.submission?.assessmentRequestId ||
+        !active.submission.assessmentId || active.submission.assessmentId !== appStore.getState().recording.job.assessmentId ||
+        completionCleanupId.current === active.draftId) return;
     const completed = active;
     completionCleanupId.current = completed.draftId;
     void enqueue(async () => {
-      if (activeRef.current?.draftId !== completed.draftId) return;
+      if (activeRef.current?.draftId !== completed.draftId || activeRef.current.revision !== completed.revision) {
+        completionCleanupId.current = null;
+        return;
+      }
       try {
+        const receipt = completed.submission!;
+        const found = await apiClient.getAssessmentByRequest(receipt.assessmentRequestId, {
+          audioId: receipt.audioId, speakerId: completed.setup.speakerId, sharingFingerprint: receipt.requestFingerprint,
+        });
+        await verifyCompletedReport(completed, found, completedReportId);
+        if (activeRef.current?.draftId !== completed.draftId || activeRef.current.revision !== completed.revision ||
+            draftsRef.current.find(entry => entry.draftId === completed.draftId)?.revision !== completed.revision) {
+          completionCleanupId.current = null;
+          return;
+        }
         await adapter.discard(completed.draftId);
         draftsRef.current = draftsRef.current.filter(item => item.draftId !== completed.draftId);
         setDrafts(draftsRef.current);

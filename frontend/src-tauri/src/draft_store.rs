@@ -21,10 +21,11 @@ const MAX_TAKE: u64 = 100 * 1024 * 1024;
 const MAX_TOTAL: u64 = 250 * 1024 * 1024;
 const RESERVE: u64 = 512 * 1024 * 1024;
 const TTL: u64 = 7 * 24 * 60 * 60 * 1000;
-// Two 12,000-character fields plus the bounded label and setup can be encoded
-// with up to four UTF-8 bytes per character in the frozen JSON request.
-const MAX_FROZEN_REQUEST: usize = 160 * 1024;
-const MAX_MANIFEST: usize = 256 * 1024;
+// JSON may escape an allowed control byte to six characters, then escape it
+// again when the frozen request is serialized inside the encrypted manifest.
+// Keep room for maximal setup text (including the separate coaching goal).
+const MAX_FROZEN_REQUEST: usize = 512 * 1024;
+const MAX_MANIFEST: usize = 1024 * 1024;
 const MAGIC: &[u8; 4] = b"VD01";
 const MANIFEST_MAGIC: &[u8; 4] = b"VM02";
 const KEY_SERVICE: &str = "com.vostavo.desktop.drafts.v1";
@@ -1494,6 +1495,8 @@ impl DraftStore {
             if !resetting && phase(&submission.last_confirmed_phase) < phase(&previous.last_confirmed_phase) {
                 return Err(err("Submission confirmation cannot move backward"));
             }
+        } else if manifest.status == "assessment_uncertain" && status == "uploaded" {
+            return Err(err("Missing prior submission receipt"));
         }
         manifest.status = status;
         manifest.submission = Some(submission);
@@ -3009,6 +3012,70 @@ mod tests {
         let mut reopened = store(&root);
         assert_eq!(reopened.list().unwrap()[0].revision, saved.revision);
         assert!(reopened.list().unwrap()[0].submission.as_ref().unwrap().frozen_request_body.len() > 48_000);
+    }
+    #[test]
+    fn maximal_escaped_setup_and_request_fit_in_the_encrypted_manifest() {
+        let root = TestRoot::new();
+        let mut first = store(&root);
+        let escaped = "\u{0001}";
+        let mut context = setup("Alex");
+        context.session_id = escaped.repeat(128);
+        context.speaker_id = escaped.repeat(256);
+        context.learning_language_label = escaped.repeat(100);
+        context.theme_id = escaped.repeat(256);
+        context.theme_label = escaped.repeat(1000);
+        context.prompt_id = escaped.repeat(256);
+        context.prompt_text = escaped.repeat(12_000);
+        context.retry_of_session_id = escaped.repeat(128);
+        context.coaching_goal = escaped.repeat(12_000);
+        let draft = first.save_setup(context.clone(), None, None).unwrap();
+        let bytes = b"saved take";
+        let transfer = first.begin_take(draft.draft_id.clone(), draft.revision, take(bytes)).unwrap();
+        first.write_take_chunk(&transfer, bytes.to_vec()).unwrap();
+        let ready = first.finish_take(&transfer).unwrap();
+        let pending = first.mark_submission(&ready.draft_id, ready.revision, "upload_uncertain".into(), Submission {
+            upload_request_id: "upload-max".into(), audio_id: String::new(), assessment_request_id: String::new(),
+            assessment_id: String::new(), request_fingerprint: String::new(), frozen_request_body: String::new(),
+            last_confirmed_phase: "none".into(),
+        }).unwrap();
+        let mut receipt = pending.submission.unwrap();
+        receipt.audio_id = "aud_max".into();
+        receipt.last_confirmed_phase = "upload".into();
+        let uploaded = first.mark_submission(&ready.draft_id, pending.revision, "uploaded".into(), receipt.clone()).unwrap();
+        receipt.assessment_request_id = "assessment-max".into();
+        receipt.request_fingerprint = "a".repeat(64);
+        receipt.frozen_request_body = serde_json::json!({
+            "audio_id": "aud_max", "request_id": "assessment-max", "sharing_fingerprint": "a".repeat(64),
+            "speaker_id": context.speaker_id, "theme": context.theme_label, "prompt_id": context.prompt_id,
+            "prompt_text": context.prompt_text, "retry_of_session_id": context.retry_of_session_id,
+            "label": escaped.repeat(500), "notes": escaped.repeat(12_000),
+            "expected_language": "it", "feedback_language": "it", "task_family": "travel_narrative",
+            "target_duration_sec": 90, "target_cefr": "B1", "whisper": "large-v3",
+            "provider": "ollama_local", "llm_model": "saved-model",
+        }).to_string();
+        assert!(receipt.frozen_request_body.len() <= MAX_FROZEN_REQUEST);
+        let saved = first.mark_submission(&ready.draft_id, uploaded.revision, "assessment_uncertain".into(), receipt).unwrap();
+        assert!(serde_json::to_vec(&saved).unwrap().len() > 256 * 1024);
+        drop(first);
+        let mut reopened = store(&root);
+        assert_eq!(reopened.list().unwrap()[0].revision, saved.revision);
+    }
+    #[test]
+    fn assessment_state_without_a_prior_receipt_is_invalid() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let draft = store.save_setup(setup("Alex"), None, None).unwrap();
+        let bytes = b"saved take";
+        let transfer = store.begin_take(draft.draft_id.clone(), draft.revision, take(bytes)).unwrap();
+        store.write_take_chunk(&transfer, bytes.to_vec()).unwrap();
+        let mut invalid = store.finish_take(&transfer).unwrap();
+        invalid.status = "assessment_uncertain".into();
+        assert!(invalid.submission.is_none());
+        assert!(invalid.validate(&invalid.draft_id, now_ms()).is_err());
+        let receipt = Submission { upload_request_id: "upload-one".into(), audio_id: "aud_one".into(),
+            assessment_request_id: String::new(), assessment_id: String::new(), request_fingerprint: String::new(),
+            frozen_request_body: String::new(), last_confirmed_phase: "upload".into() };
+        assert!(store.mark_submission(&draft.draft_id, invalid.revision, "uploaded".into(), receipt).is_err());
     }
     #[cfg(target_os = "macos")]
     #[test]

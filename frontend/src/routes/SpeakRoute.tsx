@@ -781,8 +781,7 @@ export const SpeakRoute = () => {
       let bodyFields: Record<string, unknown> = request;
       if (replayingFrozen && receipt) {
         const frozen = JSON.parse(receipt.frozenRequestBody) as Record<string, unknown>;
-        if (frozen.sharing_fingerprint !== sharingQuery.data.fingerprint || frozen.audio_id !== savedUpload.current.audioId ||
-            frozen.request_id !== receipt.assessmentRequestId) {
+        if (frozen.audio_id !== savedUpload.current.audioId || frozen.request_id !== receipt.assessmentRequestId) {
           throw new Error(translate("sharing.changed"));
         }
         const runtimeFields = Object.fromEntries(Object.entries(request).filter(([key]) =>
@@ -801,7 +800,7 @@ export const SpeakRoute = () => {
       if (draftRecovery.supported && receipt) {
         receipt = { ...receipt, assessmentRequestId: submission.current.requestId,
           assessmentId: terminalRetry ? "" : receipt.assessmentId,
-          requestFingerprint: sharingQuery.data.fingerprint,
+          requestFingerprint: replayingFrozen ? receipt.requestFingerprint : sharingQuery.data.fingerprint,
           frozenRequestBody: replayingFrozen ? receipt.frozenRequestBody
             : JSON.stringify({ ...safeRequest, request_id: submission.current.requestId }),
           lastConfirmedPhase: terminalRetry ? "upload" : receipt.lastConfirmedPhase };
