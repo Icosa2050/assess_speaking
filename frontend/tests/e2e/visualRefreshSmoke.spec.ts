@@ -16,6 +16,63 @@ const desktopViewport = { width: 1280, height: 720 };
 const mobileViewport = { width: 390, height: 844 };
 const narrowMobileViewport = { width: 360, height: 780 };
 
+// Compare rendered text fragments, not element boxes (which include padding and descendants).
+function findTextOverlaps() {
+  const dialog = document.querySelector("dialog[open]");
+  const scope = dialog ?? document.body;
+  const skipLink = document.querySelector('a[href="#main-content"]');
+  const inactiveSkipLink = !dialog && skipLink && document.activeElement !== skipLink ? skipLink : null;
+  const excludedLayers = [
+    ...(dialog ? [{ reason: "behind modal dialog", selector: "body outside dialog[open]" }] : []),
+    ...(inactiveSkipLink ? [{ reason: "inactive skip link", selector: 'a[href="#main-content"]' }] : []),
+  ];
+  const fragments: Array<{ label: string; node: Node; element: Element; box: DOMRect }> = [];
+  const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    const element = node.parentElement;
+    const label = node.textContent?.trim();
+    if (!element || !label) continue;
+    if (inactiveSkipLink?.contains(element)) continue;
+    const closedDisclosure = element.closest("details:not([open])");
+    if (closedDisclosure && !closedDisclosure.querySelector(":scope > summary")?.contains(element)) continue;
+    let hidden = false;
+    const clips: DOMRect[] = [];
+    for (let ancestor: Element | null = element; ancestor; ancestor = ancestor.parentElement) {
+      const style = getComputedStyle(ancestor);
+      if (style.display === "none" || style.visibility !== "visible" || Number(style.opacity) === 0 ||
+          style.clipPath === "inset(50%)" || style.clip === "rect(0px, 0px, 0px, 0px)" ||
+          ancestor.getAttribute("aria-hidden") === "true" || ancestor.hasAttribute("inert")) { hidden = true; break; }
+      if (ancestor !== element && /auto|scroll|hidden|clip/.test(`${style.overflowX} ${style.overflowY}`)) clips.push(ancestor.getBoundingClientRect());
+    }
+    if (hidden) continue;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    for (const box of range.getClientRects()) {
+      const left = Math.max(box.left, ...clips.map(clip => clip.left));
+      const right = Math.min(box.right, ...clips.map(clip => clip.right));
+      const top = Math.max(box.top, ...clips.map(clip => clip.top));
+      const bottom = Math.min(box.bottom, ...clips.map(clip => clip.bottom));
+      if (right - left > 1 && bottom - top > 1) fragments.push({ label: label.slice(0, 55), node, element,
+        box: new DOMRect(left, top, right - left, bottom - top) });
+    }
+  }
+  fragments.sort((a, b) => a.box.top - b.box.top);
+  const overlaps: Array<{ first: string; second: string; width: number; height: number; firstElement: string; secondElement: string; top: number }> = [];
+  for (let i = 0; i < fragments.length; i++) {
+    const first = fragments[i];
+    for (let j = i + 1; j < fragments.length && fragments[j].box.top < first.box.bottom - 1; j++) {
+      const second = fragments[j];
+      if (first.node === second.node) continue;
+      const width = Math.min(first.box.right, second.box.right) - Math.max(first.box.left, second.box.left);
+      const height = Math.min(first.box.bottom, second.box.bottom) - Math.max(first.box.top, second.box.top);
+      if (width > 1 && height > 1) overlaps.push({ first: first.label, second: second.label, width, height,
+        firstElement: first.element.outerHTML.slice(0, 180), secondElement: second.element.outerHTML.slice(0, 180), top: Math.max(first.box.top, second.box.top) });
+    }
+  }
+  return { checked: fragments.length, overlaps, excludedLayers };
+}
+
 const runtimeSettings = {
   ui_locale: "en",
   whisper_model: "small",
@@ -869,7 +926,10 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
   await page.route("**/v1/journal/status", healthyJournal);
   await page.emulateMedia({ reducedMotion: "reduce" });
   const output = process.env.THEME_MIGRATION_SCREENSHOT_DIR;
-  const contrastChecks: Array<{ locale: string; route: string; theme: string; viewport: string; text: number; border: number | null; focus: number; focusTarget: string; focusLabel: string; textCount: number; borderCount: number; reachabilityCount?: number }> = [];
+  const contrastChecks: Array<{ locale: string; route: string; theme: string; viewport: string; text: number; border: number | null; focus: number; focusTarget: string; focusLabel: string; textCount: number; borderCount: number; textFragmentCount: number; overlapExcludedLayers: Array<{ reason: string; selector: string }>; reachabilityCount?: number; contentReachabilityCount?: number; skipLinkChecked?: boolean; reachabilityExcluded?: Array<{ label: string; reason: string }> }> = [];
+  const evidenceDir = output || test.info().config.metadata.fixtureOutput;
+  if (typeof evidenceDir !== "string" || !evidenceDir) throw new Error("Missing Playwright evidence output directory");
+  try {
   const focusTargets: Record<string, string> = {
     home: '[data-testid="home.start_new"]',
     setup: 'main select',
@@ -1033,13 +1093,17 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
       expect(computed.focus.ratio, `${locale} ${theme} ${route} ${viewport.width} focus contrast ${JSON.stringify(computed.focus)}`).toBeGreaterThanOrEqual(3);
       expect(computed.focus.invisibleRatio, `${locale} ${theme} ${route} invisible focus regression`).toBeLessThan(3);
       expect(computed.clippedText, `${locale} ${theme} ${route} ${viewport.width} clipped text`).toEqual([]);
+      const overlap = await page.evaluate(findTextOverlaps);
+      expect(overlap.checked, `${locale} ${theme} ${route} ${viewport.width} text fragment coverage`).toBeGreaterThan(0);
+      expect(overlap.overlaps, `${locale} ${theme} ${route} ${viewport.width} text overlap`).toEqual([]);
       if (route === "speak" || route === "speak-wait") await expectStatusRailIconContrast(page, "active");
       if (route === "speak-failed" || route === "speak-cancelled") await expectStatusRailIconContrast(page, "attention");
       contrastChecks.push({ locale, route, theme, viewport: `${viewport.width}x${viewport.height}`,
         text: Math.min(...computed.text.map(item => item.ratio)),
         border: computed.border.length ? Math.min(...computed.border.map(item => item.ratio)) : null,
         focus: computed.focus.ratio, focusTarget: focusSelector, focusLabel: computed.focus.label,
-        textCount: computed.text.length, borderCount: computed.border.length });
+        textCount: computed.text.length, borderCount: computed.border.length, textFragmentCount: overlap.checked,
+        overlapExcludedLayers: overlap.excludedLayers });
       if (output) {
         mkdirSync(output, { recursive: true });
         if (route !== "your-data" && route !== "speak-wait") await page.evaluate(() => window.scrollTo(0, 0));
@@ -1094,22 +1158,53 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
     // A 1100px window at 200% browser zoom has roughly a 550px CSS viewport.
     await page.setViewportSize({ width: 550, height: 380 });
     await expectNoPageHorizontalOverflow(page);
-    const controlRoot = await page.locator("dialog[open]").count() ? "dialog[open]" : "main";
-    const reachability = await page.evaluate(selector => {
-      const root = document.querySelector(selector);
-      if (!root) throw new Error(`Missing ${selector}`);
+    let skipLinkChecked = false;
+    if (route !== "settings-dialog") {
+      await page.evaluate(() => window.scrollTo(0, 0));
+      const skip = page.locator('a[href="#main-content"]');
+      await skip.focus();
+      await page.keyboard.press("Tab");
+      await page.keyboard.press("Shift+Tab");
+      await expect(skip).toBeFocused();
+      expect(await skip.evaluate(element => element.matches(":focus-visible"))).toBe(true);
+      await expect(skip).toHaveCSS("transform", "none");
+      const skipHit = await skip.evaluate(element => {
+        const box = element.getBoundingClientRect();
+        const target = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+        return { box: { left: box.left, right: box.right, top: box.top, bottom: box.bottom }, hit: target === element || element.contains(target),
+          scrollY, transform: getComputedStyle(element).transform, focused: document.activeElement === element };
+      });
+      expect(skipHit.box.left, `${locale} ${theme} ${route} skip left`).toBeGreaterThanOrEqual(-1);
+      expect(skipHit.box.right, `${locale} ${theme} ${route} skip right`).toBeLessThanOrEqual(551);
+      expect(skipHit.box.top, `${locale} ${theme} ${route} skip top ${JSON.stringify(skipHit)}`).toBeGreaterThanOrEqual(-1);
+      expect(skipHit.box.bottom, `${locale} ${theme} ${route} skip bottom`).toBeLessThanOrEqual(381);
+      expect(skipHit.hit, `${locale} ${theme} ${route} skip hit`).toBe(true);
+      skipLinkChecked = true;
+      await skip.evaluate(element => (element as HTMLElement).blur());
+    }
+    const zoomOverlap = await page.evaluate(findTextOverlaps);
+    expect(zoomOverlap.checked, `${locale} ${theme} ${route} 200% text fragment coverage`).toBeGreaterThan(0);
+    expect(zoomOverlap.overlaps, `${locale} ${theme} ${route} 200% text overlap`).toEqual([]);
+    const reachability = await page.evaluate(() => {
+      const root = document.body;
+      const dialog = document.querySelector("dialog[open]");
+      const skipLink = root.querySelector<HTMLElement>('a[href="#main-content"]');
+      if (!dialog && !skipLink) throw new Error("Missing shell skip link");
       const candidates = [...root.querySelectorAll<HTMLElement>("button, a[href], input, select, textarea, summary")];
-      const excluded: string[] = [];
+      const excluded: Array<{ label: string; reason: string }> = [];
+      const checkedTargets: Array<{ href: string | null; inNav: boolean; inContent: boolean; testId: string | null }> = [];
       const issues: Array<{ label: string; left: number; right: number; top: number; bottom: number; viewport: number; height: number; scrollY: number; covering: string; element: string }> = [];
       let checked = 0;
       for (const element of candidates) {
         const label = element.getAttribute("data-testid") || element.textContent?.trim().slice(0, 40) || element.tagName;
-        if (element.matches(":disabled, [aria-disabled='true'], [tabindex='-1']")) { excluded.push(`${label}: disabled or outside tab order`); continue; }
+        if (dialog && !dialog.contains(element)) { excluded.push({ label, reason: "behind modal dialog" }); continue; }
+        if (element === skipLink) { excluded.push({ label, reason: "inactive skip link (checked while focused)" }); continue; }
+        if (element.matches(":disabled, [aria-disabled='true'], [tabindex='-1']")) { excluded.push({ label, reason: "disabled or outside tab order" }); continue; }
         const insideClosedDisclosure = [...root.querySelectorAll("details:not([open])")].some(
           disclosure => disclosure.contains(element) && disclosure.querySelector(":scope > summary") !== element,
         );
         if (insideClosedDisclosure) {
-          excluded.push(`${label}: inside closed disclosure`);
+          excluded.push({ label, reason: "inside closed disclosure" });
           continue;
         }
         let hidden = false;
@@ -1118,14 +1213,16 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
           if (style.display === "none" || style.visibility !== "visible" || style.opacity === "0" ||
               style.clipPath === "inset(50%)" || style.clip === "rect(0px, 0px, 0px, 0px)") { hidden = true; break; }
         }
-        if (hidden || !element.getClientRects().length) { excluded.push(`${label}: intentionally hidden`); continue; }
+        if (hidden || !element.getClientRects().length) { excluded.push({ label, reason: "intentionally hidden" }); continue; }
         element.scrollIntoView({ behavior: "instant" as ScrollBehavior, block: "center", inline: "nearest" });
         const range = document.createRange();
         if (element.tagName === "A") range.selectNodeContents(element);
-        const fragments = [...(element.tagName === "A" ? range.getClientRects() : element.getClientRects())]
+        const fragments = [...(element.tagName === "A" && element !== skipLink ? range.getClientRects() : element.getClientRects())]
           .filter(box => box.width > 1 && box.height > 1);
-        if (!fragments.length) { excluded.push(`${label}: no visible geometry`); continue; }
+        if (!fragments.length) { excluded.push({ label, reason: "no visible geometry" }); continue; }
         checked += 1;
+        checkedTargets.push({ href: element.getAttribute("href"), inNav: Boolean(element.closest("nav")),
+          inContent: Boolean(element.closest("main, dialog[open]")), testId: element.getAttribute("data-testid") });
         const outside = fragments.some(box => box.left < -1 || box.right > innerWidth + 1);
         const hit = fragments.some(box => [0.2, 0.5, 0.8].some(fraction => {
           const target = document.elementFromPoint(box.left + box.width * fraction, box.top + box.height / 2);
@@ -1139,11 +1236,25 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
             covering: covering?.getAttribute("data-testid") || covering?.tagName || "none", element: element.outerHTML.slice(0, 180) });
         }
       }
-      return { checked, excluded, issues };
-    }, controlRoot);
+      return { checked, checkedTargets, excluded, issues };
+    });
     expect(reachability.checked, `${locale} ${theme} ${route} 200% control coverage ${JSON.stringify(reachability.excluded)}`).toBeGreaterThan(0);
+    const contentReachabilityCount = reachability.checkedTargets.filter(target => target.inContent).length;
+    expect(contentReachabilityCount, `${locale} ${theme} ${route} 200% route control coverage ${JSON.stringify(reachability.excluded)}`).toBeGreaterThan(0);
+    expect(reachability.excluded.filter(item => item.reason === "no visible geometry" ||
+      item.reason === "intentionally hidden" && !(["speak-failed", "speak-cancelled"].includes(route) && item.label === "speak.upload_input")),
+    `${locale} ${theme} ${route} unexpected hidden controls`).toEqual([]);
+    if (route !== "settings-dialog") {
+      expect(reachability.checkedTargets.some(target => target.href === "/settings" && target.inNav), `${locale} ${theme} ${route} preferences navigation coverage`).toBe(true);
+      if (route === "settings") expect(reachability.checkedTargets.some(target => target.testId === "settings.appearance"), `${locale} ${theme} appearance coverage`).toBe(true);
+    }
     expect(reachability.issues, `${locale} ${theme} ${route} 200% control reachability`).toEqual([]);
-    for (const item of contrastChecks.slice(-2)) item.reachabilityCount = reachability.checked;
+    for (const item of contrastChecks.slice(-2)) {
+      item.reachabilityCount = reachability.checked;
+      item.contentReachabilityCount = contentReachabilityCount;
+      item.skipLinkChecked = skipLinkChecked;
+      item.reachabilityExcluded = reachability.excluded;
+    }
   };
 
   for (const theme of ["light", "dark"] as const) {
@@ -1283,6 +1394,9 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
     await expectNoPageHorizontalOverflow(page);
   }
 
-  if (output) writeFileSync(path.join(output, `computed-contrast-${locale}.json`), JSON.stringify(contrastChecks, null, 2));
+  } finally {
+    mkdirSync(evidenceDir, { recursive: true });
+    writeFileSync(path.join(evidenceDir, `computed-contrast-${locale}.json`), JSON.stringify(contrastChecks, null, 2));
+  }
 });
 }

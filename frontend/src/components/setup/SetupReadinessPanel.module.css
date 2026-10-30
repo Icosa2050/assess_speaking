@@ -179,6 +179,17 @@
   }
 }
 
+@media (max-width: 1160px) {
+  .row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .rowAction {
+    grid-column: 2;
+    width: fit-content;
+  }
+}
+
 @media (max-width: 720px) {
   .panel,
   .anchor {
@@ -187,15 +198,6 @@
 
   .anchorTitle {
     font-size: var(--font-size-title);
-  }
-
-  .row {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .rowAction {
-    grid-column: 2;
-    width: fit-content;
   }
 }
 
