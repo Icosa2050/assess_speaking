@@ -106,16 +106,14 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
     if (recovery.supported) return;
     const brief = readRetryDraft();
     if (!brief?.retryOfSessionId) return;
-    let unavailable = false;
     try { await apiClient.getHistoryDetail(brief.retryOfSessionId); return; }
     catch (cause) {
-      if (!(cause instanceof ApiClientError && cause.responseStatus === 404)) unavailable = true;
+      if (!(cause instanceof ApiClientError && cause.responseStatus === 404)) throw new Error(t("draft.history_error"));
     }
     const detached = detachRetryBrief(brief);
     if (appStore.getState().draft.sessionId === brief.sessionId) {
       appStore.getState().updateDraft({ retryOfSessionId: "", retryGoalEligible: false });
     }
-    if (unavailable) throw new Error(t("draft.history_error"));
     return detached;
   };
   useEffect(() => {
@@ -258,7 +256,7 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
       {!!backup?.missing.length && <p>{t("journal.missing", { count: backup.missing.length })}</p>}
     </div>
     {busy && !committing && <Button onClick={() => controller.current?.abort()}>{t("journal.cancel")}</Button>}
-    <Button id="journal-check-recovery" disabled={busy} onClick={() => { checkRecoveryRequested.current = location.key; void run(refresh); }}>{t("journal.check_recovery")}</Button>
+    <Button id="journal-check-recovery" disabled={busy} onClick={() => { checkRecoveryRequested.current = location.key; void run(async () => { await reconcileBrowserRetryBrief(); await refresh(); }); }}>{t("journal.check_recovery")}</Button>
     {pendingTransaction && status?.transaction?.id !== preview?.id && <div className={styles.actionGroup}><p>{t("journal.recovery_needed")}</p>
       <Button disabled={busy} onClick={() => void run(async () => { await retryRecovery(); setMessage(t("journal.recovered")); })}>{t("journal.recover")}</Button>
       <Button disabled={busy} onClick={() => void run(async () => { await retryRecovery(true); setMessage(t("journal.rolled_back")); })}>{t("journal.rollback")}</Button>

@@ -23,12 +23,27 @@ import zipfile
 import sys
 import select
 
+ACCEPTANCE_SERVICE = None
+
+
+def purge_acceptance_key(service):
+    """Independent fallback when the installed acceptance shell is unavailable."""
+    args = ['/usr/bin/security', 'delete-generic-password', '-s', service, '-a', 'content-key']
+    deleted = subprocess.run(args, capture_output=True, text=True, timeout=15)
+    if deleted.returncode not in (0, 44):
+        raise RuntimeError(f'Independent Keychain purge failed: {deleted.stderr or deleted.returncode}')
+    found = subprocess.run(['/usr/bin/security', 'find-generic-password', '-s', service, '-a', 'content-key'],
+                           capture_output=True, text=True, timeout=15)
+    if found.returncode != 44:
+        raise RuntimeError(f'Acceptance Keychain item remains or cannot be checked: {found.stderr or found.returncode}')
+
 
 def run(args, **kwargs):
     return subprocess.run(list(map(str, args)), check=True, timeout=kwargs.pop('timeout', 120), **kwargs)
 
 
 def main():
+    global ACCEPTANCE_SERVICE
     parser = argparse.ArgumentParser()
     parser.add_argument('dmg', type=Path)
     parser.add_argument('--report', type=Path, required=True)
@@ -37,6 +52,7 @@ def main():
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
     evidence = {'artifact': str(args.dmg.resolve()), 'sha256': hashlib.sha256(args.dmg.read_bytes()).hexdigest(), 'checks': [], 'native_microphone': 'requires live WebView and microphone acceptance', 'public_gatekeeper': 'signed Developer ID device-only Keychain and notarized release required'}
+    ACCEPTANCE_SERVICE = 'com.vostavo.desktop.drafts.acceptance.' + secrets.token_hex(16)
     with tempfile.TemporaryDirectory(prefix='vostavo-delivery-') as directory:
         work = Path(directory)
         mount = work / 'mounted'
@@ -64,7 +80,7 @@ def main():
         draft_root = work / 'draft-state'
         draft_env = {key: os.environ[key] for key in ('HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG') if key in os.environ}
         draft_env.update(PATH='/usr/bin:/bin:/usr/sbin:/sbin', VOSTAVO_HOME=str(draft_root), VOSTAVO_INTERNAL_DMG_ACCEPTANCE='1',
-                         VOSTAVO_INTERNAL_DMG_KEY_SERVICE='com.vostavo.desktop.drafts.acceptance.' + secrets.token_hex(16))
+                         VOSTAVO_INTERNAL_DMG_KEY_SERVICE=ACCEPTANCE_SERVICE)
         def draft_check(phase):
             try:
                 result = run([shell, f'--internal-draft-delivery={phase}'], env=draft_env, capture_output=True, text=True, timeout=30)
@@ -304,10 +320,22 @@ def main():
                 process.wait()
             log.close()
         evidence['ok'] = True
+    purge_acceptance_key(ACCEPTANCE_SERVICE)
+    evidence['checks'].append('independent Keychain purge and absence readback')
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(evidence, indent=2) + '\n')
     print(json.dumps(evidence, indent=2))
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    finally:
+        if ACCEPTANCE_SERVICE:
+            original_failure = sys.exc_info()[0] is not None
+            try:
+                purge_acceptance_key(ACCEPTANCE_SERVICE)
+            except Exception as exc:
+                print(f'Independent acceptance Keychain cleanup failed: {exc}', file=sys.stderr)
+                if not original_failure:
+                    raise

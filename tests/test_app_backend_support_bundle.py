@@ -54,6 +54,10 @@ class SupportBundleTests(unittest.TestCase):
             drafts.mkdir(parents=True)
             (drafts / 'private.manifest').write_bytes(b'draft-manifest-sentinel')
             (drafts / 'private.media').write_bytes(b'unsent-media-sentinel')
+            key_bytes = bytes(range(32))
+            key_service = b'com.vostavo.desktop.drafts.v1'
+            key_account = b'content-key'
+            (drafts / 'private.key').write_bytes(key_bytes + key_service + key_account)
             config.log_file.parent.mkdir(parents=True, exist_ok=True)
             config.log_file.write_text(
                 'backend ready\napi_key="log-secret"\nsecret_ref="connection:primary"\n',
@@ -111,7 +115,7 @@ class SupportBundleTests(unittest.TestCase):
                         "llm_api_key": "client-secret",
                         "secret_ref": "connection:primary",
                         "draft_manifest": "draft-manifest-sentinel",
-                        "value": {"nested": ["unsent-media-sentinel", "content-key-sentinel"]},
+                        "value": {"nested": ["unsent-media-sentinel", "content-key-sentinel", key_bytes.hex(), key_service.decode(), key_account.decode()]},
                         "draft_count": 1,
                         "keychain_mode": "local-login",
                     },
@@ -159,7 +163,8 @@ class SupportBundleTests(unittest.TestCase):
                 self.assertNotIn("draft_manifest", client_snapshot)
                 self.assertFalse(any(name.startswith('drafts/') for name in names))
                 self.assertTrue(all(token not in archive.read(name) for name in names
-                                    for token in (b'draft-manifest-sentinel', b'unsent-media-sentinel', b'content-key-sentinel')))
+                                    for token in (b'draft-manifest-sentinel', b'unsent-media-sentinel', b'content-key-sentinel',
+                                                  key_bytes, key_bytes.hex().encode(), key_service, key_account)))
 
                 client_diagnostics = json.loads(archive.read("client/client_diagnostics.json"))
                 self.assertEqual(client_diagnostics, [{"key": "runtime"}])

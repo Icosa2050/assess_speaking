@@ -103,6 +103,28 @@ describe("journal recovery visibility", () => {
     } finally { lookup.mockRestore(); }
   });
 
+  it("keeps a browser retry link after a temporary history failure and checks it again", async () => {
+    status.mockResolvedValue(damaged);
+    vi.mocked(startFreshJournal).mockResolvedValue(undefined);
+    const brief = buildSessionDraft({ speakerId: "Alex", themeId: "trip", themeLabel: "Trip",
+      promptText: "Describe a trip", retryOfSessionId: "existing-parent", coachingGoal: "", retryGoalEligible: true });
+    const lookup = vi.spyOn(apiClient, "getHistoryDetail")
+      .mockRejectedValueOnce(new ApiClientError(503, { code: "runtime_error", detail: "Starting" }))
+      .mockResolvedValue({ payload: {} });
+    try {
+      const { store } = renderWithProviders(<JournalPanel locale="en" />, { appState: { draft: brief } });
+      persistRetryDraft(brief);
+      fireEvent.click(await screen.findByRole("button", { name: t("journal.fresh") }));
+      fireEvent.click(screen.getByRole("button", { name: t("journal.confirm_fresh") }));
+      await waitFor(() => expect(lookup).toHaveBeenCalledTimes(1));
+      expect(readRetryDraft()).toMatchObject({ retryOfSessionId: "existing-parent", retryGoalEligible: true });
+      expect(store.getState().draft.retryOfSessionId).toBe("existing-parent");
+      fireEvent.click(screen.getByRole("button", { name: t("journal.check_recovery") }));
+      await waitFor(() => expect(lookup).toHaveBeenCalledTimes(2));
+      expect(readRetryDraft()).toMatchObject({ retryOfSessionId: "existing-parent", retryGoalEligible: true });
+    } finally { lookup.mockRestore(); }
+  });
+
   it("blocks restore when an older helper omits attempt identities for local retry drafts", async () => {
     const entry = savedDraftFixture();
     entry.setup = { ...entry.setup, retryOfSessionId: "parent", retryGoalEligible: true };

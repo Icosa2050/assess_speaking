@@ -29,11 +29,14 @@ Resume then removes that retry link atomically while keeping the take, goal,
 and original expiry. The imported report records its restore time, so Resume
 can identify an older local draft even if WebView site data was reset; a new
 retry created after import keeps its valid link. A failed or rolled-back
-restore leaves that link alone. Start fresh quarantines damaged recovery metadata and
+restore leaves that link alone. If History is temporarily unavailable, Resume
+opens the saved take with a retryable history warning and leaves its stored
+retry link unchanged. Start fresh quarantines damaged recovery metadata and
 forgets a pending browser restore transaction. It preserves local drafts and
 the standalone retry brief. In browser-only mode the brief's parent is checked
 after Start fresh; if unavailable, the link is removed while its setup and goal
-remain locally saved. Discarding unfinished practice remains a separate
+remain locally saved, including when the goal is empty. A transient lookup
+failure keeps the link and lets the learner retry the check. Discarding unfinished practice remains a separate
 confirmed action on the draft card.
 
 Support bundles do not traverse `drafts/v1/`. Client supplied snapshots and
@@ -41,7 +44,8 @@ diagnostics use a fixed allowlist; free-form nested values are omitted. Only a
 bounded draft count and an enumerated Keychain mode may describe drafts.
 Installed internal DMG acceptance checks a killed replacement save, restart,
 and reinstall over the same app-data root, then purges its isolated Keychain
-item even if a check fails. The acceptance command is excluded from release
+item even if a check fails. An independent `security` cleanup and absence
+readback cover failures before the installed shell is available. The acceptance command is excluded from release
 builds. A signed Developer ID device-only
 Keychain test and live WebView recording/playback remain release gates.
 

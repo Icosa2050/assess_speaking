@@ -45,6 +45,14 @@ describe("local retry draft", () => {
       retryOfSessionId: "", retryGoalEligible: false });
   });
 
+  it("keeps a detached setup with an empty coaching goal across a reload", () => {
+    const withoutGoal = buildSessionDraft({ ...retry(), coachingGoal: "" });
+    persistRetryDraft(withoutGoal);
+    detachRetryBrief(withoutGoal);
+    expect(readRetryDraft()).toMatchObject({ promptText: "Describe a trip", coachingGoal: "",
+      retryOfSessionId: "", retryGoalEligible: false });
+  });
+
   it("expires an abandoned retry after seven days and removes the stale key", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-01T12:00:00Z"));

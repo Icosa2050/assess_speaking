@@ -12,7 +12,7 @@ def test_internal_acceptance_command_is_required_only_in_internal_binary(tmp_pat
     build_macos.assert_delivery_feature(binary, release=True)
     with pytest.raises(RuntimeError):
         build_macos.assert_delivery_feature(binary, release=False)
-    binary.write_bytes(b'ordinary shell VOSTAVO_INTERNAL_DMG_ACCEPTANCE')
+    binary.write_bytes(b'ordinary shell VOSTAVO_INTERNAL_DMG_ACCEPTANCE VOSTAVO_INTERNAL_DMG_KEY_SERVICE')
     build_macos.assert_delivery_feature(binary, release=False)
     with pytest.raises(RuntimeError):
         build_macos.assert_delivery_feature(binary, release=True)

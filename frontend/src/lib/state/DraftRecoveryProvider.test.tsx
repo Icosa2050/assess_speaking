@@ -113,20 +113,24 @@ describe("desktop draft recovery gate", () => {
     expect(screen.getByTestId("retry-context")).toHaveTextContent("imported-parent|Finish clearly|true");
   });
 
-  it("reports a temporary journal lookup failure separately and can retry the intact take", async () => {
+  it.each([
+    ["HTTP 503", new ApiClientError(503, { code: "runtime_error", detail: "Starting" })],
+    ["network failure", new Error("Network unavailable")],
+  ])("opens the intact take after %s and can retry the history check", async (_label, failure) => {
     const ready = draft();
     ready.setup = { ...ready.setup, retryOfSessionId: "saved-parent", coachingGoal: "Finish clearly", retryGoalEligible: true };
     rememberFreshRetryParents([{ draftId: ready.draftId, parentId: "saved-parent" }]);
-    vi.mocked(apiClient.getHistoryDetail).mockRejectedValueOnce(new ApiClientError(503, { code: "runtime_error", detail: "Starting" }))
+    vi.mocked(apiClient.getHistoryDetail).mockRejectedValueOnce(failure)
       .mockResolvedValue({ payload: {} });
     const bridge = fake([ready]);
     show(bridge);
     fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Could not check the earlier attempt"));
-    expect(bridge.loadTakeChunk).not.toHaveBeenCalled();
-    expect(hasFreshRetryParent(ready.draftId, "saved-parent")).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
     await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("Alex|take.webm"));
+    expect(screen.getByRole("status")).toHaveTextContent("earlier attempt could not be checked");
+    expect(bridge.loadTakeChunk).toHaveBeenCalled();
+    expect(hasFreshRetryParent(ready.draftId, "saved-parent")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Retry history check" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Retry history check" })).not.toBeInTheDocument());
     expect(hasFreshRetryParent(ready.draftId, "saved-parent")).toBe(false);
   });
 

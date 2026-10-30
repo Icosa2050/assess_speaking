@@ -228,7 +228,8 @@
     ["e2e/draftRecovery.spec.ts", "", "draft recovery 1360x900", "save, reload, resume, then explicit submit"],
     ["e2e/draftRecovery.spec.ts", "", "draft recovery 1360x900", "discard deletes only the local draft without uploading"],
     ["e2e/draftRecovery.spec.ts", "", "draft recovery 1100x760", "save, reload, resume, then explicit submit"],
-    ["e2e/draftRecovery.spec.ts", "", "draft recovery 1100x760", "discard deletes only the local draft without uploading"]
+    ["e2e/draftRecovery.spec.ts", "", "draft recovery 1100x760", "discard deletes only the local draft without uploading"],
+    ["e2e/draftRecovery.spec.ts", "", "restore warns about an imported retry parent and keeps the unsent take"]
   ],
   "connections": [
     [

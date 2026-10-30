@@ -51,7 +51,10 @@ def test_cross_root_roundtrip_deduplicates_audio_and_preserves_eligibility(tmp_p
     drafts.mkdir(parents=True)
     (drafts / ('a' * 32 + '.manifest')).write_bytes(b'private-draft-manifest')
     (drafts / ('a' * 32 + '-' + 'b' * 32 + '.media')).write_bytes(b'private-unsent-take')
-    (drafts / 'key-material').write_bytes(b'private-key-material')
+    key_bytes = bytes(range(32))
+    key_service = b'com.vostavo.desktop.drafts.v1'
+    key_account = b'content-key'
+    (drafts / 'key-material').write_bytes(b'private-key-material' + key_bytes + key_service + key_account)
     path = backup(first)
     with zipfile.ZipFile(path) as archive:
         manifest = json.loads(archive.read('manifest.json'))
@@ -60,7 +63,8 @@ def test_cross_root_roundtrip_deduplicates_audio_and_preserves_eligibility(tmp_p
         assert 'do-not-export' not in archive.read('manifest.json').decode()
         assert not any(name.startswith('drafts/') for name in archive.namelist())
         assert all(token not in archive.read(name) for name in archive.namelist()
-                   for token in (b'private-draft-manifest', b'private-unsent-take', b'private-key-material'))
+                   for token in (b'private-draft-manifest', b'private-unsent-take', b'private-key-material',
+                                 key_bytes, key_service, key_account))
     tx = second.begin()['id']
     staged = second.stage(tx, path)
     assert staged['attempts'] == 2

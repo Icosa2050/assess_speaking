@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { StatusBanner } from "@/components/ui/StatusBanner";
 import { createTranslator } from "@/lib/i18n";
 import type { SavedDraft } from "@/lib/runtime/desktopBridge";
 import { useAppStore, useAppStoreApi } from "./appStore";
@@ -88,6 +89,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   const [recoveredFile, setRecoveredFile] = useState<File | null>(null);
   const [legacy, setLegacy] = useState<LegacyBrief | null>(null);
   const [error, setError] = useState<DraftStoreError | null>(null);
+  const [historyPendingId, setHistoryPendingId] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [completionCleanupRetry, setCompletionCleanupRetry] = useState(0);
@@ -217,6 +219,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     if (!id) return;
     await adapter.discard(id);
     forgetRetryMarkers(id);
+    setHistoryPendingId(null);
     if (activeRef.current?.draftId === id) {
       setCurrent(null); setRecoveredFile(null);
     }
@@ -234,6 +237,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       try {
         await adapter.discard(completed.draftId);
         forgetRetryMarkers(completed.draftId);
+        setHistoryPendingId(null);
         draftsRef.current = draftsRef.current.filter(item => item.draftId !== completed.draftId);
         setDrafts(draftsRef.current);
         setCurrent(null); setRecoveredFile(null);
@@ -251,6 +255,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     return enqueue(async () => { try {
       await adapter.discard(id);
       forgetRetryMarkers(id);
+      if (activeRef.current?.draftId === id) setHistoryPendingId(null);
       draftsRef.current = draftsRef.current.filter(item => item.draftId !== id);
       setDrafts(draftsRef.current);
       const remainingUnreadable = unreadableIds.filter(item => item !== id);
@@ -308,7 +313,13 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
         if (!draftsRef.current.length && !unreadableIds.length && !legacy) { setChoosing(false); setManaging(false); }
         return;
       }
-      const saved = await resolveRetryParent(entry);
+      let saved = entry;
+      let historyPending = false;
+      try { saved = await resolveRetryParent(entry); }
+      catch (lookupError) {
+        if (lookupError instanceof DraftStoreError && lookupError.kind === "history") historyPending = true;
+        else throw lookupError;
+      }
       if (saved !== entry) replaceListing(saved);
       const file = saved.take ? await adapter.loadTake(saved) : null;
       applySetup(saved.setup);
@@ -317,6 +328,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       setChoosing(false);
       setManaging(false);
       setError(null);
+      setHistoryPendingId(historyPending ? saved.draftId : null);
       navigate(saved.take || (saved.setup.retryOfSessionId && saved.setup.retryGoalEligible) ? "/speak" : "/session-setup", { replace: true });
     } catch (resumeError) {
       setError(resumeError as DraftStoreError);
@@ -330,7 +342,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   const context: RecoveryContext = {
     supported: adapter.supported, active, drafts, hasStoredEntries: Boolean(drafts.length || unreadableIds.length), recoveredFile, error,
     saveSetup, replaceSetup, saveTake, prepareNewAttempt, discardActive, discardDraft: discard,
-    leaveActive: () => { setCurrent(null); setRecoveredFile(null); setError(null); },
+    leaveActive: () => { setCurrent(null); setRecoveredFile(null); setError(null); setHistoryPendingId(null); },
     clearRecoveredFile: () => setRecoveredFile(null),
     reloadActiveTake: () => enqueue(async () => {
       if (!activeRef.current?.take) return;
@@ -342,7 +354,13 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     reconcileActiveRetryParent: () => enqueue(async () => {
       const entry = activeRef.current;
       if (!entry?.setup.retryOfSessionId) return;
-      const saved = await resolveRetryParent(entry);
+      let saved: SavedDraft;
+      try { saved = await resolveRetryParent(entry); }
+      catch (lookupError) {
+        if (lookupError instanceof DraftStoreError && lookupError.kind === "history") setHistoryPendingId(entry.draftId);
+        throw lookupError;
+      }
+      setHistoryPendingId(null);
       if (saved !== entry) {
         setCurrent(saved); replaceListing(saved);
         if (sameDraftAttempt(entry, appStore.getState().draft)) {
@@ -393,6 +411,10 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       </Card>
   );
   return <Context.Provider value={context}>
-    {!booted ? <p role="status">{translate("journey.loading")}</p> : pending && !managing ? recoveryCard : <>{children}{managing && recoveryCard}</>}
+    {!booted ? <p role="status">{translate("journey.loading")}</p> : pending && !managing ? recoveryCard : <>
+      {active && historyPendingId === active.draftId && <StatusBanner title={translate("draft.history_error")} tone="warning">
+        <Button onClick={() => void context.reconcileActiveRetryParent().catch(() => undefined)}>{translate("draft.retry_history_check")}</Button>
+      </StatusBanner>}
+      {children}{managing && recoveryCard}</>}
   </Context.Provider>;
 };

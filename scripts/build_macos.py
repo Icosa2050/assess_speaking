@@ -29,9 +29,9 @@ def output(args):
 
 
 def assert_delivery_feature(shell_binary: Path, *, release: bool) -> None:
-    marker = b'VOSTAVO_INTERNAL_DMG_ACCEPTANCE'
-    present = marker in shell_binary.read_bytes()
-    if present == release:
+    binary = shell_binary.read_bytes()
+    markers = (b'VOSTAVO_INTERNAL_DMG_ACCEPTANCE', b'VOSTAVO_INTERNAL_DMG_KEY_SERVICE')
+    if any((marker in binary) == release for marker in markers):
         raise RuntimeError('Internal draft acceptance feature does not match the DMG mode')
 
 
