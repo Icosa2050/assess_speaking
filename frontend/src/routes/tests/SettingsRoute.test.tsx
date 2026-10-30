@@ -252,6 +252,7 @@ describe("Settings route", () => {
     const { store } = renderWithProviders(<AppFrame />, {initialEntries: ["/settings"], locale: "en"});
     await screen.findAllByText("Alpha runtime");
     fireEvent.change(screen.getByTestId("settings.connection_id"), {target: {value: "conn-alpha"}});
+    expect(screen.getByTestId("settings.connection_row_set_default")).toHaveAccessibleName("Make default: Alpha runtime");
     fireEvent.click(screen.getByTestId("settings.connection_row_set_default"));
     await waitFor(() => expect(mockedPostRuntimeSettingsSetDefault).toHaveBeenCalledWith("conn-alpha"));
     await waitFor(() => expect(store.getState().preferences.activeConnectionId).toBe("conn-alpha"));
@@ -372,12 +373,14 @@ describe("Settings route", () => {
     }));
     renderWithProviders(<AppFrame />, {initialEntries: ["/settings"], locale: "en"});
     const remove = await screen.findAllByTestId("settings.connection_row_delete");
+    expect(remove[0]).toHaveAccessibleName("Delete Bravo runtime");
     fireEvent.click(remove[0]);
     expect(mockedDeleteRuntimeSettingsConnection).not.toHaveBeenCalled();
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveAttribute("open");
     expect(remove[0]).toHaveAttribute("data-connection-id", "conn-bravo");
-    expect(within(dialog).getByText(/Remove Bravo runtime/)).toBeVisible();
+    expect(within(dialog).getByText(/Delete Bravo runtime/)).toBeVisible();
+    expect(screen.getByTestId("settings.connection_row_delete_confirm")).toHaveAccessibleName("Delete Bravo runtime (confirm)");
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(remove[0]).toHaveFocus();
     fireEvent.click(remove[0]);
