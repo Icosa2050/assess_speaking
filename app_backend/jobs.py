@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 import hashlib
 import io
+from itertools import islice
 import json
 import logging
 import math
@@ -85,7 +86,16 @@ def _job_file(jobs_dir: Path, assessment_id: str) -> Path:
 
 
 def _sanitize_request_metadata(request_payload: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in request_payload.items() if key != "llm_api_key"}
+    runtime_only = {"llm_api_key", "llm_base_url", "openrouter_http_referer", "openrouter_app_title"}
+    return {key: value for key, value in request_payload.items() if key not in runtime_only}
+
+
+def _request_index_file(jobs_dir: Path, request_id: str) -> Path:
+    return jobs_dir / "request-index" / (hashlib.sha256(request_id.encode("utf-8")).hexdigest() + ".json")
+
+
+def _upload_request_index_file(uploads_dir: Path, request_id: str) -> Path:
+    return uploads_dir / "request-index" / (hashlib.sha256(request_id.encode("utf-8")).hexdigest() + ".json")
 
 
 def _upload_meta_file(uploads_dir: Path, audio_id: str) -> Path:
@@ -419,6 +429,60 @@ class JobManager:
                        for path in self.uploads_dir.glob("aud_*.json")
                        if (saved := _read_json(path)))
 
+    def lookup_upload_request(self, request_id: str, *, sha256: str, original_name: str) -> str | None:
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", request_id) or not re.fullmatch(r"[0-9a-f]{64}", sha256) or not original_name:
+            return None
+        with locked_file(self.uploads_dir / ".upload-requests.lock"):
+            index_path = _upload_request_index_file(self.uploads_dir, request_id)
+            index = {} if index_path.is_symlink() else _read_json(index_path)
+            indexed_id = str(index.get("audio_id") or "") if index.get("request_id") == request_id else ""
+            candidates = ([_upload_meta_file(self.uploads_dir, indexed_id)] if re.fullmatch(r"aud_[0-9a-f]{32}", indexed_id)
+                          else islice(self.uploads_dir.glob("aud_*.json"), 256))
+            for path in candidates:
+                saved = _read_json(path)
+                if saved.get("request_id") != request_id:
+                    continue
+                audio_id = str(saved.get("audio_id") or "")
+                stored = Path(str(saved.get("stored_path") or ""))
+                if (re.fullmatch(r"aud_[0-9a-f]{32}", audio_id) and path.stem == audio_id and
+                    saved.get("sha256") == sha256 and saved.get("original_name") == original_name and
+                    stored.is_file() and not stored.is_symlink() and stored.parent.resolve() == self.uploads_dir.resolve() and
+                    stored.name.startswith(audio_id + ".")):
+                    return audio_id
+        return None
+
+    def lookup_assessment_request(self, request_id: str, *, audio_id: str, speaker_id: str,
+                                  sharing_fingerprint: str) -> dict[str, str | None] | None:
+        if (not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", request_id) or
+            not re.fullmatch(r"aud_[0-9a-f]{32}", audio_id) or not speaker_id.strip() or
+            not re.fullmatch(r"[a-f0-9]{64}", sharing_fingerprint)):
+            return None
+        index_path = _request_index_file(self._config.jobs_dir, request_id)
+        index = {} if index_path.is_symlink() else _read_json(index_path)
+        indexed_id = str(index.get("assessment_id") or "") if index.get("request_id") == request_id else ""
+        candidates = ([_job_file(self._config.jobs_dir, indexed_id)] if re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", indexed_id)
+                      else list(islice(self._config.jobs_dir.glob("*.json"), 256)))
+        for path in candidates:
+            if path.is_symlink():
+                continue
+            saved = _read_json(path)
+            request = saved.get("request")
+            if not isinstance(request, dict) or request.get("request_id") != request_id:
+                continue
+            if (request.get("audio_id") != audio_id or
+                str(request.get("speaker_id") or "").strip().lower() != speaker_id.strip().lower() or
+                request.get("sharing_fingerprint") != sharing_fingerprint):
+                return None
+            assessment_id = str(saved.get("assessment_id") or "")
+            status = str(saved.get("status") or "")
+            if not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", assessment_id) or status not in {s.value for s in JobStatus}:
+                return None
+            payload = saved.get("payload")
+            report = payload.get("report") if isinstance(payload, dict) else None
+            report_id = str(report.get("session_id")) if isinstance(report, dict) and report.get("session_id") else None
+            return {"assessment_id": assessment_id, "status": status, "report_id": report_id}
+        return None
+
     def register_upload_stream(self, *, source: BinaryIO, filename: str, request_id: str = "") -> UploadResponse:
         if request_id and not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", request_id):
             raise UploadRejected("Choose a valid upload request ID.", 400)
@@ -428,8 +492,12 @@ class JobManager:
                     saved = _read_json(path)
                     if saved.get("request_id") != request_id:
                         continue
+                    saved_audio_id = str(saved.get("audio_id") or "")
                     stored_path = Path(str(saved.get("stored_path") or ""))
-                    if not stored_path.exists():
+                    if (not re.fullmatch(r"aud_[0-9a-f]{32}", saved_audio_id) or path.stem != saved_audio_id or
+                        not stored_path.is_file() or stored_path.is_symlink() or
+                        stored_path.parent.resolve() != self.uploads_dir.resolve() or
+                        not stored_path.name.startswith(saved_audio_id + ".")):
                         continue
                     hasher = hashlib.sha1()
                     total = 0
@@ -453,7 +521,9 @@ class JobManager:
         stored_path = self.uploads_dir / f"{audio_id}{suffix}"
         stored_path.parent.mkdir(parents=True, exist_ok=True)
         metadata_path = _upload_meta_file(self.uploads_dir, audio_id)
+        index_path = _upload_request_index_file(self.uploads_dir, request_id) if request_id else None
         hasher = hashlib.sha1()
+        sha256_hasher = hashlib.sha256()
         total = 0
         # The multipart spool already exists. Reserve only its durable copy now.
         limit = MAX_UPLOAD_BYTES
@@ -466,12 +536,19 @@ class JobManager:
                     ensure_copy_space(self.uploads_dir, len(chunk))
                     target.write(chunk)
                     hasher.update(chunk)
+                    sha256_hasher.update(chunk)
             digest = hasher.hexdigest()
             _write_json(metadata_path, {"audio_id": audio_id, "stored_path": str(stored_path.resolve()),
-                                      "sha1": digest, "original_name": filename, "request_id": request_id})
+                                      "sha1": digest, "sha256": sha256_hasher.hexdigest(),
+                                      "original_name": filename, "request_id": request_id,
+                                      "created_at": _now_iso()})
+            if index_path is not None:
+                _write_json(index_path, {"request_id": request_id, "audio_id": audio_id})
         except BaseException:  # quality: allow[broad-except] remove partial files on cancellation too, then re-raise
             stored_path.unlink(missing_ok=True)
             metadata_path.unlink(missing_ok=True)
+            if index_path is not None:
+                index_path.unlink(missing_ok=True)
             raise
         return UploadResponse(
             audio_id=audio_id,
@@ -567,6 +644,7 @@ class JobManager:
             "audio_path": str(audio_path.resolve()),
         }
         job_file = _job_file(self._config.jobs_dir, assessment_id)
+        index_file = _request_index_file(self._config.jobs_dir, request.request_id) if request.request_id else None
         cache_root = self._config.jobs_dir / (assessment_id + "-stages")
         if request.resume_assessment_id:
             prior = _read_json(_job_file(self._config.jobs_dir, request.resume_assessment_id))
@@ -607,10 +685,14 @@ class JobManager:
         try:
             process = self._ctx.Process(target=_job_worker, args=(*args, child) if child is not None else args)
             _write_json(job_file, payload)
+            if index_file is not None:
+                _write_json(index_file, {"request_id": request.request_id, "assessment_id": assessment_id})
             process.start()
         except BaseException:  # quality: allow[broad-except] discard unaccepted jobs and close IPC on failed spawn, then re-raise
             try:
                 job_file.unlink(missing_ok=True)
+                if index_file is not None:
+                    index_file.unlink(missing_ok=True)
             finally:
                 if parent is not None:
                     parent.close()

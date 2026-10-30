@@ -21,6 +21,11 @@ const MAX_TAKE: u64 = 100 * 1024 * 1024;
 const MAX_TOTAL: u64 = 250 * 1024 * 1024;
 const RESERVE: u64 = 512 * 1024 * 1024;
 const TTL: u64 = 7 * 24 * 60 * 60 * 1000;
+// JSON may escape an allowed control byte to six characters, then escape it
+// again when the frozen request is serialized inside the encrypted manifest.
+// Keep room for maximal setup text (including the separate coaching goal).
+const MAX_FROZEN_REQUEST: usize = 512 * 1024;
+const MAX_MANIFEST: usize = 1024 * 1024;
 const MAGIC: &[u8; 4] = b"VD01";
 const MANIFEST_MAGIC: &[u8; 4] = b"VM02";
 const KEY_SERVICE: &str = "com.vostavo.desktop.drafts.v1";
@@ -455,8 +460,8 @@ impl Submission {
         ]
         .iter()
         .any(|s| !text_ok(s, 128))
-            || !text_ok(&self.frozen_request_body, 16_384)
-            || !["none", "upload", "assessment", "completed"]
+            || !text_ok(&self.frozen_request_body, MAX_FROZEN_REQUEST)
+            || !["none", "upload", "assessment", "completed", "failed", "cancelled"]
                 .contains(&self.last_confirmed_phase.as_str())
         {
             return Err(err("Invalid submission receipt"));
@@ -841,7 +846,7 @@ impl DraftStore {
             .metadata()
             .map_err(|_| err("Could not read saved draft"))?
             .len()
-            > 64 * 1024
+            > MAX_MANIFEST as u64
         {
             return Err(err("Saved draft exceeds limit"));
         }
@@ -923,7 +928,7 @@ impl DraftStore {
         let final_path = self.manifest_path(&manifest.draft_id)?;
         regular_file(&final_path)?;
         let plain = serde_json::to_vec(manifest).map_err(|_| err("Could not encode draft"))?;
-        if plain.len().saturating_add(40) > 64 * 1024 {
+        if plain.len().saturating_add(40) > MAX_MANIFEST {
             return Err(err("Saved draft exceeds limit").into());
         }
         let temp = self.dir.join(format!("{}.tmp", new_id()?));
@@ -1430,34 +1435,53 @@ impl DraftStore {
             "upload_uncertain" => matches!(status.as_str(), "upload_uncertain" | "uploaded"),
             "uploaded" => status == "assessment_uncertain",
             "assessment_uncertain" => {
-                matches!(status.as_str(), "assessment_uncertain" | "assessing")
+                matches!(status.as_str(), "assessment_uncertain" | "assessing" | "uploaded")
             }
-            "assessing" => status == "assessing",
+            "assessing" => matches!(status.as_str(), "assessment_uncertain" | "assessing"),
             _ => false,
         };
         if !next_allowed {
             return Err(err("Invalid submission transition"));
         }
         if let Some(previous) = &manifest.submission {
+            // The API definitively rejected this request before creating a job.
+            // Keep the uploaded audio, but allow the next explicit Submit to use
+            // the newly confirmed sharing route and a fresh request identity.
+            let rejected_route = manifest.status == "assessment_uncertain"
+                && status == "uploaded"
+                && previous.assessment_id.is_empty()
+                && previous.last_confirmed_phase == "upload"
+                && submission.assessment_request_id.is_empty()
+                && submission.assessment_id.is_empty()
+                && submission.request_fingerprint.is_empty()
+                && submission.frozen_request_body.is_empty()
+                && submission.last_confirmed_phase == "upload";
+            if manifest.status == "assessment_uncertain" && status == "uploaded" && !rejected_route {
+                return Err(err("Invalid submission transition"));
+            }
+            let resetting = matches!(previous.last_confirmed_phase.as_str(), "failed" | "cancelled")
+                && status == "assessment_uncertain"
+                && submission.assessment_id.is_empty()
+                && !submission.assessment_request_id.is_empty()
+                && submission.assessment_request_id != previous.assessment_request_id;
             for (old, new) in [
                 (&previous.upload_request_id, &submission.upload_request_id),
                 (&previous.audio_id, &submission.audio_id),
-                (
-                    &previous.assessment_request_id,
-                    &submission.assessment_request_id,
-                ),
-                (&previous.assessment_id, &submission.assessment_id),
-                (
-                    &previous.request_fingerprint,
-                    &submission.request_fingerprint,
-                ),
-                (
-                    &previous.frozen_request_body,
-                    &submission.frozen_request_body,
-                ),
             ] {
                 if !old.is_empty() && old != new {
                     return Err(err("Submission receipt identity cannot change"));
+                }
+            }
+            if !resetting && !rejected_route {
+                for (old, new) in [
+                    (&previous.assessment_request_id, &submission.assessment_request_id),
+                    (&previous.assessment_id, &submission.assessment_id),
+                    (&previous.request_fingerprint, &submission.request_fingerprint),
+                    (&previous.frozen_request_body, &submission.frozen_request_body),
+                ] {
+                    if !old.is_empty() && old != new {
+                        return Err(err("Submission receipt identity cannot change"));
+                    }
                 }
             }
             let phase = |value: &str| match value {
@@ -1465,11 +1489,14 @@ impl DraftStore {
                 "upload" => 1,
                 "assessment" => 2,
                 "completed" => 3,
+                "failed" | "cancelled" => 3,
                 _ => 4,
             };
-            if phase(&submission.last_confirmed_phase) < phase(&previous.last_confirmed_phase) {
+            if !resetting && phase(&submission.last_confirmed_phase) < phase(&previous.last_confirmed_phase) {
                 return Err(err("Submission confirmation cannot move backward"));
             }
+        } else if manifest.status == "assessment_uncertain" && status == "uploaded" {
+            return Err(err("Missing prior submission receipt"));
         }
         manifest.status = status;
         manifest.submission = Some(submission);
@@ -2326,19 +2353,16 @@ mod tests {
         );
     }
     #[test]
-    fn oversized_manifest_does_not_replace_readable_revision() {
+    fn escaped_setup_remains_readable_with_larger_manifest_capacity() {
         let root = TestRoot::new();
         let mut store = store(&root);
         let first = store.save_setup(setup("Alex"), None, None).unwrap();
         let mut changed = setup("Alex");
         changed.prompt_text = "\u{0001}".repeat(12_000);
-        assert!(store
-            .save_setup(changed, Some(first.draft_id.clone()), Some(first.revision))
-            .unwrap_err()
-            .contains("limit"));
+        let updated = store.save_setup(changed, Some(first.draft_id.clone()), Some(first.revision)).unwrap();
         let recovered = store.list().unwrap().remove(0);
-        assert_eq!(recovered.revision, first.revision);
-        assert_eq!(recovered.setup.prompt_text, first.setup.prompt_text);
+        assert_eq!(recovered.revision, updated.revision);
+        assert_eq!(recovered.setup.prompt_text, "\u{0001}".repeat(12_000));
     }
     #[test]
     fn legacy_retry_import_preserves_original_expiry_and_rejects_duplicate_or_expired() {
@@ -2865,6 +2889,193 @@ mod tests {
         assert!(store
             .begin_take(ready.draft_id.clone(), pending.revision, take(bytes))
             .is_err());
+    }
+    #[test]
+    fn submission_receipt_survives_restart_and_terminal_retry_needs_a_new_identity() {
+        let root = TestRoot::new();
+        let mut first_store = store(&root);
+        let draft = first_store.save_setup(setup("Alex"), None, None).unwrap();
+        let bytes = b"saved take";
+        let transfer = first_store.begin_take(draft.draft_id.clone(), draft.revision, take(bytes)).unwrap();
+        first_store.write_take_chunk(&transfer, bytes.to_vec()).unwrap();
+        let ready = first_store.finish_take(&transfer).unwrap();
+        let pending = first_store.mark_submission(&ready.draft_id, ready.revision, "upload_uncertain".into(), Submission {
+            upload_request_id: "upload-one".into(), audio_id: "".into(), assessment_request_id: "".into(),
+            assessment_id: "".into(), request_fingerprint: "".into(), frozen_request_body: "".into(),
+            last_confirmed_phase: "none".into(),
+        }).unwrap();
+        drop(first_store);
+        let mut reopened = store(&root);
+        assert_eq!(reopened.list().unwrap()[0].submission.as_ref().unwrap().upload_request_id, "upload-one");
+        let mut receipt = pending.submission.unwrap();
+        receipt.audio_id = "aud_one".into();
+        receipt.last_confirmed_phase = "upload".into();
+        let uploaded = reopened.mark_submission(&ready.draft_id, pending.revision, "uploaded".into(), receipt.clone()).unwrap();
+        receipt.assessment_request_id = "assessment-one".into();
+        receipt.request_fingerprint = "fingerprint".into();
+        receipt.frozen_request_body = r#"{"audio_id":"aud_one","request_id":"assessment-one","sharing_fingerprint":"fingerprint"}"#.into();
+        let uncertain = reopened.mark_submission(&ready.draft_id, uploaded.revision, "assessment_uncertain".into(), receipt.clone()).unwrap();
+        receipt.assessment_id = "asmt_one".into();
+        receipt.last_confirmed_phase = "assessment".into();
+        let accepted = reopened.mark_submission(&ready.draft_id, uncertain.revision, "assessing".into(), receipt.clone()).unwrap();
+        let mut illegal = receipt.clone();
+        illegal.assessment_request_id = "assessment-two".into();
+        assert!(reopened.mark_submission(&ready.draft_id, accepted.revision, "assessment_uncertain".into(), illegal).is_err());
+        receipt.last_confirmed_phase = "failed".into();
+        let failed = reopened.mark_submission(&ready.draft_id, accepted.revision, "assessing".into(), receipt.clone()).unwrap();
+        receipt.assessment_request_id = "assessment-two".into();
+        receipt.assessment_id.clear();
+        receipt.last_confirmed_phase = "upload".into();
+        receipt.frozen_request_body = r#"{"audio_id":"aud_one","request_id":"assessment-two","sharing_fingerprint":"fingerprint"}"#.into();
+        let retry = reopened.mark_submission(&ready.draft_id, failed.revision, "assessment_uncertain".into(), receipt).unwrap();
+        drop(reopened);
+        let mut restarted = store(&root);
+        assert_eq!(restarted.list().unwrap()[0].submission.as_ref().unwrap().assessment_request_id, "assessment-two");
+        assert_eq!(restarted.list().unwrap()[0].revision, retry.revision);
+    }
+    #[test]
+    fn confirmed_route_rejection_releases_only_the_unaccepted_assessment_identity() {
+        let root = TestRoot::new();
+        let mut first_store = store(&root);
+        let draft = first_store.save_setup(setup("Alex"), None, None).unwrap();
+        let bytes = b"saved take";
+        let transfer = first_store.begin_take(draft.draft_id.clone(), draft.revision, take(bytes)).unwrap();
+        first_store.write_take_chunk(&transfer, bytes.to_vec()).unwrap();
+        let ready = first_store.finish_take(&transfer).unwrap();
+        let mut receipt = Submission {
+            upload_request_id: "upload-one".into(), audio_id: String::new(), assessment_request_id: String::new(),
+            assessment_id: String::new(), request_fingerprint: String::new(), frozen_request_body: String::new(),
+            last_confirmed_phase: "none".into(),
+        };
+        let uncertain_upload = first_store.mark_submission(&ready.draft_id, ready.revision, "upload_uncertain".into(), receipt.clone()).unwrap();
+        receipt.audio_id = "aud_one".into();
+        receipt.last_confirmed_phase = "upload".into();
+        let uploaded = first_store.mark_submission(&ready.draft_id, uncertain_upload.revision, "uploaded".into(), receipt.clone()).unwrap();
+        receipt.assessment_request_id = "first-request".into();
+        receipt.request_fingerprint = "old-route".into();
+        receipt.frozen_request_body = r#"{"audio_id":"aud_one","request_id":"first-request","sharing_fingerprint":"old-route"}"#.into();
+        let pending = first_store.mark_submission(&ready.draft_id, uploaded.revision, "assessment_uncertain".into(), receipt.clone()).unwrap();
+        let mut released = receipt.clone();
+        released.assessment_request_id.clear();
+        released.request_fingerprint.clear();
+        released.frozen_request_body.clear();
+        assert!(first_store.mark_submission(&ready.draft_id, pending.revision, "assessing".into(), released.clone()).is_err());
+        let retained = first_store.mark_submission(&ready.draft_id, pending.revision, "uploaded".into(), released.clone()).unwrap();
+        assert_eq!(retained.take.as_ref().unwrap().sha256, ready.take.as_ref().unwrap().sha256);
+        assert_eq!(retained.submission.as_ref().unwrap().audio_id, "aud_one");
+        drop(first_store);
+        let mut reopened = store(&root);
+        assert_eq!(reopened.list().unwrap()[0].status, "uploaded");
+        released.assessment_request_id = "second-request".into();
+        released.request_fingerprint = "new-route".into();
+        released.frozen_request_body = r#"{"audio_id":"aud_one","request_id":"second-request","sharing_fingerprint":"new-route"}"#.into();
+        let next = reopened.mark_submission(&ready.draft_id, retained.revision, "assessment_uncertain".into(), released.clone()).unwrap();
+        released.assessment_id = "accepted-job".into();
+        released.last_confirmed_phase = "assessment".into();
+        let accepted = reopened.mark_submission(&ready.draft_id, next.revision, "assessing".into(), released.clone()).unwrap();
+        released.assessment_request_id.clear();
+        released.assessment_id.clear();
+        released.request_fingerprint.clear();
+        released.frozen_request_body.clear();
+        released.last_confirmed_phase = "upload".into();
+        assert!(reopened.mark_submission(&ready.draft_id, accepted.revision, "uploaded".into(), released).is_err());
+    }
+    #[test]
+    fn maximal_prompt_and_notes_fit_in_a_persistent_receipt() {
+        let root = TestRoot::new();
+        let mut first = store(&root);
+        let mut context = setup("Alex");
+        context.prompt_text = "p".repeat(12_000);
+        let draft = first.save_setup(context, None, None).unwrap();
+        let bytes = b"saved take";
+        let transfer = first.begin_take(draft.draft_id.clone(), draft.revision, take(bytes)).unwrap();
+        first.write_take_chunk(&transfer, bytes.to_vec()).unwrap();
+        let ready = first.finish_take(&transfer).unwrap();
+        let upload = first.mark_submission(&ready.draft_id, ready.revision, "upload_uncertain".into(), Submission {
+            upload_request_id: "upload-large".into(), audio_id: "".into(), assessment_request_id: "".into(),
+            assessment_id: "".into(), request_fingerprint: "".into(), frozen_request_body: "".into(),
+            last_confirmed_phase: "none".into(),
+        }).unwrap();
+        let mut receipt = upload.submission.unwrap();
+        receipt.audio_id = "aud_large".into();
+        receipt.last_confirmed_phase = "upload".into();
+        let uploaded = first.mark_submission(&ready.draft_id, upload.revision, "uploaded".into(), receipt.clone()).unwrap();
+        receipt.assessment_request_id = "assessment-large".into();
+        receipt.request_fingerprint = "a".repeat(64);
+        receipt.frozen_request_body = serde_json::json!({
+            "audio_id": "aud_large", "request_id": "assessment-large", "sharing_fingerprint": "a".repeat(64),
+            "prompt_text": "p".repeat(12_000), "notes": "😀".repeat(12_000), "label": "L".repeat(500),
+        }).to_string();
+        assert!(receipt.frozen_request_body.len() > 16_384);
+        let saved = first.mark_submission(&ready.draft_id, uploaded.revision, "assessment_uncertain".into(), receipt).unwrap();
+        drop(first);
+        let mut reopened = store(&root);
+        assert_eq!(reopened.list().unwrap()[0].revision, saved.revision);
+        assert!(reopened.list().unwrap()[0].submission.as_ref().unwrap().frozen_request_body.len() > 48_000);
+    }
+    #[test]
+    fn maximal_escaped_setup_and_request_fit_in_the_encrypted_manifest() {
+        let root = TestRoot::new();
+        let mut first = store(&root);
+        let escaped = "\u{0001}";
+        let mut context = setup("Alex");
+        context.session_id = escaped.repeat(128);
+        context.speaker_id = escaped.repeat(256);
+        context.learning_language_label = escaped.repeat(100);
+        context.theme_id = escaped.repeat(256);
+        context.theme_label = escaped.repeat(1000);
+        context.prompt_id = escaped.repeat(256);
+        context.prompt_text = escaped.repeat(12_000);
+        context.retry_of_session_id = escaped.repeat(128);
+        context.coaching_goal = escaped.repeat(12_000);
+        let draft = first.save_setup(context.clone(), None, None).unwrap();
+        let bytes = b"saved take";
+        let transfer = first.begin_take(draft.draft_id.clone(), draft.revision, take(bytes)).unwrap();
+        first.write_take_chunk(&transfer, bytes.to_vec()).unwrap();
+        let ready = first.finish_take(&transfer).unwrap();
+        let pending = first.mark_submission(&ready.draft_id, ready.revision, "upload_uncertain".into(), Submission {
+            upload_request_id: "upload-max".into(), audio_id: String::new(), assessment_request_id: String::new(),
+            assessment_id: String::new(), request_fingerprint: String::new(), frozen_request_body: String::new(),
+            last_confirmed_phase: "none".into(),
+        }).unwrap();
+        let mut receipt = pending.submission.unwrap();
+        receipt.audio_id = "aud_max".into();
+        receipt.last_confirmed_phase = "upload".into();
+        let uploaded = first.mark_submission(&ready.draft_id, pending.revision, "uploaded".into(), receipt.clone()).unwrap();
+        receipt.assessment_request_id = "assessment-max".into();
+        receipt.request_fingerprint = "a".repeat(64);
+        receipt.frozen_request_body = serde_json::json!({
+            "audio_id": "aud_max", "request_id": "assessment-max", "sharing_fingerprint": "a".repeat(64),
+            "speaker_id": context.speaker_id, "theme": context.theme_label, "prompt_id": context.prompt_id,
+            "prompt_text": context.prompt_text, "retry_of_session_id": context.retry_of_session_id,
+            "label": escaped.repeat(500), "notes": escaped.repeat(12_000),
+            "expected_language": "it", "feedback_language": "it", "task_family": "travel_narrative",
+            "target_duration_sec": 90, "target_cefr": "B1", "whisper": "large-v3",
+            "provider": "ollama_local", "llm_model": "saved-model",
+        }).to_string();
+        assert!(receipt.frozen_request_body.len() <= MAX_FROZEN_REQUEST);
+        let saved = first.mark_submission(&ready.draft_id, uploaded.revision, "assessment_uncertain".into(), receipt).unwrap();
+        assert!(serde_json::to_vec(&saved).unwrap().len() > 256 * 1024);
+        drop(first);
+        let mut reopened = store(&root);
+        assert_eq!(reopened.list().unwrap()[0].revision, saved.revision);
+    }
+    #[test]
+    fn assessment_state_without_a_prior_receipt_is_invalid() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let draft = store.save_setup(setup("Alex"), None, None).unwrap();
+        let bytes = b"saved take";
+        let transfer = store.begin_take(draft.draft_id.clone(), draft.revision, take(bytes)).unwrap();
+        store.write_take_chunk(&transfer, bytes.to_vec()).unwrap();
+        let mut invalid = store.finish_take(&transfer).unwrap();
+        invalid.status = "assessment_uncertain".into();
+        assert!(invalid.submission.is_none());
+        assert!(invalid.validate(&invalid.draft_id, now_ms()).is_err());
+        let receipt = Submission { upload_request_id: "upload-one".into(), audio_id: "aud_one".into(),
+            assessment_request_id: String::new(), assessment_id: String::new(), request_fingerprint: String::new(),
+            frozen_request_body: String::new(), last_confirmed_phase: "upload".into() };
+        assert!(store.mark_submission(&draft.draft_id, invalid.revision, "uploaded".into(), receipt).is_err());
     }
     #[cfg(target_os = "macos")]
     #[test]

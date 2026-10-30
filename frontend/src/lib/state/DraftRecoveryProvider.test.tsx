@@ -1,10 +1,11 @@
 import "@testing-library/jest-dom/vitest";
 import { createHash, webcrypto } from "node:crypto";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import type { DesktopDraftStoreBridge, SavedDraft } from "@/lib/runtime/desktopBridge";
 import { desktopBridge } from "@/lib/runtime/desktopBridge";
+import { apiClient } from "@/lib/api/client";
 import { AppStoreProvider, useAppStore } from "./appStore";
 import { DraftRecoveryProvider, useDraftRecovery } from "./DraftRecoveryProvider";
 import { createDraftStoreAdapter, sameDraftAttempt } from "./draftStore";
@@ -21,6 +22,15 @@ const draft = (): SavedDraft => ({
   take: { mediaId: "b".repeat(32), originalFilename: "take.webm", mime: "audio/webm", size: bytes.length,
     sha256: digest, durationSec: 8, captureEndedAt: Date.now(), inputMethod: "record" }, submission: null,
 });
+const acceptedDraft = (): SavedDraft => {
+  const saved = draft();
+  saved.status = "assessing";
+  saved.submission = { uploadRequestId: "upload-one", audioId: "aud_one", assessmentRequestId: "request-one",
+    assessmentId: "assessment-1", requestFingerprint: "a".repeat(64),
+    frozenRequestBody: JSON.stringify({ audio_id: "aud_one", request_id: "request-one", sharing_fingerprint: "a".repeat(64) }),
+    lastConfirmedPhase: "assessment" };
+  return saved;
+};
 const fake = (entries = [draft()]): DesktopDraftStoreBridge => ({
   list: vi.fn().mockResolvedValue({ drafts: entries, unreadableIds: [] }),
   recoveryIds: vi.fn().mockResolvedValue([]), saveSetup: vi.fn(), replaceSetup: vi.fn(), importLegacyBrief: vi.fn(),
@@ -39,12 +49,16 @@ const Probe = () => {
   const currentDraft = useAppStore(state => state.draft);
   const recovery = useDraftRecovery();
   const location = useLocation();
-  return <><div data-testid="probe">{speaker}|{recovery.recoveredFile?.name}|{location.pathname}</div><div data-testid="retry-context">{retry}</div>
+  return <><div data-testid="probe">{speaker}|{recovery.recoveredFile?.name}|{location.pathname}</div><div data-testid="active-revision">{recovery.active?.revision}</div><div data-testid="retry-context">{retry}</div>
     <button onClick={() => void recovery.discardActive()}>Discard active probe</button>
     <button onClick={() => recovery.leaveActive()}>Leave active probe</button>
     <button onClick={() => void recovery.saveSetup(buildSessionDraft({ speakerId: "Bea", themeId: "trip", themeLabel: "Trip", promptText: "Trip" })).catch(() => undefined)}>Save setup probe</button>
     <button onClick={recovery.manageDrafts}>Manage drafts probe</button>
     <button onClick={() => recovery.active && void recovery.saveSetup({ ...recovery.active.setup, coachingGoal: "Updated goal" }).catch(() => undefined)}>Edit active probe</button>
+    <button onClick={() => recovery.active && void recovery.markSubmission(recovery.active, "upload_uncertain", {
+      uploadRequestId: "upload-A", audioId: "", assessmentRequestId: "", assessmentId: "",
+      requestFingerprint: "", frozenRequestBody: "", lastConfirmedPhase: "none",
+    }).catch(() => undefined)}>Mark active receipt probe</button>
     <button onClick={() => void recovery.prepareNewAttempt("Alex")}>Prepare replacement probe</button>
     <button onClick={() => recovery.active && void recovery.saveSetup({ ...recovery.active.setup, sessionId: "next-attempt" }).catch(() => undefined)}>Save replacement probe</button>
     <button onClick={() => { setRecordingJob({ assessmentId: "assessment-1", status: "completed" }); updateReview({ reportId: "report-1" }); }}>Complete off Speak probe</button>
@@ -63,7 +77,97 @@ const show = (bridge: DesktopDraftStoreBridge) => render(
 
 describe("desktop draft recovery gate", () => {
   beforeEach(() => { vi.stubGlobal("crypto", webcrypto); window.localStorage.clear(); });
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+  it("clears a matching take and retry brief after a completed receipt resolves on boot", async () => {
+    const saved = draft();
+    saved.setup = { ...saved.setup, retryOfSessionId: "prior", coachingGoal: "Finish clearly", retryGoalEligible: true };
+    saved.status = "assessment_uncertain";
+    saved.submission = { uploadRequestId: "upload-one", audioId: "aud_one", assessmentRequestId: "assessment-one",
+      assessmentId: "", requestFingerprint: "a".repeat(64),
+      frozenRequestBody: JSON.stringify({ audio_id: "aud_one", request_id: "assessment-one", sharing_fingerprint: "a".repeat(64) }),
+      lastConfirmedPhase: "upload" };
+    let resolveLookup: (value: {assessment_id: string; status: "completed"; report_id: string}) => void = () => undefined;
+    vi.spyOn(apiClient, "getAssessmentByRequest").mockImplementation(() => new Promise(resolve => { resolveLookup = resolve; }));
+    vi.spyOn(apiClient, "getHistoryDetail").mockResolvedValue({ payload: { report: { session_id: "report-one" } } });
+    const bridge = fake([saved]);
+    show(bridge);
+    await screen.findByTestId("draft.entry");
+    await waitFor(() => expect(apiClient.getAssessmentByRequest).toHaveBeenCalledWith("assessment-one", {
+      audioId: "aud_one", speakerId: saved.setup.speakerId, sharingFingerprint: "a".repeat(64),
+    }));
+    persistRetryDraft(saved.setup);
+    resolveLookup({ assessment_id: "asmt_one", status: "completed", report_id: "report-one" });
+    await waitFor(() => expect(bridge.discard).toHaveBeenCalledWith(saved.draftId));
+    await waitFor(() => expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull());
+    expect(screen.queryByTestId("draft.entry")).not.toBeInTheDocument();
+  });
+
+  it("keeps the only take when a completed job has no readable history report", async () => {
+    const saved = draft();
+    saved.status = "assessment_uncertain";
+    saved.submission = { uploadRequestId: "upload-one", audioId: "aud_one", assessmentRequestId: "assessment-one",
+      assessmentId: "asmt_one", requestFingerprint: "a".repeat(64),
+      frozenRequestBody: JSON.stringify({ audio_id: "aud_one", request_id: "assessment-one", sharing_fingerprint: "a".repeat(64) }),
+      lastConfirmedPhase: "assessment" };
+    vi.spyOn(apiClient, "getAssessmentByRequest").mockResolvedValue({ assessment_id: "asmt_one", status: "completed", report_id: "missing" });
+    vi.spyOn(apiClient, "getHistoryDetail").mockRejectedValue(new Error("history missing"));
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const bridge = fake([saved]);
+    show(bridge);
+    await waitFor(() => expect(apiClient.getHistoryDetail).toHaveBeenCalledWith("missing"));
+    expect(bridge.discard).not.toHaveBeenCalled();
+    expect(await screen.findByTestId("draft.entry")).toHaveTextContent("Alex");
+  });
+
+  it("resumes the latest revision when an upload lookup finishes after the click", async () => {
+    const saved = draft();
+    saved.status = "upload_uncertain";
+    saved.submission = { uploadRequestId: "upload-one", audioId: "", assessmentRequestId: "", assessmentId: "",
+      requestFingerprint: "", frozenRequestBody: "", lastConfirmedPhase: "none" };
+    let resolveLookup: (value: { audio_id: string }) => void = () => undefined;
+    vi.spyOn(apiClient, "getUploadByRequest").mockImplementation(() => new Promise(resolve => { resolveLookup = resolve; }));
+    const bridge = fake([saved]);
+    vi.mocked(bridge.markSubmission).mockImplementation(async (_id, revision, status, submission) =>
+      ({ ...saved, revision: revision + 1, status: status as SavedDraft["status"], submission }));
+    show(bridge);
+    await screen.findByTestId("draft.entry");
+    await waitFor(() => expect(apiClient.getUploadByRequest).toHaveBeenCalledWith("upload-one", {
+      sha256: saved.take!.sha256, originalName: saved.take!.originalFilename,
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    await act(async () => resolveLookup({ audio_id: "aud_one" }));
+    await waitFor(() => expect(screen.getByTestId("active-revision")).toHaveTextContent("3"));
+    expect(bridge.markSubmission).toHaveBeenCalledWith(saved.draftId, 2, "uploaded", expect.objectContaining({ audioId: "aud_one" }));
+  });
+
+  it("writes an in-flight A receipt to A's revision without touching newly activated B", async () => {
+    const first = draft();
+    const second = { ...draft(), draftId: "c".repeat(32), speakerId: "bea",
+      setup: buildSessionDraft({ speakerId: "Bea", themeId: "trip", themeLabel: "Describe a trip", promptText: "Tell us about a trip." }) };
+    const bridge = fake([first, second]);
+    let finishMark: (value: SavedDraft) => void = () => undefined;
+    vi.mocked(bridge.markSubmission).mockImplementation(() => new Promise(resolve => { finishMark = resolve; }));
+    show(bridge);
+    const firstEntry = (await screen.findAllByTestId("draft.entry")).find(entry => entry.textContent?.includes("Alex"))!;
+    fireEvent.click(within(firstEntry).getByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("Alex|take.webm"));
+    fireEvent.click(screen.getByRole("button", { name: "Mark active receipt probe" }));
+    await waitFor(() => expect(bridge.markSubmission).toHaveBeenCalledWith(first.draftId, first.revision,
+      "upload_uncertain", expect.objectContaining({ uploadRequestId: "upload-A" })));
+    fireEvent.click(screen.getByRole("button", { name: "Leave active probe" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage drafts probe" }));
+    const secondEntry = (await screen.findAllByTestId("draft.entry")).find(entry => entry.textContent?.includes("Bea"))!;
+    fireEvent.click(within(secondEntry).getByRole("button", { name: "Resume" }));
+    expect(bridge.markSubmission).toHaveBeenCalledTimes(1);
+    await act(async () => finishMark({ ...first, revision: first.revision + 1, status: "upload_uncertain",
+      submission: { uploadRequestId: "upload-A", audioId: "", assessmentRequestId: "", assessmentId: "",
+        requestFingerprint: "", frozenRequestBody: "", lastConfirmedPhase: "none" } }));
+    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("Bea|take.webm"));
+    expect(bridge.markSubmission).toHaveBeenCalledTimes(1);
+    expect(second.submission).toBeNull();
+    expect(screen.getByTestId("active-revision")).toHaveTextContent(String(second.revision));
+  });
 
   it("waits for listing, resumes the verified file, and never sends it", async () => {
     const bridge = fake();
@@ -110,8 +214,12 @@ describe("desktop draft recovery gate", () => {
   it("cleans up a completed report even when Speak is not mounted", async () => {
     const desktopStore = vi.spyOn(desktopBridge, "hasDraftStore").mockReturnValue(true);
     try {
-      const ready = draft();
+      const ready = acceptedDraft();
       ready.setup = { ...ready.setup, retryOfSessionId: "prior", coachingGoal: "Finish clearly", retryGoalEligible: true };
+      vi.spyOn(apiClient, "getAssessmentByRequest")
+        .mockResolvedValueOnce({ assessment_id: "assessment-1", status: "queued", report_id: null })
+        .mockResolvedValue({ assessment_id: "assessment-1", status: "completed", report_id: "report-1" });
+      vi.spyOn(apiClient, "getHistoryDetail").mockResolvedValue({ payload: { report: { session_id: "report-1" } } });
       const bridge = fake([ready]);
       show(bridge);
       fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
@@ -119,6 +227,7 @@ describe("desktop draft recovery gate", () => {
       persistRetryDraft(ready.setup);
       fireEvent.click(screen.getByRole("button", { name: "Complete off Speak probe" }));
       await waitFor(() => expect(bridge.discard).toHaveBeenCalledWith(ready.draftId));
+      expect(apiClient.getHistoryDetail).toHaveBeenCalledWith("report-1");
       await waitFor(() => expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull());
       expect(screen.queryByTestId("draft.entry")).not.toBeInTheDocument();
     } finally { desktopStore.mockRestore(); }
@@ -127,8 +236,12 @@ describe("desktop draft recovery gate", () => {
   it("retries failed completion cleanup within the same provider mount", async () => {
     const desktopStore = vi.spyOn(desktopBridge, "hasDraftStore").mockReturnValue(true);
     try {
-      const ready = draft();
+      const ready = acceptedDraft();
       ready.setup = { ...ready.setup, retryOfSessionId: "prior", coachingGoal: "Finish clearly", retryGoalEligible: true };
+      vi.spyOn(apiClient, "getAssessmentByRequest")
+        .mockResolvedValueOnce({ assessment_id: "assessment-1", status: "queued", report_id: null })
+        .mockResolvedValue({ assessment_id: "assessment-1", status: "completed", report_id: "report-1" });
+      vi.spyOn(apiClient, "getHistoryDetail").mockResolvedValue({ payload: { report: { session_id: "report-1" } } });
       const bridge = fake([ready]);
       vi.mocked(bridge.discard).mockRejectedValueOnce(new Error("Mac storage is temporarily unavailable"));
       show(bridge);
@@ -144,6 +257,29 @@ describe("desktop draft recovery gate", () => {
       await waitFor(() => expect(bridge.discard).toHaveBeenCalledTimes(2));
       await waitFor(() => expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull());
       expect(screen.getByTestId("draft-error-kind")).toBeEmptyDOMElement();
+    } finally { desktopStore.mockRestore(); }
+  });
+
+  it("keeps the only take when foreground completion has a mismatched report", async () => {
+    const desktopStore = vi.spyOn(desktopBridge, "hasDraftStore").mockReturnValue(true);
+    try {
+    const ready = acceptedDraft();
+    ready.setup = { ...ready.setup, retryOfSessionId: "prior", coachingGoal: "Finish clearly", retryGoalEligible: true };
+    vi.spyOn(apiClient, "getAssessmentByRequest")
+      .mockResolvedValueOnce({ assessment_id: "assessment-1", status: "queued", report_id: null })
+      .mockResolvedValue({ assessment_id: "assessment-1", status: "completed", report_id: "other-report" });
+    const history = vi.spyOn(apiClient, "getHistoryDetail").mockResolvedValue({ payload: { report: { session_id: "other-report" } } });
+    const bridge = fake([ready]);
+    show(bridge);
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("Alex|take.webm"));
+    persistRetryDraft(ready.setup);
+    fireEvent.click(screen.getByRole("button", { name: "Complete off Speak probe" }));
+    await waitFor(() => expect(apiClient.getAssessmentByRequest).toHaveBeenCalledTimes(2));
+    expect(history).not.toHaveBeenCalled();
+    expect(bridge.discard).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).not.toBeNull();
+    expect(screen.getByTestId("probe")).toHaveTextContent("Alex|take.webm");
     } finally { desktopStore.mockRestore(); }
   });
 

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from contextlib import nullcontext
+import json
 import logging
 from pathlib import Path
+import re
 
 from app_backend.config import (
     BACKEND_LOG_FILENAME,
@@ -18,6 +20,9 @@ from app_core.cloud_policy import locked_file
 
 logger = logging.getLogger(__name__)
 JOB_STAGING_RETENTION_HOURS = 24
+# Encrypted desktop receipts cannot be inspected by the helper. Their take
+# expires after seven days, so an upload younger than eight days is protected.
+ORPHAN_UPLOAD_RETENTION_DAYS = 8
 
 
 def _iter_files(root: Path) -> list[Path]:
@@ -106,6 +111,85 @@ def orphaned_job_staging_candidates(runtime_config: BackendRuntimeConfig, *, now
     return sorted(candidates)
 
 
+def orphan_upload_candidates(runtime_config: BackendRuntimeConfig, *, now: datetime | None = None) -> list[Path]:
+    """Keep uploads while any retained job or journal entry can still name them."""
+    root = runtime_config.app_data.uploads_dir
+    cutoff = _normalize_now(now) - timedelta(days=ORPHAN_UPLOAD_RETENTION_DAYS)
+    references: set[str] = set()
+    for job_file in runtime_config.jobs_dir.glob("*.json"):
+        try:
+            job = json.loads(job_file.read_text(encoding="utf-8"))
+            if not isinstance(job, dict):
+                return []
+        except (OSError, ValueError):
+            return []
+        request = job.get("request") or {}
+        if not isinstance(request, dict):
+            return []
+        references.add(str(request.get("audio_id") or ""))
+        references.add(str(job.get("audio_path") or ""))
+    # Reports and restored journal rows can outlive job metadata. A text match
+    # is conservative and also recognizes older report schemas.
+    journal_ids: set[str] = set()
+    audio_id_pattern = re.compile(r"aud_[0-9a-f]{32}")
+    for path in runtime_config.app_data.reports_dir.rglob("*"):
+        if path.is_relative_to(root):
+            continue
+        if path.is_symlink() or not path.is_file() or path.suffix.lower() not in {".json", ".jsonl", ".csv"}:
+            continue
+        try:
+            with path.open("r", encoding="utf-8") as source:
+                tail = ""
+                while chunk := source.read(64 * 1024):
+                    journal_ids.update(audio_id_pattern.findall(tail + chunk))
+                    tail = chunk[-64:]
+        except (OSError, UnicodeError):
+            return []
+    result: list[Path] = []
+    for sidecar in root.glob("aud_*.json"):
+        if sidecar.is_symlink():
+            continue
+        try:
+            saved = json.loads(sidecar.read_text(encoding="utf-8"))
+            created = datetime.fromisoformat(str(saved.get("created_at") or "").replace("Z", "+00:00"))
+            audio_id = str(saved.get("audio_id") or "")
+            media = Path(str(saved.get("stored_path") or ""))
+            if (created.tzinfo is None or created.astimezone(UTC) > cutoff or
+                audio_id != sidecar.stem or media.is_symlink() or (media.exists() and not media.is_file()) or
+                media.parent.resolve() != root.resolve() or not media.name.startswith(audio_id + ".")):
+                continue
+        except (OSError, ValueError, TypeError, AttributeError):
+            # Old or malformed sidecars have no trustworthy age or identity.
+            continue
+        if audio_id in references or str(media.resolve()) in references or audio_id in journal_ids:
+            continue
+        if media.is_file():
+            result.append(media)
+        result.append(sidecar)
+        request_id = saved.get("request_id")
+        if isinstance(request_id, str) and re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", request_id):
+            from app_backend.jobs import _upload_request_index_file
+            index = _upload_request_index_file(root, request_id)
+            if index.is_file() and not index.is_symlink():
+                try:
+                    if json.loads(index.read_text(encoding="utf-8")).get("audio_id") == audio_id:
+                        result.append(index)
+                except (OSError, ValueError, AttributeError):
+                    pass
+    for media in root.glob("aud_*.*"):
+        if media.suffix == ".json" or media.is_symlink() or not media.is_file() or not re.fullmatch(r"aud_[0-9a-f]{32}", media.stem):
+            continue
+        if (root / f"{media.stem}.json").exists():
+            continue
+        try:
+            modified = datetime.fromtimestamp(media.stat().st_mtime, tz=UTC)
+        except OSError:
+            continue
+        if modified <= cutoff and media.stem not in references and str(media.resolve()) not in references and media.stem not in journal_ids:
+            result.append(media)
+    return sorted(result)
+
+
 def cleanup_candidates(
     runtime_config: BackendRuntimeConfig,
     target: CleanupTarget,
@@ -118,6 +202,7 @@ def cleanup_candidates(
         return sorted(
             prunable_job_metadata_files(runtime_config.jobs_dir, retention_days=DEFAULT_JOB_METADATA_RETENTION_DAYS, now=now)
             + orphaned_job_staging_candidates(runtime_config, now=now)
+            + orphan_upload_candidates(runtime_config, now=now)
         )
     if target == CleanupTarget.LOGS:
         return prunable_log_files(runtime_config)
@@ -131,6 +216,7 @@ def cleanup_candidates(
                 now=now,
             )
             + orphaned_job_staging_candidates(runtime_config, now=now)
+            + orphan_upload_candidates(runtime_config, now=now)
             + prunable_log_files(runtime_config)
         )
         unique: list[Path] = []
@@ -181,7 +267,7 @@ def execute_cleanup(
     # A resume publishes another reference to a shared cache. Serialize that
     # publication with retention, including dry-run inspection.
     guard = locked_file(runtime_config.jobs_dir / "retention.lock") if prune_jobs else nullcontext()
-    with guard:
+    with guard, (locked_file(runtime_config.app_data.uploads_dir / ".upload-requests.lock") if prune_jobs else nullcontext()):
         candidates = cleanup_candidates(runtime_config, target, now=now)
         deleted_file_count, freed_bytes, warnings = _delete_candidates(candidates, dry_run=dry_run)
         if prune_jobs:

@@ -227,8 +227,18 @@
     ],
     ["e2e/draftRecovery.spec.ts", "", "draft recovery 1360x900", "save, reload, resume, then explicit submit"],
     ["e2e/draftRecovery.spec.ts", "", "draft recovery 1360x900", "discard deletes only the local draft without uploading"],
+    ["e2e/draftRecovery.spec.ts", "", "draft recovery 1360x900", "lost assessment response reconciles after restart and clears only on a completed report"],
+    ["e2e/draftRecovery.spec.ts", "", "draft recovery 1360x900", "failed or cancelled reconciliation keeps the take and does not submit"],
+    ["e2e/draftRecovery.spec.ts", "", "draft recovery 1360x900", "unknown assessment stays local and reuses the request ID only after Submit"],
+    ["e2e/draftRecovery.spec.ts", "", "draft recovery 1360x900", "lost terminal retry replays its frozen resume request after restart"],
+    ["e2e/draftRecovery.spec.ts", "", "draft recovery 1360x900", "lost upload response is resolved by request ID without a second upload"],
     ["e2e/draftRecovery.spec.ts", "", "draft recovery 1100x760", "save, reload, resume, then explicit submit"],
-    ["e2e/draftRecovery.spec.ts", "", "draft recovery 1100x760", "discard deletes only the local draft without uploading"]
+    ["e2e/draftRecovery.spec.ts", "", "draft recovery 1100x760", "discard deletes only the local draft without uploading"],
+    ["e2e/draftRecovery.spec.ts", "", "draft recovery 1100x760", "lost assessment response reconciles after restart and clears only on a completed report"],
+    ["e2e/draftRecovery.spec.ts", "", "draft recovery 1100x760", "failed or cancelled reconciliation keeps the take and does not submit"],
+    ["e2e/draftRecovery.spec.ts", "", "draft recovery 1100x760", "unknown assessment stays local and reuses the request ID only after Submit"],
+    ["e2e/draftRecovery.spec.ts", "", "draft recovery 1100x760", "lost terminal retry replays its frozen resume request after restart"],
+    ["e2e/draftRecovery.spec.ts", "", "draft recovery 1100x760", "lost upload response is resolved by request ID without a second upload"]
   ],
   "connections": [
     [

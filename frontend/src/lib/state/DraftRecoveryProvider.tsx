@@ -1,9 +1,11 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { createTranslator } from "@/lib/i18n";
-import type { SavedDraft } from "@/lib/runtime/desktopBridge";
+import { apiClient, ApiClientError } from "@/lib/api/client";
+import type { AssessmentRequestLookupResponse, JobStatus } from "@/lib/api/types";
+import type { DraftSubmission, SavedDraft } from "@/lib/runtime/desktopBridge";
 import { useAppStore, useAppStoreApi } from "./appStore";
 import { createDraftStoreAdapter, DraftStoreError, normalizedLearner, sameDraftAttempt, type DraftStoreAdapter } from "./draftStore";
 import { clearRetryDraft, readLegacyRetryBrief, readRetryDraft } from "./retryBriefStorage";
@@ -24,6 +26,18 @@ const withinBootDeadline = async <T,>(work: () => Promise<T>, deadline: number):
     ]);
   } finally { if (timer) clearTimeout(timer); }
 };
+const verifyCompletedReport = async (entry: SavedDraft, found: AssessmentRequestLookupResponse, expectedReportId?: string): Promise<void> => {
+  if (found.status !== "completed" || !found.report_id ||
+      (entry.submission?.assessmentId && entry.submission.assessmentId !== found.assessment_id) ||
+      (expectedReportId && expectedReportId !== found.report_id)) {
+    throw new Error("Completed assessment identity does not match the saved take");
+  }
+  const detail = await apiClient.getHistoryDetail(found.report_id).catch(() => {
+    throw new Error("Completed assessment report is unavailable");
+  });
+  const report = detail.payload.report as { session_id?: string } | undefined;
+  if (report?.session_id !== found.report_id) throw new Error("Completed assessment report is unavailable");
+};
 type RecoveryContext = {
   supported: boolean;
   active: SavedDraft | null;
@@ -34,6 +48,7 @@ type RecoveryContext = {
   saveSetup: (setup: SessionDraft) => Promise<SavedDraft | null>;
   replaceSetup: (setup: SessionDraft, previous: SavedDraft) => Promise<SavedDraft>;
   saveTake: (setup: SessionDraft, file: File, duration: number, method: "record" | "upload", progress: (percent: number) => void) => Promise<SavedDraft>;
+  markSubmission: (target: SavedDraft, status: SavedDraft["status"], submission: DraftSubmission) => Promise<SavedDraft>;
   prepareNewAttempt: (speakerId: string) => Promise<boolean>;
   discardActive: () => Promise<void>;
   discardDraft: (id: string) => Promise<boolean>;
@@ -49,6 +64,7 @@ const defaultContext: RecoveryContext = {
   saveSetup: async () => null,
   replaceSetup: async () => { throw new Error("Local draft storage is unavailable"); },
   saveTake: async () => { throw new Error("Local draft storage is unavailable"); },
+  markSubmission: async () => { throw new DraftStoreError("unsupported", "Local draft storage is unavailable"); },
   prepareNewAttempt: async () => true,
   discardActive: async () => undefined,
   discardDraft: async () => true,
@@ -66,6 +82,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   adapter = stableAdapter;
   const appStore = useAppStoreApi();
   const navigate = useNavigate();
+  const location = useLocation();
   const locale = useAppStore(state => state.preferences.uiLocale);
   const applySetup = useAppStore(state => state.applySetup);
   const clearRecording = useAppStore(state => state.clearRecording);
@@ -77,6 +94,9 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   const [choosing, setChoosing] = useState(false);
   const [managing, setManaging] = useState(false);
   const [drafts, setDrafts] = useState<SavedDraft[]>([]);
+  const [receiptStatuses, setReceiptStatuses] = useState<Record<string, JobStatus>>({});
+  const receiptStatusesRef = useRef<Record<string, JobStatus>>({});
+  const bootReconciled = useRef(false);
   const draftsRef = useRef<SavedDraft[]>([]);
   const [unreadableIds, setUnreadableIds] = useState<string[]>([]);
   const [active, setActive] = useState<SavedDraft | null>(null);
@@ -99,6 +119,13 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     return result;
   };
   const replaceListing = (saved: SavedDraft) => {
+    const previous = draftsRef.current.find(entry => entry.draftId === saved.draftId);
+    if (previous?.submission?.assessmentRequestId !== saved.submission?.assessmentRequestId) {
+      const next = { ...receiptStatusesRef.current };
+      delete next[saved.draftId];
+      receiptStatusesRef.current = next;
+      setReceiptStatuses(next);
+    }
     draftsRef.current = [saved, ...draftsRef.current.filter(d => d.draftId !== saved.draftId)];
     setDrafts(draftsRef.current);
   };
@@ -168,6 +195,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
 
   const saveSetup = (setup: SessionDraft): Promise<SavedDraft | null> => enqueue(async () => {
     if (!adapter.supported) return null;
+    const activeAtStart = activeRef.current;
     const previous = activeRef.current?.speakerId === normalizedLearner(setup.speakerId)
       ? activeRef.current : draftsRef.current.find(item => item.speakerId === normalizedLearner(setup.speakerId));
     try {
@@ -180,7 +208,9 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       }
       const saved = replacing ? await adapter.replaceSetup(setup, previous) : await adapter.saveSetup(setup, previous);
       if (replacing) confirmedReplacement.current = null;
-      setCurrent(saved); replaceListing(saved); setError(null);
+      replaceListing(saved);
+      if (activeRef.current !== activeAtStart) throw new DraftStoreError("conflict", "The active draft changed while saving.");
+      setCurrent(saved); setError(null);
       return saved;
     } catch (saveError) { confirmedReplacement.current = null; setError(saveError as DraftStoreError); throw saveError; }
   });
@@ -202,10 +232,95 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     }
     try {
       const saved = await adapter.saveTake(current, file, duration, method, progress);
-      setCurrent(saved); replaceListing(saved); setError(null);
+      replaceListing(saved);
+      if (activeRef.current?.draftId !== current.draftId || activeRef.current.revision !== current.revision ||
+          !sameDraftAttempt(activeRef.current, setup)) throw new DraftStoreError("conflict", "The active draft changed while saving.");
+      setCurrent(saved); setError(null);
       return saved;
     } catch (saveError) { setError(saveError as DraftStoreError); throw saveError; }
   });
+  const markSubmission: RecoveryContext["markSubmission"] = (target, status, submission) => enqueue(async () => {
+    const current = activeRef.current;
+    if (!adapter.supported || !current || current.draftId !== target.draftId ||
+        current.revision !== target.revision || !sameDraftAttempt(current, target.setup)) {
+      throw new DraftStoreError("conflict", "The submitting draft changed; resume it before retrying.");
+    }
+    const saved = await adapter.markSubmission(target, status, submission);
+    if (!saved || saved.draftId !== target.draftId || saved.revision <= target.revision || saved.status !== status ||
+        saved.submission?.uploadRequestId !== submission.uploadRequestId ||
+        saved.submission?.assessmentRequestId !== submission.assessmentRequestId ||
+        !sameDraftAttempt(saved, target.setup)) {
+      throw new DraftStoreError("conflict", "The submission receipt was not saved to its draft.");
+    }
+    replaceListing(saved);
+    if (!activeRef.current || activeRef.current.draftId !== target.draftId ||
+        !sameDraftAttempt(activeRef.current, target.setup)) {
+      throw new DraftStoreError("conflict", "The submitting draft changed; resume it before retrying.");
+    }
+    setCurrent(saved);
+    return saved;
+  });
+  useEffect(() => {
+    if (!booted || !adapter.supported) return;
+    const enteringHistoryOrReview = location.pathname.startsWith("/history") || location.pathname.startsWith("/review");
+    if (bootReconciled.current && !enteringHistoryOrReview) return;
+    bootReconciled.current = true;
+    let cancelled = false;
+    void enqueue(async () => {
+      for (const entry of [...draftsRef.current]) {
+        if (cancelled || !entry.submission) continue;
+        const receipt = entry.submission;
+        try {
+          if (receipt.assessmentRequestId) {
+            const found = await apiClient.getAssessmentByRequest(receipt.assessmentRequestId, {
+              audioId: receipt.audioId, speakerId: entry.setup.speakerId, sharingFingerprint: receipt.requestFingerprint,
+            });
+            if (cancelled) return;
+            if (receipt.assessmentId && receipt.assessmentId !== found.assessment_id) {
+              throw new Error("Assessment receipt identity does not match the saved take");
+            }
+            receiptStatusesRef.current = { ...receiptStatusesRef.current, [entry.draftId]: found.status };
+            setReceiptStatuses(receiptStatusesRef.current);
+            if (found.status === "completed") {
+              await verifyCompletedReport(entry, found);
+              const latest = draftsRef.current.find(item => item.draftId === entry.draftId);
+              if (latest?.revision !== entry.revision || latest.submission?.assessmentRequestId !== receipt.assessmentRequestId) continue;
+              await adapter.discard(entry.draftId);
+              draftsRef.current = draftsRef.current.filter(item => item.draftId !== entry.draftId);
+              setDrafts(draftsRef.current);
+              if (activeRef.current?.draftId === entry.draftId && sameDraftAttempt(activeRef.current, entry.setup)) { setCurrent(null); setRecoveredFile(null); }
+              const brief = readRetryDraft();
+              if (brief && sameDraftAttempt(entry, brief)) clearRetryDraft();
+            } else if (entry.status === "assessment_uncertain" ||
+                (["failed", "cancelled"].includes(found.status) && receipt.lastConfirmedPhase !== found.status)) {
+              const saved = await adapter.markSubmission(entry, "assessing", {
+                ...receipt, assessmentId: found.assessment_id,
+                lastConfirmedPhase: found.status === "failed" || found.status === "cancelled" ? found.status : "assessment",
+              });
+              replaceListing(saved);
+              if (activeRef.current?.draftId === entry.draftId && sameDraftAttempt(activeRef.current, entry.setup)) setCurrent(saved);
+            }
+          } else if (receipt.uploadRequestId && !receipt.audioId) {
+            if (!entry.take) continue;
+            const found = await apiClient.getUploadByRequest(receipt.uploadRequestId, {
+              sha256: entry.take.sha256, originalName: entry.take.originalFilename,
+            });
+            if (cancelled) return;
+            const saved = await adapter.markSubmission(entry, "uploaded", {
+              ...receipt, audioId: found.audio_id, lastConfirmedPhase: "upload",
+            });
+            replaceListing(saved);
+            if (activeRef.current?.draftId === entry.draftId && sameDraftAttempt(activeRef.current, entry.setup)) setCurrent(saved);
+          }
+        } catch (lookupError) {
+          if (!(lookupError instanceof ApiClientError && lookupError.responseStatus === 404)) {
+            console.warn("Draft receipt reconciliation failed; the saved take remains available.", lookupError);
+          }
+        }
+      }
+    });
+    return () => { cancelled = true; };
+  }, [booted, adapter, location.pathname]);
   const discardActive = () => enqueue(async () => {
     const id = activeRef.current?.draftId;
     if (!id) return;
@@ -219,12 +334,27 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   });
   useEffect(() => {
     if (!adapter.supported || assessmentState !== "completed" || !completedReportId ||
-        !sameDraftAttempt(active, currentSetup) || completionCleanupId.current === active.draftId) return;
+        !sameDraftAttempt(active, currentSetup) || !active.submission?.assessmentRequestId ||
+        !active.submission.assessmentId || active.submission.assessmentId !== appStore.getState().recording.job.assessmentId ||
+        completionCleanupId.current === active.draftId) return;
     const completed = active;
     completionCleanupId.current = completed.draftId;
     void enqueue(async () => {
-      if (activeRef.current?.draftId !== completed.draftId) return;
+      if (activeRef.current?.draftId !== completed.draftId || activeRef.current.revision !== completed.revision) {
+        completionCleanupId.current = null;
+        return;
+      }
       try {
+        const receipt = completed.submission!;
+        const found = await apiClient.getAssessmentByRequest(receipt.assessmentRequestId, {
+          audioId: receipt.audioId, speakerId: completed.setup.speakerId, sharingFingerprint: receipt.requestFingerprint,
+        });
+        await verifyCompletedReport(completed, found, completedReportId);
+        if (activeRef.current?.draftId !== completed.draftId || activeRef.current.revision !== completed.revision ||
+            draftsRef.current.find(entry => entry.draftId === completed.draftId)?.revision !== completed.revision) {
+          completionCleanupId.current = null;
+          return;
+        }
         await adapter.discard(completed.draftId);
         draftsRef.current = draftsRef.current.filter(item => item.draftId !== completed.draftId);
         setDrafts(draftsRef.current);
@@ -268,21 +398,28 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   const resume = (entry: SavedDraft) => {
     setBusy(true);
     void enqueue(async () => { try {
-      if (entry.expiresAt <= Date.now()) {
-        await adapter.discard(entry.draftId);
+      const latest = draftsRef.current.find(item => item.draftId === entry.draftId);
+      if (!latest) return;
+      if (latest.expiresAt <= Date.now()) {
+        await adapter.discard(latest.draftId);
         draftsRef.current = draftsRef.current.filter(item => item.draftId !== entry.draftId);
         setDrafts(draftsRef.current);
         if (!draftsRef.current.length && !unreadableIds.length && !legacy) { setChoosing(false); setManaging(false); }
         return;
       }
-      const file = entry.take ? await adapter.loadTake(entry) : null;
-      applySetup(entry.setup);
-      setCurrent(entry);
+      const file = latest.take ? await adapter.loadTake(latest) : null;
+      applySetup(latest.setup);
+      const status = receiptStatusesRef.current[latest.draftId];
+      if (status && latest.submission?.assessmentId) {
+        appStore.getState().setRecordingJob({ assessmentId: latest.submission.assessmentId, status,
+          phase: status, progress: ["completed", "failed", "cancelled"].includes(status) ? 1 : 0 });
+      }
+      setCurrent(latest);
       setRecoveredFile(file);
       setChoosing(false);
       setManaging(false);
       setError(null);
-      navigate(entry.take || (entry.setup.retryOfSessionId && entry.setup.retryGoalEligible) ? "/speak" : "/session-setup", { replace: true });
+      navigate(latest.take || (latest.setup.retryOfSessionId && latest.setup.retryGoalEligible) ? "/speak" : "/session-setup", { replace: true });
     } catch (resumeError) {
       setError(resumeError as DraftStoreError);
       if (["unreadable", "lost_key"].includes((resumeError as DraftStoreError).kind)) {
@@ -294,7 +431,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   };
   const context: RecoveryContext = {
     supported: adapter.supported, active, drafts, hasStoredEntries: Boolean(drafts.length || unreadableIds.length), recoveredFile, error,
-    saveSetup, replaceSetup, saveTake, prepareNewAttempt, discardActive, discardDraft: discard,
+    saveSetup, replaceSetup, saveTake, markSubmission, prepareNewAttempt, discardActive, discardDraft: discard,
     leaveActive: () => { setCurrent(null); setRecoveredFile(null); setError(null); },
     clearRecoveredFile: () => setRecoveredFile(null),
     reloadActiveTake: () => enqueue(async () => {
@@ -315,7 +452,11 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
           <p>{translate(entry.take ? "draft.recorded_at" : "draft.edited_at", { date: new Date(entry.take?.captureEndedAt ?? entry.updatedAt).toLocaleString(locale) })}</p>
           <p>{translate(entry.take ? "draft.take_saved" : "draft.setup_saved", { date: new Date(entry.expiresAt).toLocaleString(locale) })}</p>
           {entry.expiresAt - Date.now() < 24 * 60 * 60 * 1000 && <p>{translate("draft.expires_soon")}</p>}
-          {entry.take && <p>{entry.submission ? translate("draft.submission_uncertain") : translate("draft.not_sent")}</p>}
+          {entry.take && <p>{!entry.submission ? translate("draft.not_sent") : receiptStatuses[entry.draftId] === "failed"
+            ? translate("draft.assessment_failed") : receiptStatuses[entry.draftId] === "cancelled"
+            ? translate("draft.assessment_cancelled") : receiptStatuses[entry.draftId] === "queued" || receiptStatuses[entry.draftId] === "running"
+            ? translate("draft.assessment_pending") : entry.status === "uploaded"
+            ? translate("draft.upload_confirmed") : translate("draft.submission_uncertain")}</p>}
           {confirmDiscard === entry.draftId ? <div role="group" aria-label={translate("draft.discard_confirm_title")}>
             <p>{translate("draft.discard_confirm", { learner: entry.setup.speakerId, task: entry.setup.themeLabel, size: entry.take ? `${(entry.take.size / 1024 / 1024).toFixed(1)} MiB` : "0 MiB" })}</p>
             <Button disabled={busy} onClick={() => void discard(entry.draftId)}>{translate("draft.discard_action")}</Button>
@@ -344,6 +485,6 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       </Card>
   );
   return <Context.Provider value={context}>
-    {!booted ? <p role="status">{translate("journey.loading")}</p> : pending && !managing ? recoveryCard : <>{children}{managing && recoveryCard}</>}
+    {!booted ? <p role="status">{translate("journey.loading")}</p> : pending && !managing ? recoveryCard : <>{managing && recoveryCard}{children}</>}
   </Context.Provider>;
 };

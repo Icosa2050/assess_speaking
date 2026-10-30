@@ -1,5 +1,6 @@
-import { desktopBridge, type DesktopDraftStoreBridge, type DraftListing, type SavedDraft } from "@/lib/runtime/desktopBridge";
+import { desktopBridge, type DesktopDraftStoreBridge, type DraftListing, type DraftSubmission, type SavedDraft } from "@/lib/runtime/desktopBridge";
 import type { SessionDraft } from "./sessionDraft";
+import { Sha256Stream, sha256File } from "./sha256Stream";
 
 const CHUNK_BYTES = 256 * 1024;
 const MAX_TAKE_BYTES = 100 * 1024 * 1024;
@@ -58,9 +59,6 @@ export const validSavedDraft = (value: SavedDraft): boolean =>
     Number.isFinite(value.take.durationSec) && value.take.durationSec > 0 && value.take.durationSec <= 1200 &&
     Number.isFinite(value.take.captureEndedAt) && ["record", "upload"].includes(value.take.inputMethod) &&
     /^[0-9a-f]{64}$/.test(value.take.sha256)));
-
-const sha256 = async (bytes: ArrayBuffer): Promise<string> =>
-  Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), byte => byte.toString(16).padStart(2, "0")).join("");
 
 export const createDraftStoreAdapter = (bridge: DesktopDraftStoreBridge | undefined = desktopBridge.readRuntime().draftStore) => {
   const unsupported = () => { throw new DraftStoreError("unsupported", "Local draft storage is unavailable in this browser"); };
@@ -136,7 +134,7 @@ export const createDraftStoreAdapter = (bridge: DesktopDraftStoreBridge | undefi
       let transfer: string | undefined;
       let digest = "";
       try {
-        digest = await sha256(await file.arrayBuffer());
+        digest = await sha256File(file);
         transfer = await bridge.beginTake(draft.draftId, draft.revision, {
           originalFilename: file.name, mime, size: file.size, sha256: digest,
           durationSec, captureEndedAt: inputMethod === "record" ? file.lastModified : Date.now(), inputMethod,
@@ -170,17 +168,34 @@ export const createDraftStoreAdapter = (bridge: DesktopDraftStoreBridge | undefi
       if (!validSavedDraft(draft) || !draft.take) throw new DraftStoreError("unreadable", "Saved take metadata is invalid");
       try {
         const chunks: Uint8Array<ArrayBuffer>[] = [];
+        const hasher = new Sha256Stream();
         let size = 0;
         for (let index = 0; size < draft.take.size; index++) {
           const bytes = new Uint8Array(await bridge.loadTakeChunk(draft.draftId, draft.take.mediaId, index));
           if (!bytes.length || bytes.length > CHUNK_BYTES || size + bytes.length > draft.take.size) throw new Error("Saved take has an invalid chunk");
           chunks.push(bytes);
+          hasher.update(bytes);
           size += bytes.length;
         }
         const file = new File(chunks, draft.take.originalFilename, { type: draft.take.mime, lastModified: draft.take.captureEndedAt });
-        if (await sha256(await file.arrayBuffer()) !== draft.take.sha256) throw new Error("Saved take digest differs from metadata");
+        if (hasher.hex() !== draft.take.sha256) throw new Error("Saved take digest differs from metadata");
         return file;
       } catch (error) { throw failure(error); }
+    },
+    async markSubmission(draft: SavedDraft, status: SavedDraft["status"], submission: DraftSubmission): Promise<SavedDraft> {
+      if (!bridge) return unsupported();
+      try { return await bridge.markSubmission(draft.draftId, draft.revision, status, submission); }
+      catch (error) {
+        if (failure(error).kind === "uncertain") {
+          try {
+            const current = (await bridge.list()).drafts.find(entry => entry.draftId === draft.draftId);
+            if (current && current.revision > draft.revision && current.status === status &&
+                current.submission?.uploadRequestId === submission.uploadRequestId &&
+                current.submission?.assessmentRequestId === submission.assessmentRequestId) return current;
+          } catch { /* Keep the receipt uncertain. */ }
+        }
+        throw failure(error);
+      }
     },
     async discard(id: string): Promise<void> {
       if (!bridge) return unsupported();
