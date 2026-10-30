@@ -5,7 +5,7 @@ import { RecorderPanel } from "./RecorderPanel";
 
 const props = { microphoneSetupPassed: true, canRemove: false, inputMode: "record" as const, onInputModeChange: vi.fn(), onRemove: vi.fn(),
   previewUrl: "", showReadyCheckpoint: false, statusMessage: "ready", statusTone: "info" as const, translate: (key: string) => key };
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 it("shows a finalized short take as ready in memory while retaining its warning", () => {
   render(<RecorderPanel {...props} onFileSelected={vi.fn()} previewUrl="blob:short-take"
     statusMessage="Too short to submit" statusTone="warning" />);
@@ -24,6 +24,54 @@ it("waits for native replacement confirmation before switching input modes", asy
   fireEvent.click(screen.getByTestId("speak.input_mode_upload"));
   await act(async () => finish(true));
   expect(onMode).toHaveBeenCalledWith("upload");
+});
+it("resumes the meter in the Record gesture before an asynchronous confirmation", async () => {
+  const resume = vi.fn().mockResolvedValue(undefined);
+  const close = vi.fn().mockResolvedValue(undefined);
+  vi.stubGlobal("AudioContext", class { resume = resume; close = close; });
+  microphone();
+  vi.stubGlobal("MediaRecorder", class { static isTypeSupported() { return true; } });
+  let finish: (allowed: boolean) => void = () => undefined;
+  render(<RecorderPanel {...props} onFileSelected={vi.fn()}
+    onBeforeReplace={() => new Promise(resolve => { finish = resolve; })} />);
+  fireEvent.click(screen.getByTestId("speak.record_start"));
+  fireEvent.click(screen.getByTestId("speak.record_start"));
+  expect(resume).toHaveBeenCalledOnce();
+  expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+  await act(async () => finish(false));
+  expect(close).toHaveBeenCalledOnce();
+  expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+});
+it("does not report silence when the meter remains suspended after confirmation", async () => {
+  const status = vi.fn();
+  const node = () => ({ connect: vi.fn(), disconnect: vi.fn() });
+  vi.stubGlobal("AudioContext", class {
+    state = "suspended"; destination = {};
+    resume = vi.fn().mockResolvedValue(undefined); close = vi.fn().mockResolvedValue(undefined);
+    createAnalyser() { return { ...node(), fftSize: 2048, getFloatTimeDomainData: vi.fn() }; }
+    createMediaStreamSource() { return node(); }
+    createGain() { return { ...node(), gain: { value: 0 } }; }
+  });
+  microphone();
+  class FakeRecorder {
+    static isTypeSupported() { return true; }
+    state = "inactive"; mimeType = "audio/webm";
+    onstop?: () => void; ondataavailable?: (event: { data: Blob }) => void;
+    start() { this.state = "recording"; }
+    requestData() { this.ondataavailable?.({ data: new Blob(["audio"]) }); }
+    stop() { this.state = "inactive"; this.onstop?.(); }
+  }
+  vi.stubGlobal("MediaRecorder", FakeRecorder);
+  vi.useFakeTimers();
+  render(<RecorderPanel {...props} onFileSelected={vi.fn()} onMicrophoneStatusChange={status}
+    onBeforeReplace={() => Promise.resolve(true)} />);
+  await act(async () => { fireEvent.click(screen.getByTestId("speak.record_start")); await Promise.resolve(); });
+  expect(screen.getByTestId("speak.record_stop")).toBeEnabled();
+  await act(async () => { await vi.advanceTimersByTimeAsync(11_000); });
+  expect(screen.getByTestId("speak.signal_warning")).toHaveTextContent("speak.meter_unavailable");
+  fireEvent.click(screen.getByTestId("speak.record_stop"));
+  await act(async () => { await Promise.resolve(); });
+  expect(status).not.toHaveBeenCalledWith("silent");
 });
 function microphone() {
   const stop = vi.fn();

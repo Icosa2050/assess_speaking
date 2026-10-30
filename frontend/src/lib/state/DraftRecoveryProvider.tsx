@@ -154,7 +154,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       if (replacing) confirmedReplacement.current = null;
       setCurrent(saved); replaceListing(saved); setError(null);
       return saved;
-    } catch (saveError) { setError(saveError as DraftStoreError); throw saveError; }
+    } catch (saveError) { confirmedReplacement.current = null; setError(saveError as DraftStoreError); throw saveError; }
   });
   const replaceSetup: RecoveryContext["replaceSetup"] = (setup, previous) => enqueue(async () => {
     try {
@@ -162,7 +162,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       confirmedReplacement.current = null;
       setCurrent(saved); replaceListing(saved); setRecoveredFile(null); setError(null);
       return saved;
-    } catch (replaceError) { setError(replaceError as DraftStoreError); throw replaceError; }
+    } catch (replaceError) { confirmedReplacement.current = null; setError(replaceError as DraftStoreError); throw replaceError; }
   });
   const saveTake: RecoveryContext["saveTake"] = (setup, file, duration, method, progress) => enqueue(async () => {
     let current = activeRef.current;

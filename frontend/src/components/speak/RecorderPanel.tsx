@@ -135,6 +135,7 @@ export const RecorderPanel = ({
   const recordingMimeTypeRef = useRef("audio/webm");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const requestIdRef = useRef(0);
+  const confirmationPendingRef = useRef(false);
   const startedAtRef = useRef(0);
   const stopFallbackRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -303,10 +304,7 @@ export const RecorderPanel = ({
   };
 
   const handleStartRecording = async () => {
-    if (onBeforeReplace) {
-      const decision = onBeforeReplace();
-      if (typeof decision === "boolean" ? !decision : !await decision) return;
-    }
+    if (confirmationPendingRef.current) return;
     if (!microphoneSetupPassed) {
       setRecorderMessage(translate("speak.microphone_setup_required"));
       return;
@@ -329,18 +327,30 @@ export const RecorderPanel = ({
       return;
     }
 
+    setSignalWarning("");
+    // Start the meter in the Record gesture. A native replacement dialog can
+    // consume transient activation before microphone permission is requested.
+    if (typeof AudioContext !== "undefined") {
+      try { meterContext.current = microphoneContext(); void meterContext.current.resume().catch(() => undefined); }
+      catch { setSignalWarning(translate("speak.meter_unavailable")); }
+    }
+    if (onBeforeReplace) {
+      confirmationPendingRef.current = true;
+      let allowed = false;
+      try {
+        const decision = onBeforeReplace();
+        allowed = typeof decision === "boolean" ? decision : await decision;
+      } catch { /* A failed dialog is a cancelled replacement. */ }
+      confirmationPendingRef.current = false;
+      if (!allowed || !mountedRef.current) { cleanupRecorder(); setSignalWarning(""); return; }
+    }
+
     setRecorderPhase("requesting");
     setRecorderMessage("");
     elapsedSecondsRef.current = 0;
     setElapsedSeconds(0);
     chunksRef.current = [];
-    setSignalWarning(""); setLevels(idleLevels); signal.current = null;
-    // Resume synchronously from the Record gesture, before permission awaits.
-    if (typeof AudioContext !== "undefined") {
-      try { meterContext.current = microphoneContext(); void meterContext.current.resume().catch(() => undefined); }
-      catch { setSignalWarning(translate("speak.meter_unavailable")); }
-    }
-
+    setLevels(idleLevels); signal.current = null;
     let requestTimeoutId: number | null = null;
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
@@ -379,6 +389,12 @@ export const RecorderPanel = ({
         const meter = connectInputMeter(meterContext.current, stream);
         const monitor = new RecordingSignal(); signal.current = monitor;
         meterTimer.current = window.setInterval(() => {
+          if (meterContext.current?.state !== "running") {
+            signal.current = null;
+            setSignalWarning(translate("speak.meter_unavailable"));
+            return;
+          }
+          signal.current = monitor;
           const { rms, peak } = meter.read();
           setLevels(previous => [...previous.slice(1), Math.min(1, rms * 5)]);
           const warning = monitor.update(rms, peak);

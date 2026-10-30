@@ -22,7 +22,7 @@ const draft = (): SavedDraft => ({
 });
 const fake = (entries = [draft()]): DesktopDraftStoreBridge => ({
   list: vi.fn().mockResolvedValue({ drafts: entries, unreadableIds: [] }),
-  recoveryIds: vi.fn().mockResolvedValue([]), saveSetup: vi.fn(), importLegacyBrief: vi.fn(),
+  recoveryIds: vi.fn().mockResolvedValue([]), saveSetup: vi.fn(), replaceSetup: vi.fn(), importLegacyBrief: vi.fn(),
   beginTake: vi.fn(), writeTakeChunk: vi.fn(), abortTake: vi.fn(),
   abortTakeForDraft: vi.fn().mockResolvedValue(undefined), finishTake: vi.fn(),
   loadTakeChunk: vi.fn().mockResolvedValue(Array.from(bytes)), markSubmission: vi.fn(),
@@ -39,6 +39,8 @@ const Probe = () => {
     <button onClick={() => void recovery.saveSetup(buildSessionDraft({ speakerId: "Bea", themeId: "trip", themeLabel: "Trip", promptText: "Trip" })).catch(() => undefined)}>Save setup probe</button>
     <button onClick={recovery.manageDrafts}>Manage drafts probe</button>
     <button onClick={() => recovery.active && void recovery.saveSetup({ ...recovery.active.setup, coachingGoal: "Updated goal" }).catch(() => undefined)}>Edit active probe</button>
+    <button onClick={() => void recovery.prepareNewAttempt("Alex")}>Prepare replacement probe</button>
+    <button onClick={() => recovery.active && void recovery.saveSetup({ ...recovery.active.setup, sessionId: "next-attempt" }).catch(() => undefined)}>Save replacement probe</button>
     <div data-testid="draft-error-kind">{recovery.error?.kind}</div></>;
 };
 const show = (bridge: DesktopDraftStoreBridge) => render(
@@ -67,6 +69,31 @@ describe("desktop draft recovery gate", () => {
     expect(bridge.abortTakeForDraft).toHaveBeenCalledWith("a".repeat(32));
     expect(bridge.loadTakeChunk).toHaveBeenCalledWith("a".repeat(32), "b".repeat(32), 0);
     expect(bridge.markSubmission).not.toHaveBeenCalled();
+  });
+
+  it("requires a new confirmation after a replacement setup save fails", async () => {
+    const bridge = fake();
+    const prior = draft();
+    vi.mocked(bridge.replaceSetup!).mockRejectedValueOnce(new Error("disk unavailable"))
+      .mockResolvedValue({ ...prior, setup: { ...prior.setup, sessionId: "next-attempt" }, revision: 3,
+        take: null, status: "setup" });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    show(bridge);
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("Alex|take.webm"));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Prepare replacement probe" })); });
+    expect(confirm).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Save replacement probe" }));
+    await waitFor(() => expect(bridge.replaceSetup).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByTestId("draft-error-kind")).toHaveTextContent("storage"));
+    fireEvent.click(screen.getByRole("button", { name: "Save replacement probe" }));
+    await act(async () => { await Promise.resolve(); });
+    expect(bridge.replaceSetup).toHaveBeenCalledOnce();
+    expect(bridge.discard).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Prepare replacement probe" })); });
+    fireEvent.click(screen.getByRole("button", { name: "Save replacement probe" }));
+    await waitFor(() => expect(bridge.replaceSetup).toHaveBeenCalledTimes(2));
+    confirm.mockRestore();
   });
 
   it("requires an explicit confirmation before deleting the local draft", async () => {
