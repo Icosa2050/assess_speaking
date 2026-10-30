@@ -5,21 +5,24 @@ test.describe("settings support flow", () => {
     await page.route("**/v1/runtime/settings", route => route.fulfill({ json: {
       ui_locale: "en", whisper_model: "small", active_connection_id: "", connections: [],
     } }));
-    await page.goto("/settings");
-    await expect(page.getByTestId("settings.connection_id")).toHaveValue("");
-    const save = page.getByTestId("settings.save_preferences");
-    await expect(save).toBeEnabled();
-    await page.getByTestId("settings.ui_locale").selectOption("fr");
-    await page.getByTestId("settings.whisper_model").selectOption("tiny");
-    const saved = page.waitForResponse(response => new URL(response.url()).pathname === "/v1/runtime/preferences" && response.request().method() === "PATCH");
-    await save.click();
-    const response = await saved;
-    expect(response.ok()).toBeTruthy();
-    expect(response.request().postDataJSON()).toEqual({ ui_locale: "fr", whisper_model: "tiny" });
-    expect(await response.json()).toEqual({ ui_locale: "fr", whisper_model: "tiny" });
-    expect((await page.request.patch(`${process.env.VOSTAVO_FIXTURE_BACKEND_URL}/v1/runtime/preferences`, {
-      data: { ui_locale: "en", whisper_model: "small" },
-    })).ok()).toBeTruthy();
+    try {
+      await page.goto("/settings");
+      await expect(page.getByTestId("settings.connection_id")).toHaveValue("");
+      const save = page.getByTestId("settings.save_preferences");
+      await expect(save).toBeEnabled();
+      await page.getByTestId("settings.ui_locale").selectOption("fr");
+      await page.getByTestId("settings.whisper_model").selectOption("tiny");
+      const saved = page.waitForResponse(response => new URL(response.url()).pathname === "/v1/runtime/preferences" && response.request().method() === "PATCH");
+      await save.click();
+      const response = await saved;
+      expect(response.ok()).toBeTruthy();
+      expect(response.request().postDataJSON()).toEqual({ ui_locale: "fr", whisper_model: "tiny" });
+      expect(await response.json()).toEqual({ ui_locale: "fr", whisper_model: "tiny" });
+    } finally {
+      expect((await page.request.patch(`${process.env.VOSTAVO_FIXTURE_BACKEND_URL}/v1/runtime/preferences`, {
+        data: { ui_locale: "en", whisper_model: "small" },
+      })).ok()).toBeTruthy();
+    }
   });
 
   test("settings runs support actions against the local guest backend", async ({ page }) => {
