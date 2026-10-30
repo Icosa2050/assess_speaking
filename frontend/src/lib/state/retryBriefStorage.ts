@@ -42,13 +42,14 @@ const parseStored = (raw: string | null): StoredRetry | null => {
   const draft = data as Record<string, unknown>;
   if (!Object.entries(textLimits).every(([key, max]) =>
     typeof draft[key] === "string" && (draft[key] as string).length <= max) ||
-    draft.retryGoalEligible !== true ||
+    !(draft.retryGoalEligible === true && !!draft.retryOfSessionId ||
+      draft.retryGoalEligible === false && !draft.retryOfSessionId && !!draft.coachingGoal) ||
     !DURATION_OPTIONS.includes(draft.durationSec as SessionDraft["durationSec"]) ||
     !CEFR_LEVELS.includes(draft.cefrLevel as SessionDraft["cefrLevel"]) ||
     !TASK_FAMILY_OPTIONS.includes(draft.taskFamily as SessionDraft["taskFamily"]) ||
     !["en", "it"].includes(String(draft.learningLanguage))) return null;
   const restored = normalizeRetryDraft(draft as unknown as SessionDraft);
-  if (!restored.retryOfSessionId || !hasSetupDraft(restored) || stored.context !== contextFor(restored)) return null;
+  if (!hasSetupDraft(restored) || stored.context !== contextFor(restored)) return null;
   return { version: 2, createdAt: stored.createdAt, context: stored.context, draft: restored };
 };
 
@@ -74,7 +75,9 @@ export const readRetryDraft = (): SessionDraft | null => readLegacyRetryBrief()?
 export const persistRetryDraft = (draft: SessionDraft): void => {
   try {
     const normalized = normalizeRetryDraft(draft);
-    if (!normalized.retryGoalEligible || !normalized.retryOfSessionId || !hasSetupDraft(normalized)) {
+    const linked = normalized.retryGoalEligible && normalized.retryOfSessionId;
+    const detached = !normalized.retryGoalEligible && !normalized.retryOfSessionId && normalized.coachingGoal;
+    if ((!linked && !detached) || !hasSetupDraft(normalized)) {
       clearRetryDraft();
       return;
     }
@@ -89,4 +92,10 @@ export const persistRetryDraft = (draft: SessionDraft): void => {
   } catch {
     // Storage can be disabled or full. The in-memory draft remains usable.
   }
+};
+
+export const detachRetryBrief = (draft: SessionDraft): SessionDraft => {
+  const detached = buildSessionDraft({ ...draft, retryOfSessionId: "", retryGoalEligible: false });
+  persistRetryDraft(detached);
+  return detached;
 };

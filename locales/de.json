@@ -1347,6 +1347,7 @@
     "discard_legacy": "Älteres Briefing verwerfen",
     "keychain_error": "Der Mac-Schlüsselbund ist nicht verfügbar. Lokales Speichern ist deaktiviert; lass dieses Fenster offen und versuche es erneut.",
     "storage_error": "Der lokale Entwurfsspeicher ist nicht verfügbar. Lass dieses Fenster offen oder versuche es erneut.",
+    "history_error": "Der frühere Versuch konnte im Verlauf nicht geprüft werden. Deine gespeicherte Aufnahme ist sicher; versuche es erneut, sobald das lokale Journal verfügbar ist.",
     "continue_without_resume": "Ohne Fortsetzen weiter",
     "saved_on_mac": "Auf diesem Mac bis zu sieben Tage gespeichert. Nach „Zur Auswertung senden“ kann die Aufnahme hier bleiben, bis die Auswertung abgeschlossen ist; über „Gespeicherte Entwürfe verwalten“ kannst du sie früher löschen. Erst mit „Zur Auswertung senden“ wird etwas hochgeladen.",
     "save_progress": "Aufnahme wird gespeichert: {percent} %.",

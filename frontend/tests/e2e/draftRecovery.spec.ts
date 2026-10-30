@@ -198,6 +198,9 @@ test("restore warns about an imported retry parent and keeps the unsent take", a
   } }));
   await page.route(`**/v1/journal/${transaction}/commit`, route => route.fulfill({ json: { phase: "committed" } }));
   await page.route(`**/v1/journal/${transaction}/complete`, route => route.fulfill({ json: { phase: "complete" } }));
+  await page.route("**/v1/history/imported-parent", route => route.fulfill({ json: {
+    payload: { restored_from: { restored_at_ms: Date.now() + 1000 } },
+  } }));
   await page.reload();
   await page.getByRole("button", { name: "Continue without resuming" }).click();
   await page.getByRole("link", { name: "Settings", exact: true }).click();

@@ -10,7 +10,7 @@ import { DraftRecoveryProvider, useDraftRecovery } from "./DraftRecoveryProvider
 import { createDraftStoreAdapter, sameDraftAttempt } from "./draftStore";
 import { buildSessionDraft } from "./sessionDraft";
 import { persistRetryDraft, readLegacyRetryBrief, RETRY_DRAFT_STORAGE_KEY } from "./retryBriefStorage";
-import { rememberFreshRetryParents, rememberRestoredRetryParents } from "@/lib/rehearsal/draftConflicts";
+import { hasFreshRetryParent, hasRestoredRetryParent, rememberFreshRetryParents, rememberRestoredRetryParents } from "@/lib/rehearsal/draftConflicts";
 import { apiClient, ApiClientError } from "@/lib/api/client";
 
 const bytes = new TextEncoder().encode("finalized browser audio");
@@ -66,13 +66,15 @@ const show = (bridge: DesktopDraftStoreBridge) => render(
 );
 
 describe("desktop draft recovery gate", () => {
-  beforeEach(() => { vi.stubGlobal("crypto", webcrypto); window.localStorage.clear(); });
-  afterEach(() => vi.unstubAllGlobals());
+  beforeEach(() => { vi.stubGlobal("crypto", webcrypto); window.localStorage.clear();
+    vi.spyOn(apiClient, "getHistoryDetail").mockResolvedValue({ payload: {} }); });
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
   it("detaches an imported retry parent before loading the saved take", async () => {
     const ready = draft();
     ready.setup = { ...ready.setup, retryOfSessionId: "imported-parent", coachingGoal: "Finish clearly", retryGoalEligible: true };
-    rememberRestoredRetryParents(["imported-parent"]);
+    rememberRestoredRetryParents([{ draftId: ready.draftId, parentId: "imported-parent" }]);
+    vi.mocked(apiClient.getHistoryDetail).mockResolvedValue({ payload: { restored_from: {} } });
     const bridge = fake([ready]);
     const detached = { ...ready, revision: ready.revision + 1, setup: { ...ready.setup, retryOfSessionId: "", retryGoalEligible: false } };
     vi.mocked(bridge.detachRetry!).mockResolvedValue(detached);
@@ -82,12 +84,56 @@ describe("desktop draft recovery gate", () => {
     await waitFor(() => expect(bridge.detachRetry).toHaveBeenCalledWith(ready.draftId, ready.revision, "imported-parent"));
     await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("Alex|take.webm"));
     expect(screen.getByTestId("retry-context")).toHaveTextContent("|Finish clearly|false");
+    expect(hasRestoredRetryParent(ready.draftId, "imported-parent")).toBe(false);
+  });
+
+  it("uses report provenance after WebView storage is cleared, but keeps a later retry of that report", async () => {
+    const old = draft();
+    old.setup = { ...old.setup, retryOfSessionId: "imported-parent", coachingGoal: "Finish clearly", retryGoalEligible: true };
+    const restoredAt = old.createdAt + 500;
+    vi.mocked(apiClient.getHistoryDetail).mockResolvedValue({ payload: { restored_from: { restored_at_ms: restoredAt } } });
+    rememberRestoredRetryParents([{ draftId: old.draftId, parentId: "imported-parent" }]);
+    localStorage.clear();
+    const bridge = fake([old]);
+    vi.mocked(bridge.detachRetry!).mockResolvedValue({ ...old, revision: old.revision + 1,
+      setup: { ...old.setup, retryOfSessionId: "", retryGoalEligible: false } });
+    const first = show(bridge);
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(bridge.detachRetry).toHaveBeenCalledOnce());
+    expect(screen.getByTestId("probe")).toHaveTextContent("Alex|take.webm");
+    first.unmount();
+
+    const later = { ...draft(), draftId: "c".repeat(32), createdAt: restoredAt + 1000,
+      setup: { ...old.setup, sessionId: "later-attempt" } };
+    const laterBridge = fake([later]);
+    show(laterBridge);
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("Alex|take.webm"));
+    expect(laterBridge.detachRetry).not.toHaveBeenCalled();
+    expect(screen.getByTestId("retry-context")).toHaveTextContent("imported-parent|Finish clearly|true");
+  });
+
+  it("reports a temporary journal lookup failure separately and can retry the intact take", async () => {
+    const ready = draft();
+    ready.setup = { ...ready.setup, retryOfSessionId: "saved-parent", coachingGoal: "Finish clearly", retryGoalEligible: true };
+    rememberFreshRetryParents([{ draftId: ready.draftId, parentId: "saved-parent" }]);
+    vi.mocked(apiClient.getHistoryDetail).mockRejectedValueOnce(new ApiClientError(503, { code: "runtime_error", detail: "Starting" }))
+      .mockResolvedValue({ payload: {} });
+    const bridge = fake([ready]);
+    show(bridge);
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Could not check the earlier attempt"));
+    expect(bridge.loadTakeChunk).not.toHaveBeenCalled();
+    expect(hasFreshRetryParent(ready.draftId, "saved-parent")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("Alex|take.webm"));
+    expect(hasFreshRetryParent(ready.draftId, "saved-parent")).toBe(false);
   });
 
   it("checks a retry parent after fresh start and detaches only when history is absent", async () => {
     const ready = draft();
     ready.setup = { ...ready.setup, retryOfSessionId: "quarantined-parent", coachingGoal: "Finish clearly", retryGoalEligible: true };
-    rememberFreshRetryParents(["quarantined-parent"]);
+    rememberFreshRetryParents([{ draftId: ready.draftId, parentId: "quarantined-parent" }]);
     const lookup = vi.spyOn(apiClient, "getHistoryDetail").mockRejectedValue(new ApiClientError(404, { code: "runtime_error", detail: "Missing" }));
     try {
       const bridge = fake([ready]);
@@ -98,14 +144,15 @@ describe("desktop draft recovery gate", () => {
       await waitFor(() => expect(lookup).toHaveBeenCalledWith("quarantined-parent"));
       await waitFor(() => expect(bridge.detachRetry).toHaveBeenCalledOnce());
       expect(screen.getByTestId("retry-context")).toHaveTextContent("|Finish clearly|false");
+      expect(hasFreshRetryParent(ready.draftId, "quarantined-parent")).toBe(false);
     } finally { lookup.mockRestore(); }
   });
 
   it("keeps a valid retry parent after fresh start", async () => {
     const ready = draft();
     ready.setup = { ...ready.setup, retryOfSessionId: "saved-parent", coachingGoal: "Finish clearly", retryGoalEligible: true };
-    rememberFreshRetryParents(["saved-parent"]);
-    const lookup = vi.spyOn(apiClient, "getHistoryDetail").mockResolvedValue({} as Awaited<ReturnType<typeof apiClient.getHistoryDetail>>);
+    rememberFreshRetryParents([{ draftId: ready.draftId, parentId: "saved-parent" }]);
+    const lookup = vi.spyOn(apiClient, "getHistoryDetail").mockResolvedValue({ payload: {} });
     try {
       const bridge = fake([ready]);
       show(bridge);
@@ -114,6 +161,7 @@ describe("desktop draft recovery gate", () => {
       await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("Alex|take.webm"));
       expect(bridge.detachRetry).not.toHaveBeenCalled();
       expect(screen.getByTestId("retry-context")).toHaveTextContent("saved-parent|Finish clearly|true");
+      expect(hasFreshRetryParent(ready.draftId, "saved-parent")).toBe(false);
     } finally { lookup.mockRestore(); }
   });
 
@@ -126,7 +174,7 @@ describe("desktop draft recovery gate", () => {
     show(bridge);
     fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
     await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("Alex|take.webm"));
-    rememberFreshRetryParents(["old-parent"]);
+    rememberFreshRetryParents([{ draftId: ready.draftId, parentId: "old-parent" }]);
     const lookup = vi.spyOn(apiClient, "getHistoryDetail").mockRejectedValue(new ApiClientError(404, { code: "runtime_error", detail: "Missing" }));
     try {
       fireEvent.click(screen.getByRole("button", { name: "Reconcile retry probe" }));

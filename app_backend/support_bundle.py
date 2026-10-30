@@ -171,25 +171,56 @@ def _sanitize_for_bundle(value: Any, stats: RedactionStats) -> Any:
     return _sanitize_text(value, stats) if isinstance(value, str) else value
 
 
-def _sanitize_client_draft_fields(value: Any) -> Any:
-    """Client snapshots are untrusted; permit only aggregate draft facts."""
-    if isinstance(value, list):
-        return [_sanitize_client_draft_fields(item) for item in value]
+_CLIENT_DIAGNOSTIC_KEYS = frozenset({
+    "app_data", "app_data_location", "media_decoder", "whisper", "runtime",
+    "runtime_api_key", "runtime_local_health", "runtime_health", "microphone",
+    "maintenance_tmp", "maintenance_jobs", "maintenance_logs", "storage",
+})
+_CLIENT_SNAPSHOT_BOOLEANS = frozenset({
+    "has_active_connection", "provider_requires_auth", "has_saved_secret",
+    "credentials_missing", "secure_storage_persistent",
+})
+
+
+def _safe_client_snapshot(value: Any) -> dict[str, Any]:
+    """Only fixed-shape facts cross the untrusted client-to-ZIP boundary."""
     if not isinstance(value, dict):
-        return value
-    safe: dict[str, Any] = {}
-    for key, child in value.items():
-        name = str(key).lower()
-        if name in {"draft_count", "saved_draft_count"}:
-            if isinstance(child, int) and not isinstance(child, bool) and 0 <= child <= 3:
-                safe[key] = child
-        elif name in {"keychain_mode", "draft_keychain_mode"}:
-            if isinstance(child, str) and child in {"device-only", "local-login", "unavailable", "unknown"}:
-                safe[key] = child
-        elif any(part in name for part in ("draft", "take", "manifest", "keychain", "ciphertext", "plaintext", "media", "recording", "key_material")):
+        return {}
+    safe = {key: value[key] for key in _CLIENT_SNAPSHOT_BOOLEANS
+            if isinstance(value.get(key), bool)}
+    for key in ("draft_count", "saved_draft_count"):
+        count = value.get(key)
+        if isinstance(count, int) and not isinstance(count, bool) and 0 <= count <= 3:
+            safe[key] = count
+    for key in ("keychain_mode", "draft_keychain_mode"):
+        mode = value.get(key)
+        if mode in ("device-only", "local-login", "unavailable", "unknown"):
+            safe[key] = mode
+    if value.get("credential_state") in ("missing", "available", "unavailable", "unknown"):
+        safe["credential_state"] = value["credential_state"]
+    if value.get("route") == "settings":
+        safe["route"] = "settings"
+    if value.get("ui_locale") in ("en", "it", "de", "fr", "es"):
+        safe["ui_locale"] = value["ui_locale"]
+    if "llm_api_key" in value:
+        safe["llm_api_key"] = REDACTED_VALUE
+    return safe
+
+
+def _safe_client_diagnostics(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    safe = []
+    for item in value[:100]:
+        if not isinstance(item, dict) or not isinstance(item.get("key"), str) or item["key"] not in _CLIENT_DIAGNOSTIC_KEYS:
             continue
-        else:
-            safe[key] = _sanitize_client_draft_fields(child)
+        entry = {"key": item["key"]}
+        if item.get("status") in ("ok", "warning", "error", "info"):
+            entry["status"] = item["status"]
+        # Keep the existing redaction signal without copying arbitrary detail_args.
+        if isinstance(item.get("detail_args"), dict) and "api_key" in item["detail_args"]:
+            entry["detail_args"] = {"api_key": REDACTED_VALUE}
+        safe.append(entry)
     return safe
 
 
@@ -371,13 +402,13 @@ def create_support_bundle(
         _add_json_file_to_archive(
             archive,
             entry_name="client/client_snapshot.json",
-            payload=_sanitize_client_draft_fields(request.client_snapshot),
+            payload=_safe_client_snapshot(request.client_snapshot),
             stats=stats,
         )
         _add_json_file_to_archive(
             archive,
             entry_name="client/client_diagnostics.json",
-            payload=_sanitize_client_draft_fields(request.client_diagnostics),
+            payload=_safe_client_diagnostics(request.client_diagnostics),
             stats=stats,
         )
         _add_json_file_to_archive(archive, entry_name="storage_summary.json", payload=build_storage_summary(runtime_config).model_dump(), stats=stats)

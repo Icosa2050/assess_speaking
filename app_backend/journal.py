@@ -592,7 +592,7 @@ class Journal:
                 trash = read_json(self.directory / 'trash.json', {})
                 for entry in manifest['attempts']:
                     payload = rebind(entry['report'], media)
-                    payload['restored_from'] = {'archive_sha256': state['restored_from'], 'source_report_sha256': entry['source_report_sha256'], 'sanitized_report_sha256': entry['report_sha256'], 'jobs_resumable': False}
+                    payload['restored_from'] = {'archive_sha256': state['restored_from'], 'source_report_sha256': entry['source_report_sha256'], 'sanitized_report_sha256': entry['report_sha256'], 'jobs_resumable': False, 'restored_at_ms': int(time.time() * 1000)}
                     path = reports / f"{entry['session_id']}.json"
                     payload['report_path'] = str(path)
                     private_json(path, payload)

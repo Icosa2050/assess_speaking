@@ -1,31 +1,35 @@
-// Restore IDs are kept in this browser profile so a recovered local take cannot
-// silently become a retry of an unrelated imported attempt after a restart.
-const KEY = "vostavo.restored-retry-parents.v1";
-const FRESH_KEY = "vostavo.fresh-retry-parents.v1";
+// Mark the exact saved draft affected by a journal operation. Backend report
+// provenance remains authoritative if WebView storage is later cleared.
+const KEY = "vostavo.restored-retry-parents.v2";
+const FRESH_KEY = "vostavo.fresh-retry-parents.v2";
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
+export type RetryParentRef = { draftId: string; parentId: string };
 
-export function restoredRetryParents(): Set<string> {
+const read = (key: string): RetryParentRef[] => {
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(KEY) || "[]");
-    return new Set(Array.isArray(value) ? value.filter((id): id is string => typeof id === "string" && ID.test(id)).slice(-10000) : []);
-  } catch { return new Set(); }
-}
-
-export function rememberRestoredRetryParents(ids: string[]): void {
-  if (!ids.length) return;
-  const merged = new Set([...restoredRetryParents(), ...ids.filter(id => ID.test(id))]);
-  // Fail closed when the browser cannot persist the collision guard.
-  localStorage.setItem(KEY, JSON.stringify([...merged].slice(-10000)));
-}
-
-export function freshRetryParents(): Set<string> {
+    const value: unknown = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(value) ? value.filter((item): item is RetryParentRef =>
+      !!item && typeof item === "object" && ID.test(item.draftId) && ID.test(item.parentId)).slice(-100) : [];
+  } catch { return []; }
+};
+const write = (key: string, entries: RetryParentRef[]) => {
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(FRESH_KEY) || "[]");
-    return new Set(Array.isArray(value) ? value.filter((id): id is string => typeof id === "string" && ID.test(id)).slice(-3) : []);
-  } catch { return new Set(); }
-}
+    if (entries.length) localStorage.setItem(key, JSON.stringify(entries.slice(-100)));
+    else localStorage.removeItem(key);
+  } catch { /* The backend restore timestamp still protects native drafts. */ }
+};
+const remember = (key: string, entries: RetryParentRef[]) => {
+  const merged = new Map(read(key).map(entry => [entry.draftId, entry]));
+  for (const entry of entries) if (ID.test(entry.draftId) && ID.test(entry.parentId)) merged.set(entry.draftId, entry);
+  write(key, [...merged.values()]);
+};
+const has = (key: string, draftId: string, parentId: string) =>
+  read(key).some(entry => entry.draftId === draftId && entry.parentId === parentId);
 
-export function rememberFreshRetryParents(ids: string[]): void {
-  const merged = new Set([...freshRetryParents(), ...ids.filter(id => ID.test(id))]);
-  if (merged.size) localStorage.setItem(FRESH_KEY, JSON.stringify([...merged].slice(-3)));
-}
+export const hasRestoredRetryParent = (draftId: string, parentId: string) => has(KEY, draftId, parentId);
+export const hasFreshRetryParent = (draftId: string, parentId: string) => has(FRESH_KEY, draftId, parentId);
+export const rememberRestoredRetryParents = (entries: RetryParentRef[]) => remember(KEY, entries);
+export const rememberFreshRetryParents = (entries: RetryParentRef[]) => remember(FRESH_KEY, entries);
+export const forgetRestoredRetryMarker = (draftId: string) => write(KEY, read(KEY).filter(entry => entry.draftId !== draftId));
+export const forgetFreshRetryMarker = (draftId: string) => write(FRESH_KEY, read(FRESH_KEY).filter(entry => entry.draftId !== draftId));
+export const forgetRetryMarkers = (draftId: string) => { forgetRestoredRetryMarker(draftId); forgetFreshRetryMarker(draftId); };

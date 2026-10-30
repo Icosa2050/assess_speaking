@@ -203,11 +203,14 @@ fn choose_keychain_create(
 }
 impl MacKeychain {
     fn production() -> Self {
+        #[cfg(feature = "internal-dmg-acceptance")]
         let service = std::env::var("VOSTAVO_INTERNAL_DMG_KEY_SERVICE").ok()
             .filter(|value| std::env::var("VOSTAVO_INTERNAL_DMG_ACCEPTANCE").ok().as_deref() == Some("1")
                 && value.strip_prefix("com.vostavo.desktop.drafts.acceptance.")
                     .is_some_and(|id| id.len() == 32 && id.chars().all(|character| character.is_ascii_hexdigit())))
             .unwrap_or_else(|| KEY_SERVICE.into());
+        #[cfg(not(feature = "internal-dmg-acceptance"))]
+        let service = KEY_SERVICE.into();
         Self {
             service,
             mode: Mutex::new(None),
@@ -1665,6 +1668,7 @@ pub fn initialize_store(state: &DraftState) {
 
 // Bounded, opt-in internal-DMG acceptance. The installed shell executes the
 // real encrypted store and macOS Keychain against an isolated app-data root.
+#[cfg(feature = "internal-dmg-acceptance")]
 pub fn internal_delivery_check(phase: &str) -> StoreResult<serde_json::Value> {
     if std::env::var("VOSTAVO_INTERNAL_DMG_ACCEPTANCE").ok().as_deref() != Some("1") {
         return Err(err("Internal draft acceptance is disabled"));
@@ -1674,6 +1678,22 @@ pub fn internal_delivery_check(phase: &str) -> StoreResult<serde_json::Value> {
         .and_then(|value| value.strip_prefix("com.vostavo.desktop.drafts.acceptance.").map(str::to_owned))
         .is_none_or(|id| id.len() != 32 || !id.chars().all(|character| character.is_ascii_hexdigit())) {
         return Err(err("Isolated acceptance Keychain service is required"));
+    }
+    #[cfg(target_os = "macos")]
+    if phase == "purge-key" {
+        use security_framework::passwords::{delete_generic_password_options, PasswordOptions};
+        let keychain = MacKeychain::production();
+        for protected in [false, true] {
+            let mut options = PasswordOptions::new_generic_password(&keychain.service, KEY_ACCOUNT);
+            options.set_access_synchronized(Some(false));
+            if protected { options.use_protected_keychain(); }
+            if let Err(error) = delete_generic_password_options(options) {
+                if ![-25300, MISSING_ENTITLEMENT].contains(&error.code()) {
+                    return Err(err("Acceptance Keychain item could not be purged"));
+                }
+            }
+        }
+        return Ok(serde_json::json!({ "phase": phase, "key_purged": true }));
     }
     let root = PathBuf::from(root);
     let mut store = DraftStore::new(&root)?;
@@ -1732,16 +1752,6 @@ pub fn internal_delivery_check(phase: &str) -> StoreResult<serde_json::Value> {
     if key.is_none() { return Err(err("Acceptance Keychain item missing")); }
     let mode = keychain.mode().ok_or_else(|| err("Keychain mode unavailable"))?.label();
     let result = serde_json::json!({ "phase": phase, "draft_count": store.list_with_issues()?.drafts.len(), "keychain_mode": mode });
-    #[cfg(target_os = "macos")]
-    if phase == "cleanup" {
-        use security_framework::passwords::{delete_generic_password_options, PasswordOptions};
-        for protected in [false, true] {
-            let mut options = PasswordOptions::new_generic_password(&keychain.service, KEY_ACCOUNT);
-            options.set_access_synchronized(Some(false));
-            if protected { options.use_protected_keychain(); }
-            let _ = delete_generic_password_options(options);
-        }
-    }
     Ok(result)
 }
 fn main_window_only(label: &str) -> StoreResult<()> {

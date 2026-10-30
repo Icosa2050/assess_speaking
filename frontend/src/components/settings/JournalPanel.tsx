@@ -1,4 +1,4 @@
-import { apiClient } from "@/lib/api/client";
+import { apiClient, ApiClientError } from "@/lib/api/client";
 import type { SupportBundleCreateResponse } from "@/lib/api/types";
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
@@ -14,6 +14,8 @@ import { Card, Disclosure } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { StatusBanner } from "@/components/ui/StatusBanner";
 import { useDraftRecovery } from "@/lib/state/DraftRecoveryProvider";
+import { useAppStoreApi } from "@/lib/state/appStore";
+import { detachRetryBrief, readRetryDraft } from "@/lib/state/retryBriefStorage";
 import { rememberFreshRetryParents, rememberRestoredRetryParents } from "@/lib/rehearsal/draftConflicts";
 
 import styles from "./JournalPanel.module.css";
@@ -22,6 +24,7 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
   const t = createTranslator(locale);
   const location = useLocation();
   const recovery = useDraftRecovery();
+  const appStore = useAppStoreApi();
   const cache = useQueryClient();
   const controller = useRef<AbortController | null>(null);
   const freshDialog = useRef<HTMLDialogElement>(null);
@@ -99,6 +102,22 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
   const importedIds = new Set(preview?.restored_attempt_ids ?? []);
   const draftCollisions = recovery.drafts.filter(entry => entry.setup.retryOfSessionId && importedIds.has(entry.setup.retryOfSessionId));
   const missingAttemptInventory = Boolean(preview?.attempts && !preview.restored_attempt_ids && recovery.drafts.some(entry => entry.setup.retryOfSessionId));
+  const reconcileBrowserRetryBrief = async () => {
+    if (recovery.supported) return;
+    const brief = readRetryDraft();
+    if (!brief?.retryOfSessionId) return;
+    let unavailable = false;
+    try { await apiClient.getHistoryDetail(brief.retryOfSessionId); return; }
+    catch (cause) {
+      if (!(cause instanceof ApiClientError && cause.responseStatus === 404)) unavailable = true;
+    }
+    const detached = detachRetryBrief(brief);
+    if (appStore.getState().draft.sessionId === brief.sessionId) {
+      appStore.getState().updateDraft({ retryOfSessionId: "", retryGoalEligible: false });
+    }
+    if (unavailable) throw new Error(t("draft.history_error"));
+    return detached;
+  };
   useEffect(() => {
     if (focusedFragment.current === location.key) return;
     const target = ({ "#your-data": "your-data-title", "#journal-diagnostics": "journal-diagnostics", "#journal-restore": "journal-restore-action", "#journal-fresh": "journal-fresh" } as Record<string, string>)[location.hash];
@@ -159,8 +178,9 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
       {!!(preview.skipped_attempts.length + preview.skipped_rehearsals.length) && <p>{t("journal.skipped", { count: preview.skipped_attempts.length + preview.skipped_rehearsals.length })}</p>}
       {!!preview.missing.length && <p>{t("journal.missing", { count: preview.missing.length })}</p>}
       <Button variant="primary" disabled={busy || missingAttemptInventory || (!!draftCollisions.length && !confirmDraftCollision)} onClick={() => { let restoreSucceeded = false; void run(async signal => {
-        rememberRestoredRetryParents(draftCollisions.map(entry => entry.setup.retryOfSessionId));
-        try { await commitLearnerRestore(preview, signal, progress, () => setCommitting(true)); restoreSucceeded = true; }
+        try { await commitLearnerRestore(preview, signal, progress, () => setCommitting(true)); restoreSucceeded = true;
+          rememberRestoredRetryParents(draftCollisions.map(entry => ({ draftId: entry.draftId, parentId: entry.setup.retryOfSessionId })));
+        }
         finally { setPreview(null); setConfirmDraftCollision(false); setRestoreName(""); if (!restoreSucceeded) await refresh(); }
         await recovery.reconcileActiveRetryParent();
         setStatus(null); setMessage(t("journal.restored")); await refresh();
@@ -190,9 +210,10 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
           let browserTransaction: string | undefined;
           let resetSucceeded = false;
           void run(async () => {
-            rememberFreshRetryParents(recovery.drafts.map(entry => entry.setup.retryOfSessionId));
+            rememberFreshRetryParents(recovery.drafts.filter(entry => entry.setup.retryOfSessionId).map(entry => ({ draftId: entry.draftId, parentId: entry.setup.retryOfSessionId })));
             await startFreshJournal(requestId, id => { browserTransaction = id; }); resetSucceeded = true; setConfirmFresh(false); setStatus(null); setRestoreName("");
             await recovery.reconcileActiveRetryParent();
+            await reconcileBrowserRetryBrief();
             await refresh(); setMessage(t("journal.fresh_done"));
           }, async (detail, cause) => {
             if (resetSucceeded) { setError(t("your_data.fresh_refresh_failed", { detail })); return; }
@@ -225,7 +246,7 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
             if (result.pendingRecovery) { setStatus(result.status); setError(t("your_data.fresh_followup_pending")); return; }
             setStatus(null);
             if (result.cleanupError) { setError(t("your_data.fresh_refresh_failed", { detail: result.cleanupError })); return; }
-            try { await recovery.reconcileActiveRetryParent(); await refresh(); setMessage(t("journal.fresh_done")); }
+            try { await recovery.reconcileActiveRetryParent(); await reconcileBrowserRetryBrief(); await refresh(); setMessage(t("journal.fresh_done")); }
             catch (cause) { setError(t("your_data.fresh_refresh_failed", { detail: cause instanceof Error ? cause.message : String(cause) })); }
           }); }}>{t("journal.confirm_fresh")}</Button>
       </div>

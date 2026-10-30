@@ -1347,6 +1347,7 @@
     "discard_legacy": "Elimina il vecchio obiettivo",
     "keychain_error": "Il Portachiavi Mac non è disponibile. Il salvataggio locale è disattivato; tieni aperta questa finestra e riprova.",
     "storage_error": "Impossibile usare l’archivio locale. Tieni aperta questa finestra o riprova.",
+    "history_error": "Impossibile verificare il tentativo precedente nella cronologia. La registrazione salvata è al sicuro; riprova quando il registro locale è disponibile.",
     "continue_without_resume": "Continua senza riprendere",
     "saved_on_mac": "Salvato su questo Mac per un massimo di sette giorni. Può restare qui dopo Invia alla revisione fino al completamento della valutazione; puoi eliminarlo prima in Gestisci bozze salvate. Nulla viene caricato finché non scegli Invia alla revisione.",
     "save_progress": "Salvataggio della registrazione: {percent}%.",

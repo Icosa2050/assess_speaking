@@ -17,7 +17,7 @@ const MIME_ALIASES: Record<string, string> = {
 const safeTakeName = (name: string) => Boolean(name && new TextEncoder().encode(name).length <= 256 && !/[\\/\\\\\x00-\x1f\x7f]/.test(name));
 const takeMime = (file: File): string => MIME_ALIASES[file.type] || file.type || MIME_BY_EXTENSION[file.name.split(".").pop()?.toLowerCase() || ""] || "";
 
-export type DraftStoreFailure = "unsupported" | "keychain" | "lost_key" | "storage" | "conflict" | "unreadable" | "uncertain" | "limit" | "format";
+export type DraftStoreFailure = "unsupported" | "keychain" | "lost_key" | "storage" | "conflict" | "unreadable" | "uncertain" | "limit" | "format" | "history";
 
 export class DraftStoreError extends Error {
   constructor(readonly kind: DraftStoreFailure, message: string) {

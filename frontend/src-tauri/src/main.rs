@@ -81,6 +81,7 @@ fn bridge(runtime: &desktop::Runtime) -> String {
 }
 
 fn main() {
+    #[cfg(feature = "internal-dmg-acceptance")]
     if let Some(phase) = std::env::args().find_map(|arg| arg.strip_prefix("--internal-draft-delivery=").map(str::to_owned)) {
         match draft_store::internal_delivery_check(&phase) {
             Ok(result) => { println!("{result}"); return; }

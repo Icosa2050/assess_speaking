@@ -1281,7 +1281,7 @@ class BackendApiTests(unittest.TestCase):
 
                 manifest = json.loads(archive.read("manifest.json"))
                 self.assertEqual(manifest["redaction"]["secret_ref_policy"], "full_redaction")
-                self.assertGreaterEqual(manifest["redaction"]["removed_secret_refs"], 3)
+                self.assertGreaterEqual(manifest["redaction"]["removed_secret_refs"], 1)
                 self.assertGreaterEqual(manifest["redaction"]["redacted_secret_values"], 3)
 
                 runtime_metadata = json.loads(archive.read("runtime_metadata.json"))

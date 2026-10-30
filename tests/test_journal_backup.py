@@ -73,6 +73,7 @@ def test_cross_root_roundtrip_deduplicates_audio_and_preserves_eligibility(tmp_p
     assert Path(payloads[0]['meta']['audio_path']).read_bytes() == b'synthetic waveform'
     assert payloads[0]['eligibility']['status'] == 'unverified'
     assert payloads[0]['restored_from']['jobs_resumable'] is False
+    assert isinstance(payloads[0]['restored_from']['restored_at_ms'], int)
     assert not list(second.config.jobs_dir.iterdir())
 
 

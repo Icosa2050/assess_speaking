@@ -1,8 +1,21 @@
 import ast
 from pathlib import Path
 from unittest.mock import patch
+import pytest
 
 from scripts import build_macos
+
+
+def test_internal_acceptance_command_is_required_only_in_internal_binary(tmp_path: Path) -> None:
+    binary = tmp_path / 'vostavo-desktop'
+    binary.write_bytes(b'ordinary release shell')
+    build_macos.assert_delivery_feature(binary, release=True)
+    with pytest.raises(RuntimeError):
+        build_macos.assert_delivery_feature(binary, release=False)
+    binary.write_bytes(b'ordinary shell VOSTAVO_INTERNAL_DMG_ACCEPTANCE')
+    build_macos.assert_delivery_feature(binary, release=False)
+    with pytest.raises(RuntimeError):
+        build_macos.assert_delivery_feature(binary, release=True)
 
 
 def test_native_audit_preserves_mac_os_14_floor(tmp_path: Path) -> None:

@@ -111,6 +111,7 @@ class SupportBundleTests(unittest.TestCase):
                         "llm_api_key": "client-secret",
                         "secret_ref": "connection:primary",
                         "draft_manifest": "draft-manifest-sentinel",
+                        "value": {"nested": ["unsent-media-sentinel", "content-key-sentinel"]},
                         "draft_count": 1,
                         "keychain_mode": "local-login",
                     },
@@ -119,6 +120,7 @@ class SupportBundleTests(unittest.TestCase):
                             "key": "runtime",
                             "detail_args": {
                                 "nested": [{"password": "diag-secret"}],
+                                "value": ["unsent-media-sentinel", {"manifest": "draft-manifest-sentinel", "key": "content-key-sentinel"}],
                                 "secret_ref": "connection:primary",
                             },
                         }
@@ -157,14 +159,10 @@ class SupportBundleTests(unittest.TestCase):
                 self.assertNotIn("draft_manifest", client_snapshot)
                 self.assertFalse(any(name.startswith('drafts/') for name in names))
                 self.assertTrue(all(token not in archive.read(name) for name in names
-                                    for token in (b'draft-manifest-sentinel', b'unsent-media-sentinel')))
+                                    for token in (b'draft-manifest-sentinel', b'unsent-media-sentinel', b'content-key-sentinel')))
 
                 client_diagnostics = json.loads(archive.read("client/client_diagnostics.json"))
-                self.assertEqual(
-                    client_diagnostics[0]["detail_args"]["nested"][0]["password"],
-                    REDACTED_VALUE,
-                )
-                self.assertNotIn("secret_ref", client_diagnostics[0]["detail_args"])
+                self.assertEqual(client_diagnostics, [{"key": "runtime"}])
 
                 report_payload = json.loads(archive.read(report_name))
                 self.assertEqual(report_payload["api_token"], REDACTED_VALUE)
@@ -184,7 +182,7 @@ class SupportBundleTests(unittest.TestCase):
                 self.assertTrue(manifest["include_recordings"])
                 self.assertTrue(manifest["include_uploads"])
                 self.assertEqual(manifest["redaction"]["secret_ref_policy"], "full_redaction")
-                self.assertGreaterEqual(manifest["redaction"]["removed_secret_refs"], 4)
+                self.assertGreaterEqual(manifest["redaction"]["removed_secret_refs"], 3)
                 self.assertGreaterEqual(manifest["redaction"]["redacted_secret_values"], 5)
 
     def test_create_support_bundle_skips_unreadable_text_file(self):

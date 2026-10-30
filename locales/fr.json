@@ -1347,6 +1347,7 @@
     "discard_legacy": "Supprimer l’ancien objectif",
     "keychain_error": "Le trousseau Mac est indisponible. L’enregistrement local est désactivé ; gardez cette fenêtre ouverte et réessayez.",
     "storage_error": "Le stockage local est indisponible. Gardez cette fenêtre ouverte ou réessayez.",
+    "history_error": "Impossible de vérifier l'essai précédent dans l'historique. Votre prise enregistrée est en sécurité ; réessayez quand le journal local est disponible.",
     "continue_without_resume": "Continuer sans reprendre",
     "saved_on_mac": "Enregistré sur ce Mac pendant sept jours au maximum. Elle peut rester ici après Envoyer pour obtenir le bilan jusqu’à la fin du bilan ; supprimez-la plus tôt dans Gérer les brouillons enregistrés. Rien n’est envoyé avant votre choix Envoyer pour obtenir le bilan.",
     "save_progress": "Enregistrement de la prise : {percent} %.",

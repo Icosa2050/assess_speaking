@@ -29,6 +29,7 @@ vi.mock("@/lib/api/client", () => ({
     cancelAssessment: vi.fn(),
     createAssessment: vi.fn(),
     getAssessmentStatus: vi.fn(),
+    getHistoryDetail: vi.fn().mockResolvedValue({ payload: {} }),
     getRuntime: vi.fn(),
     getDiagnostics: vi.fn(),
     getReadiness: vi.fn().mockResolvedValue({ ready: true, checks: [

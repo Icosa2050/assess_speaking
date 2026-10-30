@@ -10,7 +10,10 @@ import { JournalRecoveryNotice } from "@/components/shell/JournalRecoveryNotice"
 import controlStyles from "@/components/ui/controls.module.css";
 import { JournalPanel } from "./JournalPanel";
 import { draftAdapterFixture, savedDraftFixture } from "@/test/draftAdapterFixture";
-import { restoredRetryParents } from "@/lib/rehearsal/draftConflicts";
+import { hasRestoredRetryParent } from "@/lib/rehearsal/draftConflicts";
+import { persistRetryDraft, readRetryDraft } from "@/lib/state/retryBriefStorage";
+import { buildSessionDraft } from "@/lib/state/sessionDraft";
+import { apiClient, ApiClientError } from "@/lib/api/client";
 
 vi.mock("@/lib/rehearsal/maintenance", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/rehearsal/maintenance")>(),
@@ -59,8 +62,45 @@ describe("journal recovery visibility", () => {
     expect(commit).toBeEnabled();
     fireEvent.click(commit);
     await waitFor(() => expect(commitLearnerRestore).toHaveBeenCalledOnce());
-    expect(restoredRetryParents().has("imported-parent")).toBe(true);
+    expect(hasRestoredRetryParent(entry.draftId, "imported-parent")).toBe(true);
     expect(adapter.discard).not.toHaveBeenCalled();
+  });
+
+  it("does not mark a retry for detachment when restore fails and rolls back", async () => {
+    const entry = savedDraftFixture();
+    entry.setup = { ...entry.setup, retryOfSessionId: "original-parent", retryGoalEligible: true };
+    vi.mocked(previewLearnerRestore).mockResolvedValue({ id: "restore", attempts: 1,
+      restored_attempt_ids: ["original-parent"], skipped_attempts: [], skipped_rehearsals: [], missing: [],
+      browser: { sessions: [], recordings: [] } });
+    vi.mocked(commitLearnerRestore).mockRejectedValueOnce(new Error("Restore rolled back"));
+    const adapter = draftAdapterFixture([entry]);
+    renderWithProviders(<JournalPanel locale="en" />, { draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Continue without resuming" }));
+    fireEvent.change(await screen.findByLabelText(t("journal.open")), { target: { files: [new File(["zip"], "backup.zip")] } });
+    fireEvent.click(await screen.findByLabelText(t("journal.confirm_draft_conflict")));
+    fireEvent.click(screen.getByRole("button", { name: t("journal.confirm_restore") }));
+    await waitFor(() => expect(commitLearnerRestore).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByText("Restore rolled back")).toBeVisible());
+    expect(hasRestoredRetryParent(entry.draftId, "original-parent")).toBe(false);
+    expect(adapter.detachRetry).not.toHaveBeenCalled();
+    expect(adapter.discard).not.toHaveBeenCalled();
+  });
+
+  it("checks a browser-only retry brief after Start fresh and keeps its goal if the parent is gone", async () => {
+    status.mockResolvedValue(damaged);
+    vi.mocked(startFreshJournal).mockResolvedValue(undefined);
+    const brief = buildSessionDraft({ speakerId: "Alex", themeId: "trip", themeLabel: "Trip",
+      promptText: "Describe a trip", retryOfSessionId: "old-parent", coachingGoal: "Finish clearly", retryGoalEligible: true });
+    const lookup = vi.spyOn(apiClient, "getHistoryDetail").mockRejectedValue(new ApiClientError(404, { code: "runtime_error", detail: "Gone" }));
+    try {
+      const { store } = renderWithProviders(<JournalPanel locale="en" />, { appState: { draft: brief } });
+      persistRetryDraft(brief);
+      fireEvent.click(await screen.findByRole("button", { name: t("journal.fresh") }));
+      fireEvent.click(screen.getByRole("button", { name: t("journal.confirm_fresh") }));
+      await waitFor(() => expect(lookup).toHaveBeenCalledWith("old-parent"));
+      expect(readRetryDraft()).toMatchObject({ coachingGoal: "Finish clearly", retryOfSessionId: "", retryGoalEligible: false });
+      expect(store.getState().draft).toMatchObject({ coachingGoal: "Finish clearly", retryOfSessionId: "", retryGoalEligible: false });
+    } finally { lookup.mockRestore(); }
   });
 
   it("blocks restore when an older helper omits attempt identities for local retry drafts", async () => {
