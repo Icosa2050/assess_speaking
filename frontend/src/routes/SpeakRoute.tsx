@@ -730,11 +730,11 @@ export const SpeakRoute = () => {
         const upload = await apiClient.uploadAudio(attachedFile, { signal: controller.signal,
           requestId: uploadIdentity.current.requestId,
           onProgress: (percent) => { setUploadProgress(percent); setUploadUpdatedAt(Date.now()); } });
-        savedUpload.current = { file: attachedFile, audioId: upload.audio_id };
         if (draftRecovery.supported && receipt) {
           receipt = { ...receipt, audioId: upload.audio_id, lastConfirmedPhase: "upload" };
           await commitReceipt("uploaded", receipt);
         }
+        savedUpload.current = { file: attachedFile, audioId: upload.audio_id };
         uploadAttempted = false;
         setUploadUnconfirmed(false);
         uploadController.current = null;
@@ -827,6 +827,33 @@ export const SpeakRoute = () => {
         setUploadUnconfirmed(true);
       }
       if (error instanceof ApiClientError && error.code === "sharing_changed") {
+        if (assessmentRequestAttempted && draftRecovery.supported && receipt) {
+          try {
+            await apiClient.getAssessmentByRequest(receipt.assessmentRequestId, {
+              audioId: receipt.audioId, speakerId: receiptDraft?.setup.speakerId || draft.speakerId,
+              sharingFingerprint: receipt.requestFingerprint,
+            });
+            setRetryResponseUnknown(true);
+            setRetryError(translate("speak.job_status_unknown"));
+            return;
+          } catch (lookupError) {
+            if (!isAbsentRequest(lookupError)) {
+              setRetryResponseUnknown(true);
+              setRetryError(lookupError instanceof Error ? lookupError.message : translate("speak.job_status_unknown"));
+              return;
+            }
+          }
+          try {
+            const rejected = { ...receipt, assessmentRequestId: "", assessmentId: "",
+              requestFingerprint: "", frozenRequestBody: "", lastConfirmedPhase: "upload" as const };
+            await commitReceipt("uploaded", rejected);
+            receipt = rejected;
+            submission.current = null;
+          } catch (receiptError) {
+            setRecordingError(receiptError instanceof Error ? receiptError.message : String(receiptError));
+            return;
+          }
+        }
         await Promise.all([runtimeQuery.refetch(), runtimeSettingsQuery.refetch(), sharingQuery.refetch()]);
       }
       if (error instanceof ApiClientError && error.responseStatus === 409 && recording.job.assessmentId &&

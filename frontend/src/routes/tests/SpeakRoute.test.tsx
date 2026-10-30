@@ -17,9 +17,10 @@ vi.mock("@/lib/api/client", () => ({
     detail: string;
     responseStatus = 500;
 
-    constructor(responseStatus: number, error: { detail: string }) {
+    constructor(responseStatus: number, error: { detail: string; code?: string }) {
       super(error.detail);
       this.detail = error.detail;
+      this.code = error.code || "runtime_error";
       this.responseStatus = responseStatus;
     }
   },
@@ -867,6 +868,103 @@ describe("Speak route", () => {
     await waitFor(() => expect(adapter.markSubmission).toHaveBeenCalledWith(expect.anything(), "assessment_uncertain", expect.anything()));
     expect(mockedUploadAudio).toHaveBeenCalledOnce();
     expect(mockedCreateAssessment).not.toHaveBeenCalled();
+  });
+
+  it("reconciles an uploaded file after its receipt write fails once", async () => {
+    const adapter = draftAdapterFixture([savedDraftFixture()]);
+    let failUploaded = true;
+    adapter.markSubmission.mockImplementation(async (draft, status, submission) => {
+      if (status === "uploaded" && failUploaded) {
+        failUploaded = false;
+        throw new Error("disk unavailable");
+      }
+      if (status === "assessment_uncertain" && draft.status !== "uploaded") {
+        throw new Error("Invalid submission transition");
+      }
+      if (status === "assessment_uncertain" && !submission.audioId) {
+        throw new Error("Incomplete submission receipt");
+      }
+      return { ...draft, status, submission, revision: draft.revision + 1 };
+    });
+    vi.mocked(apiClient.getUploadByRequest).mockResolvedValueOnce({ audio_id: "audio-1" });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(adapter.markSubmission).toHaveBeenCalledWith(expect.anything(), "uploaded", expect.anything()));
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    expect(mockedUploadAudio).toHaveBeenCalledOnce();
+    expect(mockedCreateAssessment).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledOnce());
+    expect(mockedUploadAudio).toHaveBeenCalledOnce();
+    expect(apiClient.getUploadByRequest).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ sha256: expect.any(String) }));
+    const uploaded = adapter.markSubmission.mock.calls.filter(([, status]) => status === "uploaded");
+    expect(uploaded).toHaveLength(2);
+    expect(uploaded[1][2]).toMatchObject({ uploadRequestId: uploaded[0][2].uploadRequestId, audioId: "audio-1" });
+  });
+
+  it("keeps the take and uses a new ID after a confirmed sharing-route rejection", async () => {
+    const adapter = draftAdapterFixture([savedDraftFixture()]);
+    const firstFingerprint = "a".repeat(64);
+    const nextFingerprint = "b".repeat(64);
+    let routeFingerprint = firstFingerprint;
+    vi.mocked(apiClient.getSharingRoute).mockImplementation(async () => ({ version: 1, available: true,
+      fingerprint: routeFingerprint, audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" },
+      analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }));
+    mockedCreateAssessment.mockImplementationOnce(async () => {
+      routeFingerprint = nextFingerprint;
+      throw new ApiClientError(409, { code: "sharing_changed", detail: "Sharing route changed" });
+    });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(adapter.markSubmission).toHaveBeenCalledWith(expect.anything(), "uploaded",
+      expect.objectContaining({ assessmentRequestId: "", requestFingerprint: "", audioId: "audio-1" })));
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    expect(mockedCreateAssessment).toHaveBeenCalledOnce();
+    expect(mockedUploadAudio).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(2));
+    expect(mockedCreateAssessment.mock.calls[1][0]).toMatchObject({ sharing_fingerprint: nextFingerprint, audio_id: "audio-1" });
+    expect(mockedCreateAssessment.mock.calls[1][0].request_id).not.toBe(mockedCreateAssessment.mock.calls[0][0].request_id);
+    expect(mockedUploadAudio).toHaveBeenCalledOnce();
+  });
+
+  it("submits a persisted route-rejected take after restart without reuploading", async () => {
+    const saved = savedDraftFixture();
+    saved.status = "uploaded";
+    saved.submission = { uploadRequestId: "upload-one", audioId: "audio-1", assessmentRequestId: "", assessmentId: "",
+      requestFingerprint: "", frozenRequestBody: "", lastConfirmedPhase: "upload" };
+    const adapter = draftAdapterFixture([saved]);
+    vi.mocked(apiClient.getSharingRoute).mockResolvedValue({ version: 1, available: true, fingerprint: "b".repeat(64),
+      audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" },
+      analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    expect(mockedCreateAssessment).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledOnce());
+    expect(mockedCreateAssessment.mock.calls[0][0]).toMatchObject({ audio_id: "audio-1", sharing_fingerprint: "b".repeat(64) });
+    expect(mockedUploadAudio).not.toHaveBeenCalled();
+  });
+
+  it("retains an uncertain assessment identity if a sharing conflict lookup finds a job", async () => {
+    const adapter = draftAdapterFixture([savedDraftFixture()]);
+    mockedCreateAssessment.mockRejectedValueOnce(new ApiClientError(409, { code: "sharing_changed", detail: "Request ID conflict" }));
+    vi.mocked(apiClient.getAssessmentByRequest).mockResolvedValueOnce({ assessment_id: "asmt-existing", status: "queued", report_id: null });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(apiClient.getAssessmentByRequest).toHaveBeenCalledOnce());
+    expect(adapter.markSubmission.mock.calls.filter(([, status]) => status === "uploaded")).toHaveLength(1);
+    expect(adapter.markSubmission.mock.calls.find(([, status]) => status === "assessment_uncertain")?.[2].assessmentRequestId).toBe(
+      mockedCreateAssessment.mock.calls[0][0].request_id,
+    );
+    expect(mockedCreateAssessment).toHaveBeenCalledOnce();
   });
 
   it("does not write a receipt or POST after the submitting draft is left mid-upload check", async () => {

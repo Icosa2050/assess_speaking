@@ -1434,7 +1434,7 @@ impl DraftStore {
             "upload_uncertain" => matches!(status.as_str(), "upload_uncertain" | "uploaded"),
             "uploaded" => status == "assessment_uncertain",
             "assessment_uncertain" => {
-                matches!(status.as_str(), "assessment_uncertain" | "assessing")
+                matches!(status.as_str(), "assessment_uncertain" | "assessing" | "uploaded")
             }
             "assessing" => matches!(status.as_str(), "assessment_uncertain" | "assessing"),
             _ => false,
@@ -1443,6 +1443,21 @@ impl DraftStore {
             return Err(err("Invalid submission transition"));
         }
         if let Some(previous) = &manifest.submission {
+            // The API definitively rejected this request before creating a job.
+            // Keep the uploaded audio, but allow the next explicit Submit to use
+            // the newly confirmed sharing route and a fresh request identity.
+            let rejected_route = manifest.status == "assessment_uncertain"
+                && status == "uploaded"
+                && previous.assessment_id.is_empty()
+                && previous.last_confirmed_phase == "upload"
+                && submission.assessment_request_id.is_empty()
+                && submission.assessment_id.is_empty()
+                && submission.request_fingerprint.is_empty()
+                && submission.frozen_request_body.is_empty()
+                && submission.last_confirmed_phase == "upload";
+            if manifest.status == "assessment_uncertain" && status == "uploaded" && !rejected_route {
+                return Err(err("Invalid submission transition"));
+            }
             let resetting = matches!(previous.last_confirmed_phase.as_str(), "failed" | "cancelled")
                 && status == "assessment_uncertain"
                 && submission.assessment_id.is_empty()
@@ -1456,7 +1471,7 @@ impl DraftStore {
                     return Err(err("Submission receipt identity cannot change"));
                 }
             }
-            if !resetting {
+            if !resetting && !rejected_route {
                 for (old, new) in [
                     (&previous.assessment_request_id, &submission.assessment_request_id),
                     (&previous.assessment_id, &submission.assessment_id),
@@ -2914,6 +2929,53 @@ mod tests {
         let mut restarted = store(&root);
         assert_eq!(restarted.list().unwrap()[0].submission.as_ref().unwrap().assessment_request_id, "assessment-two");
         assert_eq!(restarted.list().unwrap()[0].revision, retry.revision);
+    }
+    #[test]
+    fn confirmed_route_rejection_releases_only_the_unaccepted_assessment_identity() {
+        let root = TestRoot::new();
+        let mut first_store = store(&root);
+        let draft = first_store.save_setup(setup("Alex"), None, None).unwrap();
+        let bytes = b"saved take";
+        let transfer = first_store.begin_take(draft.draft_id.clone(), draft.revision, take(bytes)).unwrap();
+        first_store.write_take_chunk(&transfer, bytes.to_vec()).unwrap();
+        let ready = first_store.finish_take(&transfer).unwrap();
+        let mut receipt = Submission {
+            upload_request_id: "upload-one".into(), audio_id: String::new(), assessment_request_id: String::new(),
+            assessment_id: String::new(), request_fingerprint: String::new(), frozen_request_body: String::new(),
+            last_confirmed_phase: "none".into(),
+        };
+        let uncertain_upload = first_store.mark_submission(&ready.draft_id, ready.revision, "upload_uncertain".into(), receipt.clone()).unwrap();
+        receipt.audio_id = "aud_one".into();
+        receipt.last_confirmed_phase = "upload".into();
+        let uploaded = first_store.mark_submission(&ready.draft_id, uncertain_upload.revision, "uploaded".into(), receipt.clone()).unwrap();
+        receipt.assessment_request_id = "first-request".into();
+        receipt.request_fingerprint = "old-route".into();
+        receipt.frozen_request_body = r#"{"audio_id":"aud_one","request_id":"first-request","sharing_fingerprint":"old-route"}"#.into();
+        let pending = first_store.mark_submission(&ready.draft_id, uploaded.revision, "assessment_uncertain".into(), receipt.clone()).unwrap();
+        let mut released = receipt.clone();
+        released.assessment_request_id.clear();
+        released.request_fingerprint.clear();
+        released.frozen_request_body.clear();
+        assert!(first_store.mark_submission(&ready.draft_id, pending.revision, "assessing".into(), released.clone()).is_err());
+        let retained = first_store.mark_submission(&ready.draft_id, pending.revision, "uploaded".into(), released.clone()).unwrap();
+        assert_eq!(retained.take.as_ref().unwrap().sha256, ready.take.as_ref().unwrap().sha256);
+        assert_eq!(retained.submission.as_ref().unwrap().audio_id, "aud_one");
+        drop(first_store);
+        let mut reopened = store(&root);
+        assert_eq!(reopened.list().unwrap()[0].status, "uploaded");
+        released.assessment_request_id = "second-request".into();
+        released.request_fingerprint = "new-route".into();
+        released.frozen_request_body = r#"{"audio_id":"aud_one","request_id":"second-request","sharing_fingerprint":"new-route"}"#.into();
+        let next = reopened.mark_submission(&ready.draft_id, retained.revision, "assessment_uncertain".into(), released.clone()).unwrap();
+        released.assessment_id = "accepted-job".into();
+        released.last_confirmed_phase = "assessment".into();
+        let accepted = reopened.mark_submission(&ready.draft_id, next.revision, "assessing".into(), released.clone()).unwrap();
+        released.assessment_request_id.clear();
+        released.assessment_id.clear();
+        released.request_fingerprint.clear();
+        released.frozen_request_body.clear();
+        released.last_confirmed_phase = "upload".into();
+        assert!(reopened.mark_submission(&ready.draft_id, accepted.revision, "uploaded".into(), released).is_err());
     }
     #[test]
     fn maximal_prompt_and_notes_fit_in_a_persistent_receipt() {
