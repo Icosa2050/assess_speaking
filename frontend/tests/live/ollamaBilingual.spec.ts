@@ -45,10 +45,14 @@ const root = fileURLToPath(new URL("../../..", import.meta.url));
 
 async function saveSettings(page: Page, language: string, selectedModel: string, selectedWhisper: string) {
   await page.locator('a[href="/settings"]').click();
-  // Wait for async initialization before editing the existing connection.
-  await expect(page.getByTestId("runtime_connection.model")).toHaveValue(model);
+  await expect(page.getByTestId("settings.connection_id")).not.toHaveValue("");
   await page.getByTestId("settings.ui_locale").selectOption(language);
   await page.getByTestId("settings.whisper_model").selectOption(selectedWhisper);
+  const preferencesSaved = page.waitForResponse(r => new URL(r.url()).pathname === "/v1/runtime/settings" && r.request().method() === "PUT");
+  await page.getByTestId("settings.save_preferences").click();
+  expect((await preferencesSaved).ok()).toBeTruthy();
+  await page.getByTestId("settings.connection_row_edit").click();
+  await expect(page.getByTestId("runtime_connection.model")).toHaveValue(model);
   await page.getByTestId("runtime_connection.model").fill(selectedModel);
   const pending = page.waitForResponse(r => new URL(r.url()).pathname === "/v1/runtime/settings" && r.request().method() === "PUT");
   await page.getByTestId("runtime_connection.save_connection").click();
@@ -60,7 +64,8 @@ async function saveSettings(page: Page, language: string, selectedModel: string,
 async function resetModelSettings(page: Page) {
   // Every case has its own browser but shares the isolated provider's saved app data.
   await page.goto("/settings");
-  await expect(page.getByTestId("settings.connection_id")).not.toHaveValue("__new__");
+  await expect(page.getByTestId("settings.connection_id")).not.toHaveValue("");
+  await page.getByTestId("settings.connection_row_edit").click();
   await page.getByTestId("runtime_connection.model").fill(model);
   const pending = page.waitForResponse(r => new URL(r.url()).pathname === "/v1/runtime/settings" && r.request().method() === "PUT");
   await page.getByTestId("runtime_connection.save_connection").click();

@@ -44,6 +44,7 @@ for (const locale of ["en", "it"]) {
         await r.fulfill({json:state()});
       });
       await page.goto("/settings");
+      await page.getByTestId("settings.open_setup").click();
       await page.getByTestId("runtime_connection.provider").selectOption(method.choice);
       if (method.choice === "groq") await page.getByTestId("runtime_connection.model").selectOption(method.model);
       else await page.getByTestId("runtime_connection.model").fill(method.model);
@@ -55,13 +56,16 @@ for (const locale of ["en", "it"]) {
       await page.getByTestId("runtime_connection.save_connection").click();
       await expect(page.getByTestId("settings.connection_row_delete")).toHaveCount(1);
       await page.reload();
+      await page.getByTestId("settings.connection_row_edit").click();
       await expect(page.getByTestId("runtime_connection.provider")).toHaveValue(method.choice);
       await expect(page.getByTestId("runtime_connection.model")).toHaveValue(method.model);
       await expect(page.getByTestId("runtime_connection.api_key")).toHaveValue("");
       await page.getByTestId("runtime_connection.test_connection").click();
       await expect(page.getByTestId("runtime_connection.form_status")).toContainText("Probe 2 succeeded");
       expect(probes[1]).toMatchObject({connection_id:"fixture-connection",api_key:"",provider_choice:method.choice});
+      await page.getByTestId("runtime_setup.back_home").click();
       await page.getByTestId("settings.connection_row_delete").click();
+      await page.getByTestId("settings.connection_row_delete_confirm").click();
       await expect(page.getByTestId("settings.connection_row_delete")).toHaveCount(0);
       expect(deletes).toBe(1);
     });
@@ -78,6 +82,7 @@ for (const locale of ["en", "it"]) {
     await page.route("**/v1/runtime/chatgpt/attempts/*", r => r.fulfill({json:{status:attempt === 2 ? "failed" : "waiting",detail:attempt === 2 ? "Consent denied for fixture account" : ""}}));
     await page.route("**/v1/runtime/chatgpt/attempts/*/cancel", r => r.fulfill({json:{status:"cancelled"}}));
     await page.goto("/settings");
+    await page.getByTestId("settings.open_setup").click();
     await page.getByTestId("runtime_connection.provider").selectOption("chatgpt");
     const panel = page.getByRole("region", {name:"ChatGPT",exact:true});
     const signIn = panel.getByRole("button", {name:locale === "en" ? "Continue with ChatGPT" : "Continua con ChatGPT",exact:true});

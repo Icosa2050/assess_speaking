@@ -1,41 +1,22 @@
-import { CloudSettingsPanel } from "@/components/setup/CloudSettingsPanel";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { RuntimeConnectionForm } from "@/components/setup/RuntimeConnectionForm";
 import { SavedConnectionsPanel } from "@/components/settings/SavedConnectionsPanel";
+import { Button } from "@/components/ui/Button";
 import { JournalPanel } from "@/components/settings/JournalPanel";
 import { SupportPanel } from "@/components/settings/SupportPanel";
 import { apiClient } from "@/lib/api/client";
-import type {
-  ConnectionSecretState,
-  RuntimeConnectionDraft,
-  RuntimeSettingsConnection,
-} from "@/lib/api/types";
 import { createTranslator, semanticAttributes, SEMANTIC_IDS } from "@/lib/i18n";
-import {
-  toSavedConnectionRecords,
-} from "@/lib/settings/connectionRepository";
+import { toSavedConnectionRecords } from "@/lib/settings/connectionRepository";
 import { queryKeys } from "@/lib/query/queryClient";
 import { buildSetupReadinessRows, canEnterSpeak } from "@/lib/setup/readiness";
 import { useReadiness } from "@/lib/setup/useReadiness";
 import { useAppStore } from "@/lib/state/appStore";
 import { SUPPORTED_UI_LOCALES, type UiLocale } from "@/lib/state/sessionDraft";
 
-type SettingsOrigin =
-  | "home"
-  | "runtime-setup"
-  | "session-setup"
-  | "speak"
-  | "review"
-  | "library"
-  | "guide"
-  | "history";
-
-type SettingsLocationState = {
-  from?: SettingsOrigin;
-};
+type SettingsOrigin = "home" | "runtime-setup" | "session-setup" | "speak" | "review" | "library" | "guide" | "history";
+type SettingsLocationState = { from?: SettingsOrigin; focusConnectionId?: string; fromSetup?: boolean; saveNotice?: "session-only"; connectionNotice?: string };
 
 const cardStyle = {
   display: "grid",
@@ -94,59 +75,6 @@ const localeLabel = (
   return labels.of(locale) ?? locale.toUpperCase();
 };
 
-const buildDefaultDraft = (
-  translate: ReturnType<typeof createTranslator>,
-  fallbackProviderChoice: string,
-): RuntimeConnectionDraft => ({
-  provider_choice: fallbackProviderChoice || "ollama_local",
-  label: translate(`runtime_setup.provider_options.${fallbackProviderChoice || "ollama_local"}.label`),
-  model: "",
-  base_url:
-    fallbackProviderChoice === "openrouter"
-      ? "https://openrouter.ai/api/v1"
-      : fallbackProviderChoice === "lmstudio_local"
-        ? "http://localhost:1234/v1"
-        : fallbackProviderChoice === "ollama_cloud"
-          ? "https://ollama.com/api"
-          : "http://localhost:11434",
-  api_key: "",
-  openrouter_http_referer: "",
-  openrouter_app_title: "",
-});
-
-const buildDraftFromConnection = (
-  connection: RuntimeSettingsConnection | null,
-  translate: ReturnType<typeof createTranslator>,
-  fallbackProviderChoice: string,
-): RuntimeConnectionDraft =>
-  connection
-    ? {
-        connection_id: connection.connection_id,
-        provider_choice: connection.provider_choice,
-        label: connection.label,
-        model: connection.model,
-        base_url: connection.base_url,
-        api_key: "",
-        openrouter_http_referer: connection.openrouter_http_referer,
-        openrouter_app_title: connection.openrouter_app_title,
-      }
-    : buildDefaultDraft(translate, fallbackProviderChoice);
-
-const providerLabelForDraft = (
-  draft: RuntimeConnectionDraft,
-  selectedConnection: RuntimeSettingsConnection | null,
-  translate: ReturnType<typeof createTranslator>,
-): string => {
-  const providerChoice = String(draft.provider_choice || "").trim();
-  const translated = providerChoice
-    ? translate(`runtime_setup.provider_options.${providerChoice}.label`, { value: providerChoice })
-    : "";
-  if (translated && !translated.startsWith("[")) {
-    return translated;
-  }
-  return selectedConnection?.provider_label || providerChoice || "-";
-};
-
 export const SettingsRoute = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -159,110 +87,63 @@ export const SettingsRoute = () => {
   const setSetupComplete = useAppStore((state) => state.setSetupComplete);
   const setCurrentPage = useAppStore((state) => state.setCurrentPage);
   const translate = useMemo(() => createTranslator(locale), [locale]);
-
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
-  const [newConnectionInitialDraft, setNewConnectionInitialDraft] =
-    useState<RuntimeConnectionDraft | null>(null);
   const [selectedUiLocale, setSelectedUiLocale] = useState<UiLocale>(locale);
   const [selectedWhisperModel, setSelectedWhisperModel] = useState("small");
-  const [formStatus, setFormStatus] = useState<
-    | "idle"
-    | "testing"
-    | "test-succeeded"
-    | "test-failed"
-    | "saving"
-    | "save-failed"
-    | "default-failed"
-    | "delete-failed"
-    | "saved"
-  >("idle");
-  const [formStatusMessage, setFormStatusMessage] = useState("");
+  const [connectionMessage, setConnectionMessage] = useState("");
+  const [preferencesMessage, setPreferencesMessage] = useState("");
   const [whisperMessage, setWhisperMessage] = useState("");
   const [isBusy, setIsBusy] = useState(false);
+  const focusedNavigationKey = useRef<string | null>(null);
 
-  const runtimeQuery = useQuery({
-    queryKey: queryKeys.runtime,
-    queryFn: () => apiClient.getRuntime(),
-  });
-
-  const runtimeSettingsQuery = useQuery({
-    queryKey: ["runtime", "settings"],
-    queryFn: () => apiClient.getRuntimeSettings(),
-  });
+  const runtimeQuery = useQuery({ queryKey: queryKeys.runtime, queryFn: () => apiClient.getRuntime() });
+  const runtimeSettingsQuery = useQuery({ queryKey: ["runtime", "settings"], queryFn: () => apiClient.getRuntimeSettings() });
   const readinessQuery = useReadiness();
-
   const whisperStatusQuery = useQuery({
     queryKey: ["runtime", "whisper", selectedWhisperModel],
     queryFn: () => apiClient.getWhisperModelStatus(selectedWhisperModel),
     enabled: Boolean(selectedWhisperModel),
   });
 
+  useEffect(() => { setCurrentPage("settings"); }, [setCurrentPage]);
   useEffect(() => {
-    setCurrentPage("settings");
-  }, [setCurrentPage]);
-
+    if (!runtimeSettingsQuery.data || !(location.state as SettingsLocationState | null)?.fromSetup || focusedNavigationKey.current === location.key) return;
+    focusedNavigationKey.current = location.key;
+    const heading = document.getElementById("settings-connections-heading");
+    heading?.focus();
+    heading?.scrollIntoView?.({ block: "start" });
+  }, [runtimeSettingsQuery.data, location.key, location.state]);
   useEffect(() => {
-    if (!runtimeSettingsQuery.data) {
-      if (runtimeSettingsQuery.isError && selectedConnectionId === null) {
-        setSelectedConnectionId("__new__");
-        setNewConnectionInitialDraft(buildDefaultDraft(translate, "ollama_local"));
-      }
-      return;
-    }
-    const nextLocale = runtimeSettingsQuery.data.ui_locale as UiLocale;
+    const data = runtimeSettingsQuery.data;
+    if (!data) return;
+    const nextLocale = data.ui_locale as UiLocale;
     setSelectedUiLocale(nextLocale);
-    setSelectedWhisperModel(runtimeSettingsQuery.data.whisper_model || "small");
-    if (nextLocale && nextLocale !== locale) {
-      setUiLocale(nextLocale);
-    }
-    if (selectedConnectionId === null) {
-      const nextConnectionId =
-        runtimeSettingsQuery.data.active_connection_id ||
-        runtimeSettingsQuery.data.connections.find((connection) => connection.is_default)?.connection_id ||
-        "__new__";
-      setSelectedConnectionId(nextConnectionId);
-      setNewConnectionInitialDraft(
-        nextConnectionId === "__new__" ? buildDefaultDraft(translate, "ollama_local") : null,
-      );
-    }
-  }, [locale, runtimeSettingsQuery.data, runtimeSettingsQuery.isError, selectedConnectionId, setUiLocale, translate]);
+    setSelectedWhisperModel(data.whisper_model || "small");
+    if (nextLocale && nextLocale !== locale) setUiLocale(nextLocale);
+    setSelectedConnectionId((current) => {
+      if (current && data.connections.some((connection) => connection.connection_id === current)) return current;
+      const requested = (location.state as SettingsLocationState | null)?.focusConnectionId;
+      if (requested && data.connections.some((connection) => connection.connection_id === requested)) return requested;
+      return data.active_connection_id || data.connections.find((connection) => connection.is_default)?.connection_id || "";
+    });
+  }, [runtimeSettingsQuery.data, setUiLocale, location.state]);
 
-  const connections = useMemo(
-    () => toSavedConnectionRecords(runtimeSettingsQuery.data?.connections ?? []),
-    [runtimeSettingsQuery.data?.connections],
+  const connections = useMemo(() => toSavedConnectionRecords(runtimeSettingsQuery.data?.connections ?? []), [runtimeSettingsQuery.data?.connections]);
+  const requestedConnectionId = (location.state as SettingsLocationState | null)?.focusConnectionId;
+  const displayedConnectionId = selectedConnectionId ?? (
+    requestedConnectionId && connections.some((connection) => connection.connectionId === requestedConnectionId)
+      ? requestedConnectionId
+      : runtimeSettingsQuery.data?.active_connection_id || connections.find((connection) => connection.isDefault)?.connectionId || ""
   );
-
-  const selectedConnection = useMemo(() => {
-    if (!runtimeSettingsQuery.data || !selectedConnectionId || selectedConnectionId === "__new__") {
-      return null;
-    }
-    return (
-      runtimeSettingsQuery.data.connections.find(
-        (connection) => connection.connection_id === selectedConnectionId,
-      ) ?? null
-    );
-  }, [runtimeSettingsQuery.data, selectedConnectionId]);
-
   const activeConnection = useMemo(() => {
-    if (!runtimeSettingsQuery.data) {
-      return null;
-    }
-    return (
-      runtimeSettingsQuery.data.connections.find(
-        (connection) => connection.connection_id === runtimeSettingsQuery.data.active_connection_id,
-      ) ??
-      runtimeSettingsQuery.data.connections.find((connection) => connection.is_default) ??
-      null
-    );
+    const data = runtimeSettingsQuery.data;
+    return data?.connections.find((connection) => connection.connection_id === data.active_connection_id) ??
+      data?.connections.find((connection) => connection.is_default) ?? null;
   }, [runtimeSettingsQuery.data]);
 
   useEffect(() => {
-    if (runtimeSettingsQuery.data?.active_connection_id) {
-      setActiveConnectionId(runtimeSettingsQuery.data.active_connection_id);
-    }
-    setSetupComplete(
-      Boolean(runtimeQuery.data?.configured) || (runtimeSettingsQuery.data?.connections.length ?? 0) > 0,
-    );
+    if (runtimeSettingsQuery.data?.active_connection_id) setActiveConnectionId(runtimeSettingsQuery.data.active_connection_id);
+    setSetupComplete(Boolean(runtimeQuery.data?.configured) || (runtimeSettingsQuery.data?.connections.length ?? 0) > 0);
   }, [runtimeQuery.data, runtimeSettingsQuery.data, setActiveConnectionId, setSetupComplete]);
 
   const runtimeReady = canEnterSpeak(buildSetupReadinessRows({
@@ -270,29 +151,16 @@ export const SettingsRoute = () => {
     readinessError: readinessQuery.isError && !readinessQuery.data,
     readinessPending: readinessQuery.isPending,
   }));
-
-  const newConnectionFallbackProviderChoice =
-    selectedConnectionId === "__new__" ? "ollama_local" : activeConnection?.provider_choice || "ollama_local";
-  const initialDraft =
-    selectedConnectionId === "__new__" && newConnectionInitialDraft
-      ? newConnectionInitialDraft
-      : buildDraftFromConnection(
-          selectedConnection,
-          translate,
-          newConnectionFallbackProviderChoice,
-        );
-  const initialSecretState = (selectedConnection?.secret_state || "absent") as ConnectionSecretState;
-  const formResetToken = JSON.stringify({
-    selectedConnectionId: selectedConnectionId ?? "",
-    secretState: selectedConnection?.secret_state || "absent",
-    lastTestedAt: selectedConnection?.last_tested_at || "",
-  });
   const candidateReturnOrigin = (location.state as SettingsLocationState | null)?.from;
-  const returnOrigin =
-    candidateReturnOrigin && candidateReturnOrigin in returnPathMap
-      ? candidateReturnOrigin
-      : undefined;
+  const returnOrigin = candidateReturnOrigin && candidateReturnOrigin in returnPathMap ? candidateReturnOrigin : undefined;
   const returnPath = returnOrigin ? returnPathMap[returnOrigin] : "/";
+  const setupNotice = (location.state as SettingsLocationState | null)?.saveNotice === "session-only"
+    && connections.some((connection) => connection.connectionId === (location.state as SettingsLocationState).focusConnectionId)
+    ? translate("settings.session_only_saved_notice") : "";
+  const connectionNotice = (location.state as SettingsLocationState | null)?.connectionNotice || "";
+  const openSetup = (connectionId: string) => navigate("/runtime-setup", {
+    state: { connectionId, returnTo: "/settings", settingsFrom: returnOrigin, from: returnOrigin },
+  });
 
   const handleInvalidateRuntime = async () => {
     await Promise.all([
@@ -303,67 +171,36 @@ export const SettingsRoute = () => {
       queryClient.invalidateQueries({ queryKey: ["runtime", "whisper", selectedWhisperModel] }),
     ]);
   };
-
-  const handleSave = async ({
-    clearSavedSecret,
-    draft,
-  }: {
-    clearSavedSecret: boolean;
-    draft: RuntimeConnectionDraft;
-  }) => {
+  const handleSavePreferences = async () => {
+    if (!activeConnection) return;
     setIsBusy(true);
-    setFormStatus("saving");
-    setFormStatusMessage(translate("settings.save"));
+    setPreferencesMessage("");
     try {
       const response = await apiClient.putRuntimeSettings({
         ui_locale: selectedUiLocale,
         whisper_model: selectedWhisperModel,
-        clear_saved_secret: clearSavedSecret,
-        connection: draft,
+        connection: {
+          connection_id: activeConnection.connection_id,
+          provider_choice: activeConnection.provider_choice,
+          label: activeConnection.label,
+          model: activeConnection.model,
+          base_url: activeConnection.base_url,
+          api_key: "",
+          openrouter_http_referer: activeConnection.openrouter_http_referer,
+          openrouter_app_title: activeConnection.openrouter_app_title,
+        },
       });
-      setUiLocale(response.ui_locale);
-      setActiveConnectionId(response.active_connection_id);
-      setSetupComplete(response.connections.length > 0);
-      setSelectedConnectionId(response.active_connection_id || draft.connection_id || "__new__");
-      setNewConnectionInitialDraft(null);
-      setFormStatus("saved");
-      const saved = response.connections.find(c => c.connection_id === response.active_connection_id);
-      setFormStatusMessage(translate(saved?.provider_metadata.persistent === false ? "runtime_setup.save_success_session_only" : "settings.saved"));
+      setUiLocale(response.ui_locale as UiLocale);
+      setPreferencesMessage(translate("settings.saved"));
       await handleInvalidateRuntime();
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
-      setFormStatus("save-failed");
-      setFormStatusMessage(translate("settings.save_failed", { detail }));
-    } finally {
-      setIsBusy(false);
-    }
+      setPreferencesMessage(translate("settings.save_failed", { detail }));
+    } finally { setIsBusy(false); }
   };
-
-  const handleTest = async (draft: RuntimeConnectionDraft) => {
-    setIsBusy(true);
-    setFormStatus("testing");
-    setFormStatusMessage(translate("settings.testing_connection"));
-    try {
-      const response = await apiClient.postRuntimeSettingsTestConnection({ connection: draft });
-      setFormStatus("test-succeeded");
-      setFormStatusMessage(
-        translate("settings.test_success", {
-          provider: providerLabelForDraft(draft, selectedConnection, translate),
-          base_url: response.base_url,
-          preview: response.content_preview || "-",
-        }),
-      );
-    } catch (caught) {
-      const detail = caught instanceof Error ? caught.message : String(caught);
-      setFormStatus("test-failed");
-      setFormStatusMessage(translate("settings.test_failed", { detail }));
-    } finally {
-      setIsBusy(false);
-    }
-  };
-
   const handleSetDefault = async (connectionId: string) => {
     setIsBusy(true);
+    setConnectionMessage("");
     try {
       const response = await apiClient.postRuntimeSettingsSetDefault(connectionId);
       setActiveConnectionId(response.active_connection_id);
@@ -372,105 +209,62 @@ export const SettingsRoute = () => {
       await handleInvalidateRuntime();
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
-      setFormStatus("default-failed");
-      setFormStatusMessage(translate("settings.default_failed", { detail }));
-    } finally {
-      setIsBusy(false);
-    }
+      setConnectionMessage(translate("settings.default_failed", { detail }));
+    } finally { setIsBusy(false); }
   };
-
-  const handleSelectConnection = (connectionId: string) => {
-    setSelectedConnectionId(connectionId);
-    setNewConnectionInitialDraft(
-      connectionId === "__new__" ? buildDefaultDraft(translate, "ollama_local") : null,
-    );
-  };
-
   const handleDelete = async (connectionId: string) => {
     setIsBusy(true);
+    setConnectionMessage("");
     try {
       const response = await apiClient.deleteRuntimeSettingsConnection(connectionId);
       setActiveConnectionId(response.active_connection_id);
       setSetupComplete(response.connections.length > 0);
-      const nextConnectionId = response.active_connection_id || "__new__";
-      setSelectedConnectionId(nextConnectionId);
-      setNewConnectionInitialDraft(
-        nextConnectionId === "__new__" ? buildDefaultDraft(translate, "ollama_local") : null,
-      );
+      setSelectedConnectionId(response.active_connection_id || "");
       await handleInvalidateRuntime();
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
-      setFormStatus("delete-failed");
-      setFormStatusMessage(translate("settings.delete_failed", { detail }));
-    } finally {
-      setIsBusy(false);
-    }
+      setConnectionMessage(translate("settings.delete_failed", { detail }));
+    } finally { setIsBusy(false); }
   };
-
   const handleDownloadModel = async () => {
     setIsBusy(true);
     setWhisperMessage("");
     try {
       const status = await apiClient.postWhisperModelDownload(selectedWhisperModel);
-      setWhisperMessage(
-        translate("settings.whisper_downloaded", {
-          path: status.cached_path || status.model,
-        }),
-      );
+      setWhisperMessage(translate("settings.whisper_downloaded", { path: status.cached_path || status.model }));
       await queryClient.invalidateQueries({ queryKey: ["runtime", "whisper", selectedWhisperModel] });
       await queryClient.invalidateQueries({ queryKey: queryKeys.readiness });
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
       setWhisperMessage(translate("settings.whisper_download_failed", { detail }));
-    } finally {
-      setIsBusy(false);
-    }
+    } finally { setIsBusy(false); }
   };
-
   const whisperStatusMessage = whisperStatusQuery.data?.cached
     ? translate("settings.whisper_cached", { path: whisperStatusQuery.data.cached_path })
     : whisperMessage || translate("settings.whisper_not_cached");
 
   return (
-    <div
-      style={{ display: "grid", gap: "1rem" }}
-      {...semanticAttributes(SEMANTIC_IDS.settings.screen)}
-    >
+    <div style={{ display: "grid", gap: "1rem" }} {...semanticAttributes(SEMANTIC_IDS.settings.screen)}>
       <section style={cardStyle}>
-        <h2 style={{ margin: 0, fontSize: "1.75rem", color: "var(--color-text)" }}>
-          {translate("settings.title")}
-        </h2>
-        <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
-          {translate("settings.body")}
-        </p>
-        {!readinessQuery.isPending && !runtimeReady ? (
-          <p style={{ margin: 0, color: "var(--color-warning)", lineHeight: 1.6 }}>
-            {translate("settings.needs_setup_info")}
-          </p>
-        ) : null}
+        <h2 style={{ margin: 0, fontSize: "1.75rem", color: "var(--color-text)" }}>{translate("settings.title")}</h2>
+        <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>{translate("settings.body")}</p>
+        {!readinessQuery.isPending && !runtimeReady ? <p style={{ margin: 0, color: "var(--color-warning)", lineHeight: 1.6 }}>{translate("settings.needs_setup_info")}</p> : null}
       </section>
-
       <JournalPanel locale={locale} />
-
       <SavedConnectionsPanel
         connections={connections}
         locale={locale}
-        onDelete={(connectionId) => {
-          void handleDelete(connectionId);
-        }}
-        onOpenSetup={() =>
-          navigate("/runtime-setup", {
-            state: returnOrigin ? { from: returnOrigin } : undefined,
-          })
-        }
-        onSelectConnection={handleSelectConnection}
-        onSetDefault={(connectionId) => {
-          void handleSetDefault(connectionId);
-        }}
-        selectedConnectionId={selectedConnectionId ?? "__new__"}
+        onDelete={(connectionId) => { void handleDelete(connectionId); }}
+        onEdit={openSetup}
+        onOpenSetup={() => openSetup("__new__")}
+        onSelectConnection={setSelectedConnectionId}
+        onSetDefault={(connectionId) => { void handleSetDefault(connectionId); }}
+        selectedConnectionId={displayedConnectionId}
       />
-
-      <CloudSettingsPanel locale={locale} connections={runtimeSettingsQuery.data?.connections ?? []} />
+      {connectionMessage ? <p role="alert">{connectionMessage}</p> : null}
+      {setupNotice ? <p role="status">{setupNotice}</p> : null}
+      {connectionNotice ? <p role="status">{connectionNotice}</p> : null}
+      {runtimeSettingsQuery.isError ? <p role="alert">{translate("settings.load_failed")}</p> : null}
       <section style={cardStyle}>
         <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
           {translate("settings.appearance")}
@@ -546,6 +340,12 @@ export const SettingsRoute = () => {
           </select>
         </label>
 
+        <Button disabled={isBusy || !activeConnection} onClick={() => void handleSavePreferences()} style={{ width: "fit-content" }} {...semanticAttributes(SEMANTIC_IDS.settings.savePreferences)}>
+          {translate("settings.save_preferences")}
+        </Button>
+        {!activeConnection ? <p role="status">{translate("settings.preferences_need_connection")}</p> : null}
+        {preferencesMessage ? <p role="status">{preferencesMessage}</p> : null}
+
         <p style={{ margin: 0, lineHeight: 1.55, color: whisperStatusQuery.data?.cached ? "var(--color-success)" : "var(--color-warning)" }}>
           {whisperStatusMessage}
         </p>
@@ -584,33 +384,6 @@ export const SettingsRoute = () => {
           </article>
         </div>
       </section>
-
-      {/* Initial settings hydration must finish before a draft can be edited. */}
-      {runtimeSettingsQuery.isError ? <p role="alert">{translate("settings.load_failed")}</p> : null}
-      <fieldset disabled={selectedConnectionId === null} aria-busy={selectedConnectionId === null}
-        style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-      <RuntimeConnectionForm
-        onAccountConnected={(id, notice) => {
-          if (!id) setNewConnectionInitialDraft(buildDefaultDraft(translate, "chatgpt"));
-          setSelectedConnectionId(id || "__new__");
-          if (notice) setFormStatusMessage(notice);
-        }}
-        initialDraft={initialDraft}
-        initialSecretState={initialSecretState}
-        isBusy={isBusy}
-        locale={locale}
-        onSave={(payload) => {
-          void handleSave(payload);
-        }}
-        onTest={(connection) => {
-          void handleTest(connection);
-        }}
-        resetToken={formResetToken}
-        status={formStatus}
-        statusMessage={formStatusMessage}
-        variant="settings"
-      />
-      </fieldset>
 
       <SupportPanel
         activeConnectionId={runtimeSettingsQuery.data?.active_connection_id || preferences.activeConnectionId}

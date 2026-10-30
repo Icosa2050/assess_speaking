@@ -160,9 +160,11 @@ type RuntimeConnectionFormProps = {
   detectedModels?: string[];
   initialDraft: RuntimeConnectionDraft;
   initialSecretState: ConnectionSecretState;
+  initialSecretPersistent?: boolean;
   isBusy?: boolean;
   locale: UiLocale;
   onBack?: () => void;
+  backLabel?: string;
   onAccountConnected?: (id: string, notice?: string) => void;
   onDetectLocalModels?: (draft: RuntimeConnectionDraft) => void;
   onProviderChange?: (providerChoice: string) => void;
@@ -179,9 +181,11 @@ export const RuntimeConnectionForm = ({
   detectedModels = [],
   initialDraft,
   initialSecretState,
+  initialSecretPersistent = true,
   isBusy = false,
   locale,
   onBack,
+  backLabel,
   onAccountConnected,
   onDetectLocalModels,
   onProviderChange,
@@ -615,7 +619,7 @@ export const RuntimeConnectionForm = ({
           ) : initialSecretState === "present" ? (
             <>
               <p style={{ margin: 0, lineHeight: 1.55, color: "var(--color-text-muted)" }}>
-                {translate(`${copyRoot}.secret_saved_state`)}
+                {translate(initialSecretPersistent ? `${copyRoot}.secret_saved_state` : "settings.secret_session_only_state")}
               </p>
               {variant === "runtime-setup" && providerCanUseApiKey && !replaceSecret ? (
                 <button
@@ -714,7 +718,7 @@ export const RuntimeConnectionForm = ({
               style={actionButtonStyle}
               {...semanticAttributes(SEMANTIC_IDS.runtimeSetup.backHome)}
             >
-              {translate("runtime_setup.back_home")}
+              {backLabel ?? translate("runtime_setup.back_home")}
             </button>
           ) : null}
         </div>

@@ -1,3 +1,6 @@
+import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/Button";
+import dialogStyles from "@/components/settings/JournalPanel.module.css";
 import { createTranslator, semanticAttributes, SEMANTIC_IDS } from "@/lib/i18n";
 import type { SavedConnectionRecord } from "@/lib/settings/connectionRepository";
 import type { UiLocale } from "@/lib/state/sessionDraft";
@@ -16,20 +19,6 @@ const fieldStyle = {
   gap: "0.35rem",
 } as const;
 
-const actionButtonStyle = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  minHeight: "44px",
-  padding: "0.75rem 1rem",
-  borderRadius: "8px",
-  border: "1px solid var(--color-border-control)",
-  backgroundColor: "var(--color-surface)",
-  color: "var(--color-text)",
-  fontWeight: 600,
-  font: "inherit",
-} as const;
-
 const panelStyle = {
   ...cardStyle,
   gap: "1rem",
@@ -40,7 +29,7 @@ const resolveSecretStateCopy = (
   translate: ReturnType<typeof createTranslator>,
 ): string => {
   if (connection.secretState === "present") {
-    return translate("settings.secret_saved_state");
+    return translate(connection.secretPersistent ? "settings.secret_saved_state" : "settings.secret_session_only_state");
   }
 
   if (connection.secretState === "missing") {
@@ -53,20 +42,29 @@ const resolveSecretStateCopy = (
 const buildConnectionDetailLine = (
   connection: SavedConnectionRecord,
   translate: ReturnType<typeof createTranslator>,
-): string =>
-  [
+): string => {
+  const testStatus = connection.secretState === "missing"
+    ? translate("settings.status_key_missing")
+    : ["ok", "passed", "success"].includes(connection.lastTestStatus)
+      ? translate("settings.status_test_passed")
+      : ["error", "failed"].includes(connection.lastTestStatus)
+        ? translate("settings.status_test_failed")
+        : translate("settings.status_not_tested");
+  return [
     connection.providerLabel,
-    connection.model,
+    connection.model || "-",
     connection.isDefault ? translate("settings.default_badge") : "",
-    connection.lastTestStatus,
+    testStatus,
   ]
     .filter(Boolean)
     .join(" · ");
+};
 
 export const SavedConnectionsPanel = ({
   connections,
   locale,
   onDelete,
+  onEdit,
   onOpenSetup,
   onSelectConnection,
   onSetDefault,
@@ -75,14 +73,51 @@ export const SavedConnectionsPanel = ({
   connections: SavedConnectionRecord[];
   locale: UiLocale;
   onDelete: (connectionId: string) => void;
+  onEdit: (connectionId: string) => void;
   onOpenSetup: () => void;
   onSelectConnection: (connectionId: string) => void;
   onSetDefault: (connectionId: string) => void;
   selectedConnectionId: string;
 }) => {
   const translate = createTranslator(locale);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const restoreDeleteFocusId = useRef<string | null>(null);
+  const deletedConnectionId = useRef<string | null>(null);
+  const deleteDialog = useRef<HTMLDialogElement | null>(null);
+  useEffect(() => {
+    if (confirmDeleteId && !connections.some((connection) => connection.connectionId === confirmDeleteId)) {
+      setConfirmDeleteId(null);
+      document.getElementById("settings-connections-heading")?.focus();
+    }
+  }, [connections, confirmDeleteId]);
+  useEffect(() => {
+    const targetId = restoreDeleteFocusId.current;
+    if (!targetId) return;
+    Array.from(document.querySelectorAll<HTMLButtonElement>('[data-testid="settings.connection_row_delete"]'))
+      .find((button) => button.dataset.connectionId === targetId)?.focus();
+    restoreDeleteFocusId.current = null;
+  }, [confirmDeleteId]);
+  useEffect(() => {
+    const dialog = deleteDialog.current;
+    if (!dialog || !confirmDeleteId) return;
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    else dialog.setAttribute("open", "");
+    document.getElementById("connection-delete-cancel")?.focus();
+    return () => { if (typeof dialog.close === "function" && dialog.open) dialog.close(); };
+  }, [confirmDeleteId]);
+  useEffect(() => {
+    if (deletedConnectionId.current && !connections.some((connection) => connection.connectionId === deletedConnectionId.current)) {
+      deletedConnectionId.current = null;
+      document.getElementById("settings-connections-heading")?.focus();
+    }
+  }, [connections]);
   const selectedConnection =
     connections.find((connection) => connection.connectionId === selectedConnectionId) ?? null;
+  const connectionToDelete = connections.find((connection) => connection.connectionId === confirmDeleteId);
+  const cancelDelete = () => {
+    restoreDeleteFocusId.current = confirmDeleteId;
+    setConfirmDeleteId(null);
+  };
 
   return (
     <section
@@ -90,7 +125,7 @@ export const SavedConnectionsPanel = ({
       {...semanticAttributes(SEMANTIC_IDS.settings.sectionConnections)}
     >
       <div style={{ display: "grid", gap: "0.4rem" }}>
-        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
+        <h2 id="settings-connections-heading" tabIndex={-1} style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
           {translate("settings.saved_connections")}
         </h2>
         <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
@@ -118,7 +153,7 @@ export const SavedConnectionsPanel = ({
           }}
           {...semanticAttributes(SEMANTIC_IDS.settings.connectionId)}
         >
-          <option value="__new__">{translate("settings.create_new_connection")}</option>
+          {connections.length === 0 ? <option value="">{translate("settings.no_saved_connections")}</option> : null}
           {connections.map((connection) => (
             <option
               key={connection.connectionId}
@@ -131,37 +166,24 @@ export const SavedConnectionsPanel = ({
       </label>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem" }}>
-        <button
+        <Button
           type="button"
           onClick={onOpenSetup}
-          style={actionButtonStyle}
           {...semanticAttributes(SEMANTIC_IDS.settings.openSetup)}
         >
-          {translate("settings.open_setup")}
-        </button>
+          {translate("settings.setup_provider")}
+        </Button>
         {selectedConnection && !selectedConnection.isDefault ? (
-          <button
+          <Button
             type="button"
             onClick={() => onSetDefault(selectedConnection.connectionId)}
-            style={actionButtonStyle}
+            aria-label={translate("settings.make_active_named", { name: selectedConnection.label })}
             {...semanticAttributes(SEMANTIC_IDS.settings.connectionRowSetDefault, {
               connectionId: selectedConnection.connectionId,
             })}
           >
             {translate("settings.make_default")}
-          </button>
-        ) : null}
-        {selectedConnection ? (
-          <button
-            type="button"
-            onClick={() => onDelete(selectedConnection.connectionId)}
-            style={actionButtonStyle}
-            {...semanticAttributes(SEMANTIC_IDS.settings.connectionRowDelete, {
-              connectionId: selectedConnection.connectionId,
-            })}
-          >
-            {translate("settings.delete")}
-          </button>
+          </Button>
         ) : null}
       </div>
 
@@ -176,7 +198,7 @@ export const SavedConnectionsPanel = ({
                 key={connection.connectionId}
                 style={{
                   ...cardStyle,
-                  borderColor: selected ? "var(--color-selected-border)" : cardStyle.border,
+                  borderColor: selected ? "var(--color-selected-border)" : "var(--color-border-decorative)",
                   boxShadow: selected ? "0 0 0 1px var(--color-selected-border)" : "none",
                 }}
                 {...semanticAttributes(SEMANTIC_IDS.settings.connectionRow, {
@@ -211,11 +233,31 @@ export const SavedConnectionsPanel = ({
                     {translate("settings.last_tested", { value: connection.lastTestedAt })}
                   </span>
                 ) : null}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem" }}>
+                  <Button aria-label={translate("settings.edit_connection_named", { name: connection.label })} onClick={() => onEdit(connection.connectionId)} {...semanticAttributes(SEMANTIC_IDS.settings.connectionRowEdit, { connectionId: connection.connectionId })}>
+                    {translate("settings.edit_connection")}
+                  </Button>
+                  <Button aria-label={translate("settings.delete_connection_named", { name: connection.label })} onClick={() => setConfirmDeleteId(connection.connectionId)} {...semanticAttributes(SEMANTIC_IDS.settings.connectionRowDelete, { connectionId: connection.connectionId })}>
+                    {translate("settings.delete")}
+                  </Button>
+                </div>
               </article>
             );
           })}
         </div>
       ) : null}
+      {connectionToDelete ? <dialog ref={deleteDialog} className={dialogStyles.dialog} aria-labelledby="connection-delete-title" aria-describedby="connection-delete-description" onCancel={(event) => { event.preventDefault(); cancelDelete(); }}>
+        <div className={dialogStyles.dialogBody}>
+          <h2 id="connection-delete-title">{translate("settings.delete")}</h2>
+          <p id="connection-delete-description">{translate("settings.delete_confirm", { name: connectionToDelete.label })}</p>
+        </div>
+        <div className={dialogStyles.dialogActions}>
+          <Button id="connection-delete-cancel" variant="secondary" onClick={cancelDelete}>{translate("settings.cancel")}</Button>
+          <Button aria-label={translate("settings.confirm_delete_named", { name: connectionToDelete.label })} variant="danger" onClick={() => { deletedConnectionId.current = connectionToDelete.connectionId; setConfirmDeleteId(null); onDelete(connectionToDelete.connectionId); }} {...semanticAttributes(SEMANTIC_IDS.settings.connectionRowDeleteConfirm, { connectionId: connectionToDelete.connectionId })}>
+            {translate("settings.delete")}
+          </Button>
+        </div>
+      </dialog> : null}
     </section>
   );
 };

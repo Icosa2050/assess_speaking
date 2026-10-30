@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -165,7 +165,10 @@ export const SetupRoute = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { hash } = location;
-  const returningToSpeak = (location.state as { returnTo?: string } | null)?.returnTo === "/speak";
+  const navigation = location.state as { returnTo?: string; connectionId?: string; settingsFrom?: string; from?: string } | null;
+  const returningToSpeak = navigation?.returnTo === "/speak";
+  const returningToSettings = navigation?.returnTo === "/settings";
+  const requestedConnectionId = returningToSettings ? navigation?.connectionId || "__new__" : null;
   useEffect(() => {
     if (hash === "#runtime-setup-microphone" || hash === "#runtime-setup-cloud") {
       document.getElementById(hash.slice(1))?.scrollIntoView?.({ block: "start" });
@@ -192,6 +195,7 @@ export const SetupRoute = () => {
   const [isBusy, setIsBusy] = useState(false);
   const [cloudOptionsOpen, setCloudOptionsOpen] = useState(hash === "#runtime-setup-cloud");
   const [cloudPanelOpened, setCloudPanelOpened] = useState(hash === "#runtime-setup-cloud");
+  const focusedNavigationKey = useRef<string | null>(null);
 
   const runtimeQuery = useQuery({
     queryKey: queryKeys.runtime,
@@ -243,6 +247,33 @@ export const SetupRoute = () => {
       null
     );
   }, [runtimeSettings]);
+  const editingConnection = requestedConnectionId && requestedConnectionId !== "__new__"
+    ? runtimeSettings?.connections.find((connection) => connection.connection_id === requestedConnectionId) ?? null
+    : requestedConnectionId === "__new__" ? null : activeConnection;
+  const missingRequestedConnection = Boolean(requestedConnectionId && requestedConnectionId !== "__new__" && runtimeSettings && !editingConnection);
+  useEffect(() => {
+    if (returningToSettings && runtimeSettings && !missingRequestedConnection && focusedNavigationKey.current !== location.key) {
+      focusedNavigationKey.current = location.key;
+      const heading = document.getElementById("runtime-setup-connection-heading");
+      heading?.focus();
+      heading?.scrollIntoView?.({ block: "start" });
+    }
+  }, [returningToSettings, runtimeSettings, missingRequestedConnection, location.key]);
+  const returnToSettings = (focusConnectionId?: string, saveNotice?: "session-only", connectionNotice?: string) => navigate("/settings", {
+    state: { from: navigation?.settingsFrom, focusConnectionId, fromSetup: true, saveNotice, connectionNotice },
+  });
+  const restorePreviousActiveConnection = async (newActiveId: string) => {
+    // Keep the active choice from Settings when editing a different connection.
+    const previousId = runtimeSettings?.active_connection_id;
+    if (returningToSettings && editingConnection && previousId && previousId !== editingConnection.connection_id && newActiveId !== previousId) {
+      try {
+        return { restored: await apiClient.postRuntimeSettingsSetDefault(previousId), restoreFailed: false };
+      } catch {
+        return { restored: null, restoreFailed: true };
+      }
+    }
+    return { restored: null, restoreFailed: false };
+  };
 
   const recommendedWhisperModel = recommendWhisperModel(draft.learningLanguage, draft.cefrLevel);
   const recommendedModelText = translate("runtime_setup.suggested_defaults", {
@@ -281,16 +312,16 @@ export const SetupRoute = () => {
   const setupCanContinue = canEnterSpeak(requiredRows);
   const returnCheck = requiredRows.find((row) => row.key !== "microphone" && isBlockingSetupReadinessRow(row) && !canContinueWithCheck(row.status));
 
-  const initialDraft = buildDraftFromConnection(activeConnection, translate);
+  const initialDraft = buildDraftFromConnection(editingConnection, translate);
   const formResetToken = JSON.stringify({
-    connectionId: activeConnection?.connection_id || "",
-    label: activeConnection?.label || "",
-    model: activeConnection?.model || "",
-    baseUrl: activeConnection?.base_url || "",
-    secretState: activeConnection?.secret_state || "absent",
-    lastTestedAt: activeConnection?.last_tested_at || "",
+    connectionId: editingConnection?.connection_id || requestedConnectionId || "",
+    label: editingConnection?.label || "",
+    model: editingConnection?.model || "",
+    baseUrl: editingConnection?.base_url || "",
+    secretState: editingConnection?.secret_state || "absent",
+    lastTestedAt: editingConnection?.last_tested_at || "",
   });
-  const initialSecretState = (activeConnection?.secret_state || "absent") as ConnectionSecretState;
+  const initialSecretState = (editingConnection?.secret_state || "absent") as ConnectionSecretState;
 
   const handleInvalidateRuntime = async () => {
     await Promise.all([
@@ -443,12 +474,17 @@ export const SetupRoute = () => {
         clear_saved_secret: clearSavedSecret,
         connection,
       });
-      setActiveConnectionId(response.active_connection_id);
+      const savedConnectionId = connection.connection_id || response.active_connection_id;
+      const { restored, restoreFailed } = await restorePreviousActiveConnection(response.active_connection_id);
+      setActiveConnectionId(restored?.active_connection_id || response.active_connection_id);
       setSetupComplete(response.connections.length > 0);
       setFormStatus("saved");
-      const saved = response.connections.find(c => c.connection_id === response.active_connection_id);
-      setFormStatusMessage(translate(saved?.provider_metadata.persistent === false ? "runtime_setup.save_success_session_only" : "runtime_setup.save_success"));
+      const saved = response.connections.find(c => c.connection_id === savedConnectionId);
+      const sessionOnly = saved?.provider_metadata.persistent === false;
+      setFormStatusMessage(translate(sessionOnly ? "settings.session_only_saved_notice" : "runtime_setup.save_success"));
       await handleInvalidateRuntime();
+      if (returningToSettings) returnToSettings(savedConnectionId, sessionOnly ? "session-only" : undefined,
+        restoreFailed ? translate("settings.active_restore_failed_notice") : undefined);
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
       setFormStatus("save-failed");
@@ -592,20 +628,51 @@ export const SetupRoute = () => {
       </section>}
 
       <div id="runtime-setup-connection">
+        {returningToSettings ? <h2 id="runtime-setup-connection-heading" tabIndex={-1}>{translate("settings.setup_provider")}</h2> : null}
+        {missingRequestedConnection ? <p role="alert">{translate("settings.connection_missing")}</p> : null}
+        {returningToSettings && runtimeSettingsQuery.isError ? <p role="alert">{translate("settings.load_failed")}</p> : null}
         {formStatus === "test-failed" ? (
           <StatusBanner title={translate("first_run.connection_retry_title")} tone="warning">
             {translate("first_run.connection_retry_body")}
           </StatusBanner>
         ) : null}
-        <RuntimeConnectionForm
-          onAccountConnected={(_id, notice) => { if (notice) setFormStatusMessage(notice); }}
+        {(!returningToSettings || (runtimeSettings && !missingRequestedConnection)) ? <RuntimeConnectionForm
+          onAccountConnected={(id, notice) => {
+            if (notice) setFormStatusMessage(notice);
+            if (!id) {
+              void (async () => {
+                await handleInvalidateRuntime();
+                if (returningToSettings) returnToSettings(undefined, undefined, notice);
+              })();
+              return;
+            }
+            if (!returningToSettings) { void runtimeSettingsQuery.refetch(); return; }
+            void (async () => {
+              try {
+                const connected = await apiClient.getRuntimeSettings();
+                const { restored, restoreFailed } = await restorePreviousActiveConnection(connected.active_connection_id);
+                setActiveConnectionId(restored?.active_connection_id || connected.active_connection_id);
+                setSetupComplete(connected.connections.length > 0);
+                await handleInvalidateRuntime();
+                const sessionOnly = connected.connections.find(c => c.connection_id === id)?.provider_metadata.persistent === false;
+                returnToSettings(id, sessionOnly ? "session-only" : undefined,
+                  restoreFailed ? translate("settings.active_restore_failed_notice") : undefined);
+              } catch (caught) {
+                const detail = caught instanceof Error ? caught.message : String(caught);
+                setFormStatus("save-failed");
+                setFormStatusMessage(translate("runtime_setup.save_error", { detail }));
+              }
+            })();
+          }}
           detectedModelMessage={detectedModelMessage}
           detectedModels={detectedModels}
           initialDraft={initialDraft}
           initialSecretState={initialSecretState}
+          initialSecretPersistent={editingConnection?.provider_metadata.persistent !== false}
           isBusy={isBusy}
           locale={locale}
-          onBack={() => navigate("/")}
+          backLabel={returningToSettings ? translate("settings.cancel") : undefined}
+          onBack={() => returningToSettings ? returnToSettings(editingConnection?.connection_id) : navigate("/")}
           onDetectLocalModels={(connection) => {
             void handleDetectLocalModels(connection);
           }}
@@ -619,8 +686,9 @@ export const SetupRoute = () => {
           resetToken={formResetToken}
           status={formStatus}
           statusMessage={formStatusMessage}
-          variant="runtime-setup"
-        />
+          variant={returningToSettings ? "settings" : "runtime-setup"}
+        /> : null}
+        {returningToSettings && (missingRequestedConnection || runtimeSettingsQuery.isError) ? <Button onClick={() => returnToSettings()}>{translate("settings.cancel")}</Button> : null}
       </div>
 
       <details style={cardStyle}>
