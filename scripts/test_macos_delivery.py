@@ -25,7 +25,7 @@ import select
 
 
 def run(args, **kwargs):
-    return subprocess.run(list(map(str, args)), check=True, **kwargs)
+    return subprocess.run(list(map(str, args)), check=True, timeout=kwargs.pop('timeout', 120), **kwargs)
 
 
 def main():
@@ -62,9 +62,13 @@ def main():
         shell = installed / 'Contents/MacOS/vostavo-desktop'
         draft_root = work / 'draft-state'
         draft_env = {key: os.environ[key] for key in ('HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG') if key in os.environ}
-        draft_env.update(PATH='/usr/bin:/bin:/usr/sbin:/sbin', VOSTAVO_HOME=str(draft_root), VOSTAVO_INTERNAL_DMG_ACCEPTANCE='1')
+        draft_env.update(PATH='/usr/bin:/bin:/usr/sbin:/sbin', VOSTAVO_HOME=str(draft_root), VOSTAVO_INTERNAL_DMG_ACCEPTANCE='1',
+                         VOSTAVO_INTERNAL_DMG_KEY_SERVICE='com.vostavo.desktop.drafts.acceptance.' + secrets.token_hex(16))
         def draft_check(phase):
-            result = run([shell, f'--internal-draft-delivery={phase}'], env=draft_env, capture_output=True, text=True, timeout=30)
+            try:
+                result = run([shell, f'--internal-draft-delivery={phase}'], env=draft_env, capture_output=True, text=True, timeout=30)
+            except subprocess.TimeoutExpired as exc:
+                raise TimeoutError(f'Installed shell draft {phase} timed out after 30 seconds; check Keychain access prompts and the shell process') from exc
             return json.loads(result.stdout.strip().splitlines()[-1])
         seeded = draft_check('seed')
         assert seeded['draft_count'] == 1 and seeded['keychain_mode'] in ('device-only', 'local-login'), seeded

@@ -203,8 +203,13 @@ fn choose_keychain_create(
 }
 impl MacKeychain {
     fn production() -> Self {
+        let service = std::env::var("VOSTAVO_INTERNAL_DMG_KEY_SERVICE").ok()
+            .filter(|value| std::env::var("VOSTAVO_INTERNAL_DMG_ACCEPTANCE").ok().as_deref() == Some("1")
+                && value.strip_prefix("com.vostavo.desktop.drafts.acceptance.")
+                    .is_some_and(|id| id.len() == 32 && id.chars().all(|character| character.is_ascii_hexdigit())))
+            .unwrap_or_else(|| KEY_SERVICE.into());
         Self {
-            service: KEY_SERVICE.into(),
+            service,
             mode: Mutex::new(None),
         }
     }
@@ -1665,6 +1670,11 @@ pub fn internal_delivery_check(phase: &str) -> StoreResult<serde_json::Value> {
         return Err(err("Internal draft acceptance is disabled"));
     }
     let root = std::env::var_os("VOSTAVO_HOME").ok_or_else(|| err("Isolated draft root is required"))?;
+    if std::env::var("VOSTAVO_INTERNAL_DMG_KEY_SERVICE").ok()
+        .and_then(|value| value.strip_prefix("com.vostavo.desktop.drafts.acceptance.").map(str::to_owned))
+        .is_none_or(|id| id.len() != 32 || !id.chars().all(|character| character.is_ascii_hexdigit())) {
+        return Err(err("Isolated acceptance Keychain service is required"));
+    }
     let root = PathBuf::from(root);
     let mut store = DraftStore::new(&root)?;
     store.expire(now_ms())?;
@@ -1721,7 +1731,18 @@ pub fn internal_delivery_check(phase: &str) -> StoreResult<serde_json::Value> {
     let key = keychain.load()?;
     if key.is_none() { return Err(err("Acceptance Keychain item missing")); }
     let mode = keychain.mode().ok_or_else(|| err("Keychain mode unavailable"))?.label();
-    Ok(serde_json::json!({ "phase": phase, "draft_count": store.list_with_issues()?.drafts.len(), "keychain_mode": mode }))
+    let result = serde_json::json!({ "phase": phase, "draft_count": store.list_with_issues()?.drafts.len(), "keychain_mode": mode });
+    #[cfg(target_os = "macos")]
+    if phase == "cleanup" {
+        use security_framework::passwords::{delete_generic_password_options, PasswordOptions};
+        for protected in [false, true] {
+            let mut options = PasswordOptions::new_generic_password(&keychain.service, KEY_ACCOUNT);
+            options.set_access_synchronized(Some(false));
+            if protected { options.use_protected_keychain(); }
+            let _ = delete_generic_password_options(options);
+        }
+    }
+    Ok(result)
 }
 fn main_window_only(label: &str) -> StoreResult<()> {
     if label == "main" {
