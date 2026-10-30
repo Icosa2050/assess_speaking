@@ -1,6 +1,7 @@
 import { stubReadyReadiness } from "../readinessStub";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { expect, test, type Page, type Route } from "../fixtures";
 const speakerId = "visual-refresh-smoke";
@@ -1381,6 +1382,8 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
     await expectNoPageHorizontalOverflow(page);
   }
 
-  if (output) writeFileSync(path.join(output, `computed-contrast-${locale}.json`), JSON.stringify(contrastChecks, null, 2));
+  const evidenceDir = output ?? fileURLToPath(new URL("../../output/playwright/default/", import.meta.url));
+  mkdirSync(evidenceDir, { recursive: true });
+  writeFileSync(path.join(evidenceDir, `computed-contrast-${locale}.json`), JSON.stringify(contrastChecks, null, 2));
 });
 }
