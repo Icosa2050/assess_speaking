@@ -58,16 +58,45 @@ upload, synthetic microphone retries and history/progress for both languages.
 
 ## Developer ID release
 
-First install a valid **Developer ID Application** identity in Keychain and store
-notarization credentials in a named Keychain profile. Then:
+First install a valid **Developer ID Application** identity in Keychain. In the
+Apple Developer portal, select the signing team and register an explicit App ID
+for `com.vostavo.desktop` with **Keychain Sharing**. Create a **Developer ID**
+distribution provisioning profile for that App ID and the selected Developer ID
+Application certificate. Save the downloaded `.provisionprofile` outside the
+repository and set `VOSTAVO_PROVISIONING_PROFILE` to its absolute path. The
+build checks the profile's expiration, team, App ID, Keychain group and exact
+signing certificate, embeds it at `Vostavo.app/Contents/embedded.provisionprofile`,
+and verifies the signed entitlements. The expected entitlements are
+`com.apple.application-identifier=TEAMID.com.vostavo.desktop`,
+`com.apple.developer.team-identifier=TEAMID`, and
+`keychain-access-groups=[TEAMID.com.vostavo.desktop]`. Use a profile obtained
+directly from the Apple Developer portal; the build decodes its CMS container
+and validates claims but does not independently validate the CMS certificate
+chain.
+
+Store notarization credentials in a named Keychain profile. Then:
 
 ```sh
+export VOSTAVO_PROVISIONING_PROFILE='/absolute/path/outside/repo/Vostavo-Developer-ID.provisionprofile'
 .venv/bin/python scripts/build_macos.py --mode release \
   --identity 'Developer ID Application: YOUR TEAM (TEAMID)' \
   --notary-profile YOUR_PROFILE
 ```
 
-Release mode fails before building when these prerequisites are absent. It signs
+Release mode fails before building when these prerequisites are absent. Packaged
+release drafts require the data-protection, `ThisDeviceOnly`, non-synchronizable
+Keychain item; a missing entitlement fails closed and the UI reports drafts
+unavailable. Development and internal builds retain a logged login-Keychain
+fallback.
+
+For a local Developer ID signing check without notarization or Apple upload,
+run the same command with `--local-sign-only` instead of `--notary-profile`.
+The profile is still needed for draft storage. Without a profile, explicitly
+add `--allow-drafts-disabled`; the build report records
+`"draft_storage": "unavailable"`, and the signed DMG is only a signing/runtime
+diagnostic. The DMG name includes `signed-unnotarized`.
+
+The notarized release path signs
 nested native code inside-out, notarizes/staples the app, creates/signs/notarizes/
 staples the DMG and verifies codesign, stapler and spctl. Run the artifact suite
 against that actual release DMG too. The release path requires testing with a real

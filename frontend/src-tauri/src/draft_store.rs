@@ -165,6 +165,9 @@ trait KeySource: Send + Sync {
 struct MacKeychain {
     service: String,
     mode: Mutex<Option<KeychainMode>>,
+    require_device_only: bool,
+    #[cfg(test)]
+    protected_error: Option<i32>,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum KeychainMode {
@@ -212,10 +215,12 @@ fn choose_keychain_create(
 }
 
 fn device_only_required() -> bool {
-    cfg!(not(any(debug_assertions, test, feature = "internal-dmg-acceptance")))
+    cfg!(feature = "device-only-drafts")
 }
 impl MacKeychain {
     fn production() -> Self {
+        #[cfg(feature = "device-only-drafts")]
+        eprintln!("Draft Keychain policy: VOSTAVO_DEVICE_ONLY_DRAFTS_REQUIRED");
         #[cfg(feature = "internal-dmg-acceptance")]
         let service = std::env::var("VOSTAVO_INTERNAL_DMG_KEY_SERVICE").ok()
             .filter(|value| std::env::var("VOSTAVO_INTERNAL_DMG_ACCEPTANCE").ok().as_deref() == Some("1")
@@ -227,6 +232,9 @@ impl MacKeychain {
         Self {
             service,
             mode: Mutex::new(None),
+            require_device_only: device_only_required(),
+            #[cfg(test)]
+            protected_error: None,
         }
     }
     #[cfg(test)]
@@ -234,6 +242,17 @@ impl MacKeychain {
         Self {
             service,
             mode: Mutex::new(None),
+            require_device_only: false,
+            protected_error: None,
+        }
+    }
+    #[cfg(test)]
+    fn for_service_requiring_device_only(service: String, protected_error: i32) -> Self {
+        Self {
+            service,
+            mode: Mutex::new(None),
+            require_device_only: true,
+            protected_error: Some(protected_error),
         }
     }
     fn mode(&self) -> Option<KeychainMode> {
@@ -245,6 +264,10 @@ impl KeySource for MacKeychain {
     fn load(&self) -> StoreResult<Option<[u8; 32]>> {
         use security_framework::passwords::{generic_password, PasswordOptions};
         let load = |mode| {
+            #[cfg(test)]
+            if mode == KeychainMode::DeviceOnly {
+                if let Some(code) = self.protected_error { return Err(code); }
+            }
             let mut options = PasswordOptions::new_generic_password(&self.service, KEY_ACCOUNT);
             options.set_access_synchronized(Some(false));
             if mode == KeychainMode::DeviceOnly {
@@ -262,7 +285,7 @@ impl KeySource for MacKeychain {
             choose_keychain_load(
                 || load(KeychainMode::DeviceOnly),
                 || load(KeychainMode::LocalLogin),
-                device_only_required(),
+                self.require_device_only,
             )
         };
         let (mode, key) = selected.map_err(|code| {
@@ -288,6 +311,10 @@ impl KeySource for MacKeychain {
         use security_framework::access_control::{ProtectionMode, SecAccessControl};
         use security_framework::passwords::{set_generic_password_options, PasswordOptions};
         let create = |mode| {
+            #[cfg(test)]
+            if mode == KeychainMode::DeviceOnly {
+                if let Some(code) = self.protected_error { return Err(code); }
+            }
             let mut options = PasswordOptions::new_generic_password(&self.service, KEY_ACCOUNT);
             options.set_access_synchronized(Some(false));
             if mode == KeychainMode::DeviceOnly {
@@ -309,7 +336,7 @@ impl KeySource for MacKeychain {
             choose_keychain_create(
                 || create(KeychainMode::DeviceOnly),
                 || create(KeychainMode::LocalLogin),
-                device_only_required(),
+                self.require_device_only,
             )
         }
         .map_err(|code| {
@@ -3258,7 +3285,6 @@ mod tests {
                 return Ok(());
             }
             assert_eq!(keychain.load()?, Some([9; 32]));
-            assert!(!device_only_required());
             assert!(matches!(keychain.mode(), Some(KeychainMode::DeviceOnly | KeychainMode::LocalLogin)));
             let root = TestRoot::new();
             let mut store =
@@ -3284,6 +3310,19 @@ mod tests {
             let _ = delete_generic_password_options(options);
         }
         result.unwrap();
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn mac_keychain_required_mode_never_creates_a_login_item_on_missing_entitlement() {
+        use security_framework::passwords::{generic_password, PasswordOptions};
+        let service = format!("com.vostavo.desktop.drafts.test.{}", new_id().unwrap());
+        let keychain = MacKeychain::for_service_requiring_device_only(service.clone(), MISSING_ENTITLEMENT);
+        assert!(keychain.load().unwrap_err().contains("(code -34018)"));
+        assert!(keychain.create(&[7; 32]).unwrap_err().contains("(code -34018)"));
+        assert!(keychain.mode().is_none());
+        let mut local = PasswordOptions::new_generic_password(&service, KEY_ACCOUNT);
+        local.set_access_synchronized(Some(false));
+        assert_eq!(generic_password(local).unwrap_err().code(), -25300);
     }
     #[test]
     fn device_only_keychain_policy_preserves_dev_fallback() {

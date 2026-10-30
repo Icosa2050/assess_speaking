@@ -103,7 +103,7 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
   const draftCollisions = recovery.drafts.filter(entry => entry.setup.retryOfSessionId && importedIds.has(entry.setup.retryOfSessionId));
   const missingAttemptInventory = Boolean(preview?.attempts && !preview.restored_attempt_ids && recovery.drafts.some(entry => entry.setup.retryOfSessionId));
   const reconcileBrowserRetryBrief = async () => {
-    if (recovery.supported) return;
+    if (!recovery.browserOnly) return;
     const brief = readRetryDraft();
     if (!brief?.retryOfSessionId) return;
     try { await apiClient.getHistoryDetail(brief.retryOfSessionId); return; }

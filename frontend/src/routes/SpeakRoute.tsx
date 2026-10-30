@@ -936,7 +936,8 @@ export const SpeakRoute = () => {
         <StatusBanner title={translate(draftRecovery.error.kind === "keychain" ? "draft.keychain_error"
           : draftRecovery.error.kind === "limit" ? "draft.limit_error"
           : draftRecovery.error.kind === "format" ? "draft.format_error"
-          : draftRecovery.error.kind === "uncertain" ? "draft.save_uncertain" : "draft.storage_error")} tone="warning">
+          : draftRecovery.error.kind === "uncertain" ? "draft.save_uncertain"
+          : draftRecovery.error.kind === "device_only_unavailable" ? "draft.device_only_unavailable" : "draft.storage_error")} tone="warning">
           <p>{translate(draftRecovery.error.kind === "uncertain" ? "draft.save_uncertain" : "draft.save_failed")}</p>
           <Button onClick={draftRecovery.manageDrafts}>{translate("draft.manage_saved")}</Button>
         </StatusBanner>
@@ -1077,7 +1078,7 @@ export const SpeakRoute = () => {
           }
           translate={translate}
         />
-        {!draftRecovery.supported && attachedFile ? <p role="note">{translate("draft.browser_unsupported")}</p> : null}
+        {draftRecovery.browserOnly && attachedFile ? <p role="note">{translate("draft.browser_unsupported")}</p> : null}
         {draftRecovery.supported && inputMode === "upload" && attachedFile && localSaveState !== "saved" && localSaveState !== "saving" ? (
           <div style={{ display: "grid", gap: "var(--space-2)" }}>
             <p>{translate("draft.save_upload_note")}</p>

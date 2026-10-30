@@ -42,6 +42,7 @@ const verifyCompletedReport = async (entry: SavedDraft, found: AssessmentRequest
 };
 type RecoveryContext = {
   supported: boolean;
+  browserOnly: boolean;
   active: SavedDraft | null;
   drafts: SavedDraft[];
   hasStoredEntries: boolean;
@@ -64,7 +65,7 @@ type RecoveryContext = {
 };
 
 const defaultContext: RecoveryContext = {
-  supported: false, active: null, drafts: [], hasStoredEntries: false, recoveredFile: null, error: null, retryParentCheckPending: false,
+  supported: false, browserOnly: true, active: null, drafts: [], hasStoredEntries: false, recoveredFile: null, error: null, retryParentCheckPending: false,
   saveSetup: async () => null,
   replaceSetup: async () => { throw new Error("Local draft storage is unavailable"); },
   saveTake: async () => { throw new Error("Local draft storage is unavailable"); },
@@ -162,7 +163,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
         }
         return { ...listing, legacy: brief, error: cleanupError };
       } catch (bootError) {
-        if ((bootError as DraftStoreError).kind === "lost_key") {
+        if (["lost_key", "device_only_unavailable"].includes((bootError as DraftStoreError).kind)) {
           try { return { drafts: [], unreadableIds: await withinBootDeadline(() => adapter.recoveryIds(), deadline), legacy: readLegacyRetryBrief(), error: bootError as DraftStoreError }; }
           catch { /* Keep the original key-loss error visible without offering unverifiable IDs. */ }
         }
@@ -222,9 +223,12 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       if (replacing && previousId) forgetRetryMarkers(previousId);
       setCurrent(saved); setError(null);
       return saved;
-    } catch (saveError) { confirmedReplacement.current = null; setError(saveError as DraftStoreError); throw saveError; }
+    } catch (saveError) { confirmedReplacement.current = null; setError(saveError as DraftStoreError);
+      if ((saveError as DraftStoreError).kind === "device_only_unavailable") setDeviceOnlyUnavailable(true);
+      throw saveError; }
   });
   const replaceSetup: RecoveryContext["replaceSetup"] = (setup, previous) => enqueue(async () => {
+    if (deviceOnlyUnavailable) throw new DraftStoreError("device_only_unavailable", "Local drafts are unavailable");
     try {
       if (replacementWouldReleasePendingTake(previous)) {
         throw new DraftStoreError("conflict", "Assessment is pending; keep the saved take until its result is known");
@@ -234,9 +238,12 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       confirmedReplacement.current = null;
       setCurrent(saved); replaceListing(saved); setRecoveredFile(null); setError(null);
       return saved;
-    } catch (replaceError) { confirmedReplacement.current = null; setError(replaceError as DraftStoreError); throw replaceError; }
+    } catch (replaceError) { confirmedReplacement.current = null; setError(replaceError as DraftStoreError);
+      if ((replaceError as DraftStoreError).kind === "device_only_unavailable") setDeviceOnlyUnavailable(true);
+      throw replaceError; }
   });
   const saveTake: RecoveryContext["saveTake"] = (setup, file, duration, method, progress) => enqueue(async () => {
+    if (deviceOnlyUnavailable) throw new DraftStoreError("device_only_unavailable", "Local drafts are unavailable");
     let current = activeRef.current;
     if (!sameDraftAttempt(current, setup)) {
       throw new Error("Session setup has not been saved for this attempt");
@@ -248,15 +255,22 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
           !sameDraftAttempt(activeRef.current, setup)) throw new DraftStoreError("conflict", "The active draft changed while saving.");
       setCurrent(saved); setError(null);
       return saved;
-    } catch (saveError) { setError(saveError as DraftStoreError); throw saveError; }
+    } catch (saveError) { setError(saveError as DraftStoreError);
+      if ((saveError as DraftStoreError).kind === "device_only_unavailable") setDeviceOnlyUnavailable(true);
+      throw saveError; }
   });
   const markSubmission: RecoveryContext["markSubmission"] = (target, status, submission) => enqueue(async () => {
+    if (deviceOnlyUnavailable) throw new DraftStoreError("device_only_unavailable", "Local drafts are unavailable");
     const current = activeRef.current;
     if (!adapter.supported || !current || current.draftId !== target.draftId ||
         current.revision !== target.revision || !sameDraftAttempt(current, target.setup)) {
       throw new DraftStoreError("conflict", "The submitting draft changed; resume it before retrying.");
     }
-    const saved = await adapter.markSubmission(target, status, submission);
+    let saved: SavedDraft;
+    try { saved = await adapter.markSubmission(target, status, submission); }
+    catch (submissionError) { setError(submissionError as DraftStoreError);
+      if ((submissionError as DraftStoreError).kind === "device_only_unavailable") setDeviceOnlyUnavailable(true);
+      throw submissionError; }
     if (!saved || saved.draftId !== target.draftId || saved.revision <= target.revision || saved.status !== status ||
         saved.submission?.uploadRequestId !== submission.uploadRequestId ||
         saved.submission?.assessmentRequestId !== submission.assessmentRequestId ||
@@ -488,7 +502,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     } finally { setBusy(false); } });
   };
   const context: RecoveryContext = {
-    supported: adapter.supported && !deviceOnlyUnavailable, active, drafts, hasStoredEntries: Boolean(drafts.length || unreadableIds.length), recoveredFile, error,
+    supported: adapter.supported && !deviceOnlyUnavailable, browserOnly: !adapter.supported, active, drafts, hasStoredEntries: Boolean(drafts.length || unreadableIds.length), recoveredFile, error,
     retryParentCheckPending: Boolean(active && historyPendingId === active.draftId),
     saveSetup, replaceSetup, saveTake, markSubmission, prepareNewAttempt, discardActive, discardDraft: discard,
     leaveActive: () => { setCurrent(null); setRecoveredFile(null); setError(null); setHistoryPendingId(null); },
@@ -518,7 +532,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       }
     }),
   };
-  const pending = !deviceOnlyUnavailable && choosing && (drafts.length > 0 || unreadableIds.length > 0 || legacy || error || managing);
+  const pending = choosing && (drafts.length > 0 || unreadableIds.length > 0 || (!deviceOnlyUnavailable && (legacy || error || managing)));
   const recoveryCard = (
       <Card as="section" data-testid="draft.recovery" style={{ display: "grid", gap: "var(--space-3)" }}>
         <h1 ref={heading} tabIndex={-1}>{translate("draft.resume_title")}</h1>
@@ -555,17 +569,18 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
           <p>{translate("draft.legacy_conflict", { learner: legacy.draft.speakerId, date: new Date(legacy.createdAt + 7 * 24 * 60 * 60 * 1000).toLocaleString(locale) })}</p>
           <Button onClick={() => { clearRetryDraft(); setLegacy(null); if (!drafts.length && !unreadableIds.length && !error) { setChoosing(false); setManaging(false); } }}>{translate("draft.discard_legacy")}</Button>
         </div>}
-        {error && <p role="alert">{translate(error.kind === "lost_key" || error.kind === "unreadable" ? "draft.unreadable"
+        {error && !deviceOnlyUnavailable && <p role="alert">{translate(error.kind === "lost_key" || error.kind === "unreadable" ? "draft.unreadable"
+          : error.kind === "device_only_unavailable" ? "draft.device_only_unavailable"
           : error.kind === "keychain" ? "draft.keychain_error" : error.kind === "limit" ? "draft.limit_error"
           : error.kind === "format" ? "draft.format_error" : error.kind === "uncertain" ? "draft.save_uncertain"
           : error.kind === "history" ? "draft.history_error" : "draft.storage_error")}</p>}
-        {error && !["limit", "format"].includes(error.kind) && <Button disabled={busy} onClick={retryBoot}>{translate("draft.retry_listing")}</Button>}
+        {error && !["limit", "format", "device_only_unavailable"].includes(error.kind) && <Button disabled={busy} onClick={retryBoot}>{translate("draft.retry_listing")}</Button>}
         <Button variant="quiet" onClick={() => { setChoosing(false); setManaging(false); }}>{translate("draft.continue_without_resume")}</Button>
       </Card>
   );
   return <Context.Provider value={context}>
+    {deviceOnlyUnavailable && <StatusBanner title={translate("draft.device_only_unavailable")} tone="warning" urgent />}
     {!booted ? <p role="status">{translate("journey.loading")}</p> : pending && !managing ? recoveryCard : <>
-      {deviceOnlyUnavailable && <StatusBanner title={translate("draft.device_only_unavailable")} tone="warning" urgent />}
       {managing && recoveryCard}
       {active && historyPendingId === active.draftId && <StatusBanner title={translate("draft.history_error")} tone="warning">
         <Button onClick={() => void context.reconcileActiveRetryParent().catch(() => undefined)}>{translate("draft.retry_history_check")}</Button>
