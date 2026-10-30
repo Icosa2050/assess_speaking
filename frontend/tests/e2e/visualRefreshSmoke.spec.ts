@@ -270,7 +270,7 @@ const attachAudio = async (page: Page) => {
     mimeType: "audio/wav",
     buffer: Buffer.from("visual smoke audio"),
   });
-  await expect(page.getByTestId("speak.recording_status")).toBeVisible();
+  await expect(page.getByTestId("speak.recording_status")).toHaveAttribute("data-tone", "success");
 };
 
 test("report finalization marks Coach complete and Finalizing current", async ({ page }) => {
@@ -871,11 +871,15 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
       await expect(page.locator("main").getByRole("heading").first()).toBeVisible();
       await expect(page.locator("html")).toHaveAttribute("lang", locale);
       await expectNoPageHorizontalOverflow(page);
+      // Sample the first keyboard-reachable control in each main or dialog state.
       const focusScope = await page.locator("dialog[open]").count() ? "dialog[open]" : "main";
-      const focusTarget = page.locator(`${focusScope} button:visible:not(:disabled):not([aria-disabled='true']), ${focusScope} input:visible:not(:disabled), ${focusScope} select:visible:not(:disabled), ${focusScope} a[href]:visible:not([aria-disabled='true']), ${focusScope} summary:visible`).first();
+      const focusTarget = page.locator(`${focusScope} button:visible:not(:disabled):not([aria-disabled='true']):not([tabindex='-1']), ${focusScope} input:visible:not(:disabled):not([tabindex='-1']), ${focusScope} select:visible:not(:disabled):not([tabindex='-1']), ${focusScope} a[href]:visible:not([aria-disabled='true']):not([tabindex='-1']), ${focusScope} summary:visible:not([tabindex='-1'])`).first();
       await expect(focusTarget).toBeVisible();
-      await page.keyboard.press("Tab");
       await focusTarget.focus();
+      await page.keyboard.press("Tab");
+      await page.keyboard.press("Shift+Tab");
+      await expect(focusTarget).toBeFocused();
+      await expect(focusTarget).toHaveCSS("outline-offset", "3px");
       const computed = await page.evaluate(() => {
         const scope = document.querySelector("dialog[open]") ?? document.body;
         const parse = (value: string): [number, number, number, number] => {
@@ -963,9 +967,16 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
         const focused = document.activeElement;
         if (!focused) throw new Error("No focused control to audit");
         const focusStyle = getComputedStyle(focused);
-        const focusInk = parse(focusStyle.outlineColor);
+        const outside = background(focused.parentElement ?? focused);
+        const focusContrast = (ink: string) => ratio(parse(ink), outside);
+        // A ring matching its surrounding surface must fail this same calculation.
+        const invisibleInk = `rgb(${outside.slice(0, 3).join(", ")})`;
+        const invisibleRatio = focusContrast(invisibleInk);
         const focus = { width: Number.parseFloat(focusStyle.outlineWidth),
-          ratio: Math.max(ratio(focusInk, background(focused)), ratio(focusInk, background(focused.parentElement ?? focused))) };
+          ratio: focusContrast(getComputedStyle(focused).outlineColor), invisibleRatio,
+          label: focused.textContent?.trim().slice(0, 50) ?? focused.tagName,
+          ink: focusStyle.outlineColor,
+          outside };
         return { text, border, clippedText, focus };
       });
       expect(computed.text.length, `${theme} ${route} ${viewport.width} text coverage`).toBeGreaterThan(0);
@@ -980,7 +991,8 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
       for (const item of computed.text) expect(item.ratio, `${theme} ${route} ${viewport.width}: ${JSON.stringify(item)}`).toBeGreaterThanOrEqual(4.5);
       for (const item of computed.border) expect(item.ratio, `${theme} ${route} ${viewport.width}: ${item.label} border`).toBeGreaterThanOrEqual(3);
       expect(computed.focus.width, `${locale} ${theme} ${route} ${viewport.width} focus width`).toBeGreaterThanOrEqual(3);
-      expect(computed.focus.ratio, `${locale} ${theme} ${route} ${viewport.width} focus contrast`).toBeGreaterThanOrEqual(3);
+      expect(computed.focus.ratio, `${locale} ${theme} ${route} ${viewport.width} focus contrast ${JSON.stringify(computed.focus)}`).toBeGreaterThanOrEqual(3);
+      expect(computed.focus.invisibleRatio, `${locale} ${theme} ${route} invisible focus regression`).toBeLessThan(3);
       expect(computed.clippedText, `${locale} ${theme} ${route} ${viewport.width} clipped text`).toEqual([]);
       if (route === "speak" || route === "speak-wait") await expectStatusRailIconContrast(page, "active");
       contrastChecks.push({ locale, route, theme, viewport: `${viewport.width}x${viewport.height}`,
