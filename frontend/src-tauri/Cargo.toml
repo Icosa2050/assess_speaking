@@ -6,6 +6,7 @@ publish = false
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
+internal-dmg-acceptance = []
 
 [dependencies]
 tauri = { version = "2" }

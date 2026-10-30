@@ -1,6 +1,5 @@
 import { buildApiUrl, desktopSessionHeaders } from "@/lib/runtime/environment";
 import type { FrozenApiRoute } from "@/lib/api/types";
-import { clearRetryDraft } from "@/lib/state/retryBriefStorage";
 import {
   clearRehearsalMaintenance, commitRehearsals, rehearsalMaintenance,
   snapshotRehearsals, stageRehearsals, withJournalLock, purgeArchivedRehearsal,
@@ -9,7 +8,7 @@ import {
 
 export type JournalStatus = { transaction: { id: string; phase: string } | null; archived: string[]; completed: string[]; recovery_error?: string | null; recovery_retryable?: boolean };
 export type BackupResult = { id: string; filename: string; size_bytes: number; missing: string[] };
-export type RestorePreview = { id: string; attempts: number; skipped_attempts: string[]; skipped_rehearsals: string[]; missing: string[]; browser: BrowserSnapshot };
+export type RestorePreview = { id: string; attempts: number; restored_attempt_ids?: string[]; skipped_attempts: string[]; skipped_rehearsals: string[]; missing: string[]; browser: BrowserSnapshot };
 // Only this renderer's mounted preview owns the transaction. Reloading or
 // leaving Settings exposes it as interrupted recovery again.
 let openPreview: string | undefined;
@@ -124,7 +123,6 @@ export async function commitLearnerRestore(preview: RestorePreview, signal: Abor
       throw error;
     }
   }, true);
-  clearRetryDraft();
 }
 export async function recoverLearnerJournal(rollback = false): Promise<void> {
   await withJournalLock(async access => {
@@ -181,7 +179,6 @@ export async function startFreshJournal(requestId: string, onAttempt: (browserTr
     await journalRequest("start-fresh", { confirmed: true, browser_transaction: local?.id, fresh_request: requestId });
     await clearRehearsalMaintenance(access);
   }, true);
-  clearRetryDraft();
 }
 
 export async function reconcileFreshJournal(requestId: string, browserTransaction?: string): Promise<{
@@ -197,7 +194,6 @@ export async function reconcileFreshJournal(requestId: string, browserTransactio
     let cleanupError: string | undefined;
     try { if (local) await clearRehearsalMaintenance(access); }
     catch (cause) { cleanupError = cause instanceof Error ? cause.message : String(cause); }
-    finally { clearRetryDraft(); }
     return { applied: true, status, pendingRecovery: false, cleanupError };
   }, true);
 }

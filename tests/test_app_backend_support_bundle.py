@@ -50,6 +50,14 @@ class SupportBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
             config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8772)
             config.state_file.write_text("{not json", encoding="utf-8")
+            drafts = config.app_data.root / 'drafts' / 'v1'
+            drafts.mkdir(parents=True)
+            (drafts / 'private.manifest').write_bytes(b'draft-manifest-sentinel')
+            (drafts / 'private.media').write_bytes(b'unsent-media-sentinel')
+            key_bytes = bytes(range(32))
+            key_service = b'com.vostavo.desktop.drafts.v1'
+            key_account = b'content-key'
+            (drafts / 'private.key').write_bytes(key_bytes + key_service + key_account)
             config.log_file.parent.mkdir(parents=True, exist_ok=True)
             config.log_file.write_text(
                 'backend ready\napi_key="log-secret"\nsecret_ref="connection:primary"\n',
@@ -106,12 +114,17 @@ class SupportBundleTests(unittest.TestCase):
                         "has_active_connection": True,
                         "llm_api_key": "client-secret",
                         "secret_ref": "connection:primary",
+                        "draft_manifest": "draft-manifest-sentinel",
+                        "value": {"nested": ["unsent-media-sentinel", "content-key-sentinel", key_bytes.hex(), key_service.decode(), key_account.decode()]},
+                        "draft_count": 1,
+                        "keychain_mode": "local-login",
                     },
                     client_diagnostics=[
                         {
                             "key": "runtime",
                             "detail_args": {
                                 "nested": [{"password": "diag-secret"}],
+                                "value": ["unsent-media-sentinel", {"manifest": "draft-manifest-sentinel", "key": "content-key-sentinel"}],
                                 "secret_ref": "connection:primary",
                             },
                         }
@@ -145,13 +158,16 @@ class SupportBundleTests(unittest.TestCase):
                 client_snapshot = json.loads(archive.read("client/client_snapshot.json"))
                 self.assertEqual(client_snapshot["llm_api_key"], REDACTED_VALUE)
                 self.assertNotIn("secret_ref", client_snapshot)
+                self.assertEqual(client_snapshot["draft_count"], 1)
+                self.assertEqual(client_snapshot["keychain_mode"], "local-login")
+                self.assertNotIn("draft_manifest", client_snapshot)
+                self.assertFalse(any(name.startswith('drafts/') for name in names))
+                self.assertTrue(all(token not in archive.read(name) for name in names
+                                    for token in (b'draft-manifest-sentinel', b'unsent-media-sentinel', b'content-key-sentinel',
+                                                  key_bytes, key_bytes.hex().encode(), key_service, key_account)))
 
                 client_diagnostics = json.loads(archive.read("client/client_diagnostics.json"))
-                self.assertEqual(
-                    client_diagnostics[0]["detail_args"]["nested"][0]["password"],
-                    REDACTED_VALUE,
-                )
-                self.assertNotIn("secret_ref", client_diagnostics[0]["detail_args"])
+                self.assertEqual(client_diagnostics, [{"key": "runtime"}])
 
                 report_payload = json.loads(archive.read(report_name))
                 self.assertEqual(report_payload["api_token"], REDACTED_VALUE)
@@ -171,7 +187,7 @@ class SupportBundleTests(unittest.TestCase):
                 self.assertTrue(manifest["include_recordings"])
                 self.assertTrue(manifest["include_uploads"])
                 self.assertEqual(manifest["redaction"]["secret_ref_policy"], "full_redaction")
-                self.assertGreaterEqual(manifest["redaction"]["removed_secret_refs"], 4)
+                self.assertGreaterEqual(manifest["redaction"]["removed_secret_refs"], 3)
                 self.assertGreaterEqual(manifest["redaction"]["redacted_secret_values"], 5)
 
     def test_create_support_bundle_skips_unreadable_text_file(self):

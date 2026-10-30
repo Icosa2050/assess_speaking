@@ -33,6 +33,10 @@ export const draftAdapterFixture = (entries: SavedDraft[] = []) => {
       ...previous, setup, createdAt: Date.now(), updatedAt: Date.now(), expiresAt: Date.now() + 7 * 86400000,
       revision: previous.revision + 1, status: "setup" as const, take: null, submission: null,
     })),
+    detachRetry: vi.fn(async (draft: SavedDraft) => ({
+      ...draft, revision: draft.revision + 1,
+      setup: { ...draft.setup, retryOfSessionId: "", retryGoalEligible: false },
+    })),
     importLegacyBrief: vi.fn(async (setup: SessionDraft) => ({ ...savedDraftFixture(setup.speakerId, setup.sessionId), setup, take: null, status: "setup" } as SavedDraft)),
     saveTake: vi.fn(async (draft: SavedDraft, file: File) => ({ ...draft, revision: draft.revision + 1, status: "take_ready" as const,
       take: { ...savedDraftFixture().take!, originalFilename: file.name, size: file.size } })),

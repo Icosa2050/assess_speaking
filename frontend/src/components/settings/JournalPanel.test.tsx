@@ -9,6 +9,11 @@ import { renderWithProviders } from "@/test/renderWithProviders";
 import { JournalRecoveryNotice } from "@/components/shell/JournalRecoveryNotice";
 import controlStyles from "@/components/ui/controls.module.css";
 import { JournalPanel } from "./JournalPanel";
+import { draftAdapterFixture, savedDraftFixture } from "@/test/draftAdapterFixture";
+import { hasRestoredRetryParent } from "@/lib/rehearsal/draftConflicts";
+import { persistRetryDraft, readRetryDraft } from "@/lib/state/retryBriefStorage";
+import { buildSessionDraft } from "@/lib/state/sessionDraft";
+import { apiClient, ApiClientError } from "@/lib/api/client";
 
 vi.mock("@/lib/rehearsal/maintenance", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/rehearsal/maintenance")>(),
@@ -38,6 +43,99 @@ describe("journal recovery visibility", () => {
     vi.mocked(journalStatus).mockResolvedValue(damaged);
     vi.mocked(reconcileFreshJournal).mockResolvedValue({applied: false, status: damaged, pendingRecovery: false});
     archived.mockResolvedValue([]);
+  });
+
+  it("requires acknowledgment for an imported retry parent and preserves the local take", async () => {
+    const entry = savedDraftFixture();
+    entry.setup = { ...entry.setup, retryOfSessionId: "imported-parent", coachingGoal: "Finish clearly", retryGoalEligible: true };
+    const adapter = draftAdapterFixture([entry]);
+    vi.mocked(previewLearnerRestore).mockResolvedValue({ id: "restore", attempts: 1,
+      restored_attempt_ids: ["imported-parent"], skipped_attempts: [], skipped_rehearsals: [], missing: [],
+      browser: { sessions: [], recordings: [] } });
+    renderWithProviders(<JournalPanel locale="en" />, { draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Continue without resuming" }));
+    fireEvent.change(await screen.findByLabelText(t("journal.open")), { target: { files: [new File(["zip"], "backup.zip")] } });
+    expect(await screen.findByRole("alert")).toHaveTextContent("1 local draft(s)");
+    const commit = screen.getByRole("button", { name: t("journal.confirm_restore") });
+    expect(commit).toBeDisabled();
+    fireEvent.click(screen.getByLabelText(t("journal.confirm_draft_conflict")));
+    expect(commit).toBeEnabled();
+    fireEvent.click(commit);
+    await waitFor(() => expect(commitLearnerRestore).toHaveBeenCalledOnce());
+    expect(hasRestoredRetryParent(entry.draftId, "imported-parent")).toBe(true);
+    expect(adapter.discard).not.toHaveBeenCalled();
+  });
+
+  it("does not mark a retry for detachment when restore fails and rolls back", async () => {
+    const entry = savedDraftFixture();
+    entry.setup = { ...entry.setup, retryOfSessionId: "original-parent", retryGoalEligible: true };
+    vi.mocked(previewLearnerRestore).mockResolvedValue({ id: "restore", attempts: 1,
+      restored_attempt_ids: ["original-parent"], skipped_attempts: [], skipped_rehearsals: [], missing: [],
+      browser: { sessions: [], recordings: [] } });
+    vi.mocked(commitLearnerRestore).mockRejectedValueOnce(new Error("Restore rolled back"));
+    const adapter = draftAdapterFixture([entry]);
+    renderWithProviders(<JournalPanel locale="en" />, { draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Continue without resuming" }));
+    fireEvent.change(await screen.findByLabelText(t("journal.open")), { target: { files: [new File(["zip"], "backup.zip")] } });
+    fireEvent.click(await screen.findByLabelText(t("journal.confirm_draft_conflict")));
+    fireEvent.click(screen.getByRole("button", { name: t("journal.confirm_restore") }));
+    await waitFor(() => expect(commitLearnerRestore).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByText("Restore rolled back")).toBeVisible());
+    expect(hasRestoredRetryParent(entry.draftId, "original-parent")).toBe(false);
+    expect(adapter.detachRetry).not.toHaveBeenCalled();
+    expect(adapter.discard).not.toHaveBeenCalled();
+  });
+
+  it("checks a browser-only retry brief after Start fresh and keeps its goal if the parent is gone", async () => {
+    status.mockResolvedValue(damaged);
+    vi.mocked(startFreshJournal).mockResolvedValue(undefined);
+    const brief = buildSessionDraft({ speakerId: "Alex", themeId: "trip", themeLabel: "Trip",
+      promptText: "Describe a trip", retryOfSessionId: "old-parent", coachingGoal: "Finish clearly", retryGoalEligible: true });
+    const lookup = vi.spyOn(apiClient, "getHistoryDetail").mockRejectedValue(new ApiClientError(404, { code: "runtime_error", detail: "Gone" }));
+    try {
+      const { store } = renderWithProviders(<JournalPanel locale="en" />, { appState: { draft: brief } });
+      persistRetryDraft(brief);
+      fireEvent.click(await screen.findByRole("button", { name: t("journal.fresh") }));
+      fireEvent.click(screen.getByRole("button", { name: t("journal.confirm_fresh") }));
+      await waitFor(() => expect(lookup).toHaveBeenCalledWith("old-parent"));
+      expect(readRetryDraft()).toMatchObject({ coachingGoal: "Finish clearly", retryOfSessionId: "", retryGoalEligible: false });
+      expect(store.getState().draft).toMatchObject({ coachingGoal: "Finish clearly", retryOfSessionId: "", retryGoalEligible: false });
+    } finally { lookup.mockRestore(); }
+  });
+
+  it("keeps a browser retry link after a temporary history failure and checks it again", async () => {
+    status.mockResolvedValue(damaged);
+    vi.mocked(startFreshJournal).mockResolvedValue(undefined);
+    const brief = buildSessionDraft({ speakerId: "Alex", themeId: "trip", themeLabel: "Trip",
+      promptText: "Describe a trip", retryOfSessionId: "existing-parent", coachingGoal: "", retryGoalEligible: true });
+    const lookup = vi.spyOn(apiClient, "getHistoryDetail")
+      .mockRejectedValueOnce(new ApiClientError(503, { code: "runtime_error", detail: "Starting" }))
+      .mockResolvedValue({ payload: {} });
+    try {
+      const { store } = renderWithProviders(<JournalPanel locale="en" />, { appState: { draft: brief } });
+      persistRetryDraft(brief);
+      fireEvent.click(await screen.findByRole("button", { name: t("journal.fresh") }));
+      fireEvent.click(screen.getByRole("button", { name: t("journal.confirm_fresh") }));
+      await waitFor(() => expect(lookup).toHaveBeenCalledTimes(1));
+      expect(readRetryDraft()).toMatchObject({ retryOfSessionId: "existing-parent", retryGoalEligible: true });
+      expect(store.getState().draft.retryOfSessionId).toBe("existing-parent");
+      fireEvent.click(screen.getByRole("button", { name: t("journal.check_recovery") }));
+      await waitFor(() => expect(lookup).toHaveBeenCalledTimes(2));
+      expect(readRetryDraft()).toMatchObject({ retryOfSessionId: "existing-parent", retryGoalEligible: true });
+    } finally { lookup.mockRestore(); }
+  });
+
+  it("blocks restore when an older helper omits attempt identities for local retry drafts", async () => {
+    const entry = savedDraftFixture();
+    entry.setup = { ...entry.setup, retryOfSessionId: "parent", retryGoalEligible: true };
+    vi.mocked(previewLearnerRestore).mockResolvedValue({ id: "restore", attempts: 1,
+      skipped_attempts: [], skipped_rehearsals: [], missing: [], browser: { sessions: [], recordings: [] } });
+    renderWithProviders(<JournalPanel locale="en" />, { draftAdapter: draftAdapterFixture([entry]) });
+    fireEvent.click(await screen.findByRole("button", { name: "Continue without resuming" }));
+    fireEvent.change(await screen.findByLabelText(t("journal.open")), { target: { files: [new File(["zip"], "backup.zip")] } });
+    expect(await screen.findByRole("alert")).toHaveTextContent("cannot list the attempts");
+    expect(screen.getByRole("button", { name: t("journal.confirm_restore") })).toBeDisabled();
+    expect(commitLearnerRestore).not.toHaveBeenCalled();
   });
 
   it("shows a recovery link for a damaged purge without a transaction", async () => {
@@ -90,8 +188,8 @@ describe("journal recovery visibility", () => {
     await waitFor(() => expect(startFreshJournal).toHaveBeenCalledOnce());
     expect(await screen.findByText(t("journal.fresh_done"))).toBeVisible();
     expect(document.activeElement).toBe(screen.getByText(t("journal.fresh_done")));
-    expect(store.getState().draft.coachingGoal).toBe("");
-    expect(store.getState().draft.retryOfSessionId).toBe("");
+    expect(store.getState().draft.coachingGoal).toBe("Add a closing sentence");
+    expect(store.getState().draft.retryOfSessionId).toBe("first");
   });
 
   it("disables the exits while a repair transaction is pending", async () => {
@@ -306,7 +404,7 @@ describe("journal recovery visibility", () => {
     fireEvent.change(await screen.findByLabelText(t("journal.open")), { target: { files: [new File(["zip"], "backup.zip")] } });
     fireEvent.click(await screen.findByRole("button", { name: t("journal.confirm_restore") }));
     await waitFor(() => expect(commitLearnerRestore).toHaveBeenCalledOnce());
-    await waitFor(() => expect(store.getState().draft).toMatchObject({ coachingGoal: "", retryOfSessionId: "" }));
+    await waitFor(() => expect(store.getState().draft).toMatchObject({ coachingGoal: "Add a closing sentence", retryOfSessionId: "first" }));
   });
 
   it("keeps restore success visible when the following status refresh fails", async () => {

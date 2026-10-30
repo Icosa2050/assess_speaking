@@ -29,17 +29,17 @@ describe("damaged journal browser coordination", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({confirmed: true, fresh_request: "f".repeat(32)});
     // No rollback flag: already committed sessions and audio must be retained.
     expect(clearRehearsalMaintenance).toHaveBeenCalledExactlyOnceWith({});
-    expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).not.toBeNull();
   });
 
-  it("clears a saved retry after a successful learner restore", async () => {
+  it("keeps a saved retry after an additive learner restore", async () => {
     persistRetryDraft(buildSessionDraft({ speakerId: "learner", themeId: "trip", promptText: "Describe a trip",
       retryOfSessionId: "first", coachingGoal: "Add a closing sentence", retryGoalEligible: true }));
     fetchMock.mockImplementation(async () => reply({phase: "complete"}));
     await commitLearnerRestore({ id: "restore", attempts: 0, skipped_attempts: [], skipped_rehearsals: [], missing: [],
       browser: { sessions: [], recordings: [] } }, new AbortController().signal, vi.fn());
     expect(commitRehearsals).toHaveBeenCalledOnce();
-    expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).not.toBeNull();
   });
 
   it("retries interrupted fresh-start cleanup without rolling back saved sessions", async () => {
@@ -66,10 +66,10 @@ describe("damaged journal browser coordination", () => {
     expect(clearRehearsalMaintenance).toHaveBeenCalledExactlyOnceWith({});
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0][0]).toContain("/journal/status");
-    expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).not.toBeNull();
   });
 
-  it("forgets a retry draft even when post-reset browser cleanup remains blocked", async () => {
+  it("keeps a retry brief even when post-reset browser cleanup remains blocked", async () => {
     const id = "a".repeat(32);
     const requestId = "f".repeat(32);
     vi.mocked(rehearsalMaintenance).mockResolvedValue({id, phase: "committed", sessions: [], recordings: []});
@@ -78,7 +78,7 @@ describe("damaged journal browser coordination", () => {
     vi.mocked(clearRehearsalMaintenance).mockRejectedValueOnce(new Error("IndexedDB blocked"));
     fetchMock.mockResolvedValueOnce(reply({transaction: null, archived: [], completed: [id, requestId], recovery_error: null}));
     expect(await reconcileFreshJournal(requestId, id)).toMatchObject({applied: true, cleanupError: "IndexedDB blocked"});
-    expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).not.toBeNull();
   });
 
   it("does not clear an unrelated pending restore after a rejected reset", async () => {

@@ -556,7 +556,7 @@ class Journal:
                 private_json(work / 'trash-before.json', read_json(self.directory / 'trash.json', {}))
                 state.update(phase='backend_staged', restored_from=identity, history_existed=history.exists(), history_before=digest(history) if history.exists() else None)
                 self.save(state)
-                return {'id': transaction, 'phase': state['phase'], 'browser': manifest['browser'], 'attempts': len(manifest['attempts']), 'skipped_attempts': skipped, 'missing': manifest.get('missing', [])}
+                return {'id': transaction, 'phase': state['phase'], 'browser': manifest['browser'], 'attempts': len(manifest['attempts']), 'restored_attempt_ids': [entry['session_id'] for entry in manifest['attempts']], 'skipped_attempts': skipped, 'missing': manifest.get('missing', [])}
             except (zipfile.BadZipFile, json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, AttributeError) as exc:
                 shutil.rmtree(extracted, ignore_errors=True)
                 raise JournalError('The backup format is invalid; nothing was restored.') from exc
@@ -592,7 +592,7 @@ class Journal:
                 trash = read_json(self.directory / 'trash.json', {})
                 for entry in manifest['attempts']:
                     payload = rebind(entry['report'], media)
-                    payload['restored_from'] = {'archive_sha256': state['restored_from'], 'source_report_sha256': entry['source_report_sha256'], 'sanitized_report_sha256': entry['report_sha256'], 'jobs_resumable': False}
+                    payload['restored_from'] = {'archive_sha256': state['restored_from'], 'source_report_sha256': entry['source_report_sha256'], 'sanitized_report_sha256': entry['report_sha256'], 'jobs_resumable': False, 'restored_at_ms': int(time.time() * 1000)}
                     path = reports / f"{entry['session_id']}.json"
                     payload['report_path'] = str(path)
                     private_json(path, payload)

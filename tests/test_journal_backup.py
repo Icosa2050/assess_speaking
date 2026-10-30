@@ -47,14 +47,28 @@ def backup(j):
 def test_cross_root_roundtrip_deduplicates_audio_and_preserves_eligibility(tmp_path):
     first, second = journal(tmp_path / 'first'), journal(tmp_path / 'second')
     seed(first)
+    drafts = first.config.app_data.root / 'drafts' / 'v1'
+    drafts.mkdir(parents=True)
+    (drafts / ('a' * 32 + '.manifest')).write_bytes(b'private-draft-manifest')
+    (drafts / ('a' * 32 + '-' + 'b' * 32 + '.media')).write_bytes(b'private-unsent-take')
+    key_bytes = bytes(range(32))
+    key_service = b'com.vostavo.desktop.drafts.v1'
+    key_account = b'content-key'
+    (drafts / 'key-material').write_bytes(b'private-key-material' + key_bytes + key_service + key_account)
     path = backup(first)
     with zipfile.ZipFile(path) as archive:
         manifest = json.loads(archive.read('manifest.json'))
         assert len(manifest['files']) == 1
         assert str(tmp_path) not in archive.read('manifest.json').decode()
         assert 'do-not-export' not in archive.read('manifest.json').decode()
+        assert not any(name.startswith('drafts/') for name in archive.namelist())
+        assert all(token not in archive.read(name) for name in archive.namelist()
+                   for token in (b'private-draft-manifest', b'private-unsent-take', b'private-key-material',
+                                 key_bytes, key_service, key_account))
     tx = second.begin()['id']
-    assert second.stage(tx, path)['attempts'] == 2
+    staged = second.stage(tx, path)
+    assert staged['attempts'] == 2
+    assert staged['restored_attempt_ids'] == ['session0', 'session1']
     second.commit(tx)
     second.complete(tx)
     _, rows = read_history(second.config.app_data.reports_dir / 'history.csv')
@@ -63,6 +77,7 @@ def test_cross_root_roundtrip_deduplicates_audio_and_preserves_eligibility(tmp_p
     assert Path(payloads[0]['meta']['audio_path']).read_bytes() == b'synthetic waveform'
     assert payloads[0]['eligibility']['status'] == 'unverified'
     assert payloads[0]['restored_from']['jobs_resumable'] is False
+    assert isinstance(payloads[0]['restored_from']['restored_at_ms'], int)
     assert not list(second.config.jobs_dir.iterdir())
 
 

@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { StatusBanner } from "@/components/ui/StatusBanner";
 import { createTranslator } from "@/lib/i18n";
 import { apiClient, ApiClientError } from "@/lib/api/client";
 import type { AssessmentRequestLookupResponse, JobStatus } from "@/lib/api/types";
@@ -10,6 +11,7 @@ import { useAppStore, useAppStoreApi } from "./appStore";
 import { createDraftStoreAdapter, DraftStoreError, normalizedLearner, sameDraftAttempt, type DraftStoreAdapter } from "./draftStore";
 import { clearRetryDraft, readLegacyRetryBrief, readRetryDraft } from "./retryBriefStorage";
 import { confirmLocalDraft } from "@/lib/runtime/confirmLocalDraft";
+import { forgetRetryMarkers, hasFreshRetryParent, hasRestoredRetryParent } from "@/lib/rehearsal/draftConflicts";
 import type { SessionDraft } from "./sessionDraft";
 
 type LegacyBrief = NonNullable<ReturnType<typeof readLegacyRetryBrief>>;
@@ -45,6 +47,7 @@ type RecoveryContext = {
   hasStoredEntries: boolean;
   recoveredFile: File | null;
   error: DraftStoreError | null;
+  retryParentCheckPending: boolean;
   saveSetup: (setup: SessionDraft) => Promise<SavedDraft | null>;
   replaceSetup: (setup: SessionDraft, previous: SavedDraft) => Promise<SavedDraft>;
   saveTake: (setup: SessionDraft, file: File, duration: number, method: "record" | "upload", progress: (percent: number) => void) => Promise<SavedDraft>;
@@ -57,10 +60,11 @@ type RecoveryContext = {
   reloadActiveTake: () => Promise<void>;
   findLearner: (speakerId: string) => SavedDraft | undefined;
   manageDrafts: () => void;
+  reconcileActiveRetryParent: () => Promise<void>;
 };
 
 const defaultContext: RecoveryContext = {
-  supported: false, active: null, drafts: [], hasStoredEntries: false, recoveredFile: null, error: null,
+  supported: false, active: null, drafts: [], hasStoredEntries: false, recoveredFile: null, error: null, retryParentCheckPending: false,
   saveSetup: async () => null,
   replaceSetup: async () => { throw new Error("Local draft storage is unavailable"); },
   saveTake: async () => { throw new Error("Local draft storage is unavailable"); },
@@ -73,6 +77,7 @@ const defaultContext: RecoveryContext = {
   reloadActiveTake: async () => undefined,
   findLearner: () => undefined,
   manageDrafts: () => undefined,
+  reconcileActiveRetryParent: async () => undefined,
 };
 const Context = createContext<RecoveryContext>(defaultContext);
 export const useDraftRecovery = (): RecoveryContext => useContext(Context);
@@ -104,6 +109,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   const [recoveredFile, setRecoveredFile] = useState<File | null>(null);
   const [legacy, setLegacy] = useState<LegacyBrief | null>(null);
   const [error, setError] = useState<DraftStoreError | null>(null);
+  const [historyPendingId, setHistoryPendingId] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [completionCleanupRetry, setCompletionCleanupRetry] = useState(0);
@@ -199,7 +205,8 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     const previous = activeRef.current?.speakerId === normalizedLearner(setup.speakerId)
       ? activeRef.current : draftsRef.current.find(item => item.speakerId === normalizedLearner(setup.speakerId));
     try {
-      const replacing = previous && confirmedReplacement.current === previous.draftId && !sameDraftAttempt(previous, setup);
+      const previousId = previous?.draftId;
+      const replacing = previous && confirmedReplacement.current === previousId && !sameDraftAttempt(previous, setup);
       if (replacing && replacementWouldReleasePendingTake(previous)) {
         throw new DraftStoreError("conflict", "Assessment is pending; keep the saved take until its result is known");
       }
@@ -210,6 +217,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       if (replacing) confirmedReplacement.current = null;
       replaceListing(saved);
       if (activeRef.current !== activeAtStart) throw new DraftStoreError("conflict", "The active draft changed while saving.");
+      if (replacing && previousId) forgetRetryMarkers(previousId);
       setCurrent(saved); setError(null);
       return saved;
     } catch (saveError) { confirmedReplacement.current = null; setError(saveError as DraftStoreError); throw saveError; }
@@ -220,6 +228,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
         throw new DraftStoreError("conflict", "Assessment is pending; keep the saved take until its result is known");
       }
       const saved = await adapter.replaceSetup(setup, previous);
+      forgetRetryMarkers(previous.draftId);
       confirmedReplacement.current = null;
       setCurrent(saved); replaceListing(saved); setRecoveredFile(null); setError(null);
       return saved;
@@ -286,6 +295,8 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
               const latest = draftsRef.current.find(item => item.draftId === entry.draftId);
               if (latest?.revision !== entry.revision || latest.submission?.assessmentRequestId !== receipt.assessmentRequestId) continue;
               await adapter.discard(entry.draftId);
+              forgetRetryMarkers(entry.draftId);
+              setHistoryPendingId(current => current === entry.draftId ? null : current);
               draftsRef.current = draftsRef.current.filter(item => item.draftId !== entry.draftId);
               setDrafts(draftsRef.current);
               if (activeRef.current?.draftId === entry.draftId && sameDraftAttempt(activeRef.current, entry.setup)) { setCurrent(null); setRecoveredFile(null); }
@@ -325,6 +336,8 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     const id = activeRef.current?.draftId;
     if (!id) return;
     await adapter.discard(id);
+    forgetRetryMarkers(id);
+    setHistoryPendingId(null);
     if (activeRef.current?.draftId === id) {
       setCurrent(null); setRecoveredFile(null);
     }
@@ -356,6 +369,8 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
           return;
         }
         await adapter.discard(completed.draftId);
+        forgetRetryMarkers(completed.draftId);
+        setHistoryPendingId(null);
         draftsRef.current = draftsRef.current.filter(item => item.draftId !== completed.draftId);
         setDrafts(draftsRef.current);
         setCurrent(null); setRecoveredFile(null);
@@ -372,6 +387,8 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     setBusy(true);
     return enqueue(async () => { try {
       await adapter.discard(id);
+      forgetRetryMarkers(id);
+      if (activeRef.current?.draftId === id) setHistoryPendingId(null);
       draftsRef.current = draftsRef.current.filter(item => item.draftId !== id);
       setDrafts(draftsRef.current);
       const remainingUnreadable = unreadableIds.filter(item => item !== id);
@@ -395,6 +412,35 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     setRecoveredFile(null);
     return true;
   };
+  const resolveRetryParent = async (entry: SavedDraft): Promise<SavedDraft> => {
+    const parent = entry.setup.retryOfSessionId;
+    if (!parent) return entry;
+    // A submission receipt freezes the request, including its retry parent.
+    // History reconciliation may observe that request, but cannot rewrite it.
+    if (entry.submission || (entry.status !== "setup" && entry.status !== "take_ready")) {
+      forgetRetryMarkers(entry.draftId);
+      return entry;
+    }
+    let detached = false;
+    try {
+      const detail = await apiClient.getHistoryDetail(parent);
+      const provenance = detail.payload.restored_from;
+      const restoredAt = provenance && typeof provenance === "object" && !Array.isArray(provenance)
+        ? (provenance as Record<string, unknown>).restored_at_ms : undefined;
+      detached = typeof restoredAt === "number" && Number.isFinite(restoredAt) && entry.createdAt <= restoredAt ||
+        Boolean(provenance && restoredAt === undefined && hasRestoredRetryParent(entry.draftId, parent));
+    } catch (error) {
+      if (error instanceof ApiClientError && error.responseStatus === 404) detached = true;
+      else throw new DraftStoreError("history", "Could not verify the retry parent in journal history");
+    }
+    if (detached) {
+      const saved = await adapter.detachRetry(entry);
+      forgetRetryMarkers(entry.draftId);
+      return saved;
+    }
+    forgetRetryMarkers(entry.draftId);
+    return entry;
+  };
   const resume = (entry: SavedDraft) => {
     setBusy(true);
     void enqueue(async () => { try {
@@ -402,24 +448,34 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       if (!latest) return;
       if (latest.expiresAt <= Date.now()) {
         await adapter.discard(latest.draftId);
+        forgetRetryMarkers(latest.draftId);
         draftsRef.current = draftsRef.current.filter(item => item.draftId !== entry.draftId);
         setDrafts(draftsRef.current);
         if (!draftsRef.current.length && !unreadableIds.length && !legacy) { setChoosing(false); setManaging(false); }
         return;
       }
-      const file = latest.take ? await adapter.loadTake(latest) : null;
-      applySetup(latest.setup);
-      const status = receiptStatusesRef.current[latest.draftId];
-      if (status && latest.submission?.assessmentId) {
-        appStore.getState().setRecordingJob({ assessmentId: latest.submission.assessmentId, status,
+      let saved = latest;
+      let historyPending = false;
+      try { saved = await resolveRetryParent(latest); }
+      catch (lookupError) {
+        if (lookupError instanceof DraftStoreError && lookupError.kind === "history") historyPending = true;
+        else throw lookupError;
+      }
+      if (saved !== latest) replaceListing(saved);
+      const file = saved.take ? await adapter.loadTake(saved) : null;
+      applySetup(saved.setup);
+      const status = receiptStatusesRef.current[saved.draftId];
+      if (status && saved.submission?.assessmentId) {
+        appStore.getState().setRecordingJob({ assessmentId: saved.submission.assessmentId, status,
           phase: status, progress: ["completed", "failed", "cancelled"].includes(status) ? 1 : 0 });
       }
-      setCurrent(latest);
+      setCurrent(saved);
       setRecoveredFile(file);
       setChoosing(false);
       setManaging(false);
       setError(null);
-      navigate(latest.take || (latest.setup.retryOfSessionId && latest.setup.retryGoalEligible) ? "/speak" : "/session-setup", { replace: true });
+      setHistoryPendingId(historyPending ? saved.draftId : null);
+      navigate(saved.take || (saved.setup.retryOfSessionId && saved.setup.retryGoalEligible) ? "/speak" : "/session-setup", { replace: true });
     } catch (resumeError) {
       setError(resumeError as DraftStoreError);
       if (["unreadable", "lost_key"].includes((resumeError as DraftStoreError).kind)) {
@@ -431,8 +487,9 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   };
   const context: RecoveryContext = {
     supported: adapter.supported, active, drafts, hasStoredEntries: Boolean(drafts.length || unreadableIds.length), recoveredFile, error,
+    retryParentCheckPending: Boolean(active && historyPendingId === active.draftId),
     saveSetup, replaceSetup, saveTake, markSubmission, prepareNewAttempt, discardActive, discardDraft: discard,
-    leaveActive: () => { setCurrent(null); setRecoveredFile(null); setError(null); },
+    leaveActive: () => { setCurrent(null); setRecoveredFile(null); setError(null); setHistoryPendingId(null); },
     clearRecoveredFile: () => setRecoveredFile(null),
     reloadActiveTake: () => enqueue(async () => {
       if (!activeRef.current?.take) return;
@@ -441,6 +498,23 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     }),
     findLearner: speakerId => draftsRef.current.find(item => item.speakerId === normalizedLearner(speakerId)),
     manageDrafts: () => { setManaging(true); setChoosing(true); },
+    reconcileActiveRetryParent: () => enqueue(async () => {
+      const entry = activeRef.current;
+      if (!entry?.setup.retryOfSessionId) return;
+      let saved: SavedDraft;
+      try { saved = await resolveRetryParent(entry); }
+      catch (lookupError) {
+        if (lookupError instanceof DraftStoreError && lookupError.kind === "history") setHistoryPendingId(entry.draftId);
+        throw lookupError;
+      }
+      setHistoryPendingId(null);
+      if (saved !== entry) {
+        setCurrent(saved); replaceListing(saved);
+        if (sameDraftAttempt(entry, appStore.getState().draft)) {
+          appStore.getState().updateDraft({ retryOfSessionId: "", retryGoalEligible: false });
+        }
+      }
+    }),
   };
   const pending = choosing && (drafts.length > 0 || unreadableIds.length > 0 || legacy || error || managing);
   const recoveryCard = (
@@ -457,6 +531,8 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
             ? translate("draft.assessment_cancelled") : receiptStatuses[entry.draftId] === "queued" || receiptStatuses[entry.draftId] === "running"
             ? translate("draft.assessment_pending") : entry.status === "uploaded"
             ? translate("draft.upload_confirmed") : translate("draft.submission_uncertain")}</p>}
+          {entry.setup.retryOfSessionId && hasRestoredRetryParent(entry.draftId, entry.setup.retryOfSessionId) && <p>{translate("draft.restored_parent_conflict")}</p>}
+          {entry.setup.retryOfSessionId && hasFreshRetryParent(entry.draftId, entry.setup.retryOfSessionId) && <p>{translate("draft.fresh_parent_check")}</p>}
           {confirmDiscard === entry.draftId ? <div role="group" aria-label={translate("draft.discard_confirm_title")}>
             <p>{translate("draft.discard_confirm", { learner: entry.setup.speakerId, task: entry.setup.themeLabel, size: entry.take ? `${(entry.take.size / 1024 / 1024).toFixed(1)} MiB` : "0 MiB" })}</p>
             <Button disabled={busy} onClick={() => void discard(entry.draftId)}>{translate("draft.discard_action")}</Button>
@@ -479,12 +555,18 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
         </div>}
         {error && <p role="alert">{translate(error.kind === "lost_key" || error.kind === "unreadable" ? "draft.unreadable"
           : error.kind === "keychain" ? "draft.keychain_error" : error.kind === "limit" ? "draft.limit_error"
-          : error.kind === "format" ? "draft.format_error" : error.kind === "uncertain" ? "draft.save_uncertain" : "draft.storage_error")}</p>}
+          : error.kind === "format" ? "draft.format_error" : error.kind === "uncertain" ? "draft.save_uncertain"
+          : error.kind === "history" ? "draft.history_error" : "draft.storage_error")}</p>}
         {error && !["limit", "format"].includes(error.kind) && <Button disabled={busy} onClick={retryBoot}>{translate("draft.retry_listing")}</Button>}
         <Button variant="quiet" onClick={() => { setChoosing(false); setManaging(false); }}>{translate("draft.continue_without_resume")}</Button>
       </Card>
   );
   return <Context.Provider value={context}>
-    {!booted ? <p role="status">{translate("journey.loading")}</p> : pending && !managing ? recoveryCard : <>{managing && recoveryCard}{children}</>}
+    {!booted ? <p role="status">{translate("journey.loading")}</p> : pending && !managing ? recoveryCard : <>
+      {managing && recoveryCard}
+      {active && historyPendingId === active.draftId && <StatusBanner title={translate("draft.history_error")} tone="warning">
+        <Button onClick={() => void context.reconcileActiveRetryParent().catch(() => undefined)}>{translate("draft.retry_history_check")}</Button>
+      </StatusBanner>}
+      {children}</>}
   </Context.Provider>;
 };

@@ -10,6 +10,7 @@ import { queryKeys } from "@/lib/query/queryClient";
 import { draftAdapterFixture, savedDraftFixture } from "@/test/draftAdapterFixture";
 import { desktopBridge } from "@/lib/runtime/desktopBridge";
 import { persistRetryDraft, RETRY_DRAFT_STORAGE_KEY } from "@/lib/state/retryBriefStorage";
+import { rememberRestoredRetryParents } from "@/lib/rehearsal/draftConflicts";
 
 vi.mock("@/lib/api/client", () => ({
   ApiClientError: class ApiClientError extends Error {
@@ -31,7 +32,7 @@ vi.mock("@/lib/api/client", () => ({
     createAssessment: vi.fn(),
     getAssessmentStatus: vi.fn(),
     getAssessmentByRequest: vi.fn(),
-    getHistoryDetail: vi.fn(),
+    getHistoryDetail: vi.fn().mockResolvedValue({ payload: {} }),
     getUploadByRequest: vi.fn(),
     getRuntime: vi.fn(),
     getDiagnostics: vi.fn(),
@@ -50,6 +51,7 @@ import { apiClient, ApiClientError } from "@/lib/api/client";
 const mockedCancelAssessment = vi.mocked(apiClient.cancelAssessment);
 const mockedCreateAssessment = vi.mocked(apiClient.createAssessment);
 const mockedGetAssessmentStatus = vi.mocked(apiClient.getAssessmentStatus);
+const mockedGetHistoryDetail = vi.mocked(apiClient.getHistoryDetail);
 const mockedGetRuntime = vi.mocked(apiClient.getRuntime);
 const mockedGetDiagnostics = vi.mocked(apiClient.getDiagnostics);
 const mockedGetReadiness = vi.mocked(apiClient.getReadiness);
@@ -150,6 +152,47 @@ describe("Speak route", () => {
     fireEvent.click(screen.getByTestId("speak.submit"));
     expect(mockedUploadAudio).not.toHaveBeenCalled();
     expect(adapter.discard).not.toHaveBeenCalled();
+  });
+
+  it("keeps a recovered take usable but blocks Submit until its retry parent is verified", async () => {
+    const saved = savedDraftFixture();
+    saved.setup = { ...saved.setup, retryOfSessionId: "prior-attempt", retryGoalEligible: true };
+    const adapter = draftAdapterFixture([saved]);
+    mockedGetHistoryDetail.mockRejectedValueOnce(new ApiClientError(503, { code: "runtime_error", detail: "Helper starting" }))
+      .mockResolvedValueOnce({ payload: {} });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.recording_status")).toHaveTextContent("Saved on this Mac"));
+    expect(screen.getByTestId("speak.download_recording")).toHaveAttribute("download", "saved.wav");
+    expect(screen.getByTestId("speak.submit")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    expect(mockedUploadAudio).not.toHaveBeenCalled();
+    expect(mockedCreateAssessment).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Retry history check" }));
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledOnce());
+    expect(mockedCreateAssessment.mock.calls[0][0]).toMatchObject({ retry_of_session_id: "prior-attempt" });
+  });
+
+  it("submits a recovered take without a restored parent after a missing-history check", async () => {
+    const saved = savedDraftFixture();
+    saved.setup = { ...saved.setup, retryOfSessionId: "imported-attempt", retryGoalEligible: true };
+    const adapter = draftAdapterFixture([saved]);
+    mockedGetHistoryDetail.mockRejectedValueOnce(new ApiClientError(503, { code: "runtime_error", detail: "Helper starting" }))
+      .mockRejectedValueOnce(new ApiClientError(404, { code: "runtime_error", detail: "Missing" }));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    rememberRestoredRetryParents([{ draftId: saved.draftId, parentId: "imported-attempt" }]);
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeDisabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    expect(mockedCreateAssessment).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Retry history check" }));
+    await waitFor(() => expect(adapter.detachRetry).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledOnce());
+    expect(mockedCreateAssessment.mock.calls[0][0]).toMatchObject({ retry_of_session_id: "" });
   });
 
   it("blocks assessment Retry while a replacement recording is active", async () => {
@@ -518,6 +561,7 @@ describe("Speak route", () => {
     window.localStorage.removeItem("assess-speaking.first-take-recorded");
     vi.mocked(apiClient.getUploadLimits).mockResolvedValue({ max_bytes: 104857600, available_bytes: 104857600 });
     vi.clearAllMocks();
+    mockedGetHistoryDetail.mockReset().mockResolvedValue({ payload: {} });
     vi.mocked(apiClient.getAssessmentByRequest).mockRejectedValue(new ApiClientError(404, { code: "validation_error", detail: "absent" }));
     vi.mocked(apiClient.getUploadByRequest).mockRejectedValue(new ApiClientError(404, { code: "validation_error", detail: "absent" }));
     mockedGetReadiness.mockResolvedValue(readyReadiness);

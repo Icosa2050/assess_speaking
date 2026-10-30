@@ -555,7 +555,8 @@ export const SpeakRoute = () => {
     lifecycleState === "queued" || lifecycleState === "running";
   const hasAttachment = assessmentOwnsAttachment ? storeHasAttachment : Boolean(attachedFile);
   const shortRecording = recordedDurationSec !== null && recordedDurationSec < MIN_REVIEW_SECONDS;
-  const canSubmitLiveAttachment = !readinessBlocked && !recordingActive && canSubmitAssessment && Boolean(attachedFile) &&
+  const canSubmitLiveAttachment = !readinessBlocked && !recordingActive && !draftRecovery.retryParentCheckPending &&
+    canSubmitAssessment && Boolean(attachedFile) &&
     localSaveState !== "saving" && !shortRecording && Boolean(sharingQuery.data?.available);
   const statusMessage = cancelError ? translate("speak.wait_cancel_failed", { detail: cancelError })
     : retryError ? translate(retryResponseUnknown && !recording.job.assessmentId ? "draft.submit_uncertain"
@@ -587,7 +588,8 @@ export const SpeakRoute = () => {
     whisper: effectiveWhisperModel,
   });
   const assessmentContextMode = hasAttachment ? "optional" : "inline";
-  const submitDisabledHelp = readinessBlocked ? translate("first_run.readiness_changed_body")
+  const submitDisabledHelp = draftRecovery.retryParentCheckPending ? translate("draft.history_error")
+    : readinessBlocked ? translate("first_run.readiness_changed_body")
     : shortRecording ? translate("speak.recording_too_short")
       : !hasAttachment ? translate("speak.submit_disabled_no_audio") : null;
   const confidencePhase: SpeakConfidencePhase =
@@ -625,7 +627,7 @@ export const SpeakRoute = () => {
         : "";
 
   const handleSubmit = async (resumeAssessmentId?: string) => {
-    if (readinessBlocked || recordingActive || saveInFlight.current || submittingRef.current || !attachedFile || shortRecording || !sharingQuery.data?.available) {
+    if (draftRecovery.retryParentCheckPending || readinessBlocked || recordingActive || saveInFlight.current || submittingRef.current || !attachedFile || shortRecording || !sharingQuery.data?.available) {
       return;
     }
 

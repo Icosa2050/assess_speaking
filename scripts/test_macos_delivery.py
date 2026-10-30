@@ -21,13 +21,29 @@ import uuid
 import io
 import zipfile
 import sys
+import select
+
+ACCEPTANCE_SERVICE = None
+
+
+def purge_acceptance_key(service):
+    """Independent fallback when the installed acceptance shell is unavailable."""
+    args = ['/usr/bin/security', 'delete-generic-password', '-s', service, '-a', 'content-key']
+    deleted = subprocess.run(args, capture_output=True, text=True, timeout=15)
+    if deleted.returncode not in (0, 44):
+        raise RuntimeError(f'Independent Keychain purge failed: {deleted.stderr or deleted.returncode}')
+    found = subprocess.run(['/usr/bin/security', 'find-generic-password', '-s', service, '-a', 'content-key'],
+                           capture_output=True, text=True, timeout=15)
+    if found.returncode != 44:
+        raise RuntimeError(f'Acceptance Keychain item remains or cannot be checked: {found.stderr or found.returncode}')
 
 
 def run(args, **kwargs):
-    return subprocess.run(list(map(str, args)), check=True, **kwargs)
+    return subprocess.run(list(map(str, args)), check=True, timeout=kwargs.pop('timeout', 120), **kwargs)
 
 
 def main():
+    global ACCEPTANCE_SERVICE
     parser = argparse.ArgumentParser()
     parser.add_argument('dmg', type=Path)
     parser.add_argument('--report', type=Path, required=True)
@@ -35,7 +51,8 @@ def main():
     root = Path(__file__).resolve().parents[1]
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
-    evidence = {'artifact': str(args.dmg.resolve()), 'sha256': hashlib.sha256(args.dmg.read_bytes()).hexdigest(), 'checks': [], 'native_microphone': 'requires interactive acceptance', 'public_gatekeeper': 'requires Developer ID release'}
+    evidence = {'artifact': str(args.dmg.resolve()), 'sha256': hashlib.sha256(args.dmg.read_bytes()).hexdigest(), 'checks': [], 'native_microphone': 'requires live WebView and microphone acceptance', 'public_gatekeeper': 'signed Developer ID device-only Keychain and notarized release required'}
+    ACCEPTANCE_SERVICE = 'com.vostavo.desktop.drafts.acceptance.' + secrets.token_hex(16)
     with tempfile.TemporaryDirectory(prefix='vostavo-delivery-') as directory:
         work = Path(directory)
         mount = work / 'mounted'
@@ -45,6 +62,9 @@ def main():
             installed = work / 'Applications/Vostavo.app'
             installed.parent.mkdir()
             run(['ditto', mount / 'Vostavo.app', installed])
+            pristine = work / 'pristine/Vostavo.app'
+            pristine.parent.mkdir()
+            run(['ditto', mount / 'Vostavo.app', pristine], timeout=90)
             mounted_helper = mount / 'Vostavo.app/Contents/Helpers/VostavoBackend.app/Contents/MacOS/vostavo-backend'
             env = {key: os.environ[key] for key in ('HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG') if key in os.environ}
             env.update(PATH='/usr/bin:/bin:/usr/sbin:/sbin', HF_HUB_OFFLINE='1', XDG_CACHE_HOME=str(work / 'cache'), VOSTAVO_HOME=str(work / 'state'), VOSTAVO_CACHE_HOME=str(work / 'cache'))
@@ -55,6 +75,55 @@ def main():
         finally:
             run(['hdiutil', 'detach', mount], capture_output=True)
         run(['codesign', '--verify', '--deep', '--strict', installed], capture_output=True)
+        shell = installed / 'Contents/MacOS/vostavo-desktop'
+        purge_shell = pristine / 'Contents/MacOS/vostavo-desktop'
+        draft_root = work / 'draft-state'
+        draft_env = {key: os.environ[key] for key in ('HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG') if key in os.environ}
+        draft_env.update(PATH='/usr/bin:/bin:/usr/sbin:/sbin', VOSTAVO_HOME=str(draft_root), VOSTAVO_INTERNAL_DMG_ACCEPTANCE='1',
+                         VOSTAVO_INTERNAL_DMG_KEY_SERVICE=ACCEPTANCE_SERVICE)
+        def draft_check(phase):
+            try:
+                result = run([shell, f'--internal-draft-delivery={phase}'], env=draft_env, capture_output=True, text=True, timeout=30)
+            except subprocess.TimeoutExpired as exc:
+                raise TimeoutError(f'Installed shell draft {phase} timed out after 30 seconds; check Keychain access prompts and the shell process') from exc
+            return json.loads(result.stdout.strip().splitlines()[-1])
+        try:
+            seeded = draft_check('seed')
+            assert seeded['draft_count'] == 1 and seeded['keychain_mode'] in ('device-only', 'local-login'), seeded
+            interrupted = subprocess.Popen([str(shell), '--internal-draft-delivery=interrupt'], env=draft_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            try:
+                ready, _, _ = select.select([interrupted.stdout], [], [], 20)
+                if not ready or json.loads(interrupted.stdout.readline()) != {'phase': 'interrupt-ready'}:
+                    raise RuntimeError('Installed shell did not reach interrupted-save point')
+                interrupted.kill()
+                interrupted.wait(timeout=5)
+                assert draft_check('verify')['draft_count'] == 1
+            finally:
+                if interrupted.poll() is None:
+                    interrupted.kill(); interrupted.wait(timeout=5)
+                interrupted.stdout.close(); interrupted.stderr.close()
+            draft_files = list((draft_root / 'drafts/v1').iterdir())
+            assert draft_files and all(b'internal DMG encrypted draft acceptance' not in path.read_bytes() for path in draft_files if path.is_file())
+            shutil.rmtree(installed)
+            run(['ditto', pristine, installed], timeout=90)
+            run(['codesign', '--verify', '--deep', '--strict', installed], capture_output=True, timeout=30)
+            after_update = draft_check('verify')
+            assert after_update['draft_count'] == 1 and after_update['keychain_mode'] == seeded['keychain_mode'], after_update
+            assert draft_check('cleanup')['draft_count'] == 0
+            evidence['draft_keychain_mode'] = seeded['keychain_mode']
+            evidence['checks'].append('installed shell encrypted draft survives killed replacement save, restart and app reinstall; Keychain mode recorded')
+        finally:
+            original_failure = sys.exc_info()[0] is not None
+            try:
+                purge = subprocess.run([str(purge_shell), '--internal-draft-delivery=purge-key'], env=draft_env,
+                                       capture_output=True, text=True, timeout=30)
+                if purge.returncode or '"key_purged":true' not in purge.stdout.replace(' ', ''):
+                    raise RuntimeError(purge.stderr or purge.stdout or f'exit {purge.returncode}')
+            except Exception as exc:
+                print(f'Acceptance Keychain purge failed: {exc}', file=sys.stderr)
+                evidence['keychain_purge_error'] = str(exc)
+                if not original_failure:
+                    raise RuntimeError('Acceptance Keychain purge failed') from exc
         helper = installed / 'Contents/Helpers/VostavoBackend.app/Contents/MacOS/vostavo-backend'
         # Prove runtime has no read access to checkout or Homebrew. This is an
         # acceptance harness restriction, not a shipped macOS sandbox entitlement.
@@ -251,10 +320,22 @@ def main():
                 process.wait()
             log.close()
         evidence['ok'] = True
+    purge_acceptance_key(ACCEPTANCE_SERVICE)
+    evidence['checks'].append('independent Keychain purge and absence readback')
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(evidence, indent=2) + '\n')
     print(json.dumps(evidence, indent=2))
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    finally:
+        if ACCEPTANCE_SERVICE:
+            original_failure = sys.exc_info()[0] is not None
+            try:
+                purge_acceptance_key(ACCEPTANCE_SERVICE)
+            except Exception as exc:
+                print(f'Independent acceptance Keychain cleanup failed: {exc}', file=sys.stderr)
+                if not original_failure:
+                    raise

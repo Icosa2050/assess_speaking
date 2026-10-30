@@ -3,7 +3,7 @@ import { buildSessionDraft, CEFR_LEVELS, DURATION_OPTIONS, hasSetupDraft, TASK_F
 export const RETRY_DRAFT_STORAGE_KEY = "vostavo.retry-draft.v2";
 export const RETRY_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-type StoredRetry = { version: 2; createdAt: number; context: string; draft: SessionDraft };
+type StoredRetry = { version: 2; createdAt: number; context: string; draft: SessionDraft; detached?: true };
 
 const textLimits: Partial<Record<keyof SessionDraft, number>> = {
   sessionId: 128, speakerId: 256, learningLanguage: 2, learningLanguageLabel: 100,
@@ -42,14 +42,17 @@ const parseStored = (raw: string | null): StoredRetry | null => {
   const draft = data as Record<string, unknown>;
   if (!Object.entries(textLimits).every(([key, max]) =>
     typeof draft[key] === "string" && (draft[key] as string).length <= max) ||
-    draft.retryGoalEligible !== true ||
+    !(stored.detached === true
+      ? draft.retryGoalEligible === false && !draft.retryOfSessionId
+      : draft.retryGoalEligible === true && !!draft.retryOfSessionId) ||
     !DURATION_OPTIONS.includes(draft.durationSec as SessionDraft["durationSec"]) ||
     !CEFR_LEVELS.includes(draft.cefrLevel as SessionDraft["cefrLevel"]) ||
     !TASK_FAMILY_OPTIONS.includes(draft.taskFamily as SessionDraft["taskFamily"]) ||
     !["en", "it"].includes(String(draft.learningLanguage))) return null;
   const restored = normalizeRetryDraft(draft as unknown as SessionDraft);
-  if (!restored.retryOfSessionId || !hasSetupDraft(restored) || stored.context !== contextFor(restored)) return null;
-  return { version: 2, createdAt: stored.createdAt, context: stored.context, draft: restored };
+  if (!hasSetupDraft(restored) || stored.context !== contextFor(restored)) return null;
+  return { version: 2, createdAt: stored.createdAt, context: stored.context, draft: restored,
+    ...(stored.detached === true ? { detached: true as const } : {}) };
 };
 
 // Only the setup context and the learner's brief are stored here. Audio, reports,
@@ -74,19 +77,31 @@ export const readRetryDraft = (): SessionDraft | null => readLegacyRetryBrief()?
 export const persistRetryDraft = (draft: SessionDraft): void => {
   try {
     const normalized = normalizeRetryDraft(draft);
-    if (!normalized.retryGoalEligible || !normalized.retryOfSessionId || !hasSetupDraft(normalized)) {
+    let previous: StoredRetry | null = null;
+    try { previous = parseStored(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)); }
+    catch { clearRetryDraft(); }
+    const linked = normalized.retryGoalEligible && normalized.retryOfSessionId;
+    const detached = previous?.detached === true && !normalized.retryGoalEligible && !normalized.retryOfSessionId;
+    if ((!linked && !detached) || !hasSetupDraft(normalized)) {
       clearRetryDraft();
       return;
     }
     const context = contextFor(normalized);
-    let previous: StoredRetry | null = null;
-    try { previous = parseStored(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)); }
-    catch { clearRetryDraft(); }
     const now = Date.now();
     const createdAt = previous?.context === context && now - previous.createdAt >= 0 &&
       now - previous.createdAt <= RETRY_DRAFT_TTL_MS ? previous.createdAt : now;
-    window.localStorage.setItem(RETRY_DRAFT_STORAGE_KEY, JSON.stringify({ version: 2, createdAt, context, draft: normalized } satisfies StoredRetry));
+    window.localStorage.setItem(RETRY_DRAFT_STORAGE_KEY, JSON.stringify({ version: 2, createdAt, context, draft: normalized,
+      ...(detached ? { detached: true as const } : {}) } satisfies StoredRetry));
   } catch {
     // Storage can be disabled or full. The in-memory draft remains usable.
   }
+};
+
+export const detachRetryBrief = (draft: SessionDraft): SessionDraft => {
+  const detached = normalizeRetryDraft(buildSessionDraft({ ...draft, retryOfSessionId: "", retryGoalEligible: false }));
+  try {
+    window.localStorage.setItem(RETRY_DRAFT_STORAGE_KEY, JSON.stringify({ version: 2, createdAt: Date.now(),
+      context: contextFor(detached), draft: detached, detached: true } satisfies StoredRetry));
+  } catch { /* The in-memory setup remains available. */ }
+  return detached;
 };

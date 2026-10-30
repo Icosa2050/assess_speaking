@@ -28,6 +28,13 @@ def output(args):
     return run(args, capture_output=True, text=True).stdout.strip()
 
 
+def assert_delivery_feature(shell_binary: Path, *, release: bool) -> None:
+    binary = shell_binary.read_bytes()
+    markers = (b'VOSTAVO_INTERNAL_DMG_ACCEPTANCE', b'VOSTAVO_INTERNAL_DMG_KEY_SERVICE')
+    if any((marker in binary) == release for marker in markers):
+        raise RuntimeError('Internal draft acceptance feature does not match the DMG mode')
+
+
 def macho_files(bundle):
     seen = set()
     magic = {b'\xcf\xfa\xed\xfe', b'\xfe\xed\xfa\xcf', b'\xca\xfe\xba\xbe', b'\xbe\xba\xfe\xca', b'\xca\xfe\xba\xbf', b'\xbf\xba\xfe\xca'}
@@ -135,7 +142,9 @@ def main(argv=None):
         raise RuntimeError('Helper version differs')
     env = dict(os.environ, MACOSX_DEPLOYMENT_TARGET=MINIMUM_MACOS)
     cargo = shutil.which('cargo') or str(Path.home() / '.cargo/bin/cargo')
-    run([cargo, 'build', '--release', '--locked', '--features', 'custom-protocol', '--manifest-path', ROOT / 'frontend/src-tauri/Cargo.toml'], env=env)
+    features = 'custom-protocol,internal-dmg-acceptance' if not release else 'custom-protocol'
+    run([cargo, 'build', '--release', '--locked', '--features', features, '--manifest-path', ROOT / 'frontend/src-tauri/Cargo.toml'], env=env)
+    assert_delivery_feature(ROOT / 'frontend/src-tauri/target/release/vostavo-desktop', release=release)
     stage = BUILD / 'stage'
     if stage.exists():
         shutil.rmtree(stage)

@@ -238,7 +238,8 @@
     ["e2e/draftRecovery.spec.ts", "", "draft recovery 1100x760", "failed or cancelled reconciliation keeps the take and does not submit"],
     ["e2e/draftRecovery.spec.ts", "", "draft recovery 1100x760", "unknown assessment stays local and reuses the request ID only after Submit"],
     ["e2e/draftRecovery.spec.ts", "", "draft recovery 1100x760", "lost terminal retry replays its frozen resume request after restart"],
-    ["e2e/draftRecovery.spec.ts", "", "draft recovery 1100x760", "lost upload response is resolved by request ID without a second upload"]
+    ["e2e/draftRecovery.spec.ts", "", "draft recovery 1100x760", "lost upload response is resolved by request ID without a second upload"],
+    ["e2e/draftRecovery.spec.ts", "", "restore warns about an imported retry parent and keeps the unsent take"]
   ],
   "connections": [
     [

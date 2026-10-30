@@ -349,7 +349,7 @@ export const AppStoreProvider = ({
 
   if (storeRef.current === null) {
     const restored = desktopBridge.hasDraftStore() ? null : readRetryDraft();
-    storeRef.current = createAppStore({ draft: restored ?? undefined, retryRestorePending: Boolean(restored) });
+    storeRef.current = createAppStore({ draft: restored ?? undefined, retryRestorePending: Boolean(restored?.retryOfSessionId && restored.retryGoalEligible) });
   }
 
   useEffect(() => {

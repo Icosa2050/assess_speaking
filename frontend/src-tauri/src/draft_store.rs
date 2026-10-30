@@ -208,8 +208,16 @@ fn choose_keychain_create(
 }
 impl MacKeychain {
     fn production() -> Self {
+        #[cfg(feature = "internal-dmg-acceptance")]
+        let service = std::env::var("VOSTAVO_INTERNAL_DMG_KEY_SERVICE").ok()
+            .filter(|value| std::env::var("VOSTAVO_INTERNAL_DMG_ACCEPTANCE").ok().as_deref() == Some("1")
+                && value.strip_prefix("com.vostavo.desktop.drafts.acceptance.")
+                    .is_some_and(|id| id.len() == 32 && id.chars().all(|character| character.is_ascii_hexdigit())))
+            .unwrap_or_else(|| KEY_SERVICE.into());
+        #[cfg(not(feature = "internal-dmg-acceptance"))]
+        let service = KEY_SERVICE.into();
         Self {
-            service: KEY_SERVICE.into(),
+            service,
             mode: Mutex::new(None),
         }
     }
@@ -1131,6 +1139,25 @@ impl DraftStore {
         result.map_err(|error| error.message)?;
         Ok(manifest)
     }
+    pub fn detach_retry(&mut self, draft_id: &str, expected_revision: u64, parent_id: &str) -> StoreResult<Manifest> {
+        let now = now_ms();
+        self.expire(now)?;
+        let key = self.key()?;
+        let mut manifest = self.read(draft_id, &key, now)?;
+        if manifest.revision != expected_revision || manifest.setup.retry_of_session_id != parent_id {
+            return Err(err("Draft changed in another window"));
+        }
+        if !["setup", "take_ready"].contains(&manifest.status.as_str()) {
+            return Err(err("Submission receipt is frozen"));
+        }
+        manifest.setup.retry_of_session_id.clear();
+        manifest.setup.retry_goal_eligible = false;
+        manifest.revision += 1;
+        manifest.updated_at = now.max(manifest.updated_at);
+        // Keep the original take and expiry. Restoring a journal never extends retention.
+        self.commit(&manifest, &key).map_err(|error| error.message)?;
+        Ok(manifest)
+    }
     pub fn begin_take(
         &mut self,
         draft_id: String,
@@ -1665,6 +1692,95 @@ pub fn initialize_store(state: &DraftState) {
     });
     *state.lock().unwrap() = Some(result);
 }
+
+// Bounded, opt-in internal-DMG acceptance. The installed shell executes the
+// real encrypted store and macOS Keychain against an isolated app-data root.
+#[cfg(feature = "internal-dmg-acceptance")]
+pub fn internal_delivery_check(phase: &str) -> StoreResult<serde_json::Value> {
+    if std::env::var("VOSTAVO_INTERNAL_DMG_ACCEPTANCE").ok().as_deref() != Some("1") {
+        return Err(err("Internal draft acceptance is disabled"));
+    }
+    let root = std::env::var_os("VOSTAVO_HOME").ok_or_else(|| err("Isolated draft root is required"))?;
+    if std::env::var("VOSTAVO_INTERNAL_DMG_KEY_SERVICE").ok()
+        .and_then(|value| value.strip_prefix("com.vostavo.desktop.drafts.acceptance.").map(str::to_owned))
+        .is_none_or(|id| id.len() != 32 || !id.chars().all(|character| character.is_ascii_hexdigit())) {
+        return Err(err("Isolated acceptance Keychain service is required"));
+    }
+    #[cfg(target_os = "macos")]
+    if phase == "purge-key" {
+        use security_framework::passwords::{delete_generic_password_options, PasswordOptions};
+        let keychain = MacKeychain::production();
+        for protected in [false, true] {
+            let mut options = PasswordOptions::new_generic_password(&keychain.service, KEY_ACCOUNT);
+            options.set_access_synchronized(Some(false));
+            if protected { options.use_protected_keychain(); }
+            if let Err(error) = delete_generic_password_options(options) {
+                if ![-25300, MISSING_ENTITLEMENT].contains(&error.code()) {
+                    return Err(err("Acceptance Keychain item could not be purged"));
+                }
+            }
+        }
+        return Ok(serde_json::json!({ "phase": phase, "key_purged": true }));
+    }
+    let root = PathBuf::from(root);
+    let mut store = DraftStore::new(&root)?;
+    store.expire(now_ms())?;
+    let bytes = b"internal DMG encrypted draft acceptance";
+    match phase {
+        "seed" => {
+            if !store.list_with_issues()?.drafts.is_empty() { return Err(err("Acceptance root is not empty")); }
+            let setup: Setup = serde_json::from_value(serde_json::json!({
+                "sessionId": "delivery-draft", "speakerId": "Delivery fixture", "learningLanguage": "it",
+                "learningLanguageLabel": "Italiano", "cefrLevel": "B1", "themeId": "travel",
+                "themeLabel": "Travel", "taskFamily": "travel_narrative", "durationSec": 90,
+                "promptId": "delivery", "promptText": "Describe a trip", "retryOfSessionId": "",
+                "coachingGoal": "", "retryGoalEligible": false
+            })).map_err(|_| err("Invalid acceptance setup"))?;
+            let draft = store.save_setup(setup, None, None)?;
+            let take: Take = serde_json::from_value(serde_json::json!({
+                "originalFilename": "delivery.webm", "mime": "audio/webm", "size": bytes.len(),
+                "sha256": format!("{:x}", Sha256::digest(bytes)), "durationSec": 5.0,
+                "captureEndedAt": now_ms(), "inputMethod": "record"
+            })).map_err(|_| err("Invalid acceptance take"))?;
+            let transfer = store.begin_take(draft.draft_id, draft.revision, take)?;
+            store.write_take_chunk(&transfer, bytes.to_vec())?;
+            store.finish_take(&transfer)?;
+        }
+        "interrupt" => {
+            let draft = store.list_with_issues()?.drafts.into_iter().next().ok_or_else(|| err("Saved draft missing"))?;
+            let take: Take = serde_json::from_value(serde_json::json!({
+                "originalFilename": "replacement.webm", "mime": "audio/webm", "size": bytes.len(),
+                "sha256": format!("{:x}", Sha256::digest(bytes)), "durationSec": 5.0,
+                "captureEndedAt": now_ms(), "inputMethod": "record"
+            })).map_err(|_| err("Invalid acceptance take"))?;
+            let transfer = store.begin_take(draft.draft_id, draft.revision, take)?;
+            store.write_take_chunk(&transfer, bytes.to_vec())?;
+            use std::io::Write;
+            println!("{{\"phase\":\"interrupt-ready\"}}");
+            std::io::stdout().flush().map_err(|_| err("Acceptance signal failed"))?;
+            std::thread::sleep(std::time::Duration::from_secs(60));
+            return Err(err("Acceptance process was not killed"));
+        }
+        "verify" | "cleanup" => {
+            let entries = store.list_with_issues()?.drafts;
+            if entries.len() != 1 { return Err(err("Saved draft count changed")); }
+            let draft = &entries[0];
+            let take = draft.take.as_ref().ok_or_else(|| err("Saved take missing"))?;
+            if take.original_filename != "delivery.webm" ||
+                store.load_take_chunk(&draft.draft_id, &take.media_id, 0)?.as_slice() != bytes {
+                return Err(err("Saved take changed after restart"));
+            }
+            if phase == "cleanup" { store.discard(&draft.draft_id)?; }
+        }
+        _ => return Err(err("Invalid internal acceptance phase")),
+    }
+    let keychain = MacKeychain::production();
+    let key = keychain.load()?;
+    if key.is_none() { return Err(err("Acceptance Keychain item missing")); }
+    let mode = keychain.mode().ok_or_else(|| err("Keychain mode unavailable"))?.label();
+    let result = serde_json::json!({ "phase": phase, "draft_count": store.list_with_issues()?.drafts.len(), "keychain_mode": mode });
+    Ok(result)
+}
 fn main_window_only(label: &str) -> StoreResult<()> {
     if label == "main" {
         Ok(())
@@ -1748,6 +1864,15 @@ pub async fn draft_replace_setup(
         s.replace_setup(setup, draft_id, expected_revision)
     })
     .await
+}
+#[tauri::command]
+pub async fn draft_detach_retry(
+    window: tauri::WebviewWindow,
+    draft_id: String,
+    expected_revision: u64,
+    parent_id: String,
+) -> StoreResult<Manifest> {
+    with_store(window, move |s| s.detach_retry(&draft_id, expected_revision, &parent_id)).await
 }
 #[tauri::command]
 pub async fn draft_import_legacy_brief(
@@ -1922,6 +2047,28 @@ mod tests {
     }
     fn store(root: &TestRoot) -> DraftStore {
         DraftStore::test(&root.0, Box::new(TestKey::ready()))
+    }
+    #[test]
+    fn detaching_restored_retry_keeps_take_and_original_expiry() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let mut context = setup("Alex");
+        context.retry_of_session_id = "imported-parent".into();
+        context.retry_goal_eligible = true;
+        context.coaching_goal = "Finish clearly".into();
+        let draft = store.save_setup(context, None, None).unwrap();
+        let bytes = b"saved unsent take";
+        let transfer = store.begin_take(draft.draft_id.clone(), draft.revision, take(bytes)).unwrap();
+        store.write_take_chunk(&transfer, bytes.to_vec()).unwrap();
+        let ready = store.finish_take(&transfer).unwrap();
+        assert!(store.detach_retry(&ready.draft_id, ready.revision - 1, "imported-parent").is_err());
+        let detached = store.detach_retry(&ready.draft_id, ready.revision, "imported-parent").unwrap();
+        assert_eq!(detached.setup.retry_of_session_id, "");
+        assert!(!detached.setup.retry_goal_eligible);
+        assert_eq!(detached.setup.coaching_goal, "Finish clearly");
+        assert_eq!(detached.expires_at, ready.expires_at);
+        assert_eq!(detached.take.as_ref().unwrap().media_id, ready.take.as_ref().unwrap().media_id);
+        assert_eq!(store.load_take_chunk(&detached.draft_id, &detached.take.unwrap().media_id, 0).unwrap(), bytes);
     }
     #[test]
     fn authenticated_round_trip_and_tamper_rejection() {

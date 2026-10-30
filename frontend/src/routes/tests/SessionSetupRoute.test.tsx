@@ -32,6 +32,7 @@ vi.mock("@/lib/api/client", () => ({
       "speech_recognition", "ai_tutor", "media_decoder", "storage",
     ].map(key => ({ key, state: "available", blocking: true, reason: "available", detail_args: {} })) }),
     getHistory: vi.fn(),
+    getHistoryDetail: vi.fn().mockResolvedValue({ payload: {} }),
     getRuntime: vi.fn(),
     getRuntimeSettings: vi.fn(),
   },

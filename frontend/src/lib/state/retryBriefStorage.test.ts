@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildSessionDraft } from "./sessionDraft";
-import { clearRetryDraft, persistRetryDraft, readRetryDraft, RETRY_DRAFT_STORAGE_KEY, RETRY_DRAFT_TTL_MS } from "./retryBriefStorage";
+import { clearRetryDraft, detachRetryBrief, persistRetryDraft, readRetryDraft, RETRY_DRAFT_STORAGE_KEY, RETRY_DRAFT_TTL_MS } from "./retryBriefStorage";
 
 const retry = () => buildSessionDraft({
   speakerId: "learner", themeId: "trip", themeLabel: "A trip", promptText: "Describe a trip",
@@ -36,6 +36,21 @@ describe("local retry draft", () => {
     expect(readRetryDraft()?.coachingGoal).toHaveLength(12000);
     persistRetryDraft(buildSessionDraft({ ...retry(), coachingGoal: "g".repeat(12001) }));
     expect(readRetryDraft()?.coachingGoal).toHaveLength(12000);
+  });
+
+  it("keeps a detached goal and setup across a reload without reviving its retry link", () => {
+    persistRetryDraft(retry());
+    detachRetryBrief(retry());
+    expect(readRetryDraft()).toMatchObject({ promptText: "Describe a trip", coachingGoal: "End with one reflection",
+      retryOfSessionId: "", retryGoalEligible: false });
+  });
+
+  it("keeps a detached setup with an empty coaching goal across a reload", () => {
+    const withoutGoal = buildSessionDraft({ ...retry(), coachingGoal: "" });
+    persistRetryDraft(withoutGoal);
+    detachRetryBrief(withoutGoal);
+    expect(readRetryDraft()).toMatchObject({ promptText: "Describe a trip", coachingGoal: "",
+      retryOfSessionId: "", retryGoalEligible: false });
   });
 
   it("expires an abandoned retry after seven days and removes the stale key", () => {
