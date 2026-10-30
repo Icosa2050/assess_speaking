@@ -34,6 +34,7 @@ type RecoveryContext = {
   hasStoredEntries: boolean;
   recoveredFile: File | null;
   error: DraftStoreError | null;
+  retryParentCheckPending: boolean;
   saveSetup: (setup: SessionDraft) => Promise<SavedDraft | null>;
   replaceSetup: (setup: SessionDraft, previous: SavedDraft) => Promise<SavedDraft>;
   saveTake: (setup: SessionDraft, file: File, duration: number, method: "record" | "upload", progress: (percent: number) => void) => Promise<SavedDraft>;
@@ -49,7 +50,7 @@ type RecoveryContext = {
 };
 
 const defaultContext: RecoveryContext = {
-  supported: false, active: null, drafts: [], hasStoredEntries: false, recoveredFile: null, error: null,
+  supported: false, active: null, drafts: [], hasStoredEntries: false, recoveredFile: null, error: null, retryParentCheckPending: false,
   saveSetup: async () => null,
   replaceSetup: async () => { throw new Error("Local draft storage is unavailable"); },
   saveTake: async () => { throw new Error("Local draft storage is unavailable"); },
@@ -341,6 +342,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   };
   const context: RecoveryContext = {
     supported: adapter.supported, active, drafts, hasStoredEntries: Boolean(drafts.length || unreadableIds.length), recoveredFile, error,
+    retryParentCheckPending: Boolean(active && historyPendingId === active.draftId),
     saveSetup, replaceSetup, saveTake, prepareNewAttempt, discardActive, discardDraft: discard,
     leaveActive: () => { setCurrent(null); setRecoveredFile(null); setError(null); setHistoryPendingId(null); },
     clearRecoveredFile: () => setRecoveredFile(null),
