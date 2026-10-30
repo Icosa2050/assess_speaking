@@ -917,6 +917,55 @@ test("system default and explicit themes keep the journal card usable at desktop
 });
 
 for (const locale of ["de", "en", "es", "fr", "it"] as const) {
+test(`start-fresh actions stay reachable at 200% (${locale})`, async ({ page }) => {
+  await installVisualBackend(page, locale);
+  await page.route("**/v1/journal/status", route => fulfillJson(route, {
+    transaction: null, archived: [], completed: [], recovery_error: "Recovery files are unavailable.",
+  }));
+  await page.setViewportSize({ width: 550, height: 380 });
+  await Promise.all([page.waitForResponse("**/v1/journal/status"), page.goto("/settings")]);
+  await expect(page.getByTestId("journal-state")).toContainText(localeMessages[locale].your_data.state_damaged);
+  await page.locator("#journal-fresh").click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.locator("#fresh-dialog-consequences")).toBeVisible();
+  await expect(dialog.locator("#fresh-dialog-consequences p")).toHaveCount(3);
+  await expect(dialog.locator("#fresh-error")).toHaveCount(0);
+  const captureDir = process.env.DIALOG_REACHABILITY_SCREENSHOT_DIR;
+  if (captureDir) {
+    mkdirSync(captureDir, { recursive: true });
+    await page.screenshot({ path: path.join(captureDir, `${locale}.png`) });
+  }
+  for (const button of await dialog.getByRole("button").all()) {
+    const result = await button.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      const point = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return { top: box.top, bottom: box.bottom, hit: point === element || element.contains(point) };
+    });
+    expect(result.top, `${locale} action top`).toBeGreaterThanOrEqual(0);
+    expect(result.bottom, `${locale} action bottom`).toBeLessThanOrEqual(380);
+    expect(result.hit, `${locale} action hit target`).toBe(true);
+  }
+  await page.setViewportSize({ width: 550, height: 321 });
+  const scrollBody = dialog.getByRole("region", { name: /.+/ });
+  await page.locator("#fresh-cancel").focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(scrollBody).toBeFocused();
+  expect(await scrollBody.evaluate(element => element.scrollHeight - element.clientHeight), `${locale} consequences overflow`).toBeGreaterThan(0);
+  await page.keyboard.press("PageDown");
+  await expect.poll(() => scrollBody.evaluate(element => element.scrollTop), { message: `${locale} consequences keyboard scroll` }).toBeGreaterThan(0);
+  await page.setViewportSize({ width: 320, height: 150 });
+  for (const button of await dialog.getByRole("button").all()) {
+    await button.scrollIntoViewIfNeeded();
+    const result = await button.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      const point = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return { top: box.top, bottom: box.bottom, hit: point === element || element.contains(point) };
+    });
+    expect(result.top, `${locale} short viewport action top`).toBeGreaterThanOrEqual(0);
+    expect(result.bottom, `${locale} short viewport action bottom`).toBeLessThanOrEqual(150);
+    expect(result.hit, `${locale} short viewport action hit target`).toBe(true);
+  }
+});
 test(`semantic light and dark surfaces keep primary routes readable at both desktop sizes (${locale})`, async ({ page }) => {
   test.setTimeout(180_000);
   await installVisualBackend(page, locale);
@@ -953,6 +1002,11 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
   };
 
   const audit = async (route: string, theme: string) => {
+    if (route === "settings-dialog") {
+      const dialog = page.getByRole("dialog");
+      await expect(dialog.locator("#fresh-dialog-consequences p")).toHaveCount(3);
+      await expect(dialog.locator("#fresh-error")).toHaveCount(0);
+    }
     for (const viewport of [{ width: 1360, height: 900 }, { width: 1100, height: 760 }]) {
       await page.setViewportSize(viewport);
       await expect(page.locator("main").getByRole("heading").first()).toBeVisible();
@@ -1214,7 +1268,16 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
               style.clipPath === "inset(50%)" || style.clip === "rect(0px, 0px, 0px, 0px)") { hidden = true; break; }
         }
         if (hidden || !element.getClientRects().length) { excluded.push({ label, reason: "intentionally hidden" }); continue; }
-        element.scrollIntoView({ behavior: "instant" as ScrollBehavior, block: "center", inline: "nearest" });
+        if (dialog) {
+          const scrollContainer = dialog.querySelector<HTMLElement>("[data-dialog-scroll]");
+          if (scrollContainer?.contains(element)) {
+            const containerBox = scrollContainer.getBoundingClientRect();
+            const elementBox = element.getBoundingClientRect();
+            scrollContainer.scrollTop += elementBox.top - containerBox.top - (containerBox.height - elementBox.height) / 2;
+          }
+        } else {
+          element.scrollIntoView({ behavior: "instant" as ScrollBehavior, block: "center", inline: "nearest" });
+        }
         const range = document.createRange();
         if (element.tagName === "A") range.selectNodeContents(element);
         const fragments = [...(element.tagName === "A" && element !== skipLink ? range.getClientRects() : element.getClientRects())]
@@ -1276,7 +1339,8 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
         await page.route("**/v1/journal/status", response => fulfillJson(response, {
           transaction: null, archived: [], completed: [], recovery_error: "Recovery files are unavailable.",
         }));
-        await page.reload();
+        await Promise.all([page.waitForResponse("**/v1/journal/status"), page.reload()]);
+        await expect(page.getByTestId("journal-state")).toContainText(localeMessages[locale].your_data.state_damaged);
         await audit("settings-error", theme);
         await page.locator("#journal-fresh").click();
         await expect(page.locator("dialog[open]")).toBeVisible();

@@ -197,9 +197,11 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
       <Button variant="danger" id="journal-fresh" disabled={busy || activeTransaction} onClick={() => { setFreshError(""); setConfirmFresh(true); }}>{t("journal.fresh")}</Button>
     </div>}
     {confirmFresh && <dialog ref={freshDialog} className={styles.dialog} aria-labelledby="fresh-dialog-title" aria-describedby="fresh-dialog-consequences" onCancel={event => { event.preventDefault(); if (!busy) cancelFresh(); }}>
-      <h2 id="fresh-dialog-title">{t("your_data.fresh_heading")}</h2>
-      <div id="fresh-dialog-consequences"><p>{t("your_data.fresh_kept")}</p><p>{t("your_data.fresh_replaced")}</p><p>{t("your_data.drafts_preserved")}</p></div>
-      {freshError && <div id="fresh-error" tabIndex={-1}><StatusBanner title={freshError} tone="error" urgent /></div>}
+        <div className={styles.dialogBody} data-dialog-scroll role="region" aria-labelledby="fresh-dialog-title" tabIndex={0}>
+          <h2 id="fresh-dialog-title">{t("your_data.fresh_heading")}</h2>
+          <div id="fresh-dialog-consequences"><p>{t("your_data.fresh_kept")}</p><p>{t("your_data.fresh_replaced")}</p><p>{t("your_data.drafts_preserved")}</p></div>
+          {freshError && <div id="fresh-error" tabIndex={-1}><StatusBanner title={freshError} tone="error" urgent /></div>}
+        </div>
       <div className={styles.dialogActions}>
         <Button id="fresh-cancel" variant="secondary" disabled={busy} onClick={cancelFresh}>{t("your_data.fresh_cancel")}</Button>
         <Button variant="danger" disabled={busy || activeTransaction} onClick={() => {
