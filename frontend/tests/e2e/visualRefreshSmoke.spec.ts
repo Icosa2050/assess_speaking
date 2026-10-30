@@ -1249,6 +1249,11 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
     const reachability = await page.evaluate(() => {
       const root = document.body;
       const dialog = document.querySelector("dialog[open]");
+      const dialogGeometry = dialog ? (() => {
+        const box = dialog.getBoundingClientRect();
+        return { top: box.top, bottom: box.bottom, height: box.height,
+          maxHeight: getComputedStyle(dialog).maxHeight, supportsDvh: CSS.supports("height", "100dvh") };
+      })() : null;
       const skipLink = root.querySelector<HTMLElement>('a[href="#main-content"]');
       if (!dialog && !skipLink) throw new Error("Missing shell skip link");
       const candidates = [...root.querySelectorAll<HTMLElement>("button, a[href], input, select, textarea, summary")];
@@ -1306,7 +1311,7 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
             covering: covering?.getAttribute("data-testid") || covering?.tagName || "none", element: element.outerHTML.slice(0, 180) });
         }
       }
-      return { checked, checkedTargets, excluded, issues };
+      return { checked, checkedTargets, excluded, issues, dialogGeometry };
     });
     expect(reachability.checked, `${locale} ${theme} ${route} 200% control coverage ${JSON.stringify(reachability.excluded)}`).toBeGreaterThan(0);
     const contentReachabilityCount = reachability.checkedTargets.filter(target => target.inContent).length;
@@ -1318,7 +1323,7 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
       expect(reachability.checkedTargets.some(target => target.href === "/settings" && target.inNav), `${locale} ${theme} ${route} preferences navigation coverage`).toBe(true);
       if (route === "settings") expect(reachability.checkedTargets.some(target => target.testId === "settings.appearance"), `${locale} ${theme} appearance coverage`).toBe(true);
     }
-    expect(reachability.issues, `${locale} ${theme} ${route} 200% control reachability`).toEqual([]);
+    expect(reachability.issues, `${locale} ${theme} ${route} 200% control reachability ${JSON.stringify(reachability.dialogGeometry)}`).toEqual([]);
     for (const item of contrastChecks.slice(-2)) {
       item.reachabilityCount = reachability.checked;
       item.contentReachabilityCount = contentReachabilityCount;
