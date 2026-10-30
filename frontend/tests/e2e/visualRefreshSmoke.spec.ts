@@ -937,6 +937,12 @@ test(`start-fresh actions stay reachable at 200% (${locale})`, async ({ page }) 
   await expect(dialog.locator("#fresh-dialog-consequences")).toBeVisible();
   await expect(dialog.locator("#fresh-dialog-consequences p")).toHaveCount(3);
   await expect(dialog.locator("#fresh-error")).toHaveCount(0);
+  await page.setViewportSize({ width: 1100, height: 760 });
+  const desktopBottomGap = await dialog.evaluate(element =>
+    element.getBoundingClientRect().bottom - element.lastElementChild!.getBoundingClientRect().bottom);
+  expect(desktopBottomGap, `${locale} desktop dialog follows its actions`).toBeGreaterThanOrEqual(0);
+  expect(desktopBottomGap, `${locale} desktop dialog follows its actions`).toBeLessThanOrEqual(4);
+  await page.setViewportSize({ width: 550, height: 380 });
   const captureDir = process.env.DIALOG_REACHABILITY_SCREENSHOT_DIR;
   if (captureDir) {
     mkdirSync(captureDir, { recursive: true });
