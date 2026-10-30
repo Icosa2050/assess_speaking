@@ -936,7 +936,6 @@ test(`start-fresh actions stay reachable at 200% (${locale})`, async ({ page }) 
     await page.screenshot({ path: path.join(captureDir, `${locale}.png`) });
   }
   for (const button of await dialog.getByRole("button").all()) {
-    await button.scrollIntoViewIfNeeded();
     const result = await button.evaluate(element => {
       const box = element.getBoundingClientRect();
       const point = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
@@ -945,6 +944,26 @@ test(`start-fresh actions stay reachable at 200% (${locale})`, async ({ page }) 
     expect(result.top, `${locale} action top`).toBeGreaterThanOrEqual(0);
     expect(result.bottom, `${locale} action bottom`).toBeLessThanOrEqual(380);
     expect(result.hit, `${locale} action hit target`).toBe(true);
+  }
+  await page.setViewportSize({ width: 550, height: 321 });
+  const scrollBody = dialog.getByRole("region", { name: /.+/ });
+  await page.locator("#fresh-cancel").focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(scrollBody).toBeFocused();
+  expect(await scrollBody.evaluate(element => element.scrollHeight - element.clientHeight), `${locale} consequences overflow`).toBeGreaterThan(0);
+  await page.keyboard.press("PageDown");
+  await expect.poll(() => scrollBody.evaluate(element => element.scrollTop), { message: `${locale} consequences keyboard scroll` }).toBeGreaterThan(0);
+  await page.setViewportSize({ width: 320, height: 150 });
+  for (const button of await dialog.getByRole("button").all()) {
+    await button.scrollIntoViewIfNeeded();
+    const result = await button.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      const point = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return { top: box.top, bottom: box.bottom, hit: point === element || element.contains(point) };
+    });
+    expect(result.top, `${locale} short viewport action top`).toBeGreaterThanOrEqual(0);
+    expect(result.bottom, `${locale} short viewport action bottom`).toBeLessThanOrEqual(150);
+    expect(result.hit, `${locale} short viewport action hit target`).toBe(true);
   }
 });
 test(`semantic light and dark surfaces keep primary routes readable at both desktop sizes (${locale})`, async ({ page }) => {

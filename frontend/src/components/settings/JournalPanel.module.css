@@ -18,9 +18,15 @@
 .dialog[open] { display: flex; flex-direction: column; }
 .dialog::backdrop { background: var(--color-scrim); }
 .dialogBody { min-height: 0; overflow-y: auto; padding: var(--space-6); }
+.dialogBody:focus-visible { outline: var(--focus-width) solid var(--color-focus); outline-offset: calc(-1 * var(--focus-width)); }
 .dialog h2 { margin-bottom: var(--space-4); }
 .dialog p + p { margin-top: var(--space-3); }
 .dialogActions { display: flex; flex: none; flex-wrap: wrap; gap: var(--space-3); padding: var(--space-4) var(--space-6) var(--space-6); }
+@media (max-height: 20rem) {
+  .dialog { overflow-y: auto; }
+  .dialog[open] { display: block; }
+  .dialogBody { overflow: visible; }
+}
 .panel :where(input[type="checkbox"]) { width: 18px; height: 18px; accent-color: var(--color-brand); }
 .panel :where(p) > button { margin: var(--space-1) var(--space-1) var(--space-1) 0; }
 @media (max-width: 700px) { .panel { padding: var(--space-4); } }
