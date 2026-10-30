@@ -10,6 +10,7 @@ import type { DesktopDraftStoreBridge, SavedDraft } from "@/lib/runtime/desktopB
 import { createDraftStoreAdapter } from "@/lib/state/draftStore";
 import { useDraftRecovery } from "@/lib/state/DraftRecoveryProvider";
 import { buildSessionDraft } from "@/lib/state/sessionDraft";
+import { draftAdapterFixture, savedDraftFixture } from "@/test/draftAdapterFixture";
 
 vi.mock("@/lib/api/client", () => ({
   ApiClientError: class ApiClientError extends Error {
@@ -62,6 +63,23 @@ const createLocalStorageMock = () => {
 };
 
 describe("Session Setup route", () => {
+  it("keeps the previous task when confirmed draft discard fails", async () => {
+    const saved = savedDraftFixture("Alex");
+    const adapter = draftAdapterFixture([saved]);
+    adapter.discard.mockRejectedValue(new Error("disk unavailable"));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/session-setup"], locale: "en", draftAdapter: adapter,
+      appState: { draft: saved.setup, preferences: { activeConnectionId: "conn-primary", setupComplete: true } } });
+    fireEvent.click(await screen.findByRole("button", { name: "Continue without resuming" }));
+    fireEvent.click(await screen.findByTestId("setup.change_details"));
+    fireEvent.click(screen.getByTestId("setup.recommended_start"));
+    fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
+    await waitFor(() => expect(adapter.discard).toHaveBeenCalledWith(saved.draftId));
+    expect(adapter.saveSetup).not.toHaveBeenCalled();
+    expect(store.getState().draft.themeId).toBe(saved.setup.themeId);
+    expect(screen.queryByTestId("speak.recording_panel")).not.toBeInTheDocument();
+    confirm.mockRestore();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mockedGetReadiness.mockResolvedValue(readyReadiness);

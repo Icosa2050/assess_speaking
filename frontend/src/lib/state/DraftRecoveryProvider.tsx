@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/Card";
 import { createTranslator } from "@/lib/i18n";
 import type { SavedDraft } from "@/lib/runtime/desktopBridge";
 import { useAppStore } from "./appStore";
-import { createDraftStoreAdapter, normalizedLearner, type DraftStoreAdapter, type DraftStoreError } from "./draftStore";
+import { createDraftStoreAdapter, normalizedLearner, sameDraftAttempt, type DraftStoreAdapter, type DraftStoreError } from "./draftStore";
 import { clearRetryDraft, readLegacyRetryBrief } from "./retryBriefStorage";
 import type { SessionDraft } from "./sessionDraft";
 
@@ -20,7 +20,7 @@ type RecoveryContext = {
   saveTake: (setup: SessionDraft, file: File, duration: number, method: "record" | "upload", progress: (percent: number) => void) => Promise<SavedDraft>;
   prepareNewAttempt: (speakerId: string) => Promise<boolean>;
   discardActive: () => Promise<void>;
-  discardDraft: (id: string) => Promise<void>;
+  discardDraft: (id: string) => Promise<boolean>;
   leaveActive: () => void;
   clearRecoveredFile: () => void;
   reloadActiveTake: () => Promise<void>;
@@ -33,7 +33,7 @@ const defaultContext: RecoveryContext = {
   saveTake: async () => { throw new Error("Local draft storage is unavailable"); },
   prepareNewAttempt: async () => true,
   discardActive: async () => undefined,
-  discardDraft: async () => undefined,
+  discardDraft: async () => true,
   leaveActive: () => undefined,
   clearRecoveredFile: () => undefined,
   reloadActiveTake: async () => undefined,
@@ -118,7 +118,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     const previous = activeRef.current?.speakerId === normalizedLearner(setup.speakerId)
       ? activeRef.current : draftsRef.current.find(item => item.speakerId === normalizedLearner(setup.speakerId));
     try {
-      if (previous && previous.setup.sessionId !== setup.sessionId && previous.take) {
+      if (previous?.take && !sameDraftAttempt(previous, setup)) {
         throw new Error("Confirm replacement of the saved take before starting another attempt");
       }
       const saved = await adapter.saveSetup(setup, previous);
@@ -128,8 +128,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   });
   const saveTake: RecoveryContext["saveTake"] = (setup, file, duration, method, progress) => enqueue(async () => {
     let current = activeRef.current;
-    if (!current || current.speakerId !== normalizedLearner(setup.speakerId) ||
-        current.setup.sessionId !== setup.sessionId || current.setup.retryOfSessionId !== setup.retryOfSessionId) {
+    if (!sameDraftAttempt(current, setup)) {
       throw new Error("Session setup has not been saved for this attempt");
     }
     try {
@@ -146,7 +145,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     draftsRef.current = draftsRef.current.filter(item => item.draftId !== id);
     setDrafts(draftsRef.current);
   };
-  const discard = async (id: string) => {
+  const discard = async (id: string): Promise<boolean> => {
     setBusy(true);
     try {
       await adapter.discard(id);
@@ -155,16 +154,15 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       setUnreadableIds(previous => previous.filter(item => item !== id));
       if (activeRef.current?.draftId === id) { setCurrent(null); setRecoveredFile(null); clearRecording(); }
       setConfirmDiscard(null); setError(null);
-    } catch (discardError) { setError(discardError as DraftStoreError); }
+      return true;
+    } catch (discardError) { setError(discardError as DraftStoreError); return false; }
     finally { setBusy(false); }
   };
   const prepareNewAttempt = async (speakerId: string): Promise<boolean> => {
     const existing = draftsRef.current.find(item => item.speakerId === normalizedLearner(speakerId));
     if (existing && !window.confirm(translate("draft.replace_setup_confirm", { learner: existing.setup.speakerId }))) return false;
     if (existing) {
-      try { await discard(existing.draftId); }
-      catch { return false; }
-      if (draftsRef.current.some(item => item.draftId === existing.draftId)) return false;
+      if (!await discard(existing.draftId)) return false;
     }
     setCurrent(null); setRecoveredFile(null);
     return true;

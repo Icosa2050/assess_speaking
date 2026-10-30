@@ -15,8 +15,10 @@ import {
   type ThemeLibrary,
 } from "@/lib/setup/sessionSetupContent";
 import { useAppStore } from "@/lib/state/appStore";
+import { useDraftRecovery } from "@/lib/state/DraftRecoveryProvider";
 import {
   CEFR_LEVELS,
+  buildSessionDraft,
   hasSetupDraft,
   TASK_FAMILY_OPTIONS,
   type CefrLevel,
@@ -105,6 +107,7 @@ export const LibraryRoute = () => {
   const draft = useAppStore((state) => state.draft);
   const setCurrentPage = useAppStore((state) => state.setCurrentPage);
   const applySetup = useAppStore((state) => state.applySetup);
+  const draftRecovery = useDraftRecovery();
 
   const translate = createTranslator(locale);
   const [library, setLibrary] = useState<ThemeLibrary>(() => themeLibraryRepository.load());
@@ -142,8 +145,10 @@ export const LibraryRoute = () => {
   const handlePrepareSample = (sample: SampleItem) => {
     const languageCodeValue = sample.language.toLowerCase();
     const title = sampleTitleLabel(sample) || translate("library.none");
-    const nextDraft = {
+    const nextDraft = buildSessionDraft({
       ...draft,
+      sessionId: undefined,
+      retryOfSessionId: "", coachingGoal: "", retryGoalEligible: false,
       learningLanguage: languageCodeValue || draft.learningLanguage,
       learningLanguageLabel:
         languageCodeValue && library[languageCodeValue]
@@ -156,9 +161,13 @@ export const LibraryRoute = () => {
       durationSec: sampleDuration(sample.cefr),
       promptId: sample.sample_id,
       promptText: title,
-    };
-    applySetup(nextDraft);
-    navigate(hasSetupDraft(nextDraft) ? "/speak" : "/session-setup");
+    });
+    void (async () => {
+      if (!await draftRecovery.prepareNewAttempt(nextDraft.speakerId)) return;
+      applySetup(nextDraft);
+      try { await draftRecovery.saveSetup(nextDraft); } catch { /* Speak shows the local storage failure. */ }
+      navigate(hasSetupDraft(nextDraft) ? "/speak" : "/session-setup");
+    })();
   };
 
   const samplesContent = samplesQuery.isLoading ? (

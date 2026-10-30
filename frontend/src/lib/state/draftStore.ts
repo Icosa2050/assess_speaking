@@ -24,6 +24,14 @@ const failure = (error: unknown): DraftStoreError => {
 
 export const normalizedLearner = (speakerId: string): string => speakerId.trim().toLowerCase();
 
+export const sameDraftAttempt = (saved: SavedDraft | null, setup: SessionDraft): saved is SavedDraft => Boolean(saved &&
+  saved.speakerId === normalizedLearner(setup.speakerId) &&
+  saved.setup.sessionId === setup.sessionId && saved.setup.retryOfSessionId === setup.retryOfSessionId &&
+  saved.setup.learningLanguage === setup.learningLanguage && saved.setup.cefrLevel === setup.cefrLevel &&
+  saved.setup.themeId === setup.themeId && saved.setup.promptId === setup.promptId &&
+  saved.setup.promptText === setup.promptText && saved.setup.taskFamily === setup.taskFamily &&
+  saved.setup.durationSec === setup.durationSec);
+
 export const validSavedDraft = (value: SavedDraft): boolean =>
   value.version === 1 && ID.test(value.draftId) && value.revision > 0 &&
   value.speakerId === normalizedLearner(value.setup.speakerId) &&

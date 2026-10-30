@@ -393,7 +393,7 @@ const SessionSetupContent = () => {
     const existing = draftRecovery.findLearner(nextSetup.speakerId);
     if (existing && JSON.stringify(existing.setup) !== JSON.stringify(nextSetup)) {
       if (!window.confirm(translate("draft.replace_setup_confirm", { learner: existing.setup.speakerId }))) return;
-      await draftRecovery.discardDraft(existing.draftId);
+      if (!await draftRecovery.discardDraft(existing.draftId)) return;
     }
     applySetup(nextSetup);
     try { await draftRecovery.saveSetup(nextSetup); } catch { /* The setup stays in memory; Speak shows the local storage failure. */ }

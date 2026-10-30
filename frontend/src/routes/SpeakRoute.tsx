@@ -20,6 +20,7 @@ import { createTranslator } from "@/lib/i18n";
 import { MIN_REVIEW_SECONDS } from "@/lib/recordingPolicy";
 import { capturedAudioSeconds } from "@/lib/setup/audioCapture";
 import { useDraftRecovery } from "@/lib/state/DraftRecoveryProvider";
+import { sameDraftAttempt } from "@/lib/state/draftStore";
 import { hasFirstTakeMilestone, recordFirstTakeMilestone } from "@/lib/history/firstTakeMilestone";
 import { StatusBanner } from "@/components/ui/StatusBanner";
 import { pollingIntervals, queryKeys } from "@/lib/query/queryClient";
@@ -241,9 +242,7 @@ export const SpeakRoute = () => {
   const uploadIdentity = useRef<{ file: File; requestId: string } | null>(null);
   const previewUrlRef = useRef("");
   const saveInFlight = useRef(false);
-  const activeMatches = draftRecovery.active?.speakerId === draft.speakerId.trim().toLowerCase() &&
-    draftRecovery.active?.setup.sessionId === draft.sessionId &&
-    draftRecovery.active?.setup.retryOfSessionId === draft.retryOfSessionId;
+  const activeMatches = sameDraftAttempt(draftRecovery.active, draft);
   const readinessBlocked = !speakingChecksPending && !canEnterSpeak(speakingChecks);
   const ownsTake = recordingActive || Boolean(attachedFile) || Boolean(draftRecovery.recoveredFile) || hasRecordingAttachment(recording) ||
     isSubmitting || uploadProgress !== null || lifecycleState === "queued" || lifecycleState === "running";
@@ -501,7 +500,7 @@ export const SpeakRoute = () => {
     lifecycleState === "queued" || lifecycleState === "running";
   const hasAttachment = assessmentOwnsAttachment ? storeHasAttachment : Boolean(attachedFile);
   const shortRecording = recordedDurationSec !== null && recordedDurationSec < MIN_REVIEW_SECONDS;
-  const canSubmitLiveAttachment = !readinessBlocked && canSubmitAssessment && Boolean(attachedFile) &&
+  const canSubmitLiveAttachment = !readinessBlocked && !recordingActive && canSubmitAssessment && Boolean(attachedFile) &&
     localSaveState !== "saving" && !shortRecording && Boolean(sharingQuery.data?.available);
   const statusMessage = cancelError ? translate("speak.wait_cancel_failed", { detail: cancelError })
     : retryError ? translate(retryResponseUnknown && !recording.job.assessmentId ? "draft.submit_uncertain"
@@ -570,7 +569,7 @@ export const SpeakRoute = () => {
         : "";
 
   const handleSubmit = async (resumeAssessmentId?: string) => {
-    if (readinessBlocked || submittingRef.current || !attachedFile || shortRecording || !sharingQuery.data?.available) {
+    if (readinessBlocked || recordingActive || saveInFlight.current || submittingRef.current || !attachedFile || shortRecording || !sharingQuery.data?.available) {
       return;
     }
 
@@ -703,7 +702,7 @@ export const SpeakRoute = () => {
   };
 
   const handleRetry = async () => {
-    if (retryingRef.current || submittingRef.current || !attachedFile || !recording.job.assessmentId ||
+    if (recordingActive || saveInFlight.current || retryingRef.current || submittingRef.current || !attachedFile || !recording.job.assessmentId ||
         (lifecycleState !== "failed" && lifecycleState !== "cancelled")) return;
     retryingRef.current = true;
     setCancelError("");
@@ -899,7 +898,7 @@ export const SpeakRoute = () => {
           uploading={uploadProgress !== null}
           uploaded={uploaded}
           canRetry={!readinessBlocked && Boolean(recording.job.assessmentId) && Boolean(attachedFile) && !shortRecording && Boolean(sharingQuery.data?.available) && (lifecycleState === "failed" || lifecycleState === "cancelled")}
-          retryDisabled={isSubmitting}
+          retryDisabled={recordingActive || localSaveState === "saving" || isSubmitting}
           mediaMessage={mediaMessage}
           canCancel={uploadProgress !== null || lifecycleState === "queued" || lifecycleState === "running"}
           contextMode={assessmentContextMode}

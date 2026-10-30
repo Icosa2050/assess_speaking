@@ -131,6 +131,21 @@ describe("Speak route", () => {
     expect(screen.getByTestId("speak.recording_status")).toHaveTextContent("Saved on this Mac");
   });
 
+  it("blocks Submit during a replacement recording while keeping Stop usable", async () => {
+    const adapter = draftAdapterFixture([savedDraftFixture()]);
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    fireEvent.click(screen.getByTestId("speak.record_start"));
+    expect(await screen.findByTestId("speak.record_stop")).toBeEnabled();
+    expect(screen.getByTestId("speak.submit")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    expect(mockedUploadAudio).not.toHaveBeenCalled();
+    expect(adapter.discard).not.toHaveBeenCalled();
+  });
+
   it("keeps a queued assessment live when its local audio is reattached", async () => {
     const adapter = draftAdapterFixture([savedDraftFixture()]);
     const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });

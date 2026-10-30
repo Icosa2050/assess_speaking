@@ -4,6 +4,8 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/renderWithProviders";
+import { draftAdapterFixture, savedDraftFixture } from "@/test/draftAdapterFixture";
+import { buildSessionDraft } from "@/lib/state/sessionDraft";
 
 vi.mock("@/lib/api/client", () => ({
   ApiClientError: class ApiClientError extends Error {
@@ -22,6 +24,8 @@ vi.mock("@/lib/api/client", () => ({
       "speech_recognition", "ai_tutor", "media_decoder", "storage",
     ].map(key => ({ key, state: "available", blocking: true, reason: "available", detail_args: {} })) }),
     getRuntime: vi.fn(),
+    getRuntimeSettings: vi.fn().mockResolvedValue({ ui_locale: "en", whisper_model: "small", active_connection_id: "conn-local", connections: [] }),
+    getWhisperModelStatus: vi.fn().mockResolvedValue({ available: true }),
     getSamples: vi.fn(),
   },
 }));
@@ -34,6 +38,25 @@ const mockedGetRuntime = vi.mocked(apiClient.getRuntime);
 const mockedGetSamples = vi.mocked(apiClient.getSamples);
 
 describe("Library and Guide routes", () => {
+  it("replaces a saved task before preparing a different Library sample", async () => {
+    const saved = savedDraftFixture("Alex");
+    saved.setup = buildSessionDraft({ ...saved.setup, learningLanguage: "en", learningLanguageLabel: "English" });
+    const adapter = draftAdapterFixture([saved]);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/library"], locale: "en", draftAdapter: adapter,
+      appState: { draft: saved.setup, preferences: { activeConnectionId: "conn-local", setupComplete: true } } });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await screen.findByTestId("speak.recording_panel");
+    fireEvent.click(screen.getByRole("link", { name: "Library" }));
+    fireEvent.click(await screen.findByTestId("library.sample_prepare"));
+    await waitFor(() => expect(adapter.discard).toHaveBeenCalledWith(saved.draftId));
+    await waitFor(() => expect(store.getState().draft.themeId).toBe("en_B1_travel_story"));
+    expect(store.getState().draft.sessionId).not.toBe(saved.setup.sessionId);
+    expect(adapter.saveSetup).toHaveBeenCalledWith(expect.objectContaining({ themeId: "en_B1_travel_story" }), undefined);
+    expect(await screen.findByTestId("speak.recording_panel")).toBeVisible();
+    expect(screen.queryByTestId("speak.download_recording")).not.toBeInTheDocument();
+    confirm.mockRestore();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mockedGetDiagnostics.mockResolvedValue({ items: [] });
