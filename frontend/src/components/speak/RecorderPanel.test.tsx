@@ -6,6 +6,12 @@ import { RecorderPanel } from "./RecorderPanel";
 const props = { microphoneSetupPassed: true, canRemove: false, inputMode: "record" as const, onInputModeChange: vi.fn(), onRemove: vi.fn(),
   previewUrl: "", showReadyCheckpoint: false, statusMessage: "ready", statusTone: "info" as const, translate: (key: string) => key };
 afterEach(() => vi.unstubAllGlobals());
+it("shows a finalized short take as ready in memory while retaining its warning", () => {
+  render(<RecorderPanel {...props} onFileSelected={vi.fn()} previewUrl="blob:short-take"
+    statusMessage="Too short to submit" statusTone="warning" />);
+  expect(screen.getByTestId("speak.recording_visualizer")).toHaveAttribute("data-recording-state", "ready");
+  expect(screen.getByTestId("speak.recording_status")).toHaveTextContent("Too short to submit");
+});
 it("waits for native replacement confirmation before switching input modes", async () => {
   let finish: (approved: boolean) => void = () => undefined;
   const onMode = vi.fn();

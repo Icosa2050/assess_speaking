@@ -466,7 +466,7 @@ export const RecorderPanel = ({
           ? "requesting"
           : recorderPhase === "error" || visibleStatusTone === "error"
             ? "error"
-            : visibleStatusTone === "success"
+            : previewUrl || visibleStatusTone === "success"
               ? "ready"
               : "idle";
 

@@ -8,6 +8,7 @@ import { renderWithProviders } from "@/test/renderWithProviders";
 import { readyReadiness, readinessWith } from "@/test/readinessFixtures";
 import { queryKeys } from "@/lib/query/queryClient";
 import { draftAdapterFixture, savedDraftFixture } from "@/test/draftAdapterFixture";
+import { persistRetryDraft, RETRY_DRAFT_STORAGE_KEY } from "@/lib/state/retryBriefStorage";
 
 vi.mock("@/lib/api/client", () => ({
   ApiClientError: class ApiClientError extends Error {
@@ -179,17 +180,21 @@ describe("Speak route", () => {
 
   it("removes the local duplicate after a completed report and does not offer it on remount", async () => {
     const saved = savedDraftFixture();
+    saved.setup = { ...saved.setup, retryOfSessionId: "prior-attempt", coachingGoal: "Finish clearly", retryGoalEligible: true };
     const adapter = draftAdapterFixture([saved]);
     adapter.list.mockResolvedValueOnce({ drafts: [saved], unreadableIds: [] })
       .mockResolvedValueOnce({ drafts: [], unreadableIds: [] });
     const first = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
     fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
     await waitFor(() => expect(screen.getByTestId("speak.recording_status")).toHaveTextContent("Saved on this Mac"));
+    persistRetryDraft(saved.setup);
+    expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).not.toBeNull();
     act(() => {
       first.store.getState().setRecordingJob({ assessmentId: "asmt-1", status: "completed" });
       first.store.getState().updateReview({ reportId: "report-1" });
     });
     await waitFor(() => expect(adapter.discard).toHaveBeenCalledWith(saved.draftId));
+    await waitFor(() => expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull());
     first.unmount();
     renderWithProviders(<AppFrame />, { initialEntries: ["/"], locale: "en", appState: validDraftState, draftAdapter: adapter });
     await screen.findByTestId("home.resume");
