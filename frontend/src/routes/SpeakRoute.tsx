@@ -184,6 +184,7 @@ export const SpeakRoute = () => {
 
   const translate = useMemo(() => createTranslator(locale), [locale]);
   const lifecycleState = useAppStore(selectAssessmentLifecycleState);
+  const assessmentLocksTake = lifecycleState === "queued" || lifecycleState === "running" || lifecycleState === "uncertain";
   const canSubmitAssessment = useAppStore(selectCanSubmitAssessment);
   const retryBriefHeadingRef = useRef<HTMLHeadingElement>(null);
   const focusedRetryBriefRef = useRef<string | null>(null);
@@ -293,8 +294,8 @@ export const SpeakRoute = () => {
     }
   }, [draftRecovery.active?.draftId, activeMatches]);
 
-  const confirmReplace = () => !saveInFlight.current && (!draftRecovery.supported || (!attachedFile && !draftRecovery.active?.take) || confirmLocalDraft(translate("draft.replace_confirm")));
-  const confirmRemove = () => !saveInFlight.current && (localSaveState !== "saved" || !draftRecovery.active?.take ||
+  const confirmReplace = () => !assessmentLocksTake && !saveInFlight.current && (!draftRecovery.supported || (!attachedFile && !draftRecovery.active?.take) || confirmLocalDraft(translate("draft.replace_confirm")));
+  const confirmRemove = () => !assessmentLocksTake && !saveInFlight.current && (localSaveState !== "saved" || !draftRecovery.active?.take ||
     confirmLocalDraft(translate("draft.discard_saved_confirm", {
       learner: draftRecovery.active.setup.speakerId,
       task: draftRecovery.active.setup.themeLabel || draftRecovery.active.setup.promptText,
@@ -302,7 +303,7 @@ export const SpeakRoute = () => {
     })));
 
   const handleRemove = async (): Promise<boolean> => {
-    if (saveInFlight.current) return false;
+    if (assessmentLocksTake || saveInFlight.current) return false;
     try {
       if (draftRecovery.active?.take && activeMatches && localSaveState === "saved") {
         await draftRecovery.discardActive();
@@ -348,12 +349,12 @@ export const SpeakRoute = () => {
   }, [attachedFile, localSaveState, draftRecovery.supported, navigate, translate]);
 
   const handleInputModeChange = (nextMode: RecordingInputMethod) => {
-    if (nextMode === inputMode || saveInFlight.current) return;
+    if (nextMode === inputMode || assessmentLocksTake || saveInFlight.current) return;
     if (!draftRecovery.active?.take) clearAttachment();
     setInputMode(nextMode);
   };
   const saveRecordedTake = async (file: File, durationSec: number) => {
-    if (!draftRecovery.supported || saveInFlight.current || durationSec < MIN_REVIEW_SECONDS) return;
+    if (!draftRecovery.supported || assessmentLocksTake || saveInFlight.current || durationSec < MIN_REVIEW_SECONDS) return;
     saveInFlight.current = true;
     setLocalSaveState("saving");
     try {
@@ -365,7 +366,7 @@ export const SpeakRoute = () => {
   };
 
   const handleFileSelected = async (file: File | null, durationSec?: number) => {
-    if (!file || saveInFlight.current) return;
+    if (!file || assessmentLocksTake || saveInFlight.current) return;
     if (file.size > 100 * 1024 * 1024 || file.size === 0) {
       setRecordingError(translate("speak.upload_size_error"));
       return;
@@ -403,7 +404,7 @@ export const SpeakRoute = () => {
   };
 
   const keepSelectedFile = async () => {
-    if (!attachedFile || !draftRecovery.supported || inputMode !== "upload" || saveInFlight.current) return;
+    if (!attachedFile || !draftRecovery.supported || inputMode !== "upload" || assessmentLocksTake || saveInFlight.current) return;
     saveInFlight.current = true;
     setLocalSaveState("saving");
     try {
@@ -853,14 +854,14 @@ export const SpeakRoute = () => {
               : translate("retry.no_goal")}
           </p>
           <Field label={translate("retry.goal_label")} value={draft.coachingGoal} maxLength={12000}
-            disabled={recordingActive || isSubmitting || lifecycleState === "queued" || lifecycleState === "running"}
+            disabled={recordingActive || isSubmitting || assessmentLocksTake}
             onChange={event => {
               const coachingGoal = event.target.value;
               updateDraft({ coachingGoal });
               if (draftRecovery.supported) void draftRecovery.saveSetup({ ...draft, coachingGoal }).catch(() => undefined);
             }}
             hint={translate("retry.brief_hint")} data-testid="speak-retry-goal" />
-          <Button variant="quiet" disabled={recordingActive || isSubmitting || lifecycleState === "queued" || lifecycleState === "running"}
+          <Button variant="quiet" disabled={recordingActive || isSubmitting || assessmentLocksTake}
             onClick={() => {
               updateDraft({ coachingGoal: "" });
               if (draftRecovery.supported) void draftRecovery.saveSetup({ ...draft, coachingGoal: "" }).catch(() => undefined);
@@ -888,7 +889,7 @@ export const SpeakRoute = () => {
           alignItems: "start",
         }}
       >
-        <fieldset disabled={isSubmitting || localSaveState === "saving" || lifecycleState === "queued" || lifecycleState === "running"} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+        <fieldset disabled={isSubmitting || localSaveState === "saving" || assessmentLocksTake} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <p data-testid="speak.minimum_duration">{translate("speak.recording_too_short")}</p>
         <SharingSummary route={sharingQuery.data} locale={locale} />
       <RecorderPanel onMicrophoneStatusChange={setMicrophoneStatus}

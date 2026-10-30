@@ -740,6 +740,41 @@ describe("Speak route", () => {
     await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Your assessment is running"));
   });
 
+  it.each(["record", "upload"] as const)("keeps a saved %s take unchanged while submission is uncertain", async (method) => {
+    const saved = savedDraftFixture();
+    saved.take = { ...saved.take!, inputMethod: method };
+    const adapter = draftAdapterFixture([saved]);
+    mockedCreateAssessment.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const { store } = renderWithProviders(<AppFrame />, {
+      initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter,
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(store.getState().recording.assessmentState).toBe("uncertain"));
+    expect(screen.getByTestId("speak.remove_recording")).toBeDisabled();
+    expect(screen.getByTestId("speak.input_mode_record")).toBeDisabled();
+    expect(screen.getByTestId("speak.input_mode_upload")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("speak.remove_recording"));
+    if (method === "record") {
+      expect(screen.getByTestId("speak.record_start")).toBeDisabled();
+      fireEvent.click(screen.getByTestId("speak.record_start"));
+      expect(getUserMedia).not.toHaveBeenCalled();
+    } else {
+      const input = screen.getByTestId("speak.upload_input");
+      expect(input).toBeDisabled();
+      fireEvent.change(input, { target: { files: [new File(["new audio"], "new.wav", { type: "audio/wav" })] } });
+    }
+    expect(adapter.discard).not.toHaveBeenCalled();
+    expect(adapter.saveTake).not.toHaveBeenCalled();
+    expect(screen.getByTestId("speak.download_recording")).toHaveAttribute("download", "saved.wav");
+    expect(screen.getByTestId("speak.submit")).toBeEnabled();
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(2));
+    expect(mockedCreateAssessment.mock.calls[1][0]).toEqual(mockedCreateAssessment.mock.calls[0][0]);
+    expect(mockedUploadAudio).toHaveBeenCalledTimes(1);
+  });
+
   it("explains a stall and retries only after cancellation with retained audio", async () => {
     mockedGetAssessmentStatus.mockResolvedValue({ assessment_id: "asmt-1", status: "running",
       phase: "scoring_rubric", progress: 0, created_at: new Date(Date.now() - 240_000).toISOString(),

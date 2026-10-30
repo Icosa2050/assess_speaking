@@ -128,7 +128,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
         return { ...listing, legacy: brief, error: cleanupError };
       } catch (bootError) {
         if ((bootError as DraftStoreError).kind === "lost_key") {
-          try { return { drafts: [], unreadableIds: await adapter.recoveryIds(), legacy: readLegacyRetryBrief(), error: bootError as DraftStoreError }; }
+          try { return { drafts: [], unreadableIds: await withinBootDeadline(() => adapter.recoveryIds(), deadline), legacy: readLegacyRetryBrief(), error: bootError as DraftStoreError }; }
           catch { /* Keep the original key-loss error visible without offering unverifiable IDs. */ }
         }
         return { drafts: [], unreadableIds: [], legacy: readLegacyRetryBrief(), error: bootError as DraftStoreError };

@@ -227,6 +227,21 @@ describe("desktop draft recovery gate", () => {
     await waitFor(() => expect(bridge.discard).toHaveBeenCalledWith("a".repeat(32)));
   });
 
+  it("bounds lost-key recovery ID discovery and still opens the gate", async () => {
+    const bridge = fake([]);
+    vi.mocked(bridge.list).mockRejectedValue(new Error("Saved take cannot be opened on this Mac"));
+    vi.mocked(bridge.recoveryIds).mockImplementation(() => new Promise(() => undefined));
+    vi.useFakeTimers();
+    try {
+      show(bridge);
+      await act(async () => vi.advanceTimersByTimeAsync(15_000));
+      expect(bridge.recoveryIds).toHaveBeenCalledOnce();
+      expect(screen.getByRole("alert")).toHaveTextContent("cannot be opened on this Mac");
+      expect(screen.getByRole("button", { name: "Continue without resuming" })).toBeVisible();
+      expect(screen.queryByTestId("draft.unreadable")).not.toBeInTheDocument();
+    } finally { vi.useRealTimers(); }
+  });
+
   it("keeps a readable entry after a transient resume-time Keychain failure", async () => {
     const bridge = fake();
     vi.mocked(bridge.loadTakeChunk).mockRejectedValueOnce(new Error("Mac Keychain is unavailable"))
