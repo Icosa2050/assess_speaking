@@ -5,10 +5,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ReviewSummary, reviewEligibilityState, selectReviewSummary } from "@/components/review/ReviewSummary";
 import { ReviewResult } from "@/components/review/ReviewResult";
+import { CompactFixList } from "@/components/review/CompactFixList";
 import { WarningsPanel } from "@/components/review/WarningsPanel";
 import { Icon } from "@/components/ui/Icon";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { ApiClientError, apiClient } from "@/lib/api/client";
 import { createTranslator } from "@/lib/i18n";
@@ -237,8 +237,10 @@ export const ReviewRoute = () => {
 
   const summary = useMemo(() => selectReviewSummary(review), [review]);
   const [chosenGoal, setChosenGoal] = useState("");
-  useEffect(() => setChosenGoal(summary.nextFocus.slice(0, 12000)), [summary.reportId, summary.nextFocus]);
-  const goalOptions = [...new Set([summary.nextFocus, ...summary.priorities].map(value => value.trim()).filter(Boolean))];
+  useEffect(() => setChosenGoal(summary.legacyFullText?.nextFocus ? "" : summary.nextFocus.slice(0, 12000)),
+    [summary.reportId, summary.nextFocus, summary.legacyFullText?.nextFocus]);
+  const goalOptions = [...new Set([...(summary.legacyFullText?.nextFocus ? [] : [summary.nextFocus]), ...summary.priorities]
+    .map(value => value.trim()).filter(Boolean))];
   const followUp = followUpBrief(summary, draft);
   const coachTakeaway = summary.compactReport
     ? summary.compactReport.summary || translate("review.compact_unavailable_summary")
@@ -345,31 +347,6 @@ export const ReviewRoute = () => {
       </section>}
 
       <ReviewResult summary={summary} translate={translate} />
-      {followUp && (
-        <Card as="section" className={styles.followUp} data-testid="review-retry-follow-up">
-          <p className={styles.eyebrow}>{translate("retry.follow_up_eyebrow")}</p>
-          <h2>{translate("retry.follow_up_title")}</h2>
-          <p>{translate("retry.goal_value", { goal: followUp.goal })}</p>
-          {summary.eligibilityState !== "assessable" ? (
-            <p data-testid="review-retry-incompatible">{translate("retry.not_assessable")}</p>
-          ) : (
-            <>
-              <p data-testid="review-retry-observation">
-                {followUp.observation
-                  ? translate("retry.observation", { value: followUp.observation })
-                  : summary.transcript
-                    ? translate("retry.transcript_check", { value: summary.transcript.slice(0, 220) })
-                    : translate("retry.no_direct_observation")}
-              </p>
-              {followUp.comparable ? (
-                followUp.overallChange !== null ? <p data-testid="review-retry-change">
-                  {translate("retry.overall_change", { value: `${followUp.overallChange >= 0 ? "+" : ""}${followUp.overallChange.toFixed(2)}` })}
-                </p> : <p>{translate("retry.no_numeric_change")}</p>
-              ) : <p data-testid="review-retry-incompatible">{translate("retry.incompatible")}</p>}
-            </>
-          )}
-        </Card>
-      )}
       <section
         style={nextStepCardStyle}
         data-testid="review-next-step-card"
@@ -398,28 +375,28 @@ export const ReviewRoute = () => {
             >
               {coachTakeaway}
             </p>
-            {summary.compactReport && summary.compactReport.fixes.length > 0 && (
-              <section className={styles.compactFixes} aria-label={translate("review.compact_fixes_title")} data-testid="review-compact-fixes">
-                <h3>{translate("review.compact_fixes_title")}</h3>
-                <ol>
-                  {summary.compactReport.fixes.map((fix, index) => <li key={`${fix.youSaid}-${index}`}>
-                    <div className={styles.compactPair}>
-                      <div><strong>{translate("review.compact_you_said")}</strong><p lang={summary.compactReport!.practiceLanguage}>{fix.youSaid}</p></div>
-                      <div><strong>{translate("review.compact_better")}</strong><p lang={summary.compactReport!.practiceLanguage}>{fix.better}</p></div>
-                    </div>
-                    <p className={styles.compactWhy} lang={summary.compactReport!.feedbackLanguage}>{fix.why}</p>
-                  </li>)}
-                </ol>
-              </section>
-            )}
+            {summary.compactReport && <CompactFixList fixes={summary.compactReport.fixes}
+              practiceLanguage={summary.compactReport.practiceLanguage}
+              feedbackLanguage={summary.compactReport.feedbackLanguage} translate={translate} />}
             {summary.compactReport && <div className={styles.compactNext} data-testid="review-compact-next-step">
               <h3>{translate("review.compact_next_step")}</h3><p lang={summary.compactReport.feedbackLanguage}>
                 {summary.compactReport.nextStep || translate("review.compact_unavailable_step", { duration: summary.targetDurationSec || 90 })}
               </p>
             </div>}
+            {followUp && <p className={styles.retryGoalLine} data-testid="review-retry-follow-up">
+              <strong>{translate("retry.follow_up_eyebrow")}</strong>
+              <span>{followUp.goal}</span>
+              {summary.eligibilityState !== "assessable" &&
+                <span data-testid="review-retry-incompatible">{translate("retry.not_assessable")}</span>}
+            </p>}
             {!summary.compactReport && <p className={styles.coachHelper}>
               {translate("review.coach_takeaway_body")}
             </p>}
+            {summary.legacyFullText && <details className={styles.legacyFullText} data-testid="review-legacy-full-text">
+              <summary>{translate("review.legacy_full_text")}</summary>
+              {summary.legacyFullText.coachSummary && <p><strong>{translate("review.legacy_full_summary")}</strong> {summary.legacyFullText.coachSummary}</p>}
+              {summary.legacyFullText.nextFocus && <p><strong>{translate("review.legacy_full_focus")}</strong> {summary.legacyFullText.nextFocus}</p>}
+            </details>}
             {!summary.compactReport && <div style={focusChipGroupStyle}>
               <div
                 style={focusChipStyle}

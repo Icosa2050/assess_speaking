@@ -170,6 +170,7 @@ describe("Review quality safeguards", () => {
   ])("describes scoring mode %s without guessing", (mode, expected) => {
     const summary = summarize({ scores: { final: 4.1, mode } });
     render(<MemoryRouter><ReviewResult summary={summary} translate={createTranslator("en")} /></MemoryRouter>);
+    fireEvent.click(screen.getByText("How this estimate was calculated"));
     expect(screen.getByText(new RegExp(expected, "i"))).toBeVisible();
   });
 
@@ -194,13 +195,14 @@ describe("Review quality safeguards", () => {
       [key]: { score: 3.7, confidence: "low", method },
     } } });
     render(<MemoryRouter><ReviewResult summary={summary} translate={createTranslator("en")} /></MemoryRouter>);
-    fireEvent.click(screen.getByText("Show dimension signals"));
+    fireEvent.click(screen.getByText("How this estimate was calculated"));
     expect(screen.getByText(expected)).toBeVisible();
   });
 
   it("does not infer a rules-only method from an unrecognized mode with a rubric score", () => {
     const summary = summarize({ scores: { final: 4.1, llm: 4.2, mode: "legacy_v0" } });
     render(<MemoryRouter><ReviewResult summary={summary} translate={createTranslator("en")} /></MemoryRouter>);
+    fireEvent.click(screen.getByText("How this estimate was calculated"));
     expect(screen.getByText("The scoring method was not reported for this result.")).toBeVisible();
     expect(screen.queryByText(/Only rule-based speech signals contributed/)).not.toBeInTheDocument();
   });

@@ -660,6 +660,9 @@ test("renders primary visual-refresh artifacts without serif typography", async 
   await expect(estimate.getByTestId("review-estimate-text")).toHaveText("4.1/5");
   await expect(estimate).toContainText("Position on a 1–5 practice scale");
   await expect(estimate).toContainText("Provisional · not an exam result");
+  await expect(estimate.getByText("How this estimate was calculated").locator("..")).not.toHaveAttribute("open", "");
+  await expect(estimate.getByTestId("review-provisional-cefr")).not.toBeVisible();
+  await estimate.getByText("How this estimate was calculated").click();
   await expect(estimate.getByTestId("review-provisional-cefr")).toContainText("Provisional CEFR B2");
   await expect(estimate).toContainText("3.6/5 · limited proxy");
   await expect(estimate).toContainText("does not assess individual sounds or accent quality");
@@ -1142,8 +1145,7 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
       }
       if (route === "review") {
         expect(computed.text.some(item => item.tag === "li" && item.label === "1"), "score-scale tick coverage").toBe(true);
-        await expect(page.getByTestId("review-provisional-cefr")).toBeVisible();
-        expect(computed.text.some(item => item.label.includes("B2")), "CEFR badge coverage").toBe(true);
+        await expect(page.getByTestId("review-next-step-card")).toBeVisible();
       }
       if (route === "guide") expect(computed.text.some(item => item.tag === "a"), "guide link contrast coverage").toBe(true);
       if (route === "history") {

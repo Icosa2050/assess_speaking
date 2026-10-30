@@ -14,6 +14,8 @@ import { type JournalAccess, withJournalLock, deleteRehearsal, getRehearsal, lis
 import styles from "./RehearsalRoute.module.css";
 
 const record = (value: unknown): JsonRecord => value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
+const shortFeedback = (value: unknown, limit: number) => typeof value === "string"
+  ? Array.from(value.trim()).slice(0, limit).join("") : "";
 const waitForPoll = (signal: AbortSignal) => new Promise<void>((resolve, reject) => {
   const abort = () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); };
   const timer = window.setTimeout(() => { signal.removeEventListener("abort", abort); resolve(); }, 1000);
@@ -240,6 +242,8 @@ export const RehearsalRoute = () => {
         const report = record(reports[part.reportId || ""]?.report);
         const metrics = record(report.metrics); const coaching = record(report.coaching);
         const scores = record(report.scores); const warnings = Array.isArray(report.warnings) ? report.warnings : [];
+        const coachingSummary = shortFeedback(coaching.summary || coaching.coach_summary, 160);
+        const nextStep = shortFeedback(coaching.next_step || coaching.next_focus, 160);
         return <article className={styles.card} data-testid={`rehearsal-result-${i}`} key={part.id}>
           <h3>{t("part", { number: i + 1, total: session.parts.length })} · {clockText(part.durationSec)}</h3><p>{part.prompt}</p>
           <RehearsalAudio session={session} index={i} label={t("playback")} unavailable={t("audio_missing")} downloadLabel={translate("speak.download_recording")} />
@@ -247,7 +251,7 @@ export const RehearsalRoute = () => {
             <dl className={styles.metrics}>{[["duration", metrics.duration_sec], ["wpm", metrics.wpm], ["score", record(report.eligibility).state && record(report.eligibility).state !== "assessable" ? null : scores.final]].map(([label, value]) => <div key={String(label)}><dt>{t(String(label))}</dt><dd>{typeof value === "number" && Number.isFinite(value) ? value.toFixed(1) : "—"}</dd></div>)}</dl>
             {(!report.rubric || warnings.includes("coaching_unavailable")) && <p>{translate("review.general_practice_tips")}</p>}
             {warnings.includes("transcript_uncertain") && <p>{translate("review.transcript_uncertain")}</p>}
-            <p>{String(coaching.coach_summary || t("report_missing"))}</p><strong>{String(coaching.next_focus || "")}</strong>
+            <p>{coachingSummary || t("report_missing")}</p>{nextStep && <strong>{nextStep}</strong>}
             <button data-testid={`rehearsal-retry-${i}`} disabled={busy} onClick={() => operate(async () => { const next = retryPart(session, i); await persist(next); setReports({}); setFile(null); })}>{t("retry")}</button>
           </> : <p>{part.jobId ? t("in_progress") : t("awaiting_analysis")}</p>}
         </article>;

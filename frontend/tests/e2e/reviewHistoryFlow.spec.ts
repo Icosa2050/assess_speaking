@@ -371,7 +371,7 @@ test.describe("review and history replacement flow", () => {
     await expect(page.getByTestId("history-attempts-list")).toBeVisible();
   });
 
-  test("runs two deterministic attempts, shows compact feedback and progress, and opens the latest history detail", async ({
+  test("runs two deterministic attempts, shows Coach-first compact feedback and saved fixes, and opens history", async ({
     page,
   }, testInfo) => {
     await installDeterministicBackend(page);
@@ -438,6 +438,12 @@ test.describe("review and history replacement flow", () => {
     await expect(page.getByTestId("review-compact-fixes")).toContainText("poi ho visitato il centro");
     await expect(page.getByTestId("review-compact-fixes")).toContainText("Poi ho visitato il centro di Roma.");
     await expect(page.getByTestId("review-compact-next-step")).toContainText("90 seconds");
+    const scoreTop = await page.getByTestId("review-result-estimate").evaluate(element => element.getBoundingClientRect().top);
+    const coachTop = await page.getByTestId("review-next-step-card").evaluate(element => element.getBoundingClientRect().top);
+    const detailsTop = await page.getByTestId("review-summary").evaluate(element => element.getBoundingClientRect().top);
+    expect(scoreTop).toBeLessThan(coachTop);
+    expect(coachTop).toBeLessThan(detailsTop);
+    await expect(page.getByTestId("review-next-step-card").getByTestId("review-retry-follow-up")).toContainText("Add one concrete detail");
     for (const theme of ["light", "dark"] as const) {
       await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
       await page.screenshot({ path: testInfo.outputPath(`feedback-after-${theme}.png`), fullPage: true });
@@ -455,8 +461,6 @@ test.describe("review and history replacement flow", () => {
       "Change in overall score: +0.90.",
     );
     await expect(page.getByTestId("review-retry-follow-up")).toContainText("Add one concrete detail");
-    await expect(page.getByTestId("review-retry-observation")).toContainText("check your recorded words");
-    await expect(page.getByTestId("review-retry-change")).toContainText("+0.90/5");
     expect(await page.evaluate(() => window.localStorage.getItem("vostavo.retry-draft.v2"))).toBeNull();
     await expect(page.getByTestId("review-transcript")).toHaveValue(attempts[1].transcript);
     await page.getByTestId("review-evidence-toggle").click();
@@ -472,6 +476,8 @@ test.describe("review and history replacement flow", () => {
     await expect(page).toHaveURL(/\/history$/);
     await expect(page.getByTestId("history-detail-panel")).toBeVisible();
     await expect(page.getByTestId("history-detail-caption")).toContainText("sess-second");
+    await page.getByTestId("history-detail-full-report-summary").click();
+    await expect(page.getByTestId("history-compact-fixes")).toContainText("Poi ho visitato il centro di Roma.");
     await expect(page.getByTestId("review-notes")).toHaveValue(attempts[1].notes);
     await expect(page.getByTestId("practice-comparison")).toContainText("Your retry, compared with its original");
     await expect(page.getByTestId("practice-comparison")).toContainText("+0.9");

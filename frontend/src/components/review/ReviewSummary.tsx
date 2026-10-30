@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import type { ReviewState } from "@/lib/state/sessionDraft";
+import { CompactFixList } from "./CompactFixList";
 import { TranscriptFeedback } from "./TranscriptFeedback";
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
@@ -19,6 +20,7 @@ export type ReviewDisplaySummary = {
   eligibilityState?: string;
   baseline: Record<string, unknown> | null;
   coachSummary: string;
+  legacyFullText: { coachSummary: string; nextFocus: string } | null;
   compactReport: { summary: string; fixes: { youSaid: string; better: string; why: string }[]; nextStep: string; practiceLanguage: string; feedbackLanguage: string } | null;
   deterministicScore: number | null;
   failedGates: string[];
@@ -266,6 +268,10 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
     ? { summary: "", fixes: [], nextStep: "", practiceLanguage: String(reportInput.expected_language || "it"),
         feedbackLanguage: fallbackLanguage }
     : null);
+  const legacyCoachSummary = typeof coaching.coach_summary === "string" ? coaching.coach_summary : review.summary;
+  const legacyNextFocus = typeof coaching.next_focus === "string" ? coaching.next_focus : "";
+  const fullCoachSummary = !compactReport && !notAssessable && Array.from(legacyCoachSummary.trim()).length > 160 ? legacyCoachSummary : "";
+  const fullNextFocus = !compactReport && !notAssessable && Array.from(legacyNextFocus.trim()).length > 160 ? legacyNextFocus : "";
   const cefrEstimate = toRecord(scores.cefr_estimate);
   const dimensions = toRecord(scores.dimensions);
   const cefrLevel = String(cefrEstimate.level || "").toUpperCase();
@@ -285,6 +291,7 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
     }),
     baseline: Object.keys(baseline).length > 0 ? baseline : null,
     coachSummary: notAssessable ? "" : trimReportText(coaching.summary || coaching.coach_summary || review.summary, 160),
+    legacyFullText: fullCoachSummary || fullNextFocus ? { coachSummary: fullCoachSummary, nextFocus: fullNextFocus } : null,
     compactReport,
     deterministicScore: notAssessable ? null : asNumberOrNull(scores.deterministic),
     failedGates,
@@ -631,6 +638,21 @@ export const ReviewSummary = ({
           {translate("review.transcript_uncertain")}
         </p>
       )}
+      {summary.compactReport && !hideCoachSummary && <>
+        <p lang={summary.compactReport.feedbackLanguage} style={{ margin: 0, color: "var(--color-text)", lineHeight: 1.6 }}>
+          {summary.compactReport.summary || translate("review.compact_unavailable_summary")}
+        </p>
+        <CompactFixList fixes={summary.compactReport.fixes}
+          practiceLanguage={summary.compactReport.practiceLanguage}
+          feedbackLanguage={summary.compactReport.feedbackLanguage}
+          translate={translate} testId="history-compact-fixes" />
+        {!hideNextStep && <div style={{ display: "grid", gap: "var(--space-2)" }}>
+          <h3 style={{ margin: 0, color: "var(--color-text)" }}>{translate("review.compact_next_step")}</h3>
+          <p lang={summary.compactReport.feedbackLanguage} style={{ margin: 0, color: "var(--color-text)" }}>
+            {summary.compactReport.nextStep || translate("review.compact_unavailable_step", { duration: summary.targetDurationSec || 90 })}
+          </p>
+        </div>}
+      </>}
       {!summary.compactReport && <>{hideCoachSummary ? null : (
         <p
           style={{ margin: 0, color: "var(--color-text)", lineHeight: 1.6 }}
@@ -640,6 +662,15 @@ export const ReviewSummary = ({
           {summary.coachSummary || translate("review.summary_placeholder")}
         </p>
       )}
+      {!hideCoachSummary && summary.legacyFullText && <details data-testid="review-legacy-full-text">
+        <summary style={disclosureSummaryStyle}>{translate("review.legacy_full_text")}</summary>
+        {summary.legacyFullText.coachSummary && <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+          <strong>{translate("review.legacy_full_summary")}</strong> {summary.legacyFullText.coachSummary}
+        </p>}
+        {summary.legacyFullText.nextFocus && <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+          <strong>{translate("review.legacy_full_focus")}</strong> {summary.legacyFullText.nextFocus}
+        </p>}
+      </details>}
       <div style={detailGridStyle}>
         <div data-testid="review-strengths" data-semantic-id="review-strengths">
           <strong style={{ color: "var(--color-text-muted)" }}>{translate("review.strengths_title")}</strong>

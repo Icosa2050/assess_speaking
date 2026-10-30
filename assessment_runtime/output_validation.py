@@ -164,11 +164,13 @@ def normalize_evidence(text: str) -> str:
 
 
 _LANGUAGE_MARKERS = {
-    "en": {"you", "your", "the", "this", "that", "with", "because", "for", "speak", "record", "repeat", "use", "add"},
-    "de": {"du", "dein", "deine", "der", "die", "das", "dem", "ist", "und", "nach", "mit", "weil", "sprich", "nimm", "wiederhole", "verwende", "füge"},
-    "it": {"tu", "tuo", "tua", "il", "la", "con", "perché", "parla", "registra", "ripeti", "usa", "aggiungi"},
-    "fr": {"tu", "ton", "ta", "le", "les", "avec", "parce", "parle", "enregistre", "répète", "utilise", "ajoute"},
-    "es": {"tú", "tu", "el", "los", "las", "con", "porque", "habla", "graba", "repite", "usa", "añade"},
+    # Shared articles/prepositions are deliberately absent. A short explanation
+    # cannot be identified reliably from words such as Spanish/Italian la/con.
+    "en": {"you", "your", "the", "this", "that", "with", "because", "speak", "record"},
+    "de": {"du", "dein", "deine", "der", "die", "das", "dem", "ist", "und", "nach", "mit", "weil", "sprich", "nimm"},
+    "it": {"tuo", "tua", "perché", "parla", "registra", "ripeti", "aggiungi", "questo", "questa"},
+    "fr": {"ton", "avec", "parce", "parle", "enregistre", "répète", "utilise", "ajoute"},
+    "es": {"tú", "los", "las", "porque", "habla", "graba", "repite", "añade", "respuesta", "ejemplos"},
 }
 _SPEECH_ACTIONS = {
     "en": {"record", "speak", "say", "repeat"},
@@ -188,6 +190,17 @@ def _check_language(text: str, expected: str, field: str) -> None:
         raise SchemaValidationError(f"{field}: appears to be in the wrong language; expected {expected}")
 
 
+_ABBREVIATION = re.compile(r"\b(?:z\.\s*B\.|p\.\s*es\.|Sig\.)", re.IGNORECASE)
+
+
+def _one_sentence(text: str) -> bool:
+    if "\n" in text or text[-1] not in ".!?":
+        return False
+    checked = _ABBREVIATION.sub("abbrev", text)
+    checked = re.sub(r"(?<=\d)\.(?=\d)", "", checked)
+    return re.search(r"[.!?][\"'”’]?\s*\S", checked[:-1]) is None
+
+
 def validate_compact_generation(report: CompactFeedback, *, transcript: str | None,
                                 feedback_language: str, practice_language: str,
                                 target_duration_sec: float | None,
@@ -196,10 +209,8 @@ def validate_compact_generation(report: CompactFeedback, *, transcript: str | No
         raise SchemaValidationError(f"feedback_language: expected {feedback_language}")
     if report.practice_language != practice_language:
         raise SchemaValidationError(f"practice_language: expected {practice_language}")
-    if "\n" in report.summary or re.search(r"[.!?].+\S", report.summary):
-        raise SchemaValidationError("summary: must be one sentence")
-    if report.summary[-1] not in ".!?":
-        raise SchemaValidationError("summary: must end as a sentence")
+    if not _one_sentence(report.summary):
+        raise SchemaValidationError("summary: must be one sentence ending with punctuation")
     _check_language(report.summary, feedback_language, "summary")
     _check_language(report.next_step, feedback_language, "next_step")
     if "\n" in report.next_step:
@@ -207,13 +218,18 @@ def validate_compact_generation(report: CompactFeedback, *, transcript: str | No
     action_words = set(re.findall(r"[^\W\d_]+", report.next_step.casefold(), flags=re.UNICODE))
     if not action_words & _SPEECH_ACTIONS[feedback_language]:
         raise SchemaValidationError("next_step: ask for one spoken action")
-    validate_claim_text(report.summary, "summary")
-    validate_claim_text(report.next_step, "next_step")
     seen: set[str] = set()
     issues = (rubric or {}).get("recurring_grammar_errors") or []
+    grammar_examples = [q for issue in issues for q in issue.get("examples", [])]
     supported_examples = [example for name in ("recurring_grammar_errors", "coherence_issues", "lexical_gaps")
                           for issue in (rubric or {}).get(name, []) for example in issue.get("examples", [])]
-    known_quotes = (rubric or {}).get("evidence_quotes", [])
+    known_quotes = (rubric or {}).get("evidence_quotes", []) + supported_examples
+    styles = (rubric or {}).get("style_suggestions") or []
+    for field in ("summary", "next_step"):
+        value = getattr(report, field)
+        validate_claim_text(value, field, grammar_errors=bool(issues),
+                            known_quotes=known_quotes, grammar_examples=grammar_examples)
+        validate_style_coaching(value, field, styles)
     for index, fix in enumerate(report.fixes):
         quote = normalize_evidence(fix.you_said)
         if not transcript or not contains_example(transcript, fix.you_said):
@@ -232,7 +248,8 @@ def validate_compact_generation(report: CompactFeedback, *, transcript: str | No
         if "\n" in fix.why or re.search(r"[.!?].+\S", fix.why):
             raise SchemaValidationError(f"fixes[{index}].why: must be one line")
         validate_claim_text(fix.why, f"fixes[{index}].why", grammar_errors=bool(issues),
-                            known_quotes=known_quotes, grammar_examples=[q for issue in issues for q in issue.get("examples", [])])
+                            known_quotes=known_quotes, grammar_examples=grammar_examples)
+        validate_style_coaching(fix.why, f"fixes[{index}].why", styles, priority=True)
     if target_duration_sec is not None:
         durations = _instruction_durations(report.next_step)
         if len(durations) != 1 or not math.isclose(durations[0], target_duration_sec, abs_tol=0.01):

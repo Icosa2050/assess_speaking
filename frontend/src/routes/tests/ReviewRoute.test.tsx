@@ -181,6 +181,10 @@ describe("Review route", () => {
     expect(within(fixes).getByText("I goes to Rome")).toHaveAttribute("lang", "en");
     expect(within(fixes).getByText("I go to Rome")).toHaveAttribute("lang", "en");
     expect(screen.getByTestId("review-compact-next-step")).toHaveTextContent("120 seconds");
+    const scoreHeader = screen.getByTestId("review-result-estimate");
+    const coachCard = screen.getByTestId("review-next-step-card");
+    expect(scoreHeader.compareDocumentPosition(coachCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(scoreHeader).getByText(translate("review.result.how_calculated")).closest("details")).not.toHaveAttribute("open");
     expect(screen.queryByTestId("review-strengths")).not.toBeInTheDocument();
     expect(screen.queryByTestId("review-next-step-exercise")).not.toBeInTheDocument();
   });
@@ -216,6 +220,7 @@ describe("Review route", () => {
     expect(await screen.findByText(/Not enough speech to assess/)).toBeVisible();
     const result = screen.getByTestId("review-result-estimate");
     expect(within(result).getByText("No estimate")).toBeVisible();
+    fireEvent.click(within(result).getByText("How this estimate was calculated"));
     expect(within(result).getByText("No scoring method result is available for this recording.")).toBeVisible();
     expect(screen.queryByTestId("review-estimate-text")).not.toBeInTheDocument();
     expect(screen.queryByTestId("review-provisional-cefr")).not.toBeInTheDocument();
@@ -253,6 +258,7 @@ describe("Review route", () => {
       review: { reportId: "second", transcript: "Too short", payload },
     } });
     expect(await screen.findByTestId("review-retry-follow-up")).toHaveTextContent("Finish with one concrete example");
+    expect(within(screen.getByTestId("review-next-step-card")).getByTestId("review-retry-follow-up")).toBeVisible();
     expect(screen.queryByTestId("review-goal-picker")).not.toBeInTheDocument();
     expect(screen.queryByTestId("review-retry-change")).not.toBeInTheDocument();
     expect(screen.queryByTestId("review-next-focus")).not.toBeInTheDocument();
@@ -282,6 +288,25 @@ describe("Review route", () => {
     expect(screen.getByTestId("review-goal-input")).toHaveValue("");
   });
 
+  it("shows full legacy text on request without seeding a cut-off retry goal", async () => {
+    const longSummary = "Clear opening. ".repeat(30);
+    const longFocus = "Connect every example to your main point. ".repeat(12);
+    const payload = { ...reviewPayload, report: { ...reviewPayload.report, coaching: {
+      ...reviewPayload.report.coaching, coach_summary: longSummary, next_focus: longFocus,
+    } } };
+    renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
+      ...validDraftState, review: { reportId: "legacy-long", payload },
+    } });
+    const coachCard = await screen.findByTestId("review-next-step-card");
+    expect(within(coachCard).getByTestId("review-coach-takeaway").textContent?.length).toBeLessThanOrEqual(160);
+    expect(screen.getByTestId("review-goal-input")).toHaveValue("");
+    const disclosure = within(coachCard).getByTestId("review-legacy-full-text");
+    expect(disclosure).not.toHaveAttribute("open");
+    fireEvent.click(within(disclosure).getByText("Show full original feedback"));
+    expect(disclosure).toHaveTextContent(longSummary.trim());
+    expect(disclosure).toHaveTextContent(longFocus.trim());
+  });
+
   it("carries one edited coaching goal into Speak and stores it with the retry draft", async () => {
     const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
       ...validDraftState,
@@ -306,6 +331,7 @@ describe("Review route", () => {
     await screen.findByTestId("review-next-step-card");
     const result = screen.getByTestId("review-result-estimate");
     expect(within(result).getByText("No estimate")).toBeVisible();
+    fireEvent.click(within(result).getByText("How this estimate was calculated"));
     expect(within(result).getByText("No scoring method result is available for this recording.")).toBeVisible();
     expect(screen.queryByTestId("review-estimate-text")).not.toBeInTheDocument();
     expect(screen.queryByTestId("review-provisional-cefr")).not.toBeInTheDocument();
@@ -393,7 +419,7 @@ describe("Review route", () => {
     expect(screen.getByTestId("review-metric-band")).not.toHaveTextContent("B2");
     expect(scoreVisual).toHaveTextContent("3.6/5 · limited proxy");
     expect(scoreVisual).toHaveTextContent("does not assess individual sounds or accent quality");
-    fireEvent.click(within(scoreVisual).getByText("Show dimension signals"));
+    fireEvent.click(within(scoreVisual).getByText("How this estimate was calculated"));
     expect(scoreVisual).toHaveTextContent("Reported confidence: low");
     expect(scoreVisual).toHaveTextContent("Source: ASR confidence and pausing proxy; not acoustic pronunciation scoring.");
     expect(within(scoreVisual).getByRole("link", { name: "Read the scoring Guide" })).toHaveAttribute("href", "/guide");

@@ -643,6 +643,30 @@ class RunAssessmentTests(unittest.TestCase):
             "anthropic/claude-sonnet-4.5",
         )
 
+    def test_german_backend_run_skips_compact_coaching_before_provider_call(self):
+        asr = {
+            "text": "Ich spreche über meine Stadt und den öffentlichen Verkehr.",
+            "detected_language": "de", "language_probability": 0.99,
+            "compute_type_used": "default", "compute_fallback_used": False,
+            "words": [{"t0": 0.0, "t1": 1.0, "text": word} for word in
+                      ("Ich", "spreche", "über", "meine", "Stadt", "und", "den", "Verkehr")],
+        }
+        rubric = RubricResult(
+            fluency=4, cohesion=4, accuracy=4, range=4, overall=4,
+            comments_fluency="ok", comments_cohesion="ok", comments_accuracy="ok",
+            comments_range="ok", overall_comment="ok", on_topic=True,
+        )
+        with mock.patch.object(assess_speaking, "transcribe", return_value=asr), \
+             mock.patch.object(assess_speaking, "load_audio_features", return_value={"duration_sec": 70.0, "pauses": []}), \
+             mock.patch.object(assess_speaking, "generate_rubric", return_value=(rubric, "{}")), \
+             mock.patch.object(assess_speaking, "generate_coaching_summary") as coaching_call:
+            result = assess_speaking.run_assessment(
+                Path("synthetic.wav"), provider="ollama", llm_model="fixture",
+                expected_language="de", feedback_language="de", target_duration_sec=60.0,
+            )
+        coaching_call.assert_not_called()
+        self.assertIn("coaching_unavailable", result["report"]["warnings"])
+
     @mock.patch.object(assess_speaking, "generate_rubric")
     @mock.patch.object(assess_speaking, "load_audio_features", return_value={"duration_sec": 30.0, "pauses": []})
     @mock.patch.object(

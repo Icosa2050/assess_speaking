@@ -141,7 +141,7 @@
       "e2e/reviewHistoryFlow.spec.ts",
       "",
       "review and history replacement flow",
-      "runs two deterministic attempts, shows compact feedback and progress, and opens the latest history detail"
+      "runs two deterministic attempts, shows Coach-first compact feedback and saved fixes, and opens history"
     ],
     [
       "e2e/sessionNickname.spec.ts",

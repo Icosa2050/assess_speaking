@@ -5,6 +5,7 @@ import { RehearsalRoute } from "../RehearsalRoute";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { createRehearsal } from "@/lib/rehearsal/session";
 import { getRehearsal, listRehearsals } from "@/lib/rehearsal/storage";
+import { apiClient } from "@/lib/api/client";
 
 vi.mock("@/lib/rehearsal/storage", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/rehearsal/storage")>(),
@@ -32,6 +33,7 @@ vi.mock("@/lib/api/client", () => ({
     getSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64),
       audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" },
       analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
+    getHistoryDetail: vi.fn(),
   },
 }));
 
@@ -57,4 +59,29 @@ it("clears an old rehearsal part and disables Save part when re-recording begins
   fireEvent.click(screen.getByRole("button", { name: "Start replacement" }));
   expect(screen.getByTestId("rehearsal-save-part")).toBeDisabled();
   await waitFor(() => expect(screen.getByTestId("rehearsal-preview-url")).toBeEmptyDOMElement());
+});
+
+it("shows a saved compact coaching summary and next step for a rehearsal part", async () => {
+  const session = createRehearsal("en", "B1", "Alex", {
+    provider: "ollama_local", model: "test", baseUrl: "http://localhost:11434", whisper: "small", feedbackLanguage: "en",
+  });
+  session.phase = "review";
+  session.parts[0] = { ...session.parts[0], recorded: true, reportId: "compact-part" };
+  vi.mocked(listRehearsals).mockResolvedValue([session]);
+  vi.mocked(getRehearsal).mockResolvedValue(session);
+  vi.mocked(apiClient.getHistoryDetail).mockResolvedValue({ payload: { report: {
+    session_id: "compact-part", metrics: { duration_sec: 180, wpm: 110 }, scores: { final: 4 },
+    rubric: {}, warnings: [], coaching: {
+      summary: "Your story has a clear sequence.", fixes: [],
+      next_step: "Record a 180 seconds retry with one clear ending.",
+      feedback_language: "en", practice_language: "en",
+    },
+  } } } as Awaited<ReturnType<typeof apiClient.getHistoryDetail>>);
+  renderWithProviders(<RehearsalRoute />, { initialEntries: ["/rehearsal"], locale: "en",
+    appState: { draft: { speakerId: "Alex" }, microphoneSetupPassed: true } });
+  fireEvent.click(await screen.findByRole("button", { name: /EN.*Alex/ }));
+  const result = await screen.findByTestId("rehearsal-result-0");
+  expect(result).toHaveTextContent("Your story has a clear sequence.");
+  expect(result).toHaveTextContent("Record a 180 seconds retry with one clear ending.");
+  expect(result).not.toHaveTextContent("Report unavailable");
 });

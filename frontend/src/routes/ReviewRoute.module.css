@@ -30,22 +30,15 @@
   gap: 0.75rem;
 }
 
-.followUp,
 .goalPicker {
   display: grid;
   gap: var(--space-3);
 }
 
-.followUp h2,
-.followUp p {
-  margin: 0;
-}
-
-.eyebrow {
-  color: var(--color-brand);
-  font-size: var(--font-size-compact);
-  font-weight: var(--weight-bold);
-}
+.retryGoalLine { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); margin: 0; padding-top: var(--space-3); border-top: 1px solid var(--color-border-decorative); color: var(--color-text); line-height: var(--line-height-body); overflow-wrap: anywhere; }
+.retryGoalLine strong { color: var(--color-brand); }
+.legacyFullText > summary { cursor: pointer; color: var(--color-text); font-weight: var(--weight-semibold); }
+.legacyFullText p { margin: var(--space-3) 0 0; color: var(--color-text); line-height: var(--line-height-body); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .goalPicker {
   padding: var(--space-4);
@@ -71,15 +64,6 @@
 }
 .goalDisclosure > summary { cursor: pointer; color: var(--color-text); font-weight: var(--weight-semibold); }
 .goalDisclosure > .goalPicker { margin-top: var(--space-3); }
-.compactFixes { display: grid; gap: var(--space-3); border-top: 1px solid var(--color-border-decorative); padding-top: var(--space-4); }
-.compactFixes h3, .compactNext h3 { margin: 0; color: var(--color-text); font-size: var(--font-size-title); }
-.compactFixes ol { display: grid; gap: var(--space-3); margin: 0; padding-inline-start: 1.5rem; }
-.compactFixes li { padding: var(--space-3); border: 1px solid var(--color-border-decorative); border-radius: var(--radius-card); background: var(--color-surface); }
-.compactPair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
-.compactPair > div { min-width: 0; }
-.compactPair strong { display: block; color: var(--color-text-muted); font-size: var(--font-size-compact); }
-.compactPair p { margin: var(--space-1) 0 0; overflow-wrap: anywhere; color: var(--color-text); line-height: var(--line-height-body); }
-.compactWhy { margin: var(--space-2) 0 0; color: var(--color-text-muted); line-height: var(--line-height-body); }
 .compactNext { display: grid; gap: var(--space-2); border-top: 1px solid var(--color-border-decorative); padding-top: var(--space-4); }
+.compactNext h3 { margin: 0; color: var(--color-text); font-size: var(--font-size-title); }
 .compactNext p { margin: 0; color: var(--color-text); line-height: var(--line-height-body); }
-@media (max-width: 600px) { .compactPair { grid-template-columns: 1fr; } }

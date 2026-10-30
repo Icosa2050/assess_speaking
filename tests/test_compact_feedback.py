@@ -90,6 +90,56 @@ def test_wrong_explanation_and_example_languages_are_rejected():
         validate(data)
 
 
+@pytest.mark.parametrize("locale, summary, next_step, why", [
+    ("en", "Your answer scores 3.5 on this scale.", "Record a 90 seconds retry with a clear opening.", "Use the base verb with I."),
+    ("de", "Die Antwort hat z. B. eine klare Reihenfolge.", "Sprich 90 Sekunden und beginne mit einem Beispiel.", "Verwende die Grundform nach I."),
+    ("it", "La risposta del Sig. Rossi è chiara.", "Registra un nuovo tentativo di 90 secondi con un'apertura chiara.", "Usa la forma base dopo I."),
+    ("fr", "La réponse est claire et vaut 3.5 points.", "Enregistre un nouvel essai de 90 secondes avec une ouverture claire.", "Utilise la forme de base après I."),
+    ("es", "La respuesta conecta ideas, p. es. con ejemplos.", "Graba otro intento de 90 segundos con una frase inicial clara.", "Usa la forma base después de I."),
+])
+def test_valid_localized_feedback_and_sentence_abbreviations(locale, summary, next_step, why):
+    data = payload()
+    data.update(summary=summary, next_step=next_step, feedback_language=locale)
+    data["fixes"][0]["why"] = why
+    validate_compact_generation(CompactFeedback.from_dict(data), transcript=TRANSCRIPT,
+                                feedback_language=locale, practice_language="en",
+                                target_duration_sec=90, rubric=RUBRIC)
+
+
+def test_second_sentence_is_rejected():
+    data = payload()
+    data["summary"] = "Your answer has a clear topic. Add detail next."
+    with pytest.raises(SchemaValidationError, match="one sentence"):
+        validate(data)
+
+
+def test_summary_cannot_contradict_retained_grammar_finding():
+    data = payload()
+    data["fixes"] = []
+    data["summary"] = "Your grammar is error-free."
+    with pytest.raises(SchemaValidationError, match="contradicts the retained grammar"):
+        validate(data)
+
+
+def test_compact_fix_cannot_promote_optional_style_to_error():
+    data = payload()
+    data["fixes"][0]["why"] = "Replace 'I visit' with 'I toured' to correct your style."
+    rubric = {**RUBRIC, "style_suggestions": [{"original": "I visit", "suggestion": "I toured"}]}
+    with pytest.raises(SchemaValidationError, match="optional style suggestion"):
+        validate_compact_generation(CompactFeedback.from_dict(data), transcript=TRANSCRIPT,
+                                    feedback_language="en", practice_language="en",
+                                    target_duration_sec=90, rubric=rubric)
+
+
+def test_unsupported_practice_language_skips_provider_before_call():
+    with mock.patch("assessment_runtime.llm_client._chat_completion") as completion:
+        with pytest.raises(LLMSchemaError, match="unavailable for practice language de"):
+            generate_coaching_summary("ollama", "fixture", "prompt", rubric=RUBRIC,
+                                      transcript=TRANSCRIPT, target_duration_sec=90,
+                                      feedback_language="en", practice_language="de")
+    completion.assert_not_called()
+
+
 def test_quote_and_duration_are_grounded():
     data = payload()
     data["fixes"][0]["you_said"] = "I went to Rome"

@@ -21,7 +21,7 @@ from typing import Callable, Optional
 from uuid import uuid4
 
 from assess_core.language_profiles import default_language_profile_key, resolve_language_profile
-from assess_core.schemas import AssessmentReport, REPORT_SCHEMA_VERSION, RubricResult, SchemaValidationError
+from assess_core.schemas import AssessmentReport, PRACTICE_LANGUAGES, REPORT_SCHEMA_VERSION, RubricResult, SchemaValidationError
 from assess_core.settings import Settings
 from app_core.runtime_providers import default_base_url, normalize_provider, resolved_base_url
 from assessment_runtime.asr import available_asr_providers, transcribe as _transcribe
@@ -1056,7 +1056,7 @@ def run_assessment(
         )
         checks["language_detection_confident"] = language_detection_confident
 
-        if rubric_obj is not None and language_detection_confident:
+        if rubric_obj is not None and language_detection_confident and chosen_language in PRACTICE_LANGUAGES:
             _emit_status("generating_coaching")
             coaching_prompt_text = coaching_prompt(
                 metrics=metrics,
@@ -1093,6 +1093,9 @@ def run_assessment(
                 coaching_obj = None
             timings_ms["coaching"] = _elapsed_ms(stage_start)
         else:
+            if rubric_obj is not None and language_detection_confident and chosen_language not in PRACTICE_LANGUAGES:
+                warnings.append("coaching_unavailable")
+                errors.append(f"compact coaching is unavailable for practice language {chosen_language}")
             timings_ms["coaching"] = 0.0
 
         _emit_status("finalizing_report")
