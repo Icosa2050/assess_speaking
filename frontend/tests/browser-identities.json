@@ -200,6 +200,11 @@
       "",
       "system default and explicit themes keep the journal card usable at desktop sizes"
     ],
+    ["e2e/visualRefreshSmoke.spec.ts", "", "start-fresh actions stay reachable at 200% (de)"],
+    ["e2e/visualRefreshSmoke.spec.ts", "", "start-fresh actions stay reachable at 200% (en)"],
+    ["e2e/visualRefreshSmoke.spec.ts", "", "start-fresh actions stay reachable at 200% (es)"],
+    ["e2e/visualRefreshSmoke.spec.ts", "", "start-fresh actions stay reachable at 200% (fr)"],
+    ["e2e/visualRefreshSmoke.spec.ts", "", "start-fresh actions stay reachable at 200% (it)"],
     [
       "e2e/visualRefreshSmoke.spec.ts",
       "",
