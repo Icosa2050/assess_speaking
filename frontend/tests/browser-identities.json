@@ -391,6 +391,11 @@
       "e2e/cloudConnections.spec.ts",
       "",
       "first run still creates a provider in Setup"
+    ],
+    [
+      "e2e/cloudConnections.spec.ts",
+      "",
+      "Session-only provider save returns to Settings with a credential warning"
     ]
   ],
   "journeys": [

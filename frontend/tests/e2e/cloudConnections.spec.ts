@@ -43,6 +43,9 @@ for (const locale of ["en", "it"]) {
     await page.getByRole("button", {name: locale === "en" ? "Continue with ChatGPT" : "Continua con ChatGPT",exact:true}).click();
     await expect(page.getByRole("link", {name: locale === "en" ? "Continue in your browser" : "Continua nel browser"})).toHaveAttribute("href", /auth.openai.com/);
     finished = true;
+    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page.getByText(/session only|questa sessione/i).first()).toBeVisible();
+    await page.getByTestId("settings.connection_row_edit").click();
     const panel = page.getByRole("region", {name:"ChatGPT", exact:true});
     await expect(panel.getByRole("combobox")).toBeVisible();
     await panel.getByRole("combobox").selectOption("plan-two");
@@ -51,8 +54,9 @@ for (const locale of ["en", "it"]) {
     await expect(panel.getByRole("status")).toContainText("Structured feedback verified");
     expect(probes).toBe(1);
     await panel.getByRole("button", {name: locale === "en" ? "Disconnect ChatGPT" : "Scollega ChatGPT",exact:true}).click();
-    await expect(panel.getByRole("status")).toContainText(locale === "en" ? "Disconnected locally" : "Scollegato localmente");
-    await expect(panel.getByRole("combobox")).toHaveCount(0);
+    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page.getByRole("status").filter({hasText: locale === "en" ? "Disconnected locally" : "Scollegato localmente"})).toBeVisible();
+    await expect(page.getByTestId("settings.connection_row")).toHaveCount(0);
   });
 }
 
@@ -234,4 +238,30 @@ test("first run still creates a provider in Setup", async ({page}) => {
   await page.getByTestId("runtime_connection.save_connection").click();
   await expect.poll(() => saved).toBe(true);
   await expect(page).toHaveURL(/\/runtime-setup$/);
+});
+
+test("Session-only provider save returns to Settings with a credential warning", async ({page}) => {
+  let saved = false;
+  const record = () => ({
+    connection_id: "session-key", provider_key: "openrouter", provider_choice: "openrouter",
+    provider_label: "OpenRouter", label: "Session key", model: "fixture/model",
+    base_url: "https://openrouter.ai/api/v1", is_default: true, is_local: false,
+    requires_api_key: true, has_api_key: true, secret_state: "present",
+    last_test_status: "", last_tested_at: "", openrouter_http_referer: "",
+    openrouter_app_title: "", provider_metadata: {persistent: false},
+  });
+  await page.route("**/v1/runtime/settings", async r => {
+    if (r.request().method() === "PUT") saved = true;
+    await r.fulfill({json: {ui_locale: "en", whisper_model: "tiny", active_connection_id: saved ? "session-key" : "", connections: saved ? [record()] : []}});
+  });
+  await page.goto("/settings");
+  await page.getByTestId("settings.open_setup").click();
+  await page.getByTestId("runtime_connection.provider").selectOption("openrouter");
+  await page.getByTestId("runtime_connection.model").fill("fixture/model");
+  await page.getByTestId("runtime_connection.api_key").fill("fixture-key");
+  await page.getByTestId("runtime_connection.save_connection").click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(page.getByRole("status").filter({hasText: "credential is available for this session only"})).toBeVisible();
+  await expect(page.getByTestId("settings.connection_row")).toContainText("Credential available for this session only");
+  await expect(page.getByTestId("settings.connection_row")).not.toContainText("A saved key is already available");
 });

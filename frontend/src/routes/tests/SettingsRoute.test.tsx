@@ -258,11 +258,57 @@ describe("Settings route", () => {
     expect(screen.getByTestId("settings.connection_id")).toHaveValue("conn-alpha");
   });
 
+  it("surfaces active selection failures without changing the stored active connection", async () => {
+    mockedPostRuntimeSettingsSetDefault.mockRejectedValue(new Error("backend offline"));
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/settings"], locale: "en" });
+    await screen.findAllByText("Alpha runtime");
+    fireEvent.change(screen.getByTestId("settings.connection_id"), { target: { value: "conn-alpha" } });
+    fireEvent.click(screen.getByTestId("settings.connection_row_set_default"));
+    expect(await screen.findByText("Default connection could not be changed: backend offline")).toBeVisible();
+    expect(store.getState().preferences.activeConnectionId).not.toBe("conn-alpha");
+  });
+
+  it("refreshes credential diagnostics after selecting the local connection", async () => {
+    let localActive = false;
+    mockedGetReadiness.mockImplementation(async () => localActive ? readyReadiness : readinessWith("ai_tutor", "credential_missing"));
+    const localSettings = runtimeSettings({ active_connection_id: "conn-alpha", connections: [
+      { ...alphaConnection, is_default: true }, { ...bravoConnection, is_default: false },
+    ] });
+    const oldDiagnostics = { items: [
+      { key: "whisper", status: "ok", title_key: "", detail_key: "", detail_args: {} },
+      { key: "runtime", status: "ok", title_key: "", detail_key: "", detail_args: {} },
+      { key: "runtime_api_key", status: "error", title_key: "", detail_key: "", detail_args: {
+        provider: "openrouter", model: "gpt-4.1-mini", base_url: "https://openrouter.ai/api/v1",
+      } },
+    ] };
+    mockedGetRuntime.mockImplementation(async () => localActive
+      ? { configured: true, provider: "ollama", model: "llama3.2:3b", base_url: "http://localhost:11434/v1", requires_api_key: false, has_api_key: false }
+      : { configured: true, provider: "openrouter", model: "gpt-4.1-mini", base_url: "https://openrouter.ai/api/v1", requires_api_key: true, has_api_key: false });
+    mockedGetRuntimeSettings.mockImplementation(async () => localActive ? localSettings : runtimeSettings());
+    mockedGetDiagnostics.mockImplementation(async () => localActive
+      ? { items: oldDiagnostics.items.filter((item) => item.key !== "runtime_api_key") }
+      : oldDiagnostics);
+    mockedPostRuntimeSettingsSetDefault.mockImplementation(async () => { localActive = true; return localSettings; });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: false } } });
+    queryClient.setQueryData(queryKeys.diagnostics, oldDiagnostics);
+    renderWithProviders(<AppFrame />, { initialEntries: [{ pathname: "/settings", state: { from: "home" } }], locale: "en", queryClient });
+    await screen.findAllByText("Alpha runtime");
+    fireEvent.change(screen.getByTestId("settings.connection_id"), { target: { value: "conn-alpha" } });
+    fireEvent.click(screen.getByTestId("settings.connection_row_set_default"));
+    await waitFor(() => expect(queryClient.getQueryState(queryKeys.diagnostics)?.isInvalidated).toBe(true));
+    fireEvent.click(screen.getByTestId("settings.return"));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Setup Guide" }));
+    const tutor = await screen.findByTestId("runtime_setup.setup_guide.ai_tutor");
+    await waitFor(() => expect(tutor).toHaveAttribute("data-status", "ready"));
+  });
+
   it("edits a chosen connection in Setup and returns to Settings after saving", async () => {
-    const updated = runtimeSettings({connections: [{...alphaConnection, model: "new-local-model"}, bravoConnection]});
-    mockedGetRuntimeSettings.mockResolvedValueOnce(runtimeSettings()).mockResolvedValue(updated);
-    mockedPutRuntimeSettings.mockResolvedValue(updated);
-    renderWithProviders(<AppFrame />, {initialEntries: [{pathname: "/settings", state: {from: "home"}}], locale: "en"});
+    const edited = runtimeSettings({active_connection_id: "conn-alpha", connections: [{...alphaConnection, model: "new-local-model", is_default: true}, {...bravoConnection, is_default: false}]});
+    const restored = runtimeSettings({connections: [{...alphaConnection, model: "new-local-model"}, bravoConnection]});
+    mockedGetRuntimeSettings.mockResolvedValueOnce(runtimeSettings()).mockResolvedValue(restored);
+    mockedPutRuntimeSettings.mockResolvedValue(edited);
+    mockedPostRuntimeSettingsSetDefault.mockResolvedValue(restored);
+    const { store } = renderWithProviders(<AppFrame />, {initialEntries: [{pathname: "/settings", state: {from: "home"}}], locale: "en"});
     const edit = await screen.findAllByTestId("settings.connection_row_edit");
     fireEvent.click(edit[1]);
     expect(await screen.findByTestId("runtime_connection.provider")).toHaveValue("ollama_local");
@@ -272,9 +318,33 @@ describe("Settings route", () => {
     await waitFor(() => expect(mockedPutRuntimeSettings).toHaveBeenCalledWith(expect.objectContaining({
       connection: expect.objectContaining({connection_id: "conn-alpha", model: "new-local-model"}),
     })));
+    await waitFor(() => expect(mockedPostRuntimeSettingsSetDefault).toHaveBeenCalledWith("conn-bravo"));
+    expect(store.getState().preferences.activeConnectionId).toBe("conn-bravo");
     expect(await screen.findByTestId("settings.connection_id")).toHaveValue("conn-alpha");
     expect(screen.getByRole("heading", {name: "Saved connections"})).toHaveFocus();
     expect(screen.queryByTestId("runtime_connection.provider")).not.toBeInTheDocument();
+  });
+
+  it("shows a session-only warning after returning from Setup", async () => {
+    const sessionOnly = runtimeSettings({ connections: [alphaConnection, { ...bravoConnection, provider_metadata: { persistent: false } }] });
+    mockedGetRuntimeSettings.mockResolvedValueOnce(runtimeSettings()).mockResolvedValue(sessionOnly);
+    mockedPutRuntimeSettings.mockResolvedValue(sessionOnly);
+    renderWithProviders(<AppFrame />, { initialEntries: ["/settings"], locale: "en" });
+    fireEvent.click((await screen.findAllByTestId("settings.connection_row_edit"))[0]);
+    fireEvent.click(await screen.findByTestId("runtime_connection.save_connection"));
+    expect(await screen.findByTestId("settings.connection_id")).toBeVisible();
+    expect(screen.getAllByText(/credential is available for this session only/i)[0]).toBeVisible();
+    expect(screen.queryByText("A saved key is already available for this connection.")).not.toBeInTheDocument();
+  });
+
+  it("keeps a failed provider save in Setup with its error", async () => {
+    mockedPutRuntimeSettings.mockRejectedValue(new Error("disk full"));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/settings"], locale: "en" });
+    fireEvent.click((await screen.findAllByTestId("settings.connection_row_edit"))[0]);
+    fireEvent.click(await screen.findByTestId("runtime_connection.save_connection"));
+    expect(await screen.findByText(/disk full/)).toBeVisible();
+    expect(screen.getByTestId("runtime_connection.provider")).toBeVisible();
+    expect(screen.queryByTestId("settings.connection_id")).not.toBeInTheDocument();
   });
 
   it("requires confirmation before removing a connection", async () => {
@@ -287,12 +357,44 @@ describe("Settings route", () => {
     expect(mockedDeleteRuntimeSettingsConnection).not.toHaveBeenCalled();
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveAttribute("open");
+    expect(remove[0]).toHaveAttribute("data-connection-id", "conn-bravo");
     expect(within(dialog).getByText(/Remove Bravo runtime/)).toBeVisible();
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(remove[0]).toHaveFocus();
     fireEvent.click(remove[0]);
-    fireEvent.click(screen.getAllByTestId("settings.connection_row_delete")[0]);
+    fireEvent.click(screen.getByTestId("settings.connection_row_delete_confirm"));
     await waitFor(() => expect(mockedDeleteRuntimeSettingsConnection).toHaveBeenCalledWith("conn-bravo"));
+  });
+
+  it("closes removal confirmation when its connection disappears", async () => {
+    let exists = true;
+    mockedGetRuntimeSettings.mockImplementation(async () => exists ? runtimeSettings() : runtimeSettings({
+      active_connection_id: "conn-alpha", connections: [{ ...alphaConnection, is_default: true }],
+    }));
+    const { queryClient } = renderWithProviders(<AppFrame />, { initialEntries: ["/settings"], locale: "en" });
+    fireEvent.click((await screen.findAllByTestId("settings.connection_row_delete"))[0]);
+    expect(screen.getByRole("dialog")).toBeVisible();
+    exists = false;
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: ["runtime", "settings"] }); });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "Saved connections" })).toHaveFocus();
+  });
+
+  it("reports deletion failures and keeps the connection selected", async () => {
+    mockedDeleteRuntimeSettingsConnection.mockRejectedValue(new Error("locked"));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/settings"], locale: "en" });
+    fireEvent.click((await screen.findAllByTestId("settings.connection_row_delete"))[0]);
+    fireEvent.click(screen.getByTestId("settings.connection_row_delete_confirm"));
+    expect(await screen.findByText("Connection could not be deleted: locked")).toBeVisible();
+    expect(screen.getByTestId("settings.connection_id")).toHaveValue("conn-bravo");
+    expect(screen.getAllByText("Bravo runtime")).toHaveLength(2);
+  });
+
+  it("explains why preferences cannot be saved before a provider is configured", async () => {
+    mockedGetRuntimeSettings.mockResolvedValue(runtimeSettings({ connections: [], active_connection_id: "" }));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/settings"], locale: "en" });
+    expect(await screen.findByText("Set up a provider before saving these preferences.")).toBeVisible();
+    expect(screen.getByTestId("settings.save_preferences")).toBeDisabled();
   });
 
   it("keeps UI language and appearance in Settings", async () => {

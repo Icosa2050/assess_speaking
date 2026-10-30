@@ -12,6 +12,7 @@ export interface SavedConnectionRecord {
   isDefault: boolean;
   hasApiKey: boolean;
   secretState: SavedConnectionSecretState;
+  secretPersistent: boolean;
   lastTestStatus: string;
   lastTestedAt: string;
 }
@@ -33,6 +34,7 @@ export const toSavedConnectionRecord = (
     connection.secret_state === "present" || connection.secret_state === "missing"
       ? connection.secret_state
       : "absent",
+  secretPersistent: connection.provider_metadata.persistent !== false,
   lastTestStatus: trimString(connection.last_test_status),
   lastTestedAt: trimString(connection.last_tested_at),
 });

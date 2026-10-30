@@ -72,6 +72,7 @@ export const SEMANTIC_IDS = {
     connectionRow: "settings.connection_row",
     connectionRowEdit: "settings.connection_row_edit",
     connectionRowDelete: "settings.connection_row_delete",
+    connectionRowDeleteConfirm: "settings.connection_row_delete_confirm",
     connectionRowSetDefault: "settings.connection_row_set_default",
     activeConnectionIndicator: "settings.active_connection_indicator",
     defaultConnectionIndicator: "settings.default_connection_indicator",

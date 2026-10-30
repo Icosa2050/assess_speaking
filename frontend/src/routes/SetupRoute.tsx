@@ -259,9 +259,16 @@ export const SetupRoute = () => {
       heading?.scrollIntoView?.({ block: "start" });
     }
   }, [returningToSettings, runtimeSettings, missingRequestedConnection, location.key]);
-  const returnToSettings = (focusConnectionId?: string) => navigate("/settings", {
-    state: { from: navigation?.settingsFrom, focusConnectionId, fromSetup: true },
+  const returnToSettings = (focusConnectionId?: string, saveNotice?: "session-only", connectionNotice?: string) => navigate("/settings", {
+    state: { from: navigation?.settingsFrom, focusConnectionId, fromSetup: true, saveNotice, connectionNotice },
   });
+  const restorePreviousActiveConnection = async (newActiveId: string) => {
+    const previousId = runtimeSettings?.active_connection_id;
+    if (returningToSettings && editingConnection && previousId && previousId !== editingConnection.connection_id && newActiveId !== previousId) {
+      return apiClient.postRuntimeSettingsSetDefault(previousId);
+    }
+    return null;
+  };
 
   const recommendedWhisperModel = recommendWhisperModel(draft.learningLanguage, draft.cefrLevel);
   const recommendedModelText = translate("runtime_setup.suggested_defaults", {
@@ -462,13 +469,16 @@ export const SetupRoute = () => {
         clear_saved_secret: clearSavedSecret,
         connection,
       });
-      setActiveConnectionId(response.active_connection_id);
+      const savedConnectionId = connection.connection_id || response.active_connection_id;
+      const restored = await restorePreviousActiveConnection(response.active_connection_id);
+      setActiveConnectionId(restored?.active_connection_id || response.active_connection_id);
       setSetupComplete(response.connections.length > 0);
       setFormStatus("saved");
-      const saved = response.connections.find(c => c.connection_id === response.active_connection_id);
-      setFormStatusMessage(translate(saved?.provider_metadata.persistent === false ? "runtime_setup.save_success_session_only" : "runtime_setup.save_success"));
+      const saved = response.connections.find(c => c.connection_id === savedConnectionId);
+      const sessionOnly = saved?.provider_metadata.persistent === false;
+      setFormStatusMessage(translate(sessionOnly ? "settings.session_only_saved_notice" : "runtime_setup.save_success"));
       await handleInvalidateRuntime();
-      if (returningToSettings) returnToSettings(connection.connection_id || response.active_connection_id);
+      if (returningToSettings) returnToSettings(savedConnectionId, sessionOnly ? "session-only" : undefined);
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
       setFormStatus("save-failed");
@@ -621,11 +631,37 @@ export const SetupRoute = () => {
           </StatusBanner>
         ) : null}
         {(!returningToSettings || (runtimeSettings && !missingRequestedConnection)) ? <RuntimeConnectionForm
-          onAccountConnected={(id, notice) => { if (notice) setFormStatusMessage(notice); if (id) void runtimeSettingsQuery.refetch(); }}
+          onAccountConnected={(id, notice) => {
+            if (notice) setFormStatusMessage(notice);
+            if (!id) {
+              void (async () => {
+                await handleInvalidateRuntime();
+                if (returningToSettings) returnToSettings(undefined, undefined, notice);
+              })();
+              return;
+            }
+            if (!returningToSettings) { void runtimeSettingsQuery.refetch(); return; }
+            void (async () => {
+              try {
+                const connected = await apiClient.getRuntimeSettings();
+                const restored = await restorePreviousActiveConnection(connected.active_connection_id);
+                setActiveConnectionId(restored?.active_connection_id || connected.active_connection_id);
+                setSetupComplete(connected.connections.length > 0);
+                await handleInvalidateRuntime();
+                const sessionOnly = connected.connections.find(c => c.connection_id === id)?.provider_metadata.persistent === false;
+                returnToSettings(id, sessionOnly ? "session-only" : undefined);
+              } catch (caught) {
+                const detail = caught instanceof Error ? caught.message : String(caught);
+                setFormStatus("save-failed");
+                setFormStatusMessage(translate("runtime_setup.save_error", { detail }));
+              }
+            })();
+          }}
           detectedModelMessage={detectedModelMessage}
           detectedModels={detectedModels}
           initialDraft={initialDraft}
           initialSecretState={initialSecretState}
+          initialSecretPersistent={editingConnection?.provider_metadata.persistent !== false}
           isBusy={isBusy}
           locale={locale}
           backLabel={returningToSettings ? translate("settings.cancel") : undefined}

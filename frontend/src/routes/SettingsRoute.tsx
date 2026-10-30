@@ -16,7 +16,7 @@ import { useAppStore } from "@/lib/state/appStore";
 import { SUPPORTED_UI_LOCALES, type UiLocale } from "@/lib/state/sessionDraft";
 
 type SettingsOrigin = "home" | "runtime-setup" | "session-setup" | "speak" | "review" | "library" | "guide" | "history";
-type SettingsLocationState = { from?: SettingsOrigin; focusConnectionId?: string; fromSetup?: boolean };
+type SettingsLocationState = { from?: SettingsOrigin; focusConnectionId?: string; fromSetup?: boolean; saveNotice?: "session-only"; connectionNotice?: string };
 
 const cardStyle = {
   display: "grid",
@@ -148,6 +148,10 @@ export const SettingsRoute = () => {
   const candidateReturnOrigin = (location.state as SettingsLocationState | null)?.from;
   const returnOrigin = candidateReturnOrigin && candidateReturnOrigin in returnPathMap ? candidateReturnOrigin : undefined;
   const returnPath = returnOrigin ? returnPathMap[returnOrigin] : "/";
+  const setupNotice = (location.state as SettingsLocationState | null)?.saveNotice === "session-only"
+    && connections.some((connection) => connection.connectionId === (location.state as SettingsLocationState).focusConnectionId)
+    ? translate("settings.session_only_saved_notice") : "";
+  const connectionNotice = (location.state as SettingsLocationState | null)?.connectionNotice || "";
   const openSetup = (connectionId: string) => navigate("/runtime-setup", {
     state: { connectionId, returnTo: "/settings", settingsFrom: returnOrigin, from: returnOrigin },
   });
@@ -252,6 +256,8 @@ export const SettingsRoute = () => {
         selectedConnectionId={selectedConnectionId ?? ""}
       />
       {connectionMessage ? <p role="alert">{connectionMessage}</p> : null}
+      {setupNotice ? <p role="status">{setupNotice}</p> : null}
+      {connectionNotice ? <p role="status">{connectionNotice}</p> : null}
       {runtimeSettingsQuery.isError ? <p role="alert">{translate("settings.load_failed")}</p> : null}
       <section style={cardStyle}>
         <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
@@ -331,6 +337,7 @@ export const SettingsRoute = () => {
         <Button disabled={isBusy || !activeConnection} onClick={() => void handleSavePreferences()} style={{ width: "fit-content" }} {...semanticAttributes(SEMANTIC_IDS.settings.savePreferences)}>
           {translate("settings.save_preferences")}
         </Button>
+        {!activeConnection ? <p role="status">{translate("settings.preferences_need_connection")}</p> : null}
         {preferencesMessage ? <p role="status">{preferencesMessage}</p> : null}
 
         <p style={{ margin: 0, lineHeight: 1.55, color: whisperStatusQuery.data?.cached ? "var(--color-success)" : "var(--color-warning)" }}>

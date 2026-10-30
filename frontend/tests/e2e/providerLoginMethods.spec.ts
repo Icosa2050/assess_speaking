@@ -65,7 +65,7 @@ for (const locale of ["en", "it"]) {
       expect(probes[1]).toMatchObject({connection_id:"fixture-connection",api_key:"",provider_choice:method.choice});
       await page.getByTestId("runtime_setup.back_home").click();
       await page.getByTestId("settings.connection_row_delete").click();
-      await page.getByTestId("settings.connection_row_delete").click();
+      await page.getByTestId("settings.connection_row_delete_confirm").click();
       await expect(page.getByTestId("settings.connection_row_delete")).toHaveCount(0);
       expect(deletes).toBe(1);
     });

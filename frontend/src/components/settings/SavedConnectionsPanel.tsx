@@ -29,7 +29,7 @@ const resolveSecretStateCopy = (
   translate: ReturnType<typeof createTranslator>,
 ): string => {
   if (connection.secretState === "present") {
-    return translate("settings.secret_saved_state");
+    return translate(connection.secretPersistent ? "settings.secret_saved_state" : "settings.secret_session_only_state");
   }
 
   if (connection.secretState === "missing") {
@@ -84,6 +84,12 @@ export const SavedConnectionsPanel = ({
   const restoreDeleteFocusId = useRef<string | null>(null);
   const deletedConnectionId = useRef<string | null>(null);
   const deleteDialog = useRef<HTMLDialogElement | null>(null);
+  useEffect(() => {
+    if (confirmDeleteId && !connections.some((connection) => connection.connectionId === confirmDeleteId)) {
+      setConfirmDeleteId(null);
+      document.getElementById("settings-connections-heading")?.focus();
+    }
+  }, [connections, confirmDeleteId]);
   useEffect(() => {
     const targetId = restoreDeleteFocusId.current;
     if (!targetId) return;
@@ -231,7 +237,7 @@ export const SavedConnectionsPanel = ({
                   <Button aria-label={translate("settings.edit_connection_named", { name: connection.label })} onClick={() => onEdit(connection.connectionId)} {...semanticAttributes(SEMANTIC_IDS.settings.connectionRowEdit, { connectionId: connection.connectionId })}>
                     {translate("settings.edit_connection")}
                   </Button>
-                  <Button aria-label={translate("settings.delete_connection_named", { name: connection.label })} onClick={() => setConfirmDeleteId(connection.connectionId)} {...(!confirmDeleteId ? semanticAttributes(SEMANTIC_IDS.settings.connectionRowDelete, { connectionId: connection.connectionId }) : {})}>
+                  <Button aria-label={translate("settings.delete_connection_named", { name: connection.label })} onClick={() => setConfirmDeleteId(connection.connectionId)} {...semanticAttributes(SEMANTIC_IDS.settings.connectionRowDelete, { connectionId: connection.connectionId })}>
                     {translate("settings.delete")}
                   </Button>
                 </div>
@@ -247,7 +253,7 @@ export const SavedConnectionsPanel = ({
         </div>
         <div className={dialogStyles.dialogActions}>
           <Button id="connection-delete-cancel" variant="secondary" onClick={cancelDelete}>{translate("settings.cancel")}</Button>
-          <Button aria-label={translate("settings.confirm_delete_named", { name: connectionToDelete.label })} variant="danger" onClick={() => { deletedConnectionId.current = connectionToDelete.connectionId; setConfirmDeleteId(null); onDelete(connectionToDelete.connectionId); }} {...semanticAttributes(SEMANTIC_IDS.settings.connectionRowDelete, { connectionId: connectionToDelete.connectionId })}>
+          <Button aria-label={translate("settings.confirm_delete_named", { name: connectionToDelete.label })} variant="danger" onClick={() => { deletedConnectionId.current = connectionToDelete.connectionId; setConfirmDeleteId(null); onDelete(connectionToDelete.connectionId); }} {...semanticAttributes(SEMANTIC_IDS.settings.connectionRowDeleteConfirm, { connectionId: connectionToDelete.connectionId })}>
             {translate("settings.delete")}
           </Button>
         </div>
