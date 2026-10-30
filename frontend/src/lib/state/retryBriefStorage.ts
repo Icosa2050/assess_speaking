@@ -54,13 +54,13 @@ const parseStored = (raw: string | null): StoredRetry | null => {
 
 // Only the setup context and the learner's brief are stored here. Audio, reports,
 // runtime credentials, and assessment state remain outside browser storage.
-export const readRetryDraft = (): SessionDraft | null => {
+export const readLegacyRetryBrief = (): { draft: SessionDraft; createdAt: number } | null => {
   try {
     const raw = window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY);
     if (!raw) return null;
     const stored = parseStored(raw);
     const age = stored ? Date.now() - stored.createdAt : -1;
-    if (stored && age >= 0 && age <= RETRY_DRAFT_TTL_MS) return stored.draft;
+    if (stored && age >= 0 && age < RETRY_DRAFT_TTL_MS) return { draft: stored.draft, createdAt: stored.createdAt };
     clearRetryDraft();
     return null;
   } catch {
@@ -68,6 +68,8 @@ export const readRetryDraft = (): SessionDraft | null => {
     return null;
   }
 };
+
+export const readRetryDraft = (): SessionDraft | null => readLegacyRetryBrief()?.draft ?? null;
 
 export const persistRetryDraft = (draft: SessionDraft): void => {
   try {

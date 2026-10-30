@@ -11,6 +11,8 @@ import { queryKeys } from "@/lib/query/queryClient";
 import { buildSetupReadinessRows, canRecord, isBlockingSetupReadinessRow } from "@/lib/setup/readiness";
 import { useReadiness } from "@/lib/setup/useReadiness";
 import { useAppStore } from "@/lib/state/appStore";
+import { useDraftRecovery } from "@/lib/state/DraftRecoveryProvider";
+import { confirmLocalDraft } from "@/lib/runtime/confirmLocalDraft";
 import { hasReviewState, hasSetupDraft } from "@/lib/state/sessionDraft";
 
 import styles from "./HomeRoute.module.css";
@@ -77,6 +79,7 @@ export const HomeRoute = () => {
   const microphoneSetupPassed = useAppStore(state => state.microphoneSetupPassed);
   const review = useAppStore((state) => state.review);
   const beginNewSession = useAppStore((state) => state.beginNewSession);
+  const draftRecovery = useDraftRecovery();
   const setCurrentPage = useAppStore((state) => state.setCurrentPage);
 
   const translate = createTranslator(locale);
@@ -122,7 +125,9 @@ export const HomeRoute = () => {
   const practiceReadinessLabel = translate("home.practice_checks", { ready: readyChecks, total: requiredPracticeChecks.length });
   const resumeDisabled = !hasSetupDraft(draft);
 
-  const handleStartNew = () => {
+  const handleStartNew = async () => {
+    if (draftRecovery.active?.take && !await confirmLocalDraft(translate("draft.start_new_confirm"))) return;
+    draftRecovery.leaveActive();
     beginNewSession();
     navigate("/session-setup");
   };
@@ -175,6 +180,11 @@ export const HomeRoute = () => {
               {translate("first_run.open_local_setup")}
             </button>
             {rehearsalAction}
+            {draftRecovery.supported && (draftRecovery.hasStoredEntries || draftRecovery.error) && (
+              <button type="button" onClick={draftRecovery.manageDrafts} className={`${styles.action} ${styles.secondaryAction}`}>
+                {translate("draft.manage_saved")}
+              </button>
+            )}
           </div>
         </section>
       ) : (
@@ -236,6 +246,11 @@ export const HomeRoute = () => {
         </div>
         <p className={styles.cardBody}>{diagnosticsMessage.body}</p>
         <div className={styles.actionRow}>
+          {draftRecovery.supported && (draftRecovery.hasStoredEntries || draftRecovery.error) && (
+            <button type="button" onClick={draftRecovery.manageDrafts} className={`${styles.action} ${styles.secondaryAction}`}>
+              {translate("draft.manage_saved")}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => navigate("/runtime-setup")}

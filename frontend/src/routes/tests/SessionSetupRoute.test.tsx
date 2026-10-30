@@ -6,6 +6,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppFrame } from "@/App";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { readyReadiness, readinessWith } from "@/test/readinessFixtures";
+import type { DesktopDraftStoreBridge, SavedDraft } from "@/lib/runtime/desktopBridge";
+import { createDraftStoreAdapter } from "@/lib/state/draftStore";
+import { useDraftRecovery } from "@/lib/state/DraftRecoveryProvider";
+import { buildSessionDraft } from "@/lib/state/sessionDraft";
+import { draftAdapterFixture, savedDraftFixture } from "@/test/draftAdapterFixture";
 
 vi.mock("@/lib/api/client", () => ({
   ApiClientError: class ApiClientError extends Error {
@@ -58,6 +63,80 @@ const createLocalStorageMock = () => {
 };
 
 describe("Session Setup route", () => {
+  it("keeps the previous task and take when atomic setup replacement fails", async () => {
+    const saved = savedDraftFixture("Alex");
+    const adapter = draftAdapterFixture([saved]);
+    adapter.replaceSetup.mockRejectedValue(new Error("disk unavailable"));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/session-setup"], locale: "en", draftAdapter: adapter,
+      appState: { draft: saved.setup, preferences: { activeConnectionId: "conn-primary", setupComplete: true } } });
+    fireEvent.click(await screen.findByRole("button", { name: "Continue without resuming" }));
+    fireEvent.click(await screen.findByTestId("setup.change_details"));
+    fireEvent.click(screen.getByTestId("setup.recommended_start"));
+    fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
+    await waitFor(() => expect(adapter.replaceSetup).toHaveBeenCalledWith(expect.any(Object), saved));
+    expect(adapter.discard).not.toHaveBeenCalled();
+    expect(adapter.saveSetup).not.toHaveBeenCalled();
+    expect(store.getState().draft.themeId).toBe(saved.setup.themeId);
+    expect(screen.queryByTestId("speak.recording_panel")).not.toBeInTheDocument();
+    confirm.mockRestore();
+  });
+
+  it("keeps a resumed retry take and goal when Continue leaves its task unchanged", async () => {
+    mockedGetRuntime.mockResolvedValue({ configured: true, provider: "ollama_local", model: "test",
+      base_url: "http://localhost:11434", requires_api_key: false, has_api_key: false });
+    const seedAdapter = draftAdapterFixture();
+    const first = renderWithProviders(<AppFrame />, { initialEntries: ["/session-setup"], locale: "en",
+      draftAdapter: seedAdapter, appState: { draft: { speakerId: "Alex" },
+        preferences: { activeConnectionId: "conn-primary", setupComplete: true } } });
+    fireEvent.click(await screen.findByTestId("setup.recommended_start"));
+    fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
+    await waitFor(() => expect(seedAdapter.saveSetup).toHaveBeenCalledOnce());
+    const retrySetup = buildSessionDraft({ ...seedAdapter.saveSetup.mock.calls[0][0],
+      retryOfSessionId: "parent-attempt", coachingGoal: "Add a clear ending", retryGoalEligible: true });
+    first.unmount();
+
+    const saved: SavedDraft = { ...savedDraftFixture("Alex", retrySetup.sessionId), setup: retrySetup };
+    const adapter = draftAdapterFixture([saved]);
+    renderWithProviders(<AppFrame />, { initialEntries: ["/session-setup"], locale: "en",
+      draftAdapter: adapter, appState: { draft: retrySetup,
+        preferences: { activeConnectionId: "conn-primary", setupComplete: true } } });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    fireEvent.click(await screen.findByRole("link", { name: "Session Setup" }));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.change(await screen.findByLabelText("Learner name or nickname"), { target: { value: "alex" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Start speaking" }));
+    await waitFor(() => expect(adapter.saveSetup).toHaveBeenCalledOnce());
+    expect(adapter.replaceSetup).not.toHaveBeenCalled();
+    expect(adapter.discard).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(adapter.saveSetup.mock.calls[0][0]).toMatchObject({
+      retryOfSessionId: "parent-attempt", coachingGoal: "Add a clear ending", retryGoalEligible: true,
+    });
+    confirm.mockRestore();
+  });
+
+  it("clears retry goal and parent when a resumed retry changes task", async () => {
+    const setup = buildSessionDraft({ ...savedDraftFixture("Alex").setup,
+      retryOfSessionId: "parent-attempt", coachingGoal: "Add a clear ending", retryGoalEligible: true });
+    const saved: SavedDraft = { ...savedDraftFixture("Alex", setup.sessionId), setup };
+    const adapter = draftAdapterFixture([saved]);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/session-setup"], locale: "en", draftAdapter: adapter,
+      appState: { draft: setup, preferences: { activeConnectionId: "conn-primary", setupComplete: true } } });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    fireEvent.click(await screen.findByRole("link", { name: "Session Setup" }));
+    fireEvent.click(await screen.findByTestId("setup.change_details"));
+    fireEvent.click(screen.getByTestId("setup.recommended_start"));
+    fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
+    await waitFor(() => expect(adapter.replaceSetup).toHaveBeenCalledOnce());
+    expect(adapter.replaceSetup.mock.calls[0][0]).toMatchObject({
+      retryOfSessionId: "", coachingGoal: "", retryGoalEligible: false,
+    });
+    expect(store.getState().draft.retryOfSessionId).toBe("");
+    expect(adapter.discard).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mockedGetReadiness.mockResolvedValue(readyReadiness);
@@ -83,6 +162,46 @@ describe("Session Setup route", () => {
     mockedGetRuntimeSettings.mockResolvedValue({
       ui_locale: "en", whisper_model: "small", active_connection_id: "", connections: [], asr_provider: "local",
     });
+  });
+
+  it("confirms a learner switch and leaves the saved take with its original learner", async () => {
+    mockedGetRuntime.mockResolvedValue({ configured: true, provider: "ollama_local", model: "test",
+      base_url: "http://localhost:11434", requires_api_key: false, has_api_key: false });
+    const savedSetup = buildSessionDraft({ speakerId: "Alex", themeId: "trip", themeLabel: "Describe a trip", promptText: "Describe a trip." });
+    const saved: SavedDraft = { version: 1, draftId: "a".repeat(32), speakerId: "alex", setup: savedSetup,
+      createdAt: Date.now(), updatedAt: Date.now(), expiresAt: Date.now() + 86400000, revision: 1,
+      status: "take_ready", take: { mediaId: "b".repeat(32), originalFilename: "take.webm", mime: "audio/webm",
+        size: 5, sha256: "c".repeat(64), durationSec: 8, captureEndedAt: Date.now(), inputMethod: "record" }, submission: null };
+    const bridge: DesktopDraftStoreBridge = {
+      list: vi.fn().mockResolvedValue({ drafts: [], unreadableIds: [] }), recoveryIds: vi.fn().mockResolvedValue([]),
+      saveSetup: vi.fn().mockResolvedValue(saved), replaceSetup: vi.fn(), importLegacyBrief: vi.fn(), beginTake: vi.fn(), writeTakeChunk: vi.fn(),
+      abortTake: vi.fn(), abortTakeForDraft: vi.fn(), finishTake: vi.fn(), loadTakeChunk: vi.fn(),
+      markSubmission: vi.fn(), discard: vi.fn(), expire: vi.fn(),
+    };
+    const Seed = () => {
+      const recovery = useDraftRecovery();
+      return <><button onClick={() => void recovery.saveSetup(savedSetup)}>Seed saved take</button>
+        <span data-testid="active-draft">{recovery.active?.draftId}</span></>;
+    };
+    const { store } = renderWithProviders(<><Seed /><AppFrame /></>, {
+      initialEntries: ["/session-setup"], locale: "en", draftAdapter: createDraftStoreAdapter(bridge),
+      appState: { draft: savedSetup },
+    });
+    const field = await screen.findByLabelText("Learner name or nickname");
+    fireEvent.click(screen.getByRole("button", { name: "Seed saved take" }));
+    await waitFor(() => expect(screen.getByTestId("active-draft")).toHaveTextContent(saved.draftId));
+    const confirm = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    (window as Window & { __VOSTAVO_DESKTOP__?: unknown }).__VOSTAVO_DESKTOP__ = { confirmDraft: confirm };
+    const browserConfirm = vi.spyOn(window, "confirm");
+    fireEvent.change(field, { target: { value: "Bea" } });
+    expect(store.getState().draft.speakerId).toBe("Alex");
+    fireEvent.change(field, { target: { value: "Bea" } });
+    await waitFor(() => expect(store.getState().draft.speakerId).toBe("Bea"));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("saved take stays with Alex"));
+    expect(browserConfirm).not.toHaveBeenCalled();
+    expect(bridge.discard).not.toHaveBeenCalled();
+    browserConfirm.mockRestore();
+    delete (window as Window & { __VOSTAVO_DESKTOP__?: unknown }).__VOSTAVO_DESKTOP__;
   });
 
   it("routes a restored retry through confirmation before showing setup fields", async () => {

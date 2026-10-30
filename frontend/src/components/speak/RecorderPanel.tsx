@@ -77,6 +77,7 @@ export const RecorderPanel = ({
   maxSeconds = MAX_RECORDING_SECONDS,
   allowUpload = true,
   onRecordingActiveChange,
+  onRecordingStarted,
   onMicrophoneStatusChange,
   microphoneSetupPassed = false,
   microphoneDeviceId = "",
@@ -86,8 +87,12 @@ export const RecorderPanel = ({
   inputMode,
   onFileSelected,
   onInputModeChange,
+  onBeforeReplace,
+  onPrepareRecording,
+  onBeforeRemove,
   onRemove,
   previewUrl,
+  preferStatusMessage = false,
   showReadyCheckpoint,
   statusMessage,
   statusTone,
@@ -102,12 +107,17 @@ export const RecorderPanel = ({
   maxSeconds?: number;
   allowUpload?: boolean;
   onRecordingActiveChange?: (active: boolean) => void;
+  onRecordingStarted?: () => void;
   downloadName?: string;
   inputMode: RecordingInputMethod;
-  onFileSelected: (file: File | null, durationSec?: number) => void;
+  onFileSelected: (file: File | null, durationSec?: number) => void | Promise<void>;
   onInputModeChange: (mode: RecordingInputMethod) => void;
+  onBeforeReplace?: () => boolean | Promise<boolean>;
+  onPrepareRecording?: () => boolean | Promise<boolean>;
+  onBeforeRemove?: () => boolean | Promise<boolean>;
   onRemove: () => void;
   previewUrl: string;
+  preferStatusMessage?: boolean;
   showReadyCheckpoint: boolean;
   statusMessage: string;
   statusTone: "error" | "info" | "success" | "warning";
@@ -129,7 +139,9 @@ export const RecorderPanel = ({
   const recordingMimeTypeRef = useRef("audio/webm");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const requestIdRef = useRef(0);
+  const confirmationPendingRef = useRef(false);
   const startedAtRef = useRef(0);
+  const stoppedAtRef = useRef(0);
   const stopFallbackRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<number | null>(null);
@@ -167,6 +179,7 @@ export const RecorderPanel = ({
     stopStream();
     recorderRef.current = null;
     startedAtRef.current = 0;
+    stoppedAtRef.current = 0;
   }, [clearStopFallback, clearTimer, stopStream]);
 
   const finalizeRecording = useCallback(
@@ -178,6 +191,7 @@ export const RecorderPanel = ({
       const finalizationId = requestIdRef.current;
       const chunks = [...chunksRef.current];
       const shouldDiscard = discardStopRef.current;
+      const captureEndedAt = stoppedAtRef.current || Date.now();
       const recordedSeconds = startedAtRef.current
         ? Math.floor((Date.now() - startedAtRef.current) / 1000)
         : elapsedSecondsRef.current;
@@ -211,6 +225,7 @@ export const RecorderPanel = ({
       const timestamp = new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 14);
       const file = new File(chunks, `recording-${timestamp}.${extension}`, {
         type: selectedMimeType,
+        lastModified: captureEndedAt,
       });
       // Saving a file cannot grant setup calibration. Preserve the take even if
       // the input needs attention, and require a new setup sample next time.
@@ -221,14 +236,8 @@ export const RecorderPanel = ({
       setRecorderPhase("idle");
       const duration = decodedSeconds ?? Math.max(0, recordedSeconds - (MIN_CAPTURE_SECONDS - MIN_REVIEW_SECONDS));
       setElapsedSeconds(Math.floor(duration));
-      onFileSelected(file, duration);
-      setRecorderMessage(
-        duration < MIN_REVIEW_SECONDS
-          ? translate("speak.recording_too_short")
-          : recordedSeconds >= maxSeconds
-          ? translate("speak.recording_auto_stopped")
-          : translate("speak.recording_saved"),
-      );
+      await onFileSelected(file, duration);
+      if (mountedRef.current) setRecorderMessage(duration < MIN_REVIEW_SECONDS ? translate("speak.recording_too_short") : "");
     },
     [cleanupRecorder, maxSeconds, onFileSelected, onMicrophoneStatusChange, translate],
   );
@@ -245,6 +254,7 @@ export const RecorderPanel = ({
         } catch {
           // Some browsers throw if data is not ready yet; stopping still finalizes below.
         }
+        stoppedAtRef.current = Date.now();
         recorder.stop();
         stopFallbackRef.current = window.setTimeout(() => {
           if (recorderRef.current === recorder) {
@@ -281,17 +291,29 @@ export const RecorderPanel = ({
     };
   }, [cleanupRecorder]);
 
-  const handleModeChange = (mode: RecordingInputMethod) => {
-    if (mode !== inputMode) {
-      stopRecording({ discard: true });
-      setRecorderMessage("");
-      elapsedSecondsRef.current = 0;
-      setElapsedSeconds(0);
+  const afterConfirmation = (confirm: (() => boolean | Promise<boolean>) | undefined, accepted: () => void, denied?: () => void) => {
+    const decision = confirm?.() ?? true;
+    if (typeof decision === "boolean") {
+      if (decision) accepted(); else denied?.();
+      return;
     }
-    onInputModeChange(mode);
+    void decision.then(allowed => { if (allowed) accepted(); else denied?.(); }).catch(() => denied?.());
+  };
+
+  const handleModeChange = (mode: RecordingInputMethod) => {
+    afterConfirmation(mode !== inputMode ? onBeforeReplace : undefined, () => {
+      if (mode !== inputMode) {
+        stopRecording({ discard: true });
+        setRecorderMessage("");
+        elapsedSecondsRef.current = 0;
+        setElapsedSeconds(0);
+      }
+      onInputModeChange(mode);
+    });
   };
 
   const handleStartRecording = async () => {
+    if (confirmationPendingRef.current) return;
     if (!microphoneSetupPassed) {
       setRecorderMessage(translate("speak.microphone_setup_required"));
       return;
@@ -314,19 +336,39 @@ export const RecorderPanel = ({
       return;
     }
 
+    setSignalWarning("");
+    // Start the meter in the Record gesture. A native replacement dialog can
+    // consume transient activation before microphone permission is requested.
+    if (typeof AudioContext !== "undefined") {
+      try { meterContext.current = microphoneContext(); void meterContext.current.resume().catch(() => undefined); }
+      catch { setSignalWarning(translate("speak.meter_unavailable")); }
+    }
+    if (onBeforeReplace) {
+      confirmationPendingRef.current = true;
+      let allowed = false;
+      try {
+        const decision = onBeforeReplace();
+        allowed = typeof decision === "boolean" ? decision : await decision;
+      } catch { /* A failed dialog is a cancelled replacement. */ }
+      confirmationPendingRef.current = false;
+      if (!allowed || !mountedRef.current) { cleanupRecorder(); setSignalWarning(""); return; }
+    }
+    if (onPrepareRecording) {
+      confirmationPendingRef.current = true;
+      let prepared = false;
+      try {
+        prepared = await onPrepareRecording();
+      } catch { /* Storage failed; keep the microphone closed. */ }
+      confirmationPendingRef.current = false;
+      if (!prepared || !mountedRef.current) { cleanupRecorder(); setSignalWarning(""); return; }
+    }
+
     setRecorderPhase("requesting");
     setRecorderMessage("");
     elapsedSecondsRef.current = 0;
     setElapsedSeconds(0);
     chunksRef.current = [];
-    setSignalWarning(""); setLevels(idleLevels); signal.current = null;
-    onFileSelected(null);
-    // Resume synchronously from the Record gesture, before permission awaits.
-    if (typeof AudioContext !== "undefined") {
-      try { meterContext.current = microphoneContext(); void meterContext.current.resume().catch(() => undefined); }
-      catch { setSignalWarning(translate("speak.meter_unavailable")); }
-    }
-
+    setLevels(idleLevels); signal.current = null;
     let requestTimeoutId: number | null = null;
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
@@ -365,6 +407,12 @@ export const RecorderPanel = ({
         const meter = connectInputMeter(meterContext.current, stream);
         const monitor = new RecordingSignal(); signal.current = monitor;
         meterTimer.current = window.setInterval(() => {
+          if (meterContext.current?.state !== "running") {
+            signal.current = null;
+            setSignalWarning(translate("speak.meter_unavailable"));
+            return;
+          }
+          signal.current = monitor;
           const { rms, peak } = meter.read();
           setLevels(previous => [...previous.slice(1), Math.min(1, rms * 5)]);
           const warning = monitor.update(rms, peak);
@@ -396,6 +444,7 @@ export const RecorderPanel = ({
       recorder.onstop = () => { void finalizeRecording(recorder); };
 
       recorder.start(1_000);
+      onRecordingStarted?.();
       startedAtRef.current = Date.now();
       setRecorderPhase("recording");
       timerRef.current = window.setInterval(() => {
@@ -403,6 +452,7 @@ export const RecorderPanel = ({
         elapsedSecondsRef.current = nextElapsed;
         setElapsedSeconds(nextElapsed);
         if (nextElapsed >= maxSeconds && recorderRef.current?.state === "recording") {
+          stoppedAtRef.current = Date.now();
           recorderRef.current.stop();
         }
       }, 1000);
@@ -434,7 +484,7 @@ export const RecorderPanel = ({
       ? translate("speak.recording_requesting")
       : recorderPhase === "recording"
         ? translate("speak.recording_live", { seconds: elapsedSeconds })
-        : recorderMessage || statusMessage;
+        : preferStatusMessage && recorderPhase === "idle" ? statusMessage : recorderMessage || statusMessage;
   const visibleStatusTone =
     inputMode === "upload"
       ? statusTone
@@ -452,7 +502,7 @@ export const RecorderPanel = ({
           ? "requesting"
           : recorderPhase === "error" || visibleStatusTone === "error"
             ? "error"
-            : visibleStatusTone === "success"
+            : previewUrl || visibleStatusTone === "success"
               ? "ready"
               : "idle";
 
@@ -580,7 +630,11 @@ export const RecorderPanel = ({
             type="file"
             accept="audio/*"
             aria-label={translate("speak.upload")}
-            onChange={(event) => onFileSelected(event.currentTarget.files?.[0] ?? null)}
+            onChange={(event) => {
+              const input = event.currentTarget;
+              const file = input.files?.[0] ?? null;
+              afterConfirmation(onBeforeReplace, () => { void onFileSelected(file); }, () => { input.value = ""; });
+            }}
             style={hiddenFileInputStyle}
             data-testid="speak.upload_input"
             data-semantic-id="speak.upload_input"
@@ -633,7 +687,7 @@ export const RecorderPanel = ({
       {canRemove ? (
         <Button
           type="button"
-          onClick={onRemove}
+          onClick={() => afterConfirmation(onBeforeRemove ?? onBeforeReplace, onRemove)}
           {...{
             "data-testid": "speak.remove_recording",
             "data-semantic-id": "speak.remove_recording",

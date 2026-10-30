@@ -325,6 +325,17 @@ pub struct Setup {
     retry_goal_eligible: bool,
 }
 impl Setup {
+    fn same_attempt(&self, other: &Self) -> bool {
+        self.session_id == other.session_id
+            && self.retry_of_session_id == other.retry_of_session_id
+            && self.learning_language == other.learning_language
+            && self.cefr_level == other.cefr_level
+            && self.theme_id == other.theme_id
+            && self.prompt_id == other.prompt_id
+            && self.prompt_text == other.prompt_text
+            && self.task_family == other.task_family
+            && self.duration_sec == other.duration_sec
+    }
     fn validate(&self) -> StoreResult<String> {
         for (text, max) in [
             (&self.session_id, 128),
@@ -394,6 +405,14 @@ impl Take {
                 "audio/ogg",
                 "audio/ogg;codecs=opus",
                 "audio/x-wav",
+                "audio/flac",
+                "audio/x-flac",
+                "audio/aac",
+                "audio/x-aac",
+                "audio/aiff",
+                "audio/x-aiff",
+                "audio/x-m4a",
+                "audio/opus",
             ]
             .contains(&self.mime.as_str())
             || self.size == 0
@@ -530,6 +549,8 @@ pub struct Manifest {
     created_at: u64,
     updated_at: u64,
     expires_at: u64,
+    #[serde(default)]
+    legacy_expiry_locked: bool,
     revision: u64,
     status: String,
     take: Option<Take>,
@@ -705,6 +726,8 @@ pub struct DraftStore {
     #[cfg(test)]
     fail_manifest_sync: bool,
     #[cfg(test)]
+    fail_manifest_before_commit: bool,
+    #[cfg(test)]
     fail_chunk_write_after_length: bool,
     #[cfg(test)]
     free_bytes_override: Option<u64>,
@@ -751,6 +774,8 @@ impl DraftStore {
             #[cfg(test)]
             fail_manifest_sync: false,
             #[cfg(test)]
+            fail_manifest_before_commit: false,
+            #[cfg(test)]
             fail_chunk_write_after_length: false,
             #[cfg(test)]
             free_bytes_override: None,
@@ -771,6 +796,7 @@ impl DraftStore {
             incoming: HashMap::new(),
             verified: HashMap::new(),
             fail_manifest_sync: false,
+            fail_manifest_before_commit: false,
             fail_chunk_write_after_length: false,
             free_bytes_override: None,
             media_verifications: 0,
@@ -890,6 +916,10 @@ impl DraftStore {
     }
     fn commit(&self, manifest: &Manifest, key: &[u8; 32]) -> Result<(), CommitFailure> {
         manifest.validate(&manifest.draft_id, now_ms())?;
+        #[cfg(test)]
+        if self.fail_manifest_before_commit {
+            return Err(err("Injected manifest failure before commit").into());
+        }
         let final_path = self.manifest_path(&manifest.draft_id)?;
         regular_file(&final_path)?;
         let plain = serde_json::to_vec(manifest).map_err(|_| err("Could not encode draft"))?;
@@ -928,10 +958,9 @@ impl DraftStore {
         let mut drafts = Vec::new();
         let mut unreadable_ids = Vec::new();
         for id in self.recovery_ids()? {
-            match self.read(&id, &key, now).and_then(|manifest| {
-                self.verify_media(&manifest, &key)?;
-                Ok(manifest)
-            }) {
+            // Keep boot listing bounded by manifest size. Media authentication
+            // runs when the learner explicitly resumes and loads the take.
+            match self.read(&id, &key, now) {
                 Ok(manifest) => drafts.push(manifest),
                 Err(_) => unreadable_ids.push(id),
             }
@@ -976,8 +1005,26 @@ impl DraftStore {
         draft_id: Option<String>,
         expected_revision: Option<u64>,
     ) -> StoreResult<Manifest> {
+        self.save_setup_internal(setup, draft_id, expected_revision, None)
+    }
+    pub fn import_legacy_brief(&mut self, setup: Setup, created_at: u64) -> StoreResult<Manifest> {
+        if !setup.retry_goal_eligible || setup.retry_of_session_id.is_empty() {
+            return Err(err("Invalid legacy retry brief"));
+        }
+        self.save_setup_internal(setup, None, None, Some(created_at))
+    }
+    fn save_setup_internal(
+        &mut self,
+        setup: Setup,
+        draft_id: Option<String>,
+        expected_revision: Option<u64>,
+        legacy_created_at: Option<u64>,
+    ) -> StoreResult<Manifest> {
         let speaker = setup.validate()?;
         let now = now_ms();
+        if legacy_created_at.is_some_and(|at| at > now || now - at >= TTL) {
+            return Err(err("Legacy retry brief has expired"));
+        }
         self.expire(now)?;
         let key = self.key()?;
         let all = self.manifests(&key, now)?;
@@ -994,6 +1041,9 @@ impl DraftStore {
             }
             if old.speaker_id != speaker {
                 return Err(err("Learner cannot be changed on a saved draft"));
+            }
+            if old.take.is_some() && !old.setup.same_attempt(&setup) {
+                return Err(err("Use atomic setup replacement for a saved take"));
             }
         } else if expected_revision.is_some() {
             return Err(err("Unexpected draft revision"));
@@ -1014,9 +1064,10 @@ impl DraftStore {
             draft_id: new_id()?,
             speaker_id: speaker,
             setup: setup.clone(),
-            created_at: now,
+            created_at: legacy_created_at.unwrap_or(now),
             updated_at: now,
-            expires_at: now + TTL,
+            expires_at: legacy_created_at.unwrap_or(now) + TTL,
+            legacy_expiry_locked: legacy_created_at.is_some(),
             revision: 0,
             status: "setup".into(),
             take: None,
@@ -1025,11 +1076,54 @@ impl DraftStore {
         manifest.setup = setup;
         manifest.updated_at = now.max(manifest.updated_at);
         manifest.revision += 1;
-        if manifest.take.is_none() {
+        if manifest.take.is_none() && !manifest.legacy_expiry_locked {
             manifest.expires_at = manifest.updated_at.saturating_add(TTL);
         }
         self.commit(&manifest, &key)
             .map_err(|error| error.message)?;
+        Ok(manifest)
+    }
+    pub fn replace_setup(
+        &mut self,
+        setup: Setup,
+        draft_id: String,
+        expected_revision: u64,
+    ) -> StoreResult<Manifest> {
+        let speaker = setup.validate()?;
+        let now = now_ms();
+        self.expire(now)?;
+        let key = self.key()?;
+        let mut manifest = self.read(&draft_id, &key, now)?;
+        if manifest.revision != expected_revision || manifest.expires_at <= now {
+            return Err(err("Draft changed or expired"));
+        }
+        if !["setup", "take_ready"].contains(&manifest.status.as_str())
+            || manifest.speaker_id != speaker
+        {
+            return Err(err("Saved draft cannot be replaced"));
+        }
+        let old_take = manifest.take.take();
+        manifest.setup = setup;
+        manifest.created_at = now;
+        manifest.updated_at = now;
+        manifest.expires_at = now.saturating_add(TTL);
+        manifest.legacy_expiry_locked = false;
+        manifest.revision += 1;
+        manifest.status = "setup".into();
+        manifest.submission = None;
+        let result = self.commit(&manifest, &key);
+        // A visible rename is not durable until the directory sync succeeds.
+        // Keep the old media if sync fails: reboot may restore the old manifest.
+        if result.is_ok() {
+            if let Some(old) = old_take {
+                self.verified
+                    .remove(&format!("{}:{}", draft_id, old.media_id));
+                if let Ok(path) = self.media_path(&draft_id, &old.media_id) {
+                    let _ = fs::remove_file(path);
+                }
+            }
+        }
+        result.map_err(|error| error.message)?;
         Ok(manifest)
     }
     pub fn begin_take(
@@ -1423,6 +1517,9 @@ impl DraftStore {
         Ok(())
     }
     pub fn expire(&mut self, now: u64) -> StoreResult<u32> {
+        // A previous manifest rename may have been visible but unsynced. Make
+        // it durable before pruning media that its old revision referenced.
+        sync_dir(&self.dir)?;
         let key = self.key()?;
         let mut expired = 0;
         for manifest in self.manifests(&key, now)? {
@@ -1612,6 +1709,26 @@ pub async fn draft_save_setup(
         s.save_setup(setup, draft_id, expected_revision)
     })
     .await
+}
+#[tauri::command]
+pub async fn draft_replace_setup(
+    window: tauri::WebviewWindow,
+    setup: Setup,
+    draft_id: String,
+    expected_revision: u64,
+) -> StoreResult<Manifest> {
+    with_store(window, move |s| {
+        s.replace_setup(setup, draft_id, expected_revision)
+    })
+    .await
+}
+#[tauri::command]
+pub async fn draft_import_legacy_brief(
+    window: tauri::WebviewWindow,
+    setup: Setup,
+    created_at: u64,
+) -> StoreResult<Manifest> {
+    with_store(window, move |s| s.import_legacy_brief(setup, created_at)).await
 }
 #[tauri::command]
 pub async fn draft_begin_take(
@@ -1809,10 +1926,7 @@ mod tests {
             .load_take_chunk(&ready.draft_id, media_id, 0)
             .unwrap_err()
             .contains("authentication"));
-        assert_eq!(
-            store.list_with_issues().unwrap().unreadable_ids,
-            vec![ready.draft_id.clone()]
-        );
+        assert_eq!(store.list_with_issues().unwrap().drafts.len(), 1);
         let path = store.manifest_path(&ready.draft_id).unwrap();
         let mut ciphertext = fs::read(&path).unwrap();
         *ciphertext.last_mut().unwrap() ^= 1;
@@ -1823,7 +1937,132 @@ mod tests {
         );
     }
     #[test]
-    fn truncated_and_swapped_encrypted_chunks_are_not_listed() {
+    fn atomic_setup_replacement_preserves_old_take_until_publish() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let first = store.save_setup(setup("Alex"), None, None).unwrap();
+        let bytes = b"saved first take";
+        let transfer = store
+            .begin_take(first.draft_id.clone(), first.revision, take(bytes))
+            .unwrap();
+        store.write_take_chunk(&transfer, bytes.to_vec()).unwrap();
+        let ready = store.finish_take(&transfer).unwrap();
+        let old_media_id = ready.take.as_ref().unwrap().media_id.clone();
+        let old_path = store.media_path(&ready.draft_id, &old_media_id).unwrap();
+        let mut next = setup("Alex");
+        next.session_id = "different-attempt".into();
+        next.prompt_text = "A different prompt".into();
+        assert!(store
+            .save_setup(
+                next.clone(),
+                Some(ready.draft_id.clone()),
+                Some(ready.revision)
+            )
+            .is_err());
+        assert!(store
+            .replace_setup(next.clone(), ready.draft_id.clone(), ready.revision - 1)
+            .is_err());
+        assert!(old_path.exists());
+        assert_eq!(
+            store
+                .load_take_chunk(&ready.draft_id, &old_media_id, 0)
+                .unwrap(),
+            bytes
+        );
+        store.fail_manifest_before_commit = true;
+        assert!(store
+            .replace_setup(next.clone(), ready.draft_id.clone(), ready.revision)
+            .is_err());
+        store.fail_manifest_before_commit = false;
+        assert!(old_path.exists());
+        assert_eq!(
+            store.list().unwrap()[0].setup.session_id,
+            ready.setup.session_id
+        );
+        assert_eq!(
+            store
+                .load_take_chunk(&ready.draft_id, &old_media_id, 0)
+                .unwrap(),
+            bytes
+        );
+        let replaced = store
+            .replace_setup(next.clone(), ready.draft_id.clone(), ready.revision)
+            .unwrap();
+        assert_eq!(replaced.draft_id, ready.draft_id);
+        assert_eq!(replaced.revision, ready.revision + 1);
+        assert_eq!(replaced.setup.session_id, next.session_id);
+        assert!(replaced.take.is_none());
+        assert!(!old_path.exists());
+        assert_eq!(store.list().unwrap().len(), 1);
+    }
+    #[test]
+    fn atomic_setup_replacement_sync_failure_preserves_old_take_for_rollback() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let first = store.save_setup(setup("Alex"), None, None).unwrap();
+        let bytes = b"saved first take";
+        let transfer = store
+            .begin_take(first.draft_id.clone(), first.revision, take(bytes))
+            .unwrap();
+        store.write_take_chunk(&transfer, bytes.to_vec()).unwrap();
+        let ready = store.finish_take(&transfer).unwrap();
+        let old_path = store
+            .media_path(&ready.draft_id, &ready.take.as_ref().unwrap().media_id)
+            .unwrap();
+        let manifest_path = store.manifest_path(&ready.draft_id).unwrap();
+        let old_manifest = fs::read(&manifest_path).unwrap();
+        let mut next = setup("Alex");
+        next.session_id = "different-attempt".into();
+        store.fail_manifest_sync = true;
+        assert!(store
+            .replace_setup(next.clone(), ready.draft_id.clone(), ready.revision)
+            .unwrap_err()
+            .contains("may have changed"));
+        assert!(old_path.exists());
+        let published = store
+            .read(&ready.draft_id, &store.key().unwrap(), now_ms())
+            .unwrap();
+        assert_eq!(published.setup.session_id, next.session_id);
+        // Simulate a reboot that rolls the unsynced rename back to the old manifest.
+        fs::write(&manifest_path, old_manifest).unwrap();
+        drop(store);
+        let mut recovered = self::store(&root);
+        let manifest = recovered.list().unwrap().remove(0);
+        assert_eq!(manifest.setup.session_id, ready.setup.session_id);
+        assert_eq!(
+            recovered
+                .load_take_chunk(&ready.draft_id, &ready.take.unwrap().media_id, 0)
+                .unwrap(),
+            bytes
+        );
+    }
+    #[test]
+    fn accepted_audio_mimes_cover_the_picker_formats() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let draft = store.save_setup(setup("Alex"), None, None).unwrap();
+        for mime in [
+            "audio/flac",
+            "audio/aac",
+            "audio/aiff",
+            "audio/x-m4a",
+            "audio/opus",
+        ] {
+            let mut candidate = take(b"audio");
+            candidate.mime = mime.into();
+            let transfer = store
+                .begin_take(draft.draft_id.clone(), draft.revision, candidate)
+                .unwrap();
+            store.abort_take(&transfer).unwrap();
+        }
+        let mut unsupported = take(b"audio");
+        unsupported.mime = "audio/unknown".into();
+        assert!(store
+            .begin_take(draft.draft_id, draft.revision, unsupported)
+            .is_err());
+    }
+    #[test]
+    fn truncated_and_swapped_encrypted_chunks_fail_on_resume() {
         let root = TestRoot::new();
         let mut store = store(&root);
         let draft = store.save_setup(setup("Alex"), None, None).unwrap();
@@ -1843,10 +2082,10 @@ mod tests {
             .unwrap();
         let original = fs::read(&path).unwrap();
         fs::write(&path, &original[..original.len() - 1]).unwrap();
-        assert_eq!(
-            store.list_with_issues().unwrap().unreadable_ids,
-            vec![ready.draft_id.clone()]
-        );
+        assert_eq!(store.list_with_issues().unwrap().drafts.len(), 1);
+        assert!(store
+            .load_take_chunk(&ready.draft_id, &ready.take.as_ref().unwrap().media_id, 0)
+            .is_err());
         fs::write(&path, &original).unwrap();
         let first_record = 4 + CHUNK + 32;
         let mut swapped = original[..4].to_vec();
@@ -1854,10 +2093,11 @@ mod tests {
         swapped.extend_from_slice(&original[4..4 + first_record]);
         fs::write(&path, swapped).unwrap();
         let mut reopened = self::store(&root);
-        assert_eq!(
-            reopened.list_with_issues().unwrap().unreadable_ids,
-            vec![ready.draft_id]
-        );
+        assert_eq!(reopened.list_with_issues().unwrap().drafts.len(), 1);
+        assert_eq!(reopened.media_verifications, 0);
+        assert!(reopened
+            .load_take_chunk(&ready.draft_id, &ready.take.as_ref().unwrap().media_id, 0)
+            .is_err());
     }
     #[test]
     fn unsafe_manifest_can_be_discarded_and_unsafe_orphans_do_not_block_listing() {
@@ -2099,6 +2339,39 @@ mod tests {
         let recovered = store.list().unwrap().remove(0);
         assert_eq!(recovered.revision, first.revision);
         assert_eq!(recovered.setup.prompt_text, first.setup.prompt_text);
+    }
+    #[test]
+    fn legacy_retry_import_preserves_original_expiry_and_rejects_duplicate_or_expired() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let mut brief = setup("Alex");
+        brief.retry_of_session_id = "earlier-attempt".into();
+        brief.retry_goal_eligible = true;
+        let created_at = now_ms() - TTL + 60_000;
+        let imported = store
+            .import_legacy_brief(brief.clone(), created_at)
+            .unwrap();
+        assert_eq!(imported.created_at, created_at);
+        assert_eq!(imported.expires_at, created_at + TTL);
+        let edited = store
+            .save_setup(
+                brief.clone(),
+                Some(imported.draft_id.clone()),
+                Some(imported.revision),
+            )
+            .unwrap();
+        assert_eq!(edited.expires_at, imported.expires_at);
+        assert!(edited.legacy_expiry_locked);
+        assert_eq!(store.list().unwrap().len(), 1);
+        assert!(store
+            .import_legacy_brief(brief.clone(), created_at)
+            .is_err());
+        assert_eq!(store.list().unwrap().len(), 1);
+        assert!(store.import_legacy_brief(setup("Bea"), created_at).is_err());
+        let mut expired = setup("Bea");
+        expired.retry_of_session_id = "earlier-attempt".into();
+        expired.retry_goal_eligible = true;
+        assert!(store.import_legacy_brief(expired, now_ms() - TTL).is_err());
     }
     #[test]
     fn expiry_limits_revisions_and_learner_isolation() {

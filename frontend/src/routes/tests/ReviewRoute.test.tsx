@@ -1,11 +1,12 @@
 import "@testing-library/jest-dom/vitest";
 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppFrame } from "@/App";
 import { createQueryClient, queryKeys } from "@/lib/query/queryClient";
 import { renderWithProviders } from "@/test/renderWithProviders";
+import { draftAdapterFixture, savedDraftFixture } from "@/test/draftAdapterFixture";
 
 vi.mock("@/lib/api/client", () => ({
   ApiClientError: class ApiClientError extends Error {
@@ -130,6 +131,7 @@ const expectDecorativeIcon = (element: HTMLElement) => {
 };
 
 describe("Review route", () => {
+  afterEach(() => vi.unstubAllGlobals());
   beforeEach(() => {
     vi.clearAllMocks();
     mockedGetDiagnostics.mockResolvedValue({ items: [] });
@@ -516,6 +518,45 @@ describe("Review route", () => {
     expect(await screen.findByTestId("speak.status_panel")).toBeVisible();
     expect(store.getState().review.reportId).toBe("");
     expect(store.getState().draft.themeLabel).toBe("The pros and cons of working from home");
+  });
+
+  it("confirms replacement before Try Again clears the prior saved take", async () => {
+    const saved = savedDraftFixture("bern");
+    const adapter = draftAdapterFixture([saved]);
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirm);
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", draftAdapter: adapter,
+      appState: { ...validDraftState, review: { reportId: "report-1", transcript: "Full transcript text",
+        scoreOverall: 3.5, band: "4", summary: "Focus on connectors.", payload: reviewPayload } } });
+    fireEvent.click(await screen.findByRole("button", { name: "Continue without resuming" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(adapter.discard).not.toHaveBeenCalled();
+    expect(store.getState().review.reportId).toBe("report-1");
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(adapter.replaceSetup).toHaveBeenCalledWith(expect.objectContaining({ speakerId: "bern" }), saved));
+    expect(adapter.discard).not.toHaveBeenCalled();
+    expect(await screen.findByTestId("speak.recording_panel")).toBeVisible();
+    expect(store.getState().draft.sessionId).not.toBe(saved.setup.sessionId);
+    expect(adapter.saveSetup).not.toHaveBeenCalled();
+  });
+
+  it("keeps the reviewed attempt when Try Again replacement storage fails", async () => {
+    const saved = savedDraftFixture("bern");
+    const adapter = draftAdapterFixture([saved]);
+    adapter.replaceSetup.mockRejectedValue(new Error("disk unavailable"));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", draftAdapter: adapter,
+      appState: { ...validDraftState, review: { reportId: "report-1", transcript: "Full transcript text",
+        scoreOverall: 3.5, band: "4", summary: "Focus on connectors.", payload: reviewPayload } } });
+    fireEvent.click(await screen.findByRole("button", { name: "Continue without resuming" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not use local draft storage");
+    expect(store.getState().review.reportId).toBe("report-1");
+    expect(adapter.discard).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
+    confirm.mockRestore();
   });
 
   it("clears task-specific setup when the learner chooses change task", async () => {

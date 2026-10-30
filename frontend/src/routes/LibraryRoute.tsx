@@ -15,8 +15,10 @@ import {
   type ThemeLibrary,
 } from "@/lib/setup/sessionSetupContent";
 import { useAppStore } from "@/lib/state/appStore";
+import { useDraftRecovery } from "@/lib/state/DraftRecoveryProvider";
 import {
   CEFR_LEVELS,
+  buildSessionDraft,
   hasSetupDraft,
   TASK_FAMILY_OPTIONS,
   type CefrLevel,
@@ -105,6 +107,7 @@ export const LibraryRoute = () => {
   const draft = useAppStore((state) => state.draft);
   const setCurrentPage = useAppStore((state) => state.setCurrentPage);
   const applySetup = useAppStore((state) => state.applySetup);
+  const draftRecovery = useDraftRecovery();
 
   const translate = createTranslator(locale);
   const [library, setLibrary] = useState<ThemeLibrary>(() => themeLibraryRepository.load());
@@ -118,6 +121,7 @@ export const LibraryRoute = () => {
   const [themeFamily, setThemeFamily] = useState<TaskFamily>("free_monologue");
   const [errors, setErrors] = useState<Record<string, boolean>>({});
   const [successMessage, setSuccessMessage] = useState("");
+  const [draftError, setDraftError] = useState("");
 
   const samplesQuery = useQuery({
     queryKey: queryKeys.samples,
@@ -142,8 +146,10 @@ export const LibraryRoute = () => {
   const handlePrepareSample = (sample: SampleItem) => {
     const languageCodeValue = sample.language.toLowerCase();
     const title = sampleTitleLabel(sample) || translate("library.none");
-    const nextDraft = {
+    const nextDraft = buildSessionDraft({
       ...draft,
+      sessionId: undefined,
+      retryOfSessionId: "", coachingGoal: "", retryGoalEligible: false,
       learningLanguage: languageCodeValue || draft.learningLanguage,
       learningLanguageLabel:
         languageCodeValue && library[languageCodeValue]
@@ -156,9 +162,19 @@ export const LibraryRoute = () => {
       durationSec: sampleDuration(sample.cefr),
       promptId: sample.sample_id,
       promptText: title,
-    };
-    applySetup(nextDraft);
-    navigate(hasSetupDraft(nextDraft) ? "/speak" : "/session-setup");
+    });
+    void (async () => {
+      setDraftError("");
+      if (!hasSetupDraft(nextDraft)) {
+        applySetup(nextDraft);
+        navigate("/session-setup");
+        return;
+      }
+      if (!await draftRecovery.prepareNewAttempt(nextDraft.speakerId)) return;
+      try { await draftRecovery.saveSetup(nextDraft); } catch { setDraftError(translate("draft.storage_error")); return; }
+      applySetup(nextDraft);
+      navigate("/speak");
+    })();
   };
 
   const samplesContent = samplesQuery.isLoading ? (
@@ -257,6 +273,7 @@ export const LibraryRoute = () => {
         <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
           {translate("library.samples_body")}
         </p>
+        {draftError && <p role="alert">{draftError}</p>}
         {samplesContent}
       </section>
 

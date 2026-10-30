@@ -10,6 +10,7 @@ import { createTranslator, resolveUiLocale } from "@/lib/i18n";
 import { isPracticePath } from "@/lib/navigation";
 import { queryKeys } from "@/lib/query/queryClient";
 import { AppStoreProvider, useAppStore } from "@/lib/state/appStore";
+import { DraftRecoveryProvider } from "@/lib/state/DraftRecoveryProvider";
 import { hasSetupDraft } from "@/lib/state/sessionDraft";
 import { HomeRoute } from "@/routes/HomeRoute";
 
@@ -178,7 +179,7 @@ export default function App() {
       store={undefined}
     >
       <SavedLocale />
-      <AppFrame />
+      <DraftRecoveryProvider><AppFrame /></DraftRecoveryProvider>
     </AppStoreProvider>
   );
 }

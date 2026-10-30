@@ -1,10 +1,78 @@
+import "@testing-library/jest-dom/vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { RecorderPanel } from "./RecorderPanel";
 
 const props = { microphoneSetupPassed: true, canRemove: false, inputMode: "record" as const, onInputModeChange: vi.fn(), onRemove: vi.fn(),
   previewUrl: "", showReadyCheckpoint: false, statusMessage: "ready", statusTone: "info" as const, translate: (key: string) => key };
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+it("shows a finalized short take as ready in memory while retaining its warning", () => {
+  render(<RecorderPanel {...props} onFileSelected={vi.fn()} previewUrl="blob:short-take"
+    statusMessage="Too short to submit" statusTone="warning" />);
+  expect(screen.getByTestId("speak.recording_visualizer")).toHaveAttribute("data-recording-state", "ready");
+  expect(screen.getByTestId("speak.recording_status")).toHaveTextContent("Too short to submit");
+});
+it("waits for native replacement confirmation before switching input modes", async () => {
+  let finish: (approved: boolean) => void = () => undefined;
+  const onMode = vi.fn();
+  render(<RecorderPanel {...props} onFileSelected={vi.fn()} onInputModeChange={onMode}
+    onBeforeReplace={() => new Promise(resolve => { finish = resolve; })} />);
+  fireEvent.click(screen.getByTestId("speak.input_mode_upload"));
+  expect(onMode).not.toHaveBeenCalled();
+  await act(async () => finish(false));
+  expect(onMode).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByTestId("speak.input_mode_upload"));
+  await act(async () => finish(true));
+  expect(onMode).toHaveBeenCalledWith("upload");
+});
+it("resumes the meter in the Record gesture before an asynchronous confirmation", async () => {
+  const resume = vi.fn().mockResolvedValue(undefined);
+  const close = vi.fn().mockResolvedValue(undefined);
+  vi.stubGlobal("AudioContext", class { resume = resume; close = close; });
+  microphone();
+  vi.stubGlobal("MediaRecorder", class { static isTypeSupported() { return true; } });
+  let finish: (allowed: boolean) => void = () => undefined;
+  render(<RecorderPanel {...props} onFileSelected={vi.fn()}
+    onBeforeReplace={() => new Promise(resolve => { finish = resolve; })} />);
+  fireEvent.click(screen.getByTestId("speak.record_start"));
+  fireEvent.click(screen.getByTestId("speak.record_start"));
+  expect(resume).toHaveBeenCalledOnce();
+  expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+  await act(async () => finish(false));
+  expect(close).toHaveBeenCalledOnce();
+  expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+});
+it("does not report silence when the meter remains suspended after confirmation", async () => {
+  const status = vi.fn();
+  const node = () => ({ connect: vi.fn(), disconnect: vi.fn() });
+  vi.stubGlobal("AudioContext", class {
+    state = "suspended"; destination = {};
+    resume = vi.fn().mockResolvedValue(undefined); close = vi.fn().mockResolvedValue(undefined);
+    createAnalyser() { return { ...node(), fftSize: 2048, getFloatTimeDomainData: vi.fn() }; }
+    createMediaStreamSource() { return node(); }
+    createGain() { return { ...node(), gain: { value: 0 } }; }
+  });
+  microphone();
+  class FakeRecorder {
+    static isTypeSupported() { return true; }
+    state = "inactive"; mimeType = "audio/webm";
+    onstop?: () => void; ondataavailable?: (event: { data: Blob }) => void;
+    start() { this.state = "recording"; }
+    requestData() { this.ondataavailable?.({ data: new Blob(["audio"]) }); }
+    stop() { this.state = "inactive"; this.onstop?.(); }
+  }
+  vi.stubGlobal("MediaRecorder", FakeRecorder);
+  vi.useFakeTimers();
+  render(<RecorderPanel {...props} onFileSelected={vi.fn()} onMicrophoneStatusChange={status}
+    onBeforeReplace={() => Promise.resolve(true)} />);
+  await act(async () => { fireEvent.click(screen.getByTestId("speak.record_start")); await Promise.resolve(); });
+  expect(screen.getByTestId("speak.record_stop")).toBeEnabled();
+  await act(async () => { await vi.advanceTimersByTimeAsync(11_000); });
+  expect(screen.getByTestId("speak.signal_warning")).toHaveTextContent("speak.meter_unavailable");
+  fireEvent.click(screen.getByTestId("speak.record_stop"));
+  await act(async () => { await Promise.resolve(); });
+  expect(status).not.toHaveBeenCalledWith("silent");
+});
 function microphone() {
   const stop = vi.fn();
   Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop }] }) } });
@@ -38,9 +106,22 @@ it("does not present a recorder error's partial chunks as a saved answer", async
   expect(screen.getByTestId("speak.recording_visualizer").getAttribute("data-recording-state")).toBe("error");
 });
 
+it("shows a microphone error over a previously saved status", async () => {
+  const started = vi.fn();
+  Object.defineProperty(navigator, "mediaDevices", { configurable: true,
+    value: { getUserMedia: vi.fn().mockRejectedValue(new DOMException("denied", "NotAllowedError")) } });
+  vi.stubGlobal("MediaRecorder", class { static isTypeSupported() { return true; } });
+  render(<RecorderPanel {...props} onFileSelected={vi.fn()} onRecordingStarted={started} statusMessage="Saved on this Mac" preferStatusMessage />);
+  fireEvent.click(screen.getByTestId("speak.record_start"));
+  await waitFor(() => expect(screen.getByTestId("speak.recording_status")).toHaveTextContent("speak.recording_permission_denied"));
+  expect(screen.getByTestId("speak.recording_status")).not.toHaveTextContent("Saved on this Mac");
+  expect(started).not.toHaveBeenCalled();
+});
+
 it("does not claim clear input merely because a recording was saved", async () => {
   microphone();
   const status = vi.fn();
+  const started = vi.fn();
   let recorder!: FakeRecorder;
   class FakeRecorder {
     static isTypeSupported() { return true; }
@@ -52,13 +133,69 @@ it("does not claim clear input merely because a recording was saved", async () =
     stop() { this.state = "inactive"; this.onstop?.(); }
   }
   vi.stubGlobal("MediaRecorder", FakeRecorder);
-  render(<RecorderPanel {...props} onFileSelected={vi.fn()} onMicrophoneStatusChange={status} />);
+  render(<RecorderPanel {...props} onFileSelected={vi.fn()} onMicrophoneStatusChange={status} onRecordingStarted={started} />);
   fireEvent.click(screen.getByTestId("speak.record_start"));
   await screen.findByTestId("speak.record_stop");
+  expect(started).toHaveBeenCalledOnce();
   expect(status).not.toHaveBeenCalledWith("ready");
   fireEvent.click(screen.getByTestId("speak.record_stop"));
   expect(recorder.state).toBe("inactive");
   expect(status).not.toHaveBeenCalledWith("ready");
+});
+
+it("waits for the durable save callback before showing a saved status", async () => {
+  microphone();
+  let recorder!: FakeRecorder;
+  class FakeRecorder {
+    static isTypeSupported() { return true; }
+    state = "inactive"; mimeType = "audio/webm";
+    onstop?: () => void; ondataavailable?: (event: { data: Blob }) => void;
+    constructor() { recorder = this; }
+    start() { this.state = "recording"; }
+    requestData() { this.ondataavailable?.({ data: new Blob(["finalized audio"]) }); }
+    stop() { this.state = "inactive"; this.onstop?.(); }
+  }
+  vi.stubGlobal("MediaRecorder", FakeRecorder);
+  let finish: () => void = () => undefined;
+  const selected = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+  const { rerender } = render(<RecorderPanel {...props} onFileSelected={selected} statusMessage="Take ready in memory" />);
+  fireEvent.click(screen.getByTestId("speak.record_start"));
+  await screen.findByTestId("speak.record_stop");
+  fireEvent.click(screen.getByTestId("speak.record_stop"));
+  await waitFor(() => expect(selected).toHaveBeenCalledOnce());
+  expect(screen.getByTestId("speak.recording_status").textContent).not.toContain("Saved on this Mac");
+  await act(async () => { finish(); await Promise.resolve(); });
+  rerender(<RecorderPanel {...props} onFileSelected={selected} statusMessage="Saved on this Mac" preferStatusMessage />);
+  expect(screen.getByTestId("speak.recording_status").textContent).toContain("Saved on this Mac");
+  expect(recorder.state).toBe("inactive");
+});
+
+it("keeps the Stop time when MediaRecorder finalizes later", async () => {
+  const now = vi.spyOn(Date, "now").mockReturnValue(100_000);
+  try {
+    microphone();
+    const selected = vi.fn();
+    let recorder!: FakeRecorder;
+    class FakeRecorder {
+      static isTypeSupported() { return true; }
+      state = "inactive"; mimeType = "audio/webm";
+      onstop?: () => void; ondataavailable?: (event: { data: Blob }) => void;
+      constructor() { recorder = this; }
+      start() { this.state = "recording"; }
+      requestData() { this.ondataavailable?.({ data: new Blob(["finalized audio"]) }); }
+      stop() { this.state = "inactive"; }
+    }
+    vi.stubGlobal("MediaRecorder", FakeRecorder);
+    render(<RecorderPanel {...props} onFileSelected={selected} />);
+    fireEvent.click(screen.getByTestId("speak.record_start"));
+    await screen.findByTestId("speak.record_stop");
+    now.mockReturnValue(135_000);
+    fireEvent.click(screen.getByTestId("speak.record_stop"));
+    now.mockReturnValue(150_000);
+    act(() => recorder.onstop?.());
+    await waitFor(() => expect(selected).toHaveBeenCalledOnce());
+    expect((selected.mock.calls[0][0] as File).lastModified).toBe(135_000);
+  } finally { now.mockRestore(); }
 });
 
 it("requires setup confirmation before asking for recording permission", () => {

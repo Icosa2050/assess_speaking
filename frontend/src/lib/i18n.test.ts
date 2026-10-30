@@ -30,6 +30,15 @@ describe("translation catalog integrity", () => {
     expect(text).not.toMatch(/\b(?:fuer|ueber|verfuegbar|Uebung\w*|Pruef\w*|vollstaendig\w*|Oeffne\w*)\b/i);
   });
 
+  it("names the actual Submit button in each local retention message", () => {
+    for (const locale of SUPPORTED_UI_LOCALES) {
+      const submit = t("speak.submit", { locale });
+      for (const key of ["draft.privacy", "draft.saved_on_mac", "draft.submit_uncertain"] as const) {
+        expect(t(key, { locale, vars: { detail: "error" } }), `${locale}:${key}`).toContain(submit);
+      }
+    }
+  });
+
   it("preserves accented user input when interpolating translated messages", () => {
     for (const locale of SUPPORTED_UI_LOCALES) {
       const translated = t("common.session_summary", {

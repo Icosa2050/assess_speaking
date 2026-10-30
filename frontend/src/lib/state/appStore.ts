@@ -4,6 +4,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 
 import type { MicrophoneStatus } from "@/lib/setup/microphone";
 import { persistAppearance, type Appearance } from "./appearance";
+import { desktopBridge } from "@/lib/runtime/desktopBridge";
 import { clearRetryDraft, persistRetryDraft, readRetryDraft } from "./retryBriefStorage";
 
 import { detectPreferredUiLocale, resolveUiLocale } from "@/lib/i18n";
@@ -105,7 +106,9 @@ const buildAppStoreState = (seed: AppStoreSeed = {}): AppStoreState => {
 const retryContextChanged = (draft: SessionDraft, updates: Partial<SessionDraft>): boolean =>
   Boolean(draft.retryOfSessionId) &&
   (["speakerId", "learningLanguage", "themeId", "promptId", "promptText", "taskFamily", "cefrLevel", "durationSec"] as const)
-    .some(key => key in updates && updates[key] !== draft[key]);
+    .some(key => key in updates && (key === "speakerId"
+      ? updates.speakerId?.trim().toLowerCase() !== draft.speakerId.trim().toLowerCase()
+      : updates[key] !== draft[key]));
 
 export const createAppStore = (seed: AppStoreSeed = {}): AppStoreApi => {
   const initialState = buildAppStoreState(seed);
@@ -345,13 +348,14 @@ export const AppStoreProvider = ({
   const storeRef = useRef<AppStoreApi | null>(store ?? null);
 
   if (storeRef.current === null) {
-    const restored = readRetryDraft();
+    const restored = desktopBridge.hasDraftStore() ? null : readRetryDraft();
     storeRef.current = createAppStore({ draft: restored ?? undefined, retryRestorePending: Boolean(restored) });
   }
 
   useEffect(() => {
     const activeStore = storeRef.current!;
     const unsubscribeDraft = activeStore.subscribe((state, previous) => {
+      if (desktopBridge.hasDraftStore()) return;
       if (state.recording.assessmentState === "completed") {
         clearRetryDraft();
       } else if (state.draft !== previous.draft) {
@@ -397,6 +401,12 @@ export const useAppStore = <T,>(selector: (state: AppStore) => T): T => {
   }
 
   return useStore(store, selector);
+};
+
+export const useAppStoreApi = (): AppStoreApi => {
+  const store = useContext(AppStoreContext);
+  if (store === null) throw new Error("useAppStoreApi must be used inside an AppStoreProvider.");
+  return store;
 };
 
 export const selectAssessmentLifecycleState = (

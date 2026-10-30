@@ -45,6 +45,8 @@ export interface DesktopDraftStoreBridge {
   list(): Promise<DraftListing>;
   recoveryIds(): Promise<string[]>;
   saveSetup(setup: SessionDraft, draftId?: string, expectedRevision?: number): Promise<SavedDraft>;
+  replaceSetup(setup: SessionDraft, draftId: string, expectedRevision: number): Promise<SavedDraft>;
+  importLegacyBrief(setup: SessionDraft, createdAt: number): Promise<SavedDraft>;
   beginTake(draftId: string, expectedRevision: number, take: Omit<SavedTake, "mediaId">): Promise<string>;
   writeTakeChunk(transferId: string, bytes: number[]): Promise<number>;
   abortTake(transferId: string): Promise<void>;
@@ -64,6 +66,7 @@ export interface DesktopRuntimeBridge {
   launchMode: DesktopLaunchMode;
   packagingSafe: boolean;
   authMode: DesktopAuthMode;
+  confirmDraft?: (message: string) => Promise<boolean>;
   saveLearnerBackup?: (backupId: string) => Promise<{ status: "saved" | "cancelled" }>;
   draftSupportEmail?: (bundleId: string, recipient: string) => Promise<{ status: "drafted" }>;
   saveSupportBundle?: (bundleId: string) => Promise<{ status: "saved" | "cancelled" }>;
@@ -100,7 +103,7 @@ const isAuthMode = (value: string): value is DesktopAuthMode =>
 
 const isDraftStore = (value: unknown): value is DesktopDraftStoreBridge => {
   if (!value || typeof value !== "object") return false;
-  return ["list", "recoveryIds", "saveSetup", "beginTake", "writeTakeChunk", "abortTake", "abortTakeForDraft", "finishTake", "loadTakeChunk", "markSubmission", "discard", "expire"]
+  return ["list", "recoveryIds", "saveSetup", "replaceSetup", "importLegacyBrief", "beginTake", "writeTakeChunk", "abortTake", "abortTakeForDraft", "finishTake", "loadTakeChunk", "markSubmission", "discard", "expire"]
     .every((method) => typeof (value as Record<string, unknown>)[method] === "function");
 };
 
@@ -123,6 +126,7 @@ export const readDesktopRuntimeBridge = (): DesktopRuntimeBridge => {
         : DEFAULT_DESKTOP_RUNTIME.apiBaseUrl,
     sessionToken: typeof candidate?.sessionToken === "string" ? candidate.sessionToken : undefined,
     mediaToken: typeof candidate?.mediaToken === "string" ? candidate.mediaToken : undefined,
+    confirmDraft: typeof candidate?.confirmDraft === "function" ? candidate.confirmDraft : undefined,
     saveLearnerBackup: typeof candidate?.saveLearnerBackup === "function" ? candidate.saveLearnerBackup : undefined,
     draftSupportEmail: typeof candidate?.draftSupportEmail === "function" ? candidate.draftSupportEmail : undefined,
     saveSupportBundle: typeof candidate?.saveSupportBundle === "function" ? candidate.saveSupportBundle : undefined,

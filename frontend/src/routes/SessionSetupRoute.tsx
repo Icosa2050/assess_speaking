@@ -23,7 +23,10 @@ import {
   type ThemeLibrary,
 } from "@/lib/setup/sessionSetupContent";
 import { useAppStore } from "@/lib/state/appStore";
-import { type CefrLevel, type DurationOption, type TaskFamily } from "@/lib/state/sessionDraft";
+import { useDraftRecovery } from "@/lib/state/DraftRecoveryProvider";
+import { confirmLocalDraft } from "@/lib/runtime/confirmLocalDraft";
+import { normalizedLearner, sameDraftAttempt, type DraftStoreError } from "@/lib/state/draftStore";
+import { buildSessionDraft, type CefrLevel, type DurationOption, type TaskFamily } from "@/lib/state/sessionDraft";
 
 const pageStyle = {
   display: "grid",
@@ -125,6 +128,8 @@ const SessionSetupContent = () => {
   const microphoneStatus = useAppStore((state) => state.microphoneStatus);
   const microphoneSetupPassed = useAppStore((state) => state.microphoneSetupPassed);
   const draft = useAppStore((state) => state.draft);
+  const draftRecovery = useDraftRecovery();
+  const clearRecording = useAppStore(state => state.clearRecording);
   const updateDraft = useAppStore((state) => state.updateDraft);
   const applySetup = useAppStore((state) => state.applySetup);
   const setCurrentPage = useAppStore((state) => state.setCurrentPage);
@@ -346,7 +351,7 @@ const SessionSetupContent = () => {
     setSelectedThemeMode(open ? "custom" : "library");
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const nextErrors: string[] = [];
     if (!speakerId.trim()) {
       nextErrors.push(translate("setup.error_speaker_id"));
@@ -370,7 +375,8 @@ const SessionSetupContent = () => {
       setLibrary(nextLibrary);
     }
 
-    applySetup({
+    let nextSetup = buildSessionDraft({
+      sessionId: draft.sessionId,
       speakerId: speakerId.trim(),
       learningLanguage: selectedLanguage,
       learningLanguageLabel: selectedLanguageLabel,
@@ -382,8 +388,35 @@ const SessionSetupContent = () => {
       themeLabel: resolvedThemeLabel,
       taskFamily: resolvedTaskFamily,
       durationSec: selectedDuration,
+      promptId: `${themeEntryId({ title: resolvedThemeLabel, level: selectedCefr })}-${selectedCefr.toLowerCase()}`,
       promptText: brief.prompt,
+      retryOfSessionId: draft.retryOfSessionId,
+      coachingGoal: draft.coachingGoal,
+      retryGoalEligible: draft.retryGoalEligible,
     });
+    const taskChanged = normalizedLearner(nextSetup.speakerId) !== normalizedLearner(draft.speakerId) ||
+      (["learningLanguage", "cefrLevel", "themeId", "promptId", "promptText", "taskFamily", "durationSec"] as const)
+        .some(key => nextSetup[key] !== draft[key]);
+    if (taskChanged) {
+      nextSetup = buildSessionDraft({ ...nextSetup, retryOfSessionId: "", coachingGoal: "", retryGoalEligible: false });
+    }
+    const existing = draftRecovery.findLearner(nextSetup.speakerId);
+    const replacement = existing && (!sameDraftAttempt(existing, nextSetup) ||
+      existing.setup.themeLabel !== nextSetup.themeLabel ||
+      existing.setup.learningLanguageLabel !== nextSetup.learningLanguageLabel);
+    if (replacement && !await confirmLocalDraft(translate("draft.replace_setup_detail", {
+      learner: existing.setup.speakerId,
+      task: existing.setup.themeLabel || existing.setup.promptText,
+      size: existing.take ? `${(existing.take.size / 1024 / 1024).toFixed(1)} MiB` : "0 MiB",
+    }))) return;
+    try {
+      if (replacement) await draftRecovery.replaceSetup(nextSetup, existing);
+      else await draftRecovery.saveSetup(nextSetup);
+    } catch (error) {
+      setErrors([translate((error as DraftStoreError).kind === "limit" ? "draft.limit_error" : "draft.storage_error")]);
+      return;
+    }
+    applySetup(nextSetup);
 
     if (canContinueToSpeak) {
       navigate("/speak");
@@ -437,6 +470,9 @@ const SessionSetupContent = () => {
           {translate(readyToRecord ? "first_run.ready_for_task_body" : canContinueToSpeak ? "first_run.continue_to_speak_body" : "first_run.task_setup_body")}
         </StatusBanner>
       </div>
+      {draftRecovery.supported && (draftRecovery.hasStoredEntries || draftRecovery.error) && (
+        <button type="button" onClick={draftRecovery.manageDrafts}>{translate("draft.manage_saved")}</button>
+      )}
       <ThemeForm
         availableLanguages={availableLanguages}
         availableThemes={availableThemes.map((theme) => ({ title: theme.title }))}
@@ -475,7 +511,12 @@ const SessionSetupContent = () => {
           setErrors([]);
         }}
         onSetupStepChange={setSetupStep}
-        onSpeakerIdChange={(value) => {
+        onSpeakerIdChange={async (value) => {
+          if (draftRecovery.active && normalizedLearner(value) !== draftRecovery.active.speakerId) {
+            if (!await confirmLocalDraft(translate("draft.learner_switch_confirm", { learner: draftRecovery.active.setup.speakerId }))) return;
+            draftRecovery.leaveActive();
+            clearRecording();
+          }
           updateDraft({ speakerId: value });
           if (errors.length > 0) {
             setErrors([]);

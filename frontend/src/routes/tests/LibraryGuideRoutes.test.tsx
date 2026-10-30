@@ -4,6 +4,8 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/renderWithProviders";
+import { draftAdapterFixture, savedDraftFixture } from "@/test/draftAdapterFixture";
+import { buildSessionDraft } from "@/lib/state/sessionDraft";
 
 vi.mock("@/lib/api/client", () => ({
   ApiClientError: class ApiClientError extends Error {
@@ -22,6 +24,8 @@ vi.mock("@/lib/api/client", () => ({
       "speech_recognition", "ai_tutor", "media_decoder", "storage",
     ].map(key => ({ key, state: "available", blocking: true, reason: "available", detail_args: {} })) }),
     getRuntime: vi.fn(),
+    getRuntimeSettings: vi.fn().mockResolvedValue({ ui_locale: "en", whisper_model: "small", active_connection_id: "conn-local", connections: [] }),
+    getWhisperModelStatus: vi.fn().mockResolvedValue({ available: true }),
     getSamples: vi.fn(),
   },
 }));
@@ -34,6 +38,54 @@ const mockedGetRuntime = vi.mocked(apiClient.getRuntime);
 const mockedGetSamples = vi.mocked(apiClient.getSamples);
 
 describe("Library and Guide routes", () => {
+  it("opens Session Setup from a Library sample before a learner name exists on desktop", async () => {
+    const adapter = draftAdapterFixture();
+    renderWithProviders(<AppFrame />, { initialEntries: ["/library"], locale: "en", draftAdapter: adapter,
+      appState: { draft: { speakerId: "" }, preferences: { activeConnectionId: "conn-local", setupComplete: true } } });
+    fireEvent.click(await screen.findByTestId("library.sample_prepare"));
+    expect(await screen.findByLabelText("Learner name or nickname")).toBeVisible();
+    expect(adapter.saveSetup).not.toHaveBeenCalled();
+    expect(adapter.replaceSetup).not.toHaveBeenCalled();
+    expect(screen.queryByText("Could not use local draft storage. Keep this window open or try again.")).not.toBeInTheDocument();
+  });
+
+  it("replaces a saved task before preparing a different Library sample", async () => {
+    const saved = savedDraftFixture("Alex");
+    saved.setup = buildSessionDraft({ ...saved.setup, learningLanguage: "en", learningLanguageLabel: "English" });
+    const adapter = draftAdapterFixture([saved]);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/library"], locale: "en", draftAdapter: adapter,
+      appState: { draft: saved.setup, preferences: { activeConnectionId: "conn-local", setupComplete: true } } });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await screen.findByTestId("speak.recording_panel");
+    fireEvent.click(screen.getByRole("link", { name: "Library" }));
+    fireEvent.click(await screen.findByTestId("library.sample_prepare"));
+    await waitFor(() => expect(adapter.replaceSetup).toHaveBeenCalledWith(expect.objectContaining({ themeId: "en_B1_travel_story" }), saved));
+    expect(adapter.discard).not.toHaveBeenCalled();
+    await waitFor(() => expect(store.getState().draft.themeId).toBe("en_B1_travel_story"));
+    expect(store.getState().draft.sessionId).not.toBe(saved.setup.sessionId);
+    expect(adapter.saveSetup).not.toHaveBeenCalled();
+    expect(await screen.findByTestId("speak.recording_panel")).toBeVisible();
+    expect(screen.queryByTestId("speak.download_recording")).not.toBeInTheDocument();
+    confirm.mockRestore();
+  });
+
+  it("keeps the previous Library task and take when replacement storage fails", async () => {
+    const saved = savedDraftFixture("Alex");
+    saved.setup = buildSessionDraft({ ...saved.setup, learningLanguage: "en", learningLanguageLabel: "English" });
+    const adapter = draftAdapterFixture([saved]);
+    adapter.replaceSetup.mockRejectedValue(new Error("disk unavailable"));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/library"], locale: "en", draftAdapter: adapter,
+      appState: { draft: saved.setup, preferences: { activeConnectionId: "conn-local", setupComplete: true } } });
+    fireEvent.click(await screen.findByRole("button", { name: "Continue without resuming" }));
+    fireEvent.click(await screen.findByTestId("library.sample_prepare"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not use local draft storage");
+    expect(store.getState().draft.themeId).toBe(saved.setup.themeId);
+    expect(adapter.discard).not.toHaveBeenCalled();
+    expect(screen.getByTestId("library.sample_prepare")).toBeVisible();
+    confirm.mockRestore();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mockedGetDiagnostics.mockResolvedValue({ items: [] });

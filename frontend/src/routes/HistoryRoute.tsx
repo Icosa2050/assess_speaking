@@ -17,6 +17,8 @@ import { withJournalLock } from "@/lib/rehearsal/storage";
 import { journalRequest } from "@/lib/rehearsal/maintenance";
 import { queryKeys } from "@/lib/query/queryClient";
 import { useAppStore } from "@/lib/state/appStore";
+import { useDraftRecovery } from "@/lib/state/DraftRecoveryProvider";
+import { buildSessionDraft } from "@/lib/state/sessionDraft";
 
 import type { HistoryRow } from "@/lib/api/types";
 
@@ -292,9 +294,11 @@ export const HistoryRoute = () => {
   const [archiveConfirm, setArchiveConfirm] = useState(false);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [archiveError, setArchiveError] = useState("");
+  const [draftError, setDraftError] = useState("");
   const navigate = useNavigate();
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const applySetup = useAppStore((state) => state.applySetup);
+  const draftRecovery = useDraftRecovery();
   const setCurrentPage = useAppStore((state) => state.setCurrentPage);
   const translate = useMemo(() => createTranslator(locale), [locale]);
   const [speakerScope, setSpeakerScope] = useState("");
@@ -422,6 +426,7 @@ export const HistoryRoute = () => {
       data-semantic-id="history-route"
     >
       <section className={historyStyles.header}>
+        {draftError && <p role="alert">{draftError}</p>}
         <div className={historyStyles.heading}>
           <div>
             <h2>{translate("journey.headline")}</h2>
@@ -471,10 +476,16 @@ export const HistoryRoute = () => {
         comparisonState={detailQuery.isPending ? "loading" : detailQuery.isError ? "error" : "ready"}
         onSelect={setSelectedSessionId}
         onRetry={(row) => {
-          const savedDraft = retryDraft(row);
-          if (savedDraft) {
-            applySetup(savedDraft);
-            navigate("/speak");
+          const retry = retryDraft(row);
+          if (retry) {
+            const savedDraft = buildSessionDraft(retry);
+            void (async () => {
+              setDraftError("");
+              if (!await draftRecovery.prepareNewAttempt(savedDraft.speakerId)) return;
+              try { await draftRecovery.saveSetup(savedDraft); } catch { setDraftError(translate("draft.storage_error")); return; }
+              applySetup(savedDraft);
+              navigate("/speak");
+            })();
           }
         }}
       />

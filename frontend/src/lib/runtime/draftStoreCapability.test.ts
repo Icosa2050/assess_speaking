@@ -10,8 +10,10 @@ it("detects only a complete desktop draft bridge", () => {
   (window as any).__VOSTAVO_DESKTOP__ = { draftStore: { list: () => Promise.resolve([]) } };
   expect(hasDesktopDraftStore()).toBe(false);
   expect(readDesktopRuntimeBridge().draftStore).toBeUndefined();
-  const methods = ["list", "recoveryIds", "saveSetup", "beginTake", "writeTakeChunk", "abortTake", "abortTakeForDraft", "finishTake", "loadTakeChunk", "markSubmission", "discard", "expire"];
+  const methods = ["list", "recoveryIds", "saveSetup", "replaceSetup", "importLegacyBrief", "beginTake", "writeTakeChunk", "abortTake", "abortTakeForDraft", "finishTake", "loadTakeChunk", "markSubmission", "discard", "expire"];
   const draftStore = Object.fromEntries(methods.map((name) => [name, () => Promise.resolve()]));
+  (window as any).__VOSTAVO_DESKTOP__ = { draftStore: { ...draftStore, replaceSetup: undefined } };
+  expect(hasDesktopDraftStore()).toBe(false);
   (window as any).__VOSTAVO_DESKTOP__ = { draftStore: { ...draftStore, abortTakeForDraft: undefined } };
   expect(hasDesktopDraftStore()).toBe(false);
   (window as any).__VOSTAVO_DESKTOP__ = { draftStore };
