@@ -415,6 +415,12 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   const resolveRetryParent = async (entry: SavedDraft): Promise<SavedDraft> => {
     const parent = entry.setup.retryOfSessionId;
     if (!parent) return entry;
+    // A submission receipt freezes the request, including its retry parent.
+    // History reconciliation may observe that request, but cannot rewrite it.
+    if (entry.submission || (entry.status !== "setup" && entry.status !== "take_ready")) {
+      forgetRetryMarkers(entry.draftId);
+      return entry;
+    }
     let detached = false;
     try {
       const detail = await apiClient.getHistoryDetail(parent);

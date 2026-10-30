@@ -100,6 +100,26 @@ describe("desktop draft recovery gate", () => {
     expect(hasRestoredRetryParent(ready.draftId, "imported-parent")).toBe(false);
   });
 
+  it.each(["assessing", "assessment_uncertain"] as const)("resumes a %s receipt with its frozen retry link when History says 404", async status => {
+    const saved = acceptedDraft();
+    saved.status = status;
+    saved.setup = { ...saved.setup, retryOfSessionId: "prior", coachingGoal: "Finish clearly", retryGoalEligible: true };
+    rememberFreshRetryParents([{ draftId: saved.draftId, parentId: "prior" }]);
+    vi.spyOn(apiClient, "getAssessmentByRequest").mockRejectedValue(new ApiClientError(404, { code: "validation_error", detail: "Not found" }));
+    const history = vi.spyOn(apiClient, "getHistoryDetail").mockRejectedValue(new ApiClientError(404, { code: "validation_error", detail: "Not found" }));
+    const bridge = fake([saved]);
+    show(bridge);
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("Alex|take.webm"));
+    expect(screen.getByTestId("retry-context")).toHaveTextContent("prior|Finish clearly|true");
+    expect(history).not.toHaveBeenCalled();
+    expect(bridge.detachRetry).not.toHaveBeenCalled();
+    expect(hasFreshRetryParent(saved.draftId, "prior")).toBe(false);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Reconcile retry probe" })); });
+    expect(bridge.detachRetry).not.toHaveBeenCalled();
+    expect(history).not.toHaveBeenCalled();
+  });
+
   it("uses report provenance after WebView storage is cleared, but keeps a later retry of that report", async () => {
     const old = draft();
     old.setup = { ...old.setup, retryOfSessionId: "imported-parent", coachingGoal: "Finish clearly", retryGoalEligible: true };
@@ -398,8 +418,7 @@ describe("desktop draft recovery gate", () => {
     persistRetryDraft(ready.setup);
     fireEvent.click(screen.getByRole("button", { name: "Complete off Speak probe" }));
     await waitFor(() => expect(apiClient.getAssessmentByRequest).toHaveBeenCalledTimes(2));
-    expect(history).toHaveBeenCalledWith("prior");
-    expect(history).not.toHaveBeenCalledWith("other-report");
+    expect(history).not.toHaveBeenCalled();
     expect(bridge.discard).not.toHaveBeenCalled();
     expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).not.toBeNull();
     expect(screen.getByTestId("probe")).toHaveTextContent("Alex|take.webm");
