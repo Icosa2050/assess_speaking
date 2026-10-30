@@ -102,6 +102,7 @@ const injectDraftBridge = async (page: Page) => page.addInitScript(() => {
 });
 
 type Requests = { uploads: number; assessments: number; uploadId?: string; assessmentId?: string;
+  assessmentBodies?: Record<string, unknown>[];
   assessmentStatus?: "queued" | "completed" | "failed" | "cancelled"; reportId?: string;
   loseUploadResponse?: boolean; loseAssessmentResponse?: boolean };
 const backend = async (page: Page, requests: Requests) => {
@@ -111,6 +112,9 @@ const backend = async (page: Page, requests: Requests) => {
   await page.route("**/v1/runtime/settings", route => route.fulfill({ json: { ui_locale: "en", whisper_model: "small", active_connection_id: "", connections: [] } }));
   await page.route("**/v1/diagnostics", route => route.fulfill({ json: { items: [] } }));
   await page.route("**/v1/history", route => route.fulfill({ json: { items: [] } }));
+  await page.route("**/v1/history/*", route => route.fulfill({ json: {
+    payload: { report: { session_id: requests.reportId || "report-1" } },
+  } }));
   await page.route("**/v1/assessment-route", route => route.fulfill({ json: { version: 1, available: true,
     fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" },
     analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null } }));
@@ -126,7 +130,10 @@ const backend = async (page: Page, requests: Requests) => {
     return route.fulfill({ json: { audio_id: "audio-1", stored_path: "/private/audio-1", sha1: "x", original_name: "take.wav" } });
   });
   await page.route("**/v1/assessments", route => {
-    requests.assessments++; requests.assessmentId = (route.request().postDataJSON() as {request_id: string}).request_id;
+    requests.assessments++;
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    (requests.assessmentBodies ??= []).push(body);
+    requests.assessmentId = body.request_id as string;
     if (requests.loseAssessmentResponse) { requests.loseAssessmentResponse = false; return route.abort("failed"); }
     return route.fulfill({ json: { assessment_id: "assessment-1", status: "queued" } });
   });
@@ -234,6 +241,9 @@ for (const [label, viewport] of [["1360x900", { width: 1360, height: 900 }], ["1
       const requests: Requests = { uploads: 0, assessments: 0, loseAssessmentResponse: true };
       await injectDraftBridge(page); await backend(page, requests);
       await save(page);
+      await page.getByTestId("speak.optional_context").locator("summary").click();
+      await page.getByTestId("speak.label").fill("First label");
+      await page.getByTestId("speak.notes").fill("First notes");
       await page.getByTestId("speak.submit").click();
       await expect.poll(() => requests.assessments).toBe(1);
       const submittedId = requests.assessmentId;
@@ -247,6 +257,38 @@ for (const [label, viewport] of [["1360x900", { width: 1360, height: 900 }], ["1
       await page.getByTestId("speak.submit").click();
       await expect.poll(() => requests.assessments).toBe(2);
       expect(requests.assessmentId).toBe(submittedId);
+      expect(requests.assessmentBodies?.[1]).toMatchObject({ label: "First label", notes: "First notes", request_id: submittedId });
+      expect(requests.uploads).toBe(1);
+    });
+    test("lost terminal retry replays its frozen resume request after restart", async ({ page }) => {
+      const requests: Requests = { uploads: 0, assessments: 0 };
+      await injectDraftBridge(page); await backend(page, requests);
+      await save(page);
+      await page.getByTestId("speak.submit").click();
+      await expect.poll(() => requests.assessments).toBe(1);
+      const firstRequestId = requests.assessmentId;
+      requests.assessmentStatus = "failed";
+      await page.reload();
+      await expect(page.getByTestId("draft.entry")).toContainText("assessment failed");
+      await page.getByRole("button", { name: "Resume" }).click();
+      await expect(page.getByTestId("speak.retry_assessment")).toBeEnabled();
+      requests.loseAssessmentResponse = true;
+      await page.getByTestId("speak.retry_assessment").click();
+      await expect.poll(() => requests.assessments).toBe(2);
+      const retryRequestId = requests.assessmentId;
+      expect(retryRequestId).not.toBe(firstRequestId);
+      expect(requests.assessmentBodies?.[1]).toMatchObject({ resume_assessment_id: "assessment-1" });
+      requests.assessmentId = undefined;
+      await page.reload();
+      await expect(page.getByTestId("draft.entry")).toContainText("Alex");
+      expect(requests.assessments).toBe(2);
+      await page.getByRole("button", { name: "Resume" }).click();
+      await expect(page.getByTestId("speak.submit")).toBeEnabled();
+      expect(requests.assessments).toBe(2);
+      await page.getByTestId("speak.submit").click();
+      await expect.poll(() => requests.assessments).toBe(3);
+      expect(requests.assessmentBodies?.[2]).toMatchObject({ request_id: retryRequestId,
+        resume_assessment_id: "assessment-1" });
       expect(requests.uploads).toBe(1);
     });
     test("lost upload response is resolved by request ID without a second upload", async ({ page }) => {

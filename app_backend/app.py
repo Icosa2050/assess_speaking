@@ -683,8 +683,8 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
         return upload_limits(runtime_config.app_data.uploads_dir)
 
     @app.get("/v1/uploads/by-request/{request_id}", response_model=UploadRequestLookupResponse, tags=[PRODUCT_API_TAG])
-    def upload_by_request(request_id: str) -> UploadRequestLookupResponse:
-        audio_id = app.state.job_manager.lookup_upload_request(request_id)
+    def upload_by_request(request_id: str, sha256: str, original_name: str) -> UploadRequestLookupResponse:
+        audio_id = app.state.job_manager.lookup_upload_request(request_id, sha256=sha256, original_name=original_name)
         if not audio_id:
             raise _http_error(404, ErrorCode.VALIDATION, "Upload request is not retained.")
         return UploadRequestLookupResponse(audio_id=audio_id)
@@ -729,14 +729,14 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
         return sharing_route({})
 
     @app.get("/v1/assessments/by-request/{request_id}", response_model=AssessmentRequestLookupResponse, tags=[PRODUCT_API_TAG])
-    def assessment_by_request(request_id: str) -> AssessmentRequestLookupResponse:
-        found = app.state.job_manager.lookup_assessment_request(request_id)
+    def assessment_by_request(request_id: str, audio_id: str, speaker_id: str,
+                              sharing_fingerprint: str) -> AssessmentRequestLookupResponse:
+        found = app.state.job_manager.lookup_assessment_request(
+            request_id, audio_id=audio_id, speaker_id=speaker_id, sharing_fingerprint=sharing_fingerprint)
         if found is None:
             raise _http_error(404, ErrorCode.VALIDATION, "Assessment request is not retained.")
-        report = found.payload.get("report") if isinstance(found.payload, dict) else None
         return AssessmentRequestLookupResponse(
-            assessment_id=found.assessment_id, status=found.status,
-            report_id=str(report.get("session_id")) if isinstance(report, dict) and report.get("session_id") else None,
+            assessment_id=str(found["assessment_id"]), status=found["status"], report_id=found["report_id"],
         )
 
     @app.get("/v1/assessments/{assessment_id}/resume-route", tags=[PRODUCT_API_TAG])

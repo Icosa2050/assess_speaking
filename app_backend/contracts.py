@@ -310,8 +310,8 @@ class AssessmentCreateRequest(BaseModel):
     prompt_text: str = Field(default="", max_length=12000)
     retry_of_session_id: str = Field(default="", max_length=128)
     language_profile_key: str | None = None
-    label: str = ""
-    notes: str = ""
+    label: str = Field(default="", max_length=500)
+    notes: str = Field(default="", max_length=12000)
     llm_base_url: str = ""
     llm_api_key: str = ""
     openrouter_http_referer: str = ""

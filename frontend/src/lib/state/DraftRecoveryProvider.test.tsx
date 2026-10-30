@@ -40,7 +40,7 @@ const Probe = () => {
   const currentDraft = useAppStore(state => state.draft);
   const recovery = useDraftRecovery();
   const location = useLocation();
-  return <><div data-testid="probe">{speaker}|{recovery.recoveredFile?.name}|{location.pathname}</div><div data-testid="retry-context">{retry}</div>
+  return <><div data-testid="probe">{speaker}|{recovery.recoveredFile?.name}|{location.pathname}</div><div data-testid="active-revision">{recovery.active?.revision}</div><div data-testid="retry-context">{retry}</div>
     <button onClick={() => void recovery.discardActive()}>Discard active probe</button>
     <button onClick={() => recovery.leaveActive()}>Leave active probe</button>
     <button onClick={() => void recovery.saveSetup(buildSessionDraft({ speakerId: "Bea", themeId: "trip", themeLabel: "Trip", promptText: "Trip" })).catch(() => undefined)}>Save setup probe</button>
@@ -76,15 +76,56 @@ describe("desktop draft recovery gate", () => {
       lastConfirmedPhase: "upload" };
     let resolveLookup: (value: {assessment_id: string; status: "completed"; report_id: string}) => void = () => undefined;
     vi.spyOn(apiClient, "getAssessmentByRequest").mockImplementation(() => new Promise(resolve => { resolveLookup = resolve; }));
+    vi.spyOn(apiClient, "getHistoryDetail").mockResolvedValue({ payload: { report: { session_id: "report-one" } } });
     const bridge = fake([saved]);
     show(bridge);
     await screen.findByTestId("draft.entry");
-    await waitFor(() => expect(apiClient.getAssessmentByRequest).toHaveBeenCalledWith("assessment-one"));
+    await waitFor(() => expect(apiClient.getAssessmentByRequest).toHaveBeenCalledWith("assessment-one", {
+      audioId: "aud_one", speakerId: saved.setup.speakerId, sharingFingerprint: "a".repeat(64),
+    }));
     persistRetryDraft(saved.setup);
     resolveLookup({ assessment_id: "asmt_one", status: "completed", report_id: "report-one" });
     await waitFor(() => expect(bridge.discard).toHaveBeenCalledWith(saved.draftId));
     await waitFor(() => expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull());
     expect(screen.queryByTestId("draft.entry")).not.toBeInTheDocument();
+  });
+
+  it("keeps the only take when a completed job has no readable history report", async () => {
+    const saved = draft();
+    saved.status = "assessment_uncertain";
+    saved.submission = { uploadRequestId: "upload-one", audioId: "aud_one", assessmentRequestId: "assessment-one",
+      assessmentId: "asmt_one", requestFingerprint: "a".repeat(64),
+      frozenRequestBody: JSON.stringify({ audio_id: "aud_one", request_id: "assessment-one", sharing_fingerprint: "a".repeat(64) }),
+      lastConfirmedPhase: "assessment" };
+    vi.spyOn(apiClient, "getAssessmentByRequest").mockResolvedValue({ assessment_id: "asmt_one", status: "completed", report_id: "missing" });
+    vi.spyOn(apiClient, "getHistoryDetail").mockRejectedValue(new Error("history missing"));
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const bridge = fake([saved]);
+    show(bridge);
+    await waitFor(() => expect(apiClient.getHistoryDetail).toHaveBeenCalledWith("missing"));
+    expect(bridge.discard).not.toHaveBeenCalled();
+    expect(await screen.findByTestId("draft.entry")).toHaveTextContent("Alex");
+  });
+
+  it("resumes the latest revision when an upload lookup finishes after the click", async () => {
+    const saved = draft();
+    saved.status = "upload_uncertain";
+    saved.submission = { uploadRequestId: "upload-one", audioId: "", assessmentRequestId: "", assessmentId: "",
+      requestFingerprint: "", frozenRequestBody: "", lastConfirmedPhase: "none" };
+    let resolveLookup: (value: { audio_id: string }) => void = () => undefined;
+    vi.spyOn(apiClient, "getUploadByRequest").mockImplementation(() => new Promise(resolve => { resolveLookup = resolve; }));
+    const bridge = fake([saved]);
+    vi.mocked(bridge.markSubmission).mockImplementation(async (_id, revision, status, submission) =>
+      ({ ...saved, revision: revision + 1, status: status as SavedDraft["status"], submission }));
+    show(bridge);
+    await screen.findByTestId("draft.entry");
+    await waitFor(() => expect(apiClient.getUploadByRequest).toHaveBeenCalledWith("upload-one", {
+      sha256: saved.take!.sha256, originalName: saved.take!.originalFilename,
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    await act(async () => resolveLookup({ audio_id: "aud_one" }));
+    await waitFor(() => expect(screen.getByTestId("active-revision")).toHaveTextContent("3"));
+    expect(bridge.markSubmission).toHaveBeenCalledWith(saved.draftId, 2, "uploaded", expect.objectContaining({ audioId: "aud_one" }));
   });
 
   it("waits for listing, resumes the verified file, and never sends it", async () => {

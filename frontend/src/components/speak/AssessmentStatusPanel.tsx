@@ -96,6 +96,7 @@ export const AssessmentStatusPanel = ({
           id="speak-label"
           type="text"
           value={labelValue}
+          maxLength={500}
           onChange={(event) => onLabelChange(event.currentTarget.value)}
           style={controlStyle}
           data-testid="speak.label"
@@ -107,6 +108,7 @@ export const AssessmentStatusPanel = ({
         <textarea
           id="speak-notes"
           value={notesValue}
+          maxLength={12000}
           onChange={(event) => onNotesChange(event.currentTarget.value)}
           style={{
             ...controlStyle,

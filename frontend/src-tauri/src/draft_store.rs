@@ -21,6 +21,10 @@ const MAX_TAKE: u64 = 100 * 1024 * 1024;
 const MAX_TOTAL: u64 = 250 * 1024 * 1024;
 const RESERVE: u64 = 512 * 1024 * 1024;
 const TTL: u64 = 7 * 24 * 60 * 60 * 1000;
+// Two 12,000-character fields plus the bounded label and setup can be encoded
+// with up to four UTF-8 bytes per character in the frozen JSON request.
+const MAX_FROZEN_REQUEST: usize = 160 * 1024;
+const MAX_MANIFEST: usize = 256 * 1024;
 const MAGIC: &[u8; 4] = b"VD01";
 const MANIFEST_MAGIC: &[u8; 4] = b"VM02";
 const KEY_SERVICE: &str = "com.vostavo.desktop.drafts.v1";
@@ -455,7 +459,7 @@ impl Submission {
         ]
         .iter()
         .any(|s| !text_ok(s, 128))
-            || !text_ok(&self.frozen_request_body, 16_384)
+            || !text_ok(&self.frozen_request_body, MAX_FROZEN_REQUEST)
             || !["none", "upload", "assessment", "completed", "failed", "cancelled"]
                 .contains(&self.last_confirmed_phase.as_str())
         {
@@ -841,7 +845,7 @@ impl DraftStore {
             .metadata()
             .map_err(|_| err("Could not read saved draft"))?
             .len()
-            > 64 * 1024
+            > MAX_MANIFEST as u64
         {
             return Err(err("Saved draft exceeds limit"));
         }
@@ -923,7 +927,7 @@ impl DraftStore {
         let final_path = self.manifest_path(&manifest.draft_id)?;
         regular_file(&final_path)?;
         let plain = serde_json::to_vec(manifest).map_err(|_| err("Could not encode draft"))?;
-        if plain.len().saturating_add(40) > 64 * 1024 {
+        if plain.len().saturating_add(40) > MAX_MANIFEST {
             return Err(err("Saved draft exceeds limit").into());
         }
         let temp = self.dir.join(format!("{}.tmp", new_id()?));
@@ -2331,19 +2335,16 @@ mod tests {
         );
     }
     #[test]
-    fn oversized_manifest_does_not_replace_readable_revision() {
+    fn escaped_setup_remains_readable_with_larger_manifest_capacity() {
         let root = TestRoot::new();
         let mut store = store(&root);
         let first = store.save_setup(setup("Alex"), None, None).unwrap();
         let mut changed = setup("Alex");
         changed.prompt_text = "\u{0001}".repeat(12_000);
-        assert!(store
-            .save_setup(changed, Some(first.draft_id.clone()), Some(first.revision))
-            .unwrap_err()
-            .contains("limit"));
+        let updated = store.save_setup(changed, Some(first.draft_id.clone()), Some(first.revision)).unwrap();
         let recovered = store.list().unwrap().remove(0);
-        assert_eq!(recovered.revision, first.revision);
-        assert_eq!(recovered.setup.prompt_text, first.setup.prompt_text);
+        assert_eq!(recovered.revision, updated.revision);
+        assert_eq!(recovered.setup.prompt_text, "\u{0001}".repeat(12_000));
     }
     #[test]
     fn legacy_retry_import_preserves_original_expiry_and_rejects_duplicate_or_expired() {
@@ -2913,6 +2914,39 @@ mod tests {
         let mut restarted = store(&root);
         assert_eq!(restarted.list().unwrap()[0].submission.as_ref().unwrap().assessment_request_id, "assessment-two");
         assert_eq!(restarted.list().unwrap()[0].revision, retry.revision);
+    }
+    #[test]
+    fn maximal_prompt_and_notes_fit_in_a_persistent_receipt() {
+        let root = TestRoot::new();
+        let mut first = store(&root);
+        let mut context = setup("Alex");
+        context.prompt_text = "p".repeat(12_000);
+        let draft = first.save_setup(context, None, None).unwrap();
+        let bytes = b"saved take";
+        let transfer = first.begin_take(draft.draft_id.clone(), draft.revision, take(bytes)).unwrap();
+        first.write_take_chunk(&transfer, bytes.to_vec()).unwrap();
+        let ready = first.finish_take(&transfer).unwrap();
+        let upload = first.mark_submission(&ready.draft_id, ready.revision, "upload_uncertain".into(), Submission {
+            upload_request_id: "upload-large".into(), audio_id: "".into(), assessment_request_id: "".into(),
+            assessment_id: "".into(), request_fingerprint: "".into(), frozen_request_body: "".into(),
+            last_confirmed_phase: "none".into(),
+        }).unwrap();
+        let mut receipt = upload.submission.unwrap();
+        receipt.audio_id = "aud_large".into();
+        receipt.last_confirmed_phase = "upload".into();
+        let uploaded = first.mark_submission(&ready.draft_id, upload.revision, "uploaded".into(), receipt.clone()).unwrap();
+        receipt.assessment_request_id = "assessment-large".into();
+        receipt.request_fingerprint = "a".repeat(64);
+        receipt.frozen_request_body = serde_json::json!({
+            "audio_id": "aud_large", "request_id": "assessment-large", "sharing_fingerprint": "a".repeat(64),
+            "prompt_text": "p".repeat(12_000), "notes": "😀".repeat(12_000), "label": "L".repeat(500),
+        }).to_string();
+        assert!(receipt.frozen_request_body.len() > 16_384);
+        let saved = first.mark_submission(&ready.draft_id, uploaded.revision, "assessment_uncertain".into(), receipt).unwrap();
+        drop(first);
+        let mut reopened = store(&root);
+        assert_eq!(reopened.list().unwrap()[0].revision, saved.revision);
+        assert!(reopened.list().unwrap()[0].submission.as_ref().unwrap().frozen_request_body.len() > 48_000);
     }
     #[cfg(target_os = "macos")]
     #[test]

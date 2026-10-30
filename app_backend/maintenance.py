@@ -166,6 +166,16 @@ def orphan_upload_candidates(runtime_config: BackendRuntimeConfig, *, now: datet
         if media.is_file():
             result.append(media)
         result.append(sidecar)
+        request_id = saved.get("request_id")
+        if isinstance(request_id, str) and re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", request_id):
+            from app_backend.jobs import _upload_request_index_file
+            index = _upload_request_index_file(root, request_id)
+            if index.is_file() and not index.is_symlink():
+                try:
+                    if json.loads(index.read_text(encoding="utf-8")).get("audio_id") == audio_id:
+                        result.append(index)
+                except (OSError, ValueError, AttributeError):
+                    pass
     for media in root.glob("aud_*.*"):
         if media.suffix == ".json" or media.is_symlink() or not media.is_file() or not re.fullmatch(r"aud_[0-9a-f]{32}", media.stem):
             continue

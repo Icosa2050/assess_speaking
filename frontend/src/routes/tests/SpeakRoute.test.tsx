@@ -812,13 +812,14 @@ describe("Speak route", () => {
   });
 
   it("commits the upload and assessment receipts before their POSTs", async () => {
-    const adapter = draftAdapterFixture([savedDraftFixture()]);
+    const saved = savedDraftFixture();
+    const adapter = draftAdapterFixture([saved]);
     mockedUploadAudio.mockImplementation(async () => {
-      expect(adapter.markSubmission).toHaveBeenCalledWith(expect.anything(), "upload_uncertain", expect.objectContaining({ uploadRequestId: expect.any(String) }));
+      expect(adapter.markSubmission).toHaveBeenCalledWith(expect.objectContaining({ draftId: saved.draftId }), "upload_uncertain", expect.objectContaining({ uploadRequestId: expect.any(String) }));
       return { audio_id: "audio-1", stored_path: "/tmp/audio-1.wav", sha1: "sha1", original_name: "saved.wav" };
     });
     mockedCreateAssessment.mockImplementation(async () => {
-      expect(adapter.markSubmission).toHaveBeenCalledWith(expect.anything(), "assessment_uncertain", expect.objectContaining({ assessmentRequestId: expect.any(String) }));
+      expect(adapter.markSubmission).toHaveBeenCalledWith(expect.objectContaining({ draftId: saved.draftId }), "assessment_uncertain", expect.objectContaining({ assessmentRequestId: expect.any(String) }));
       return { assessment_id: "asmt-1", status: "queued" };
     });
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
@@ -839,6 +840,92 @@ describe("Speak route", () => {
     await waitFor(() => expect(adapter.markSubmission).toHaveBeenCalledOnce());
     expect(mockedUploadAudio).not.toHaveBeenCalled();
     expect(mockedCreateAssessment).not.toHaveBeenCalled();
+  });
+
+  it("never posts when a receipt write resolves without a saved draft", async () => {
+    const adapter = draftAdapterFixture([savedDraftFixture()]);
+    adapter.markSubmission.mockResolvedValueOnce(null as unknown as Awaited<ReturnType<typeof adapter.markSubmission>>);
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(adapter.markSubmission).toHaveBeenCalledOnce());
+    expect(mockedUploadAudio).not.toHaveBeenCalled();
+    expect(mockedCreateAssessment).not.toHaveBeenCalled();
+  });
+
+  it("never submits an assessment when its receipt write fails", async () => {
+    const adapter = draftAdapterFixture([savedDraftFixture()]);
+    adapter.markSubmission.mockImplementation(async (draft, status, submission) => {
+      if (status === "assessment_uncertain") throw new Error("disk unavailable");
+      return { ...draft, status, submission, revision: draft.revision + 1 };
+    });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(adapter.markSubmission).toHaveBeenCalledWith(expect.anything(), "assessment_uncertain", expect.anything()));
+    expect(mockedUploadAudio).toHaveBeenCalledOnce();
+    expect(mockedCreateAssessment).not.toHaveBeenCalled();
+  });
+
+  it("does not write a receipt or POST after the submitting draft is left mid-upload check", async () => {
+    const saved = savedDraftFixture();
+    const adapter = draftAdapterFixture([saved]);
+    let releaseLimits: (value: { max_bytes: number; available_bytes: number }) => void = () => undefined;
+    vi.mocked(apiClient.getUploadLimits).mockImplementation(() => new Promise(resolve => { releaseLimits = resolve; }));
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(apiClient.getUploadLimits).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("link", { name: "Practice" }));
+    fireEvent.click(await screen.findByTestId("home.start_new"));
+    await act(async () => releaseLimits({ max_bytes: 104857600, available_bytes: 104857600 }));
+    expect(adapter.markSubmission).not.toHaveBeenCalled();
+    expect(mockedUploadAudio).not.toHaveBeenCalled();
+    expect(mockedCreateAssessment).not.toHaveBeenCalled();
+  });
+
+  it("leaves saving state after a pre-submit save error and succeeds on explicit retry", async () => {
+    const adapter = draftAdapterFixture();
+    adapter.saveTake.mockRejectedValueOnce(new Error("disk unavailable"));
+    vi.stubGlobal("OfflineAudioContext", class { decodeAudioData = async () => ({ duration: 40 }); });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(adapter.saveTake).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    expect(mockedUploadAudio).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledOnce());
+    expect(adapter.saveTake).toHaveBeenCalledTimes(2);
+  });
+
+  it("replays frozen label, notes, model and retry origin with the same ID after restart", async () => {
+    const saved = savedDraftFixture();
+    saved.status = "assessment_uncertain";
+    saved.submission = { uploadRequestId: "upload-one", audioId: "audio-1", assessmentRequestId: "assessment-one",
+      assessmentId: "", requestFingerprint: "a".repeat(64), lastConfirmedPhase: "upload",
+      frozenRequestBody: JSON.stringify({ request_id: "assessment-one", sharing_fingerprint: "a".repeat(64),
+        audio_id: "audio-1", whisper: "small", provider: "ollama_local", llm_model: "old-model",
+        expected_language: "en", feedback_language: "de", speaker_id: "bern", task_family: "opinion_monologue",
+        theme: "The pros and cons of working from home", target_duration_sec: 120,
+        prompt_id: "work-home-b2", prompt_text: "Give your opinion on working from home.",
+        retry_of_session_id: "", resume_assessment_id: "asmt-failed", label: "Original label", notes: "Original notes" }),
+    };
+    const adapter = draftAdapterFixture([saved]);
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledOnce());
+    expect(mockedCreateAssessment.mock.calls[0][0]).toEqual(expect.objectContaining({ request_id: "assessment-one",
+      resume_assessment_id: "asmt-failed", label: "Original label", notes: "Original notes", llm_model: "old-model", feedback_language: "de" }));
+    expect(mockedUploadAudio).not.toHaveBeenCalled();
   });
 
   it("explains a stall and retries only after cancellation with retained audio", async () => {

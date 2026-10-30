@@ -12,6 +12,7 @@ import { Field } from "@/components/ui/Field";
 import { apiClient, ApiClientError } from "@/lib/api/client";
 import type { DraftSubmission } from "@/lib/runtime/desktopBridge";
 import type {
+  AssessmentCreateRequest,
   AssessmentStatusResponse,
   RuntimeResponse,
   RuntimeSettingsConnection,
@@ -630,6 +631,16 @@ export const SpeakRoute = () => {
     let uploadAttempted = false;
     let assessmentRequestAttempted = false;
     let receipt = activeMatches ? draftRecovery.active?.submission ?? null : null;
+    let receiptDraft = activeMatches ? draftRecovery.active : null;
+    const commitReceipt = async (status: NonNullable<typeof receiptDraft>["status"], next: DraftSubmission) => {
+      if (!draftRecovery.supported) return;
+      if (!receiptDraft || !sameDraftAttempt(receiptDraft, draft)) throw new Error("The submitting draft changed; resume it before retrying.");
+      const saved = await draftRecovery.markSubmission(receiptDraft, status, next);
+      if (saved.draftId !== receiptDraft.draftId || !sameDraftAttempt(saved, draft)) {
+        throw new Error("The submitting draft changed; resume it before retrying.");
+      }
+      receiptDraft = saved;
+    };
     const priorTerminalJob = recording.job.assessmentId && (recording.job.status === "failed" || recording.job.status === "cancelled")
       ? recording.job : null;
     try {
@@ -654,16 +665,23 @@ export const SpeakRoute = () => {
           if (!duration) throw new Error("Could not decode duration");
           const saved = await draftRecovery.saveTake(draft, attachedFile, duration, inputMode === "upload" ? "upload" : "record", setLocalSaveProgress);
           receipt = saved.submission;
+          receiptDraft = saved;
           setLocalSaveState("saved");
+        } catch (saveError) {
+          setLocalSaveState("failed");
+          throw saveError;
         } finally { saveInFlight.current = false; }
       }
       if (receipt?.assessmentRequestId) {
         try {
-          const found = await apiClient.getAssessmentByRequest(receipt.assessmentRequestId);
+          const found = await apiClient.getAssessmentByRequest(receipt.assessmentRequestId, {
+            audioId: receipt.audioId, speakerId: receiptDraft?.setup.speakerId || draft.speakerId,
+            sharingFingerprint: receipt.requestFingerprint,
+          });
           if (resumeAssessmentId && ["failed", "cancelled"].includes(found.status)) {
             receipt = { ...receipt, assessmentId: found.assessment_id,
               lastConfirmedPhase: found.status === "failed" ? "failed" : "cancelled" };
-            await draftRecovery.markSubmission("assessing", receipt);
+            await commitReceipt("assessing", receipt);
           } else {
             setRecordingAssessing({ assessmentId: found.assessment_id, status: found.status, phase: found.status,
               progress: ["completed", "failed", "cancelled"].includes(found.status) ? 1 : 0, error: "", reportPath: "" });
@@ -680,9 +698,12 @@ export const SpeakRoute = () => {
         if (receipt?.audioId) savedUpload.current = { file: attachedFile, audioId: receipt.audioId };
         else if (receipt?.uploadRequestId) {
           try {
-            const found = await apiClient.getUploadByRequest(receipt.uploadRequestId);
+            if (!receiptDraft?.take) throw new Error("The saved take is unavailable for upload reconciliation.");
+            const found = await apiClient.getUploadByRequest(receipt.uploadRequestId, {
+              sha256: receiptDraft.take.sha256, originalName: receiptDraft.take.originalFilename,
+            });
             receipt = { ...receipt, audioId: found.audio_id, lastConfirmedPhase: "upload" };
-            await draftRecovery.markSubmission("uploaded", receipt);
+            await commitReceipt("uploaded", receipt);
             savedUpload.current = { file: attachedFile, audioId: found.audio_id };
           } catch (error) { if (!isAbsentRequest(error)) throw error; }
         }
@@ -703,7 +724,7 @@ export const SpeakRoute = () => {
         }
         if (draftRecovery.supported) {
           receipt ??= emptyReceipt(uploadIdentity.current.requestId);
-          await draftRecovery.markSubmission("upload_uncertain", receipt);
+          await commitReceipt("upload_uncertain", receipt);
         }
         uploadAttempted = true;
         const upload = await apiClient.uploadAudio(attachedFile, { signal: controller.signal,
@@ -712,7 +733,7 @@ export const SpeakRoute = () => {
         savedUpload.current = { file: attachedFile, audioId: upload.audio_id };
         if (draftRecovery.supported && receipt) {
           receipt = { ...receipt, audioId: upload.audio_id, lastConfirmedPhase: "upload" };
-          await draftRecovery.markSubmission("uploaded", receipt);
+          await commitReceipt("uploaded", receipt);
         }
         uploadAttempted = false;
         setUploadUnconfirmed(false);
@@ -726,10 +747,11 @@ export const SpeakRoute = () => {
       const openrouterAppTitle = String(
         activeRuntimeConnection?.openrouter_app_title || "",
       ).trim();
+      const retryAssessmentId = resumeAssessmentId || (recording.job.assessmentId && ["failed", "cancelled"].includes(recording.job.status) ? recording.job.assessmentId : "") ||
+        (["failed", "cancelled"].includes(receipt?.lastConfirmedPhase || "") ? receipt?.assessmentId : "");
       const request = {
         sharing_fingerprint: sharingQuery.data.fingerprint,
-        ...((resumeAssessmentId || (recording.job.assessmentId && ["failed", "cancelled"].includes(recording.job.status) ? recording.job.assessmentId : ""))
-          ? { resume_assessment_id: resumeAssessmentId || recording.job.assessmentId } : {}),
+        ...(retryAssessmentId ? { resume_assessment_id: retryAssessmentId } : {}),
         audio_id: savedUpload.current.audioId,
         whisper: effectiveWhisperModel,
         provider: runtime?.provider || "",
@@ -754,31 +776,42 @@ export const SpeakRoute = () => {
             }
           : {}),
       };
-      const safeRequest = safeSubmissionBody(request);
-      const signature = JSON.stringify(safeRequest);
       const terminalRetry = receipt?.lastConfirmedPhase === "failed" || receipt?.lastConfirmedPhase === "cancelled";
-      if (receipt?.assessmentRequestId && !terminalRetry) {
-        if (receipt.frozenRequestBody !== JSON.stringify({ ...safeRequest, request_id: receipt.assessmentRequestId })) {
+      const replayingFrozen = Boolean(receipt?.assessmentRequestId && !terminalRetry);
+      let bodyFields: Record<string, unknown> = request;
+      if (replayingFrozen && receipt) {
+        const frozen = JSON.parse(receipt.frozenRequestBody) as Record<string, unknown>;
+        if (frozen.sharing_fingerprint !== sharingQuery.data.fingerprint || frozen.audio_id !== savedUpload.current.audioId ||
+            frozen.request_id !== receipt.assessmentRequestId) {
           throw new Error(translate("sharing.changed"));
         }
+        const runtimeFields = Object.fromEntries(Object.entries(request).filter(([key]) =>
+          ["llm_base_url", "llm_api_key", "openrouter_http_referer", "openrouter_app_title"].includes(key)));
+        bodyFields = { ...frozen, ...runtimeFields };
+      }
+      const safeRequest = safeSubmissionBody(bodyFields);
+      const { request_id: _frozenRequestId, ...safeWithoutId } = safeRequest;
+      const signature = JSON.stringify(safeWithoutId);
+      if (replayingFrozen && receipt) {
         submission.current = { signature, requestId: receipt.assessmentRequestId };
       } else if (submission.current?.signature !== signature || terminalRetry) {
         submission.current = { signature, requestId: crypto.randomUUID() };
       }
-      const body = { ...request, request_id: submission.current.requestId };
+      const body = { ...bodyFields, request_id: submission.current.requestId } as unknown as AssessmentCreateRequest;
       if (draftRecovery.supported && receipt) {
         receipt = { ...receipt, assessmentRequestId: submission.current.requestId,
           assessmentId: terminalRetry ? "" : receipt.assessmentId,
           requestFingerprint: sharingQuery.data.fingerprint,
-          frozenRequestBody: JSON.stringify({ ...safeRequest, request_id: submission.current.requestId }),
+          frozenRequestBody: replayingFrozen ? receipt.frozenRequestBody
+            : JSON.stringify({ ...safeRequest, request_id: submission.current.requestId }),
           lastConfirmedPhase: terminalRetry ? "upload" : receipt.lastConfirmedPhase };
-        await draftRecovery.markSubmission("assessment_uncertain", receipt);
+        await commitReceipt("assessment_uncertain", receipt);
       }
       assessmentRequestAttempted = true;
       const created = await apiClient.createAssessment(body);
       if (draftRecovery.supported && receipt) {
         receipt = { ...receipt, assessmentId: created.assessment_id, lastConfirmedPhase: "assessment" };
-        await draftRecovery.markSubmission("assessing", receipt);
+        await commitReceipt("assessing", receipt);
       }
       setRecordingAssessing({
         assessmentId: created.assessment_id,

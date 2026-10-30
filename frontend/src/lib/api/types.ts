@@ -222,6 +222,10 @@ export interface UploadResponse {
   original_name: string;
 }
 
+export interface UploadRequestLookupResponse {
+  audio_id: string;
+}
+
 export interface AssessmentRequestLookupResponse {
   assessment_id: string;
   status: JobStatus;
