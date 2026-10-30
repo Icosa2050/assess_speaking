@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -165,7 +165,10 @@ export const SetupRoute = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { hash } = location;
-  const returningToSpeak = (location.state as { returnTo?: string } | null)?.returnTo === "/speak";
+  const navigation = location.state as { returnTo?: string; connectionId?: string; settingsFrom?: string; from?: string } | null;
+  const returningToSpeak = navigation?.returnTo === "/speak";
+  const returningToSettings = navigation?.returnTo === "/settings";
+  const requestedConnectionId = returningToSettings ? navigation?.connectionId || "__new__" : null;
   useEffect(() => {
     if (hash === "#runtime-setup-microphone" || hash === "#runtime-setup-cloud") {
       document.getElementById(hash.slice(1))?.scrollIntoView?.({ block: "start" });
@@ -192,6 +195,7 @@ export const SetupRoute = () => {
   const [isBusy, setIsBusy] = useState(false);
   const [cloudOptionsOpen, setCloudOptionsOpen] = useState(hash === "#runtime-setup-cloud");
   const [cloudPanelOpened, setCloudPanelOpened] = useState(hash === "#runtime-setup-cloud");
+  const focusedNavigationKey = useRef<string | null>(null);
 
   const runtimeQuery = useQuery({
     queryKey: queryKeys.runtime,
@@ -243,6 +247,21 @@ export const SetupRoute = () => {
       null
     );
   }, [runtimeSettings]);
+  const editingConnection = requestedConnectionId && requestedConnectionId !== "__new__"
+    ? runtimeSettings?.connections.find((connection) => connection.connection_id === requestedConnectionId) ?? null
+    : requestedConnectionId === "__new__" ? null : activeConnection;
+  const missingRequestedConnection = Boolean(requestedConnectionId && requestedConnectionId !== "__new__" && runtimeSettings && !editingConnection);
+  useEffect(() => {
+    if (returningToSettings && runtimeSettings && !missingRequestedConnection && focusedNavigationKey.current !== location.key) {
+      focusedNavigationKey.current = location.key;
+      const heading = document.getElementById("runtime-setup-connection-heading");
+      heading?.focus();
+      heading?.scrollIntoView?.({ block: "start" });
+    }
+  }, [returningToSettings, runtimeSettings, missingRequestedConnection, location.key]);
+  const returnToSettings = (focusConnectionId?: string) => navigate("/settings", {
+    state: { from: navigation?.settingsFrom, focusConnectionId, fromSetup: true },
+  });
 
   const recommendedWhisperModel = recommendWhisperModel(draft.learningLanguage, draft.cefrLevel);
   const recommendedModelText = translate("runtime_setup.suggested_defaults", {
@@ -281,16 +300,16 @@ export const SetupRoute = () => {
   const setupCanContinue = canEnterSpeak(requiredRows);
   const returnCheck = requiredRows.find((row) => row.key !== "microphone" && isBlockingSetupReadinessRow(row) && !canContinueWithCheck(row.status));
 
-  const initialDraft = buildDraftFromConnection(activeConnection, translate);
+  const initialDraft = buildDraftFromConnection(editingConnection, translate);
   const formResetToken = JSON.stringify({
-    connectionId: activeConnection?.connection_id || "",
-    label: activeConnection?.label || "",
-    model: activeConnection?.model || "",
-    baseUrl: activeConnection?.base_url || "",
-    secretState: activeConnection?.secret_state || "absent",
-    lastTestedAt: activeConnection?.last_tested_at || "",
+    connectionId: editingConnection?.connection_id || requestedConnectionId || "",
+    label: editingConnection?.label || "",
+    model: editingConnection?.model || "",
+    baseUrl: editingConnection?.base_url || "",
+    secretState: editingConnection?.secret_state || "absent",
+    lastTestedAt: editingConnection?.last_tested_at || "",
   });
-  const initialSecretState = (activeConnection?.secret_state || "absent") as ConnectionSecretState;
+  const initialSecretState = (editingConnection?.secret_state || "absent") as ConnectionSecretState;
 
   const handleInvalidateRuntime = async () => {
     await Promise.all([
@@ -449,6 +468,7 @@ export const SetupRoute = () => {
       const saved = response.connections.find(c => c.connection_id === response.active_connection_id);
       setFormStatusMessage(translate(saved?.provider_metadata.persistent === false ? "runtime_setup.save_success_session_only" : "runtime_setup.save_success"));
       await handleInvalidateRuntime();
+      if (returningToSettings) returnToSettings(connection.connection_id || response.active_connection_id);
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
       setFormStatus("save-failed");
@@ -592,20 +612,24 @@ export const SetupRoute = () => {
       </section>}
 
       <div id="runtime-setup-connection">
+        {returningToSettings ? <h2 id="runtime-setup-connection-heading" tabIndex={-1}>{translate("settings.setup_provider")}</h2> : null}
+        {missingRequestedConnection ? <p role="alert">{translate("settings.connection_missing")}</p> : null}
+        {returningToSettings && runtimeSettingsQuery.isError ? <p role="alert">{translate("settings.load_failed")}</p> : null}
         {formStatus === "test-failed" ? (
           <StatusBanner title={translate("first_run.connection_retry_title")} tone="warning">
             {translate("first_run.connection_retry_body")}
           </StatusBanner>
         ) : null}
-        <RuntimeConnectionForm
-          onAccountConnected={(_id, notice) => { if (notice) setFormStatusMessage(notice); }}
+        {(!returningToSettings || (runtimeSettings && !missingRequestedConnection)) ? <RuntimeConnectionForm
+          onAccountConnected={(id, notice) => { if (notice) setFormStatusMessage(notice); if (id) void runtimeSettingsQuery.refetch(); }}
           detectedModelMessage={detectedModelMessage}
           detectedModels={detectedModels}
           initialDraft={initialDraft}
           initialSecretState={initialSecretState}
           isBusy={isBusy}
           locale={locale}
-          onBack={() => navigate("/")}
+          backLabel={returningToSettings ? translate("settings.cancel") : undefined}
+          onBack={() => returningToSettings ? returnToSettings(editingConnection?.connection_id) : navigate("/")}
           onDetectLocalModels={(connection) => {
             void handleDetectLocalModels(connection);
           }}
@@ -619,8 +643,9 @@ export const SetupRoute = () => {
           resetToken={formResetToken}
           status={formStatus}
           statusMessage={formStatusMessage}
-          variant="runtime-setup"
-        />
+          variant={returningToSettings ? "settings" : "runtime-setup"}
+        /> : null}
+        {returningToSettings && (missingRequestedConnection || runtimeSettingsQuery.isError) ? <Button onClick={() => returnToSettings()}>{translate("settings.cancel")}</Button> : null}
       </div>
 
       <details style={cardStyle}>

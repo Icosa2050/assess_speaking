@@ -8,7 +8,7 @@ test("real backend persists cloud settings and a usable PKCE account after reloa
     if(["127.0.0.1","localhost"].includes(url.hostname))return route.fallback();
     return route.abort("blockedbyclient");
   });
-  await page.goto("/settings");
+  await page.goto("/runtime-setup#runtime-setup-cloud");
   const panel=page.getByRole("region",{name:"Cloud services"});
   await panel.getByLabel("Monthly OpenRouter app budget (USD)").fill("7");
   await panel.getByRole("button",{name:"Save cloud settings",exact:true}).click();

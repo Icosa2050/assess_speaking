@@ -89,6 +89,7 @@ export const SEMANTIC_IDS = {
     clearSavedKeyUndo: "settings.clear_saved_key_undo",
     testConnection: "settings.test_connection",
     save: "settings.save",
+    savePreferences: "settings.save_preferences",
     supportCleanupPreview: "settings.support_cleanup_preview",
     supportCleanupRun: "settings.support_cleanup_run",
     supportCleanupRunConfirm: "settings.support_cleanup_run_confirm",

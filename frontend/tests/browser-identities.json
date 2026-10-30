@@ -376,6 +376,21 @@
       "e2e/runtimeSetupRecovery.spec.ts",
       "",
       "LM Studio failure keeps the form editable and a corrected retry succeeds"
+    ],
+    [
+      "e2e/cloudConnections.spec.ts",
+      "",
+      "Settings selects the active saved connection"
+    ],
+    [
+      "e2e/cloudConnections.spec.ts",
+      "",
+      "Edit returns from Settings through Setup on save and cancel"
+    ],
+    [
+      "e2e/cloudConnections.spec.ts",
+      "",
+      "first run still creates a provider in Setup"
     ]
   ],
   "journeys": [

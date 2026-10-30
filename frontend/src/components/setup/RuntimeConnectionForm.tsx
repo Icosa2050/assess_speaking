@@ -163,6 +163,7 @@ type RuntimeConnectionFormProps = {
   isBusy?: boolean;
   locale: UiLocale;
   onBack?: () => void;
+  backLabel?: string;
   onAccountConnected?: (id: string, notice?: string) => void;
   onDetectLocalModels?: (draft: RuntimeConnectionDraft) => void;
   onProviderChange?: (providerChoice: string) => void;
@@ -182,6 +183,7 @@ export const RuntimeConnectionForm = ({
   isBusy = false,
   locale,
   onBack,
+  backLabel,
   onAccountConnected,
   onDetectLocalModels,
   onProviderChange,
@@ -714,7 +716,7 @@ export const RuntimeConnectionForm = ({
               style={actionButtonStyle}
               {...semanticAttributes(SEMANTIC_IDS.runtimeSetup.backHome)}
             >
-              {translate("runtime_setup.back_home")}
+              {backLabel ?? translate("runtime_setup.back_home")}
             </button>
           ) : null}
         </div>

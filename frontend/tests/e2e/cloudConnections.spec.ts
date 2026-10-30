@@ -38,6 +38,7 @@ for (const locale of ["en", "it"]) {
     });
     await page.goto("/settings");
     await expect(page.getByTestId("settings.ui_locale")).toHaveValue(locale);
+    await page.getByTestId("settings.open_setup").click();
     await page.getByTestId("runtime_connection.provider").selectOption("chatgpt");
     await page.getByRole("button", {name: locale === "en" ? "Continue with ChatGPT" : "Continua con ChatGPT",exact:true}).click();
     await expect(page.getByRole("link", {name: locale === "en" ? "Continue in your browser" : "Continua nel browser"})).toHaveAttribute("href", /auth.openai.com/);
@@ -58,6 +59,7 @@ for (const locale of ["en", "it"]) {
 test("xAI uses API keys at its fixed endpoint; switching providers clears an entered key", async ({page}) => {
   await page.route("**/v1/runtime/settings", r => r.fulfill({json:{ui_locale:"en",whisper_model:"tiny",connections:[],active_connection_id:""}}));
   await page.goto("/settings");
+  await page.getByTestId("settings.open_setup").click();
   const select = page.getByTestId("runtime_connection.provider");
   await select.selectOption("openrouter");
   await page.getByTestId("runtime_connection.api_key").fill("do-not-share-across-providers");
@@ -83,6 +85,7 @@ for (const locale of ["en", "it"]) {
       }
     });
     await page.goto("/settings");
+    await page.getByTestId("settings.open_setup").click();
     const select = page.getByTestId("runtime_connection.provider");
     await select.selectOption("openrouter");
     await page.getByTestId("runtime_connection.api_key").fill("unrelated-key");
@@ -137,8 +140,7 @@ for (const locale of ["en", "it"] as const) {
       if(request.method()==="PUT") {settings=request.postDataJSON();saved++;}
       return r.fulfill({json:{settings,spending:{spent_usd:spent,reserved_usd:reserved,unresolved_requests:reserved?["reservation-fixture"]:[]}}});
     });
-    await page.goto("/settings");
-    await expect(page.getByTestId("settings.ui_locale")).toHaveValue(locale);
+    await page.goto("/runtime-setup#runtime-setup-cloud");
     const panel=page.getByRole("region",{name:locale==="en"?"Cloud services":"Servizi cloud",exact:true});
     await panel.getByRole("combobox",{name:locale==="en"?"Transcription":"Trascrizione",exact:true}).selectOption("groq");
     await panel.getByRole("combobox",{name:locale==="en"?"Groq account":"Account Groq",exact:true}).selectOption("groq");
@@ -159,3 +161,77 @@ for (const locale of ["en", "it"] as const) {
     await expect(panel.getByRole("status").filter({ hasText: locale==="en"?"Choose an OpenRouter model":"scegli un modello OpenRouter" })).toContainText(locale==="en"?"Choose an OpenRouter model":"scegli un modello OpenRouter");
   });
 }
+
+const savedConnection = (id: string, label: string, isDefault: boolean) => ({
+  connection_id: id, provider_key: "ollama", provider_choice: "ollama_local", provider_label: "Ollama local",
+  label, model: "fixture-model", base_url: "http://localhost:11434", is_default: isDefault,
+  is_local: true, requires_api_key: false, has_api_key: false, secret_state: "absent",
+  last_test_status: "passed", last_tested_at: "2026-10-30", openrouter_http_referer: "",
+  openrouter_app_title: "", provider_metadata: {},
+});
+
+test("Settings selects the active saved connection", async ({page}) => {
+  let active = "bravo";
+  let selected = "";
+  const settings = () => ({ui_locale: "en", whisper_model: "tiny", active_connection_id: active,
+    connections: [savedConnection("alpha", "Alpha", active === "alpha"), savedConnection("bravo", "Bravo", active === "bravo")]});
+  await page.route("**/v1/runtime/settings", r => r.fulfill({json: settings()}));
+  await page.route("**/v1/runtime/settings/connections/alpha/default", async r => {
+    selected = "alpha"; active = "alpha"; await r.fulfill({json: settings()});
+  });
+  await page.goto("/settings");
+  await page.getByTestId("settings.connection_id").selectOption("alpha");
+  await page.getByTestId("settings.connection_row_set_default").click();
+  await expect.poll(() => selected).toBe("alpha");
+  await expect(page.getByTestId("settings.default_connection_indicator")).toContainText("default");
+  await expect(page.getByTestId("settings.connection_id")).toHaveValue("alpha");
+  await expect(page.getByTestId("runtime_connection.provider")).toHaveCount(0);
+});
+
+test("Edit returns from Settings through Setup on save and cancel", async ({page}) => {
+  let model = "fixture-model";
+  let saves = 0;
+  const settings = () => ({ui_locale: "en", whisper_model: "tiny", active_connection_id: "alpha",
+    connections: [{...savedConnection("alpha", "Alpha", true), model}]});
+  await page.route("**/v1/runtime/settings", async r => {
+    if (r.request().method() === "PUT") {
+      expect(r.request().postDataJSON().connection).toMatchObject({connection_id: "alpha", model: "edited-model"});
+      model = "edited-model"; saves++;
+    }
+    await r.fulfill({json: settings()});
+  });
+  await page.goto("/settings");
+  await page.getByTestId("settings.connection_row_edit").click();
+  await expect(page.getByTestId("runtime_connection.model")).toHaveValue("fixture-model");
+  await expect(page.getByRole("heading", {name: "Set up a provider"})).toBeFocused();
+  await page.getByTestId("runtime_setup.back_home").click();
+  await expect(page).toHaveURL(/\/settings$/);
+  expect(saves).toBe(0);
+  await page.getByTestId("settings.connection_row_edit").click();
+  await page.getByTestId("runtime_connection.model").fill("edited-model");
+  await page.getByTestId("runtime_connection.save_connection").click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(page.getByRole("heading", {name: "Saved connections"})).toBeFocused();
+  await expect.poll(() => saves).toBe(1);
+  await expect(page.getByTestId("settings.connection_row")).toContainText("edited-model");
+});
+
+test("first run still creates a provider in Setup", async ({page}) => {
+  let saved = false;
+  const settings = () => ({ui_locale: "en", whisper_model: "tiny", active_connection_id: saved ? "first" : "",
+    connections: saved ? [savedConnection("first", "First provider", true)] : []});
+  await page.route("**/v1/runtime/settings", async r => {
+    if (r.request().method() === "PUT") {
+      expect(r.request().postDataJSON().connection).toMatchObject({provider_choice: "ollama_local"});
+      saved = true;
+    }
+    await r.fulfill({json: settings()});
+  });
+  await page.goto("/runtime-setup");
+  await expect(page.getByTestId("runtime_connection.provider")).toHaveValue("ollama_local");
+  await page.getByTestId("runtime_connection.connection_label").fill("First provider");
+  await page.getByTestId("runtime_connection.model").fill("fixture-model");
+  await page.getByTestId("runtime_connection.save_connection").click();
+  await expect.poll(() => saved).toBe(true);
+  await expect(page).toHaveURL(/\/runtime-setup$/);
+});
