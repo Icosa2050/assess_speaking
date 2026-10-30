@@ -279,6 +279,16 @@ describe("desktop draft recovery gate", () => {
     await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("Alex|take.webm|/speak"));
   });
 
+  it("moves a take with failed media authentication to confirmed unreadable discard", async () => {
+    const bridge = fake();
+    vi.mocked(bridge.loadTakeChunk).mockRejectedValue(new Error("Saved draft failed authentication"));
+    show(bridge);
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    expect(await screen.findByTestId("draft.unreadable")).toBeVisible();
+    expect(screen.queryByTestId("draft.entry")).not.toBeInTheDocument();
+    expect(bridge.discard).not.toHaveBeenCalled();
+  });
+
   it("offers genuinely unreadable entries for confirmed discard", async () => {
     const bridge = fake([]);
     vi.mocked(bridge.list).mockResolvedValue({ drafts: [], unreadableIds: ["a".repeat(32)] });

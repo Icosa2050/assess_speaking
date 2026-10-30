@@ -34,7 +34,7 @@ const failure = (error: unknown): DraftStoreError => {
     : /three learner drafts|resolve unreadable drafts|draft storage limit|total encrypted/i.test(message) ? "limit"
     : /unsupported.*(mime|format)|invalid (saved )?take metadata/i.test(message) ? "format"
     : /revision|another window|already exists|changed or expired/i.test(message) ? "conflict"
-      : /damaged|unreadable|digest|saved take file/i.test(message) ? "unreadable" : "storage";
+      : /damaged|unreadable|digest|saved take file|failed authentication|integrity check|saved take is unavailable|file is unsafe|changed during verification|invalid chunk/i.test(message) ? "unreadable" : "storage";
   return new DraftStoreError(kind, message);
 };
 

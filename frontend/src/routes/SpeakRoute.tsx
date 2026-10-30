@@ -306,7 +306,9 @@ export const SpeakRoute = () => {
     try {
       if (draftRecovery.active?.take && activeMatches && localSaveState === "saved") {
         await draftRecovery.discardActive();
-        await draftRecovery.saveSetup(draft);
+        clearAttachment();
+        await draftRecovery.saveSetup(draft).catch(() => undefined);
+        return true;
       }
       clearAttachment();
       if (draftRecovery.active?.take && activeMatches && localSaveState !== "saved") {

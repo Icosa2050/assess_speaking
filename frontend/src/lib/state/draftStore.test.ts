@@ -194,6 +194,18 @@ describe("desktop draft adapter", () => {
     expect(fake.loadTakeChunk).not.toHaveBeenCalled();
   });
 
+  it.each([
+    "Saved draft failed authentication", "Saved take failed integrity check", "Saved take is unavailable",
+    "Draft file is unsafe", "Saved take changed during verification", "Saved take has an invalid chunk",
+  ])("classifies permanent media failure as unreadable: %s", async (message) => {
+    const fake = bridge();
+    const saved: SavedDraft = { ...base(), revision: 2, status: "take_ready",
+      take: { mediaId: MEDIA, originalFilename: "take.webm", mime: "audio/webm", size: 5,
+        sha256: "a".repeat(64), durationSec: 8, captureEndedAt: Date.now(), inputMethod: "record" } };
+    vi.mocked(fake.loadTakeChunk).mockRejectedValue(new Error(message));
+    await expect(createDraftStoreAdapter(fake).loadTake(saved)).rejects.toMatchObject({ kind: "unreadable" });
+  });
+
   it("reports a revision conflict without writing a take", async () => {
     const fake = bridge();
     vi.mocked(fake.beginTake).mockRejectedValue(new Error("Draft changed in another window"));

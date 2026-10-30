@@ -286,6 +286,23 @@ describe("Speak route", () => {
     expect(adapter.loadTake).toHaveBeenCalledTimes(2);
   });
 
+  it("clears a discarded take even if recreating its setup fails", async () => {
+    const saved = savedDraftFixture();
+    const adapter = draftAdapterFixture([saved]);
+    adapter.saveSetup.mockRejectedValue(new Error("Mac storage is unavailable"));
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.recording_status")).toHaveTextContent("Saved on this Mac"));
+    fireEvent.click(screen.getByTestId("speak.remove_recording"));
+    await waitFor(() => expect(adapter.discard).toHaveBeenCalledWith(saved.draftId));
+    await waitFor(() => expect(adapter.saveSetup).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByTestId("speak.download_recording")).not.toBeInTheDocument());
+    expect(screen.queryByTestId("speak.remove_recording")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Try saving this recording again" })).not.toBeInTheDocument();
+    expect(adapter.saveTake).not.toHaveBeenCalled();
+  });
+
   it("retries saving the same finalized recording after a transient failure", async () => {
     const adapter = draftAdapterFixture();
     adapter.saveTake.mockRejectedValueOnce(new Error("disk unavailable"));
