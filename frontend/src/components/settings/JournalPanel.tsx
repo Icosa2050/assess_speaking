@@ -91,10 +91,21 @@ export function JournalPanel({ locale }: { locale: UiLocale }) {
   useEffect(() => {
     const dialog = freshDialog.current;
     if (!dialog || !confirmFresh) return;
+    const updateViewportHeight = () => {
+      const height = Math.min(window.innerHeight, window.visualViewport?.height ?? window.innerHeight);
+      dialog.style.setProperty("--dialog-viewport-height", `${height}px`);
+    };
+    updateViewportHeight();
+    window.addEventListener("resize", updateViewportHeight);
+    window.visualViewport?.addEventListener("resize", updateViewportHeight);
     if (typeof dialog.showModal === "function") dialog.showModal();
     else dialog.setAttribute("open", "");
     document.getElementById("fresh-cancel")?.focus();
-    return () => { if (typeof dialog.close === "function" && dialog.open) dialog.close(); };
+    return () => {
+      window.removeEventListener("resize", updateViewportHeight);
+      window.visualViewport?.removeEventListener("resize", updateViewportHeight);
+      if (typeof dialog.close === "function" && dialog.open) dialog.close();
+    };
   }, [confirmFresh]);
   const cancelFresh = () => { setConfirmFresh(false); setFreshError(""); window.setTimeout(() => document.getElementById("journal-fresh")?.focus(), 0); };
   const pendingTransaction = !!status?.transaction && status.transaction.phase !== "recovery_error";
