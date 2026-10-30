@@ -11,10 +11,13 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   wav: "audio/wav", mp3: "audio/mpeg", webm: "audio/webm", ogg: "audio/ogg", opus: "audio/opus",
   m4a: "audio/mp4", mp4: "audio/mp4", aac: "audio/aac", flac: "audio/flac", aiff: "audio/aiff", aif: "audio/aiff",
 };
+const MIME_ALIASES: Record<string, string> = {
+  "audio/mp3": "audio/mpeg", "audio/wave": "audio/wav", "application/ogg": "audio/ogg", "video/webm": "audio/webm",
+};
 const safeTakeName = (name: string) => Boolean(name && name.length <= 256 && !/[\\/\\\\\x00-\x1f\x7f]/.test(name));
-const takeMime = (file: File): string => file.type || MIME_BY_EXTENSION[file.name.split(".").pop()?.toLowerCase() || ""] || "";
+const takeMime = (file: File): string => MIME_ALIASES[file.type] || file.type || MIME_BY_EXTENSION[file.name.split(".").pop()?.toLowerCase() || ""] || "";
 
-export type DraftStoreFailure = "unsupported" | "keychain" | "storage" | "conflict" | "unreadable" | "uncertain" | "limit" | "format";
+export type DraftStoreFailure = "unsupported" | "keychain" | "lost_key" | "storage" | "conflict" | "unreadable" | "uncertain" | "limit" | "format";
 
 export class DraftStoreError extends Error {
   constructor(readonly kind: DraftStoreFailure, message: string) {
@@ -26,9 +29,10 @@ const failure = (error: unknown): DraftStoreError => {
   if (error instanceof DraftStoreError) return error;
   const message = error instanceof Error ? error.message : String(error);
   const kind: DraftStoreFailure = /save may have changed/i.test(message) ? "uncertain"
+    : /saved take cannot be opened on this mac/i.test(message) ? "lost_key"
     : /keychain|key is unavailable|content key/i.test(message) ? "keychain"
     : /three learner drafts|resolve unreadable drafts|draft storage limit|total encrypted/i.test(message) ? "limit"
-    : /unsupported.*(mime|format)|invalid saved take metadata/i.test(message) ? "format"
+    : /unsupported.*(mime|format)|invalid (saved )?take metadata/i.test(message) ? "format"
     : /revision|another window|already exists|changed or expired/i.test(message) ? "conflict"
       : /damaged|unreadable|digest|saved take file/i.test(message) ? "unreadable" : "storage";
   return new DraftStoreError(kind, message);
@@ -89,11 +93,13 @@ export const createDraftStoreAdapter = (bridge: DesktopDraftStoreBridge | undefi
       if (!bridge) return unsupported();
       try { return await bridge.saveSetup(setup, previous?.draftId, previous?.revision); }
       catch (error) {
-        if (failure(error).kind === "uncertain" && previous) {
+        if (failure(error).kind === "uncertain") {
           try {
             await bridge.expire();
-            const current = (await bridge.list()).drafts.find(entry => entry.draftId === previous.draftId);
-            if (current && current.revision > previous.revision && current.setup.sessionId === setup.sessionId) return current;
+            const current = (await bridge.list()).drafts.find(entry => previous
+              ? entry.draftId === previous.draftId && entry.revision > previous.revision
+              : !entry.take && entry.status === "setup" && entry.speakerId === normalizedLearner(setup.speakerId));
+            if (current && sameDraftAttempt(current, setup)) return current;
           } catch { /* The state remains uncertain. */ }
         }
         throw failure(error);
@@ -107,7 +113,7 @@ export const createDraftStoreAdapter = (bridge: DesktopDraftStoreBridge | undefi
           try {
             await bridge.expire();
             const current = (await bridge.list()).drafts.find(entry => entry.draftId === previous.draftId);
-            if (current && current.revision > previous.revision && !current.take && current.setup.sessionId === setup.sessionId) return current;
+            if (current && current.revision > previous.revision && !current.take && sameDraftAttempt(current, setup)) return current;
           } catch { /* The state remains uncertain. */ }
         }
         throw failure(error);

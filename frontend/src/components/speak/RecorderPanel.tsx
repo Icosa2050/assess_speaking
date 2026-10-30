@@ -77,6 +77,7 @@ export const RecorderPanel = ({
   maxSeconds = MAX_RECORDING_SECONDS,
   allowUpload = true,
   onRecordingActiveChange,
+  onRecordingStarted,
   onMicrophoneStatusChange,
   microphoneSetupPassed = false,
   microphoneDeviceId = "",
@@ -105,6 +106,7 @@ export const RecorderPanel = ({
   maxSeconds?: number;
   allowUpload?: boolean;
   onRecordingActiveChange?: (active: boolean) => void;
+  onRecordingStarted?: () => void;
   downloadName?: string;
   inputMode: RecordingInputMethod;
   onFileSelected: (file: File | null, durationSec?: number) => void | Promise<void>;
@@ -426,6 +428,7 @@ export const RecorderPanel = ({
       recorder.onstop = () => { void finalizeRecording(recorder); };
 
       recorder.start(1_000);
+      onRecordingStarted?.();
       startedAtRef.current = Date.now();
       setRecorderPhase("recording");
       timerRef.current = window.setInterval(() => {

@@ -107,18 +107,21 @@ it("does not present a recorder error's partial chunks as a saved answer", async
 });
 
 it("shows a microphone error over a previously saved status", async () => {
+  const started = vi.fn();
   Object.defineProperty(navigator, "mediaDevices", { configurable: true,
     value: { getUserMedia: vi.fn().mockRejectedValue(new DOMException("denied", "NotAllowedError")) } });
   vi.stubGlobal("MediaRecorder", class { static isTypeSupported() { return true; } });
-  render(<RecorderPanel {...props} onFileSelected={vi.fn()} statusMessage="Saved on this Mac" preferStatusMessage />);
+  render(<RecorderPanel {...props} onFileSelected={vi.fn()} onRecordingStarted={started} statusMessage="Saved on this Mac" preferStatusMessage />);
   fireEvent.click(screen.getByTestId("speak.record_start"));
   await waitFor(() => expect(screen.getByTestId("speak.recording_status")).toHaveTextContent("speak.recording_permission_denied"));
   expect(screen.getByTestId("speak.recording_status")).not.toHaveTextContent("Saved on this Mac");
+  expect(started).not.toHaveBeenCalled();
 });
 
 it("does not claim clear input merely because a recording was saved", async () => {
   microphone();
   const status = vi.fn();
+  const started = vi.fn();
   let recorder!: FakeRecorder;
   class FakeRecorder {
     static isTypeSupported() { return true; }
@@ -130,9 +133,10 @@ it("does not claim clear input merely because a recording was saved", async () =
     stop() { this.state = "inactive"; this.onstop?.(); }
   }
   vi.stubGlobal("MediaRecorder", FakeRecorder);
-  render(<RecorderPanel {...props} onFileSelected={vi.fn()} onMicrophoneStatusChange={status} />);
+  render(<RecorderPanel {...props} onFileSelected={vi.fn()} onMicrophoneStatusChange={status} onRecordingStarted={started} />);
   fireEvent.click(screen.getByTestId("speak.record_start"));
   await screen.findByTestId("speak.record_stop");
+  expect(started).toHaveBeenCalledOnce();
   expect(status).not.toHaveBeenCalledWith("ready");
   fireEvent.click(screen.getByTestId("speak.record_stop"));
   expect(recorder.state).toBe("inactive");

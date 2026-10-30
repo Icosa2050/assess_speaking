@@ -79,6 +79,26 @@ describe("desktop draft adapter", () => {
     await expect(createDraftStoreAdapter(fake).saveTake(base(), file, 8, "record")).rejects.toMatchObject({ kind: "uncertain" });
   });
 
+  it("reconciles uncertain first setup and replacement only when the exact attempt published", async () => {
+    const fake = bridge();
+    const uncertain = new Error("Could not sync draft directory; save may have changed, refresh before retrying");
+    vi.mocked(fake.saveSetup).mockRejectedValue(uncertain);
+    const publishedSetup = base();
+    vi.mocked(fake.list).mockResolvedValue({ drafts: [publishedSetup], unreadableIds: [] });
+    expect(await createDraftStoreAdapter(fake).saveSetup(setup)).toEqual(publishedSetup);
+    expect(fake.expire).toHaveBeenCalledOnce();
+    const previous = { ...base(), revision: 2, status: "take_ready" as const,
+      take: { mediaId: MEDIA, originalFilename: "take.wav", mime: "audio/wav", size: 5,
+        sha256: "a".repeat(64), durationSec: 8, captureEndedAt: Date.now(), inputMethod: "upload" as const } };
+    const next = buildSessionDraft({ ...setup, sessionId: "next-attempt", promptText: "A new prompt" });
+    const published = { ...base(), setup: next, revision: 3 };
+    fake.replaceSetup = vi.fn().mockRejectedValue(uncertain);
+    vi.mocked(fake.list).mockResolvedValue({ drafts: [published], unreadableIds: [] });
+    expect(await createDraftStoreAdapter(fake).replaceSetup(next, previous)).toEqual(published);
+    vi.mocked(fake.list).mockResolvedValue({ drafts: [base()], unreadableIds: [] });
+    await expect(createDraftStoreAdapter(fake).replaceSetup(next, previous)).rejects.toMatchObject({ kind: "uncertain" });
+  });
+
   it("accepts backend audio formats and rejects formats the local store cannot represent", async () => {
     const fake = bridge();
     for (const file of [new File(["a"], "take.flac", { type: "audio/flac" }), new File(["a"], "take.m4a")]) {
@@ -93,6 +113,27 @@ describe("desktop draft adapter", () => {
     await expect(createDraftStoreAdapter(fake).saveTake(base(), new File(["a"], "take.xyz", { type: "audio/unknown" }), 8, "upload"))
       .rejects.toMatchObject({ kind: "format" });
     expect(fake.beginTake).toHaveBeenCalledTimes(2);
+  });
+
+  it("canonicalizes common picker MIME aliases before native storage", async () => {
+    const fake = bridge();
+    const cases = [
+      ["take.mp3", "audio/mp3", "audio/mpeg"], ["take.wav", "audio/wave", "audio/wav"],
+      ["take.ogg", "application/ogg", "audio/ogg"], ["take.webm", "video/webm", "audio/webm"],
+    ] as const;
+    for (const [name, reported, savedMime] of cases) {
+      const file = new File(["audio"], name, { type: reported });
+      const digest = createHash("sha256").update("audio").digest("hex");
+      vi.mocked(fake.writeTakeChunk).mockResolvedValue(file.size);
+      vi.mocked(fake.finishTake).mockResolvedValue({ ...base(), revision: 2, status: "take_ready",
+        take: { mediaId: MEDIA, originalFilename: name, mime: savedMime, size: file.size,
+          sha256: digest, durationSec: 8, captureEndedAt: Date.now(), inputMethod: "upload" } });
+      await createDraftStoreAdapter(fake).saveTake(base(), file, 8, "upload");
+    }
+    expect(vi.mocked(fake.beginTake).mock.calls.map(call => call[2].mime)).toEqual(cases.map(item => item[2]));
+    vi.mocked(fake.beginTake).mockRejectedValue(new Error("Invalid take metadata"));
+    await expect(createDraftStoreAdapter(fake).saveTake(base(), new File(["a"], "take.mp3", { type: "audio/mp3" }), 8, "upload"))
+      .rejects.toMatchObject({ kind: "format" });
   });
 
   it("classifies draft caps and refuses malformed take metadata before loading", async () => {
@@ -143,6 +184,8 @@ describe("desktop draft adapter", () => {
     expect(fake.discard).toHaveBeenCalledWith(ID);
     vi.mocked(fake.list).mockRejectedValue(new Error("Disk unavailable"));
     await expect(adapter.list()).rejects.toMatchObject({ kind: "storage" });
+    vi.mocked(fake.list).mockRejectedValue(new Error("Saved take cannot be opened on this Mac"));
+    await expect(adapter.list()).rejects.toMatchObject({ kind: "lost_key" });
   });
 
   it("has a clear unsupported browser path", async () => {

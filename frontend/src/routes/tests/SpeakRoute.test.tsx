@@ -721,13 +721,14 @@ describe("Speak route", () => {
 
   it("waits for a second explicit Submit after a lost response and reuses the submission ID", async () => {
     mockedCreateAssessment.mockRejectedValueOnce(new TypeError("Failed to fetch"));
-    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState });
     fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
     fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
     await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
     fireEvent.click(screen.getByTestId("speak.submit"));
     await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveTextContent("Could not confirm submission"));
+    expect(store.getState().recording.assessmentState).toBe("uncertain");
     expect(mockedCreateAssessment).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByTestId("speak.submit"));
     await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(2));

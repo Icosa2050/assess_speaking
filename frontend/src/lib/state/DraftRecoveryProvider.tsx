@@ -4,21 +4,23 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { createTranslator } from "@/lib/i18n";
 import type { SavedDraft } from "@/lib/runtime/desktopBridge";
-import { useAppStore } from "./appStore";
-import { createDraftStoreAdapter, normalizedLearner, sameDraftAttempt, type DraftStoreAdapter, type DraftStoreError } from "./draftStore";
-import { clearRetryDraft, readLegacyRetryBrief } from "./retryBriefStorage";
+import { useAppStore, useAppStoreApi } from "./appStore";
+import { createDraftStoreAdapter, DraftStoreError, normalizedLearner, sameDraftAttempt, type DraftStoreAdapter } from "./draftStore";
+import { clearRetryDraft, readLegacyRetryBrief, readRetryDraft } from "./retryBriefStorage";
 import { confirmLocalDraft } from "@/lib/runtime/confirmLocalDraft";
 import type { SessionDraft } from "./sessionDraft";
 
 type LegacyBrief = NonNullable<ReturnType<typeof readLegacyRetryBrief>>;
 type BootResult = { drafts: SavedDraft[]; unreadableIds: string[]; legacy: LegacyBrief | null; error: DraftStoreError | null };
 const BOOT_TIMEOUT_MS = 15_000;
-const boundedList = async (adapter: DraftStoreAdapter) => {
+const withinBootDeadline = async <T,>(work: () => Promise<T>, deadline: number): Promise<T> => {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new Error("Draft recovery timed out");
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      adapter.list(),
-      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Draft listing timed out")), BOOT_TIMEOUT_MS); }),
+      work(),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Draft recovery timed out")), remaining); }),
     ]);
   } finally { if (timer) clearTimeout(timer); }
 };
@@ -26,6 +28,7 @@ type RecoveryContext = {
   supported: boolean;
   active: SavedDraft | null;
   drafts: SavedDraft[];
+  hasStoredEntries: boolean;
   recoveredFile: File | null;
   error: DraftStoreError | null;
   saveSetup: (setup: SessionDraft) => Promise<SavedDraft | null>;
@@ -42,7 +45,7 @@ type RecoveryContext = {
 };
 
 const defaultContext: RecoveryContext = {
-  supported: false, active: null, drafts: [], recoveredFile: null, error: null,
+  supported: false, active: null, drafts: [], hasStoredEntries: false, recoveredFile: null, error: null,
   saveSetup: async () => null,
   replaceSetup: async () => { throw new Error("Local draft storage is unavailable"); },
   saveTake: async () => { throw new Error("Local draft storage is unavailable"); },
@@ -61,10 +64,14 @@ export const useDraftRecovery = (): RecoveryContext => useContext(Context);
 export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdapter() }: { children: ReactNode; adapter?: DraftStoreAdapter }) => {
   const stableAdapter = useRef(adapter).current;
   adapter = stableAdapter;
+  const appStore = useAppStoreApi();
   const navigate = useNavigate();
   const locale = useAppStore(state => state.preferences.uiLocale);
   const applySetup = useAppStore(state => state.applySetup);
   const clearRecording = useAppStore(state => state.clearRecording);
+  const currentSetup = useAppStore(state => state.draft);
+  const assessmentState = useAppStore(state => state.recording.assessmentState);
+  const completedReportId = useAppStore(state => state.review.reportId);
   const translate = useMemo(() => createTranslator(locale), [locale]);
   const [booted, setBooted] = useState(!adapter.supported);
   const [choosing, setChoosing] = useState(false);
@@ -83,6 +90,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   const serial = useRef<Promise<unknown>>(Promise.resolve());
   const bootRun = useRef<Promise<BootResult> | null>(null);
   const confirmedReplacement = useRef<string | null>(null);
+  const completionCleanupId = useRef<string | null>(null);
   const setCurrent = (value: SavedDraft | null) => { activeRef.current = value; setActive(value); };
   const enqueue = <T,>(work: () => Promise<T>): Promise<T> => {
     const result = serial.current.then(work, work);
@@ -93,17 +101,24 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     draftsRef.current = [saved, ...draftsRef.current.filter(d => d.draftId !== saved.draftId)];
     setDrafts(draftsRef.current);
   };
+  const replacementWouldReleasePendingTake = (previous: SavedDraft | undefined): boolean => {
+    if (!previous?.take) return false;
+    const state = appStore.getState();
+    return sameDraftAttempt(previous, state.draft) &&
+      ["queued", "running", "uncertain"].includes(state.recording.assessmentState);
+  };
 
   const loadBoot = async (): Promise<BootResult> => {
+      const deadline = Date.now() + BOOT_TIMEOUT_MS;
       try {
-        const listing = await boundedList(adapter);
+        const listing = await withinBootDeadline(() => adapter.list(), deadline);
         let cleanupError: DraftStoreError | null = null;
-        try { await adapter.abortAbandoned(listing); }
+        try { await withinBootDeadline(() => adapter.abortAbandoned(listing), deadline); }
         catch (error) { cleanupError = error as DraftStoreError; }
         const brief = readLegacyRetryBrief();
         if (brief && !listing.drafts.some(item => item.speakerId === normalizedLearner(brief.draft.speakerId)) && !listing.unreadableIds.length) {
           try {
-            const imported = await adapter.importLegacyBrief(brief.draft, brief.createdAt);
+            const imported = await withinBootDeadline(() => adapter.importLegacyBrief(brief.draft, brief.createdAt), deadline);
             clearRetryDraft();
             return { drafts: [imported, ...listing.drafts], unreadableIds: listing.unreadableIds, legacy: null, error: cleanupError };
           } catch (importError) {
@@ -112,6 +127,10 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
         }
         return { ...listing, legacy: brief, error: cleanupError };
       } catch (bootError) {
+        if ((bootError as DraftStoreError).kind === "lost_key") {
+          try { return { drafts: [], unreadableIds: await adapter.recoveryIds(), legacy: readLegacyRetryBrief(), error: bootError as DraftStoreError }; }
+          catch { /* Keep the original key-loss error visible without offering unverifiable IDs. */ }
+        }
         return { drafts: [], unreadableIds: [], legacy: readLegacyRetryBrief(), error: bootError as DraftStoreError };
       }
   };
@@ -147,6 +166,9 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       ? activeRef.current : draftsRef.current.find(item => item.speakerId === normalizedLearner(setup.speakerId));
     try {
       const replacing = previous && confirmedReplacement.current === previous.draftId && !sameDraftAttempt(previous, setup);
+      if (replacing && replacementWouldReleasePendingTake(previous)) {
+        throw new DraftStoreError("conflict", "Assessment is pending; keep the saved take until its result is known");
+      }
       if (previous?.take && !sameDraftAttempt(previous, setup) && !replacing) {
         throw new Error("Confirm replacement of the saved take before starting another attempt");
       }
@@ -158,6 +180,9 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   });
   const replaceSetup: RecoveryContext["replaceSetup"] = (setup, previous) => enqueue(async () => {
     try {
+      if (replacementWouldReleasePendingTake(previous)) {
+        throw new DraftStoreError("conflict", "Assessment is pending; keep the saved take until its result is known");
+      }
       const saved = await adapter.replaceSetup(setup, previous);
       confirmedReplacement.current = null;
       setCurrent(saved); replaceListing(saved); setRecoveredFile(null); setError(null);
@@ -186,6 +211,24 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     setDrafts(draftsRef.current);
     setError(null);
   });
+  useEffect(() => {
+    if (!adapter.supported || assessmentState !== "completed" || !completedReportId ||
+        !sameDraftAttempt(active, currentSetup) || completionCleanupId.current === active.draftId) return;
+    const completed = active;
+    completionCleanupId.current = completed.draftId;
+    void enqueue(async () => {
+      if (activeRef.current?.draftId !== completed.draftId) return;
+      try {
+        await adapter.discard(completed.draftId);
+        draftsRef.current = draftsRef.current.filter(item => item.draftId !== completed.draftId);
+        setDrafts(draftsRef.current);
+        setCurrent(null); setRecoveredFile(null);
+        const brief = readRetryDraft();
+        if (brief && sameDraftAttempt(completed, brief)) clearRetryDraft();
+        setError(null);
+      } catch (cleanupError) { setError(cleanupError as DraftStoreError); }
+    });
+  }, [adapter, active, assessmentState, completedReportId, currentSetup]);
   const discard = async (id: string): Promise<boolean> => {
     setBusy(true);
     return enqueue(async () => { try {
@@ -203,7 +246,11 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   };
   const prepareNewAttempt = async (speakerId: string): Promise<boolean> => {
     const existing = draftsRef.current.find(item => item.speakerId === normalizedLearner(speakerId));
-    if (existing && !await confirmLocalDraft(translate("draft.replace_setup_confirm", { learner: existing.setup.speakerId }))) return false;
+    if (existing && !await confirmLocalDraft(translate("draft.replace_setup_detail", {
+      learner: existing.setup.speakerId,
+      task: existing.setup.themeLabel || existing.setup.promptText,
+      size: existing.take ? `${(existing.take.size / 1024 / 1024).toFixed(1)} MiB` : "0 MiB",
+    }))) return false;
     confirmedReplacement.current = existing?.draftId ?? null;
     if (!existing) setCurrent(null);
     setRecoveredFile(null);
@@ -229,13 +276,15 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       navigate(entry.take || (entry.setup.retryOfSessionId && entry.setup.retryGoalEligible) ? "/speak" : "/session-setup", { replace: true });
     } catch (resumeError) {
       setError(resumeError as DraftStoreError);
-      setUnreadableIds(previous => [...new Set([...previous, entry.draftId])]);
-      draftsRef.current = draftsRef.current.filter(item => item.draftId !== entry.draftId);
-      setDrafts(draftsRef.current);
+      if (["unreadable", "lost_key"].includes((resumeError as DraftStoreError).kind)) {
+        setUnreadableIds(previous => [...new Set([...previous, entry.draftId])]);
+        draftsRef.current = draftsRef.current.filter(item => item.draftId !== entry.draftId);
+        setDrafts(draftsRef.current);
+      }
     } finally { setBusy(false); } });
   };
   const context: RecoveryContext = {
-    supported: adapter.supported, active, drafts, recoveredFile, error,
+    supported: adapter.supported, active, drafts, hasStoredEntries: Boolean(drafts.length || unreadableIds.length), recoveredFile, error,
     saveSetup, replaceSetup, saveTake, prepareNewAttempt, discardActive, discardDraft: discard,
     leaveActive: () => { setCurrent(null); setRecoveredFile(null); setError(null); },
     clearRecoveredFile: () => setRecoveredFile(null),
@@ -278,8 +327,10 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
           <p>{translate("draft.legacy_conflict", { learner: legacy.draft.speakerId, date: new Date(legacy.createdAt + 7 * 24 * 60 * 60 * 1000).toLocaleString(locale) })}</p>
           <Button onClick={() => { clearRetryDraft(); setLegacy(null); if (!drafts.length && !unreadableIds.length && !error) { setChoosing(false); setManaging(false); } }}>{translate("draft.discard_legacy")}</Button>
         </div>}
-        {error && <p role="alert">{translate(error.kind === "keychain" ? "draft.keychain_error" : "draft.storage_error")}</p>}
-        {error && <Button disabled={busy} onClick={retryBoot}>{translate("draft.retry_listing")}</Button>}
+        {error && <p role="alert">{translate(error.kind === "lost_key" || error.kind === "unreadable" ? "draft.unreadable"
+          : error.kind === "keychain" ? "draft.keychain_error" : error.kind === "limit" ? "draft.limit_error"
+          : error.kind === "format" ? "draft.format_error" : error.kind === "uncertain" ? "draft.save_uncertain" : "draft.storage_error")}</p>}
+        {error && !["limit", "format"].includes(error.kind) && <Button disabled={busy} onClick={retryBoot}>{translate("draft.retry_listing")}</Button>}
         <Button variant="quiet" onClick={() => { setChoosing(false); setManaging(false); }}>{translate("draft.continue_without_resume")}</Button>
       </Card>
   );

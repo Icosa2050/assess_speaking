@@ -12,14 +12,15 @@ vi.mock("@/lib/rehearsal/storage", async importOriginal => ({
   getRehearsal: vi.fn(),
 }));
 vi.mock("@/components/speak/RecorderPanel", () => ({
-  RecorderPanel: ({ onFileSelected, onBeforeReplace, onRecordingActiveChange, previewUrl }: {
+  RecorderPanel: ({ onFileSelected, onRecordingStarted, onRecordingActiveChange, previewUrl }: {
     onFileSelected: (file: File) => void;
-    onBeforeReplace?: () => boolean;
+    onRecordingStarted?: () => void;
     onRecordingActiveChange?: (active: boolean) => void;
     previewUrl: string;
   }) => <div>
     <button onClick={() => onFileSelected(new File(["audio"], "first.webm", { type: "audio/webm" }))}>Finish first take</button>
-    <button onClick={() => { if (onBeforeReplace?.() !== false) onRecordingActiveChange?.(true); }}>Start replacement</button>
+    <button onClick={() => { onRecordingStarted?.(); onRecordingActiveChange?.(true); }}>Start replacement</button>
+    <button onClick={() => undefined}>Permission denied</button>
     <span data-testid="rehearsal-preview-url">{previewUrl}</span>
   </div>,
 }));
@@ -49,6 +50,9 @@ it("clears an old rehearsal part and disables Save part when re-recording begins
   fireEvent.click(await screen.findByRole("button", { name: /EN.*Alex/ }));
   fireEvent.click(await screen.findByRole("button", { name: "Finish first take" }));
   await waitFor(() => expect(screen.getByTestId("rehearsal-save-part")).toBeEnabled());
+  expect(screen.getByTestId("rehearsal-preview-url")).not.toBeEmptyDOMElement();
+  fireEvent.click(screen.getByRole("button", { name: "Permission denied" }));
+  expect(screen.getByTestId("rehearsal-save-part")).toBeEnabled();
   expect(screen.getByTestId("rehearsal-preview-url")).not.toBeEmptyDOMElement();
   fireEvent.click(screen.getByRole("button", { name: "Start replacement" }));
   expect(screen.getByTestId("rehearsal-save-part")).toBeDisabled();

@@ -958,10 +958,9 @@ impl DraftStore {
         let mut drafts = Vec::new();
         let mut unreadable_ids = Vec::new();
         for id in self.recovery_ids()? {
-            match self.read(&id, &key, now).and_then(|manifest| {
-                self.verify_media(&manifest, &key)?;
-                Ok(manifest)
-            }) {
+            // Keep boot listing bounded by manifest size. Media authentication
+            // runs when the learner explicitly resumes and loads the take.
+            match self.read(&id, &key, now) {
                 Ok(manifest) => drafts.push(manifest),
                 Err(_) => unreadable_ids.push(id),
             }
@@ -1113,10 +1112,9 @@ impl DraftStore {
         manifest.status = "setup".into();
         manifest.submission = None;
         let result = self.commit(&manifest, &key);
-        if match &result {
-            Ok(()) => true,
-            Err(error) => error.published,
-        } {
+        // A visible rename is not durable until the directory sync succeeds.
+        // Keep the old media if sync fails: reboot may restore the old manifest.
+        if result.is_ok() {
             if let Some(old) = old_take {
                 self.verified
                     .remove(&format!("{}:{}", draft_id, old.media_id));
@@ -1519,6 +1517,9 @@ impl DraftStore {
         Ok(())
     }
     pub fn expire(&mut self, now: u64) -> StoreResult<u32> {
+        // A previous manifest rename may have been visible but unsynced. Make
+        // it durable before pruning media that its old revision referenced.
+        sync_dir(&self.dir)?;
         let key = self.key()?;
         let mut expired = 0;
         for manifest in self.manifests(&key, now)? {
@@ -1925,10 +1926,7 @@ mod tests {
             .load_take_chunk(&ready.draft_id, media_id, 0)
             .unwrap_err()
             .contains("authentication"));
-        assert_eq!(
-            store.list_with_issues().unwrap().unreadable_ids,
-            vec![ready.draft_id.clone()]
-        );
+        assert_eq!(store.list_with_issues().unwrap().drafts.len(), 1);
         let path = store.manifest_path(&ready.draft_id).unwrap();
         let mut ciphertext = fs::read(&path).unwrap();
         *ciphertext.last_mut().unwrap() ^= 1;
@@ -1998,7 +1996,7 @@ mod tests {
         assert_eq!(store.list().unwrap().len(), 1);
     }
     #[test]
-    fn atomic_setup_replacement_sync_failure_leaves_new_manifest_readable() {
+    fn atomic_setup_replacement_sync_failure_preserves_old_take_for_rollback() {
         let root = TestRoot::new();
         let mut store = store(&root);
         let first = store.save_setup(setup("Alex"), None, None).unwrap();
@@ -2011,6 +2009,8 @@ mod tests {
         let old_path = store
             .media_path(&ready.draft_id, &ready.take.as_ref().unwrap().media_id)
             .unwrap();
+        let manifest_path = store.manifest_path(&ready.draft_id).unwrap();
+        let old_manifest = fs::read(&manifest_path).unwrap();
         let mut next = setup("Alex");
         next.session_id = "different-attempt".into();
         store.fail_manifest_sync = true;
@@ -2018,12 +2018,23 @@ mod tests {
             .replace_setup(next.clone(), ready.draft_id.clone(), ready.revision)
             .unwrap_err()
             .contains("may have changed"));
-        assert!(!old_path.exists());
+        assert!(old_path.exists());
+        let published = store
+            .read(&ready.draft_id, &store.key().unwrap(), now_ms())
+            .unwrap();
+        assert_eq!(published.setup.session_id, next.session_id);
+        // Simulate a reboot that rolls the unsynced rename back to the old manifest.
+        fs::write(&manifest_path, old_manifest).unwrap();
         drop(store);
         let mut recovered = self::store(&root);
         let manifest = recovered.list().unwrap().remove(0);
-        assert_eq!(manifest.setup.session_id, next.session_id);
-        assert!(manifest.take.is_none());
+        assert_eq!(manifest.setup.session_id, ready.setup.session_id);
+        assert_eq!(
+            recovered
+                .load_take_chunk(&ready.draft_id, &ready.take.unwrap().media_id, 0)
+                .unwrap(),
+            bytes
+        );
     }
     #[test]
     fn accepted_audio_mimes_cover_the_picker_formats() {
@@ -2051,7 +2062,7 @@ mod tests {
             .is_err());
     }
     #[test]
-    fn truncated_and_swapped_encrypted_chunks_are_not_listed() {
+    fn truncated_and_swapped_encrypted_chunks_fail_on_resume() {
         let root = TestRoot::new();
         let mut store = store(&root);
         let draft = store.save_setup(setup("Alex"), None, None).unwrap();
@@ -2071,10 +2082,10 @@ mod tests {
             .unwrap();
         let original = fs::read(&path).unwrap();
         fs::write(&path, &original[..original.len() - 1]).unwrap();
-        assert_eq!(
-            store.list_with_issues().unwrap().unreadable_ids,
-            vec![ready.draft_id.clone()]
-        );
+        assert_eq!(store.list_with_issues().unwrap().drafts.len(), 1);
+        assert!(store
+            .load_take_chunk(&ready.draft_id, &ready.take.as_ref().unwrap().media_id, 0)
+            .is_err());
         fs::write(&path, &original).unwrap();
         let first_record = 4 + CHUNK + 32;
         let mut swapped = original[..4].to_vec();
@@ -2082,10 +2093,11 @@ mod tests {
         swapped.extend_from_slice(&original[4..4 + first_record]);
         fs::write(&path, swapped).unwrap();
         let mut reopened = self::store(&root);
-        assert_eq!(
-            reopened.list_with_issues().unwrap().unreadable_ids,
-            vec![ready.draft_id]
-        );
+        assert_eq!(reopened.list_with_issues().unwrap().drafts.len(), 1);
+        assert_eq!(reopened.media_verifications, 0);
+        assert!(reopened
+            .load_take_chunk(&ready.draft_id, &ready.take.as_ref().unwrap().media_id, 0)
+            .is_err());
     }
     #[test]
     fn unsafe_manifest_can_be_discarded_and_unsafe_orphans_do_not_block_listing() {

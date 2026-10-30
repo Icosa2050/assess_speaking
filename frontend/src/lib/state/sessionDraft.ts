@@ -22,6 +22,7 @@ export type AssessmentLifecycleState =
   | "idle"
   | "queued"
   | "running"
+  | "uncertain"
   | "completed"
   | "failed"
   | "cancelled";

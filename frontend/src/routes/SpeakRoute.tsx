@@ -280,7 +280,7 @@ export const SpeakRoute = () => {
     setInputMode(draftRecovery.active?.take?.inputMethod || "record");
     setRecordedDurationSec(draftRecovery.active?.take?.durationSec ?? null);
     setLocalSaveState("saved");
-    updateRecording({ status: "ready", ...(lifecycleState === "queued" || lifecycleState === "running" ? {} : { assessmentState: "idle" }), audioPath: url,
+    updateRecording({ status: "ready", ...(["queued", "running", "uncertain"].includes(lifecycleState) ? {} : { assessmentState: "idle" }), audioPath: url,
       durationSec: draftRecovery.active?.take?.durationSec ?? 0,
       inputDigest: `${file.name}:${file.size}:${file.lastModified}`,
       inputMethod: draftRecovery.active?.take?.inputMethod || "record", error: "" });
@@ -712,6 +712,7 @@ export const SpeakRoute = () => {
       if (error instanceof ApiClientError && error.responseStatus === 404) savedUpload.current = null;
       if (assessmentRequestAttempted && isIndeterminateAssessmentResponse(error)) {
         if (priorTerminalJob) setRecordingJob(priorTerminalJob);
+        else updateRecording({ assessmentState: "uncertain" });
         setRetryResponseUnknown(true);
         setRetryError(error instanceof Error || error instanceof DOMException
           ? error.message || translate("speak.job_status_unknown")

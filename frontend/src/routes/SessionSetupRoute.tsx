@@ -470,7 +470,7 @@ const SessionSetupContent = () => {
           {translate(readyToRecord ? "first_run.ready_for_task_body" : canContinueToSpeak ? "first_run.continue_to_speak_body" : "first_run.task_setup_body")}
         </StatusBanner>
       </div>
-      {draftRecovery.supported && (draftRecovery.drafts.length > 0 || draftRecovery.error) && (
+      {draftRecovery.supported && (draftRecovery.hasStoredEntries || draftRecovery.error) && (
         <button type="button" onClick={draftRecovery.manageDrafts}>{translate("draft.manage_saved")}</button>
       )}
       <ThemeForm

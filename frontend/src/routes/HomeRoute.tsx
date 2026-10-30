@@ -180,7 +180,7 @@ export const HomeRoute = () => {
               {translate("first_run.open_local_setup")}
             </button>
             {rehearsalAction}
-            {draftRecovery.supported && (draftRecovery.drafts.length > 0 || draftRecovery.error) && (
+            {draftRecovery.supported && (draftRecovery.hasStoredEntries || draftRecovery.error) && (
               <button type="button" onClick={draftRecovery.manageDrafts} className={`${styles.action} ${styles.secondaryAction}`}>
                 {translate("draft.manage_saved")}
               </button>
@@ -246,7 +246,7 @@ export const HomeRoute = () => {
         </div>
         <p className={styles.cardBody}>{diagnosticsMessage.body}</p>
         <div className={styles.actionRow}>
-          {draftRecovery.supported && (draftRecovery.drafts.length > 0 || draftRecovery.error) && (
+          {draftRecovery.supported && (draftRecovery.hasStoredEntries || draftRecovery.error) && (
             <button type="button" onClick={draftRecovery.manageDrafts} className={`${styles.action} ${styles.secondaryAction}`}>
               {translate("draft.manage_saved")}
             </button>

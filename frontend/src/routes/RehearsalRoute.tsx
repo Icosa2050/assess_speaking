@@ -224,7 +224,7 @@ export const RehearsalRoute = () => {
     {session.phase === "speaking" && currentPart && <div className={styles.card}>
       <h2>{t("part", { number: index + 1, total: session.parts.length })} · {clockText(currentPart.durationSec)}</h2><p className={styles.prompt}>{currentPart.prompt}</p><p>{t("record_help")}</p>
       <fieldset disabled={busy}><RecorderPanel onMicrophoneStatusChange={setMicrophoneStatus} key={`${session.id}-${index}`} canRemove={false} inputMode="record" onRecordingActiveChange={setRecordingActive} allowUpload={false} maxSeconds={currentPart.durationSec}
-        onBeforeReplace={() => { setFile(null); return true; }}
+        onRecordingStarted={() => setFile(null)}
         microphoneSetupPassed={microphoneSetupPassed} microphoneDeviceId={microphoneDeviceId} microphoneVoiceProcessing={microphoneVoiceProcessing}
         onSetupMicrophone={() => navigate("/runtime-setup#runtime-setup-microphone")}
         onInputModeChange={() => undefined} onFileSelected={setFile} onRemove={() => setFile(null)} previewUrl={preview}

@@ -36,6 +36,7 @@ vi.mock("@/lib/api/client", () => ({
 import { apiClient } from "@/lib/api/client";
 import { AppFrame } from "@/App";
 import { practiceReadinessPercent } from "@/routes/HomeRoute";
+import { draftAdapterFixture } from "@/test/draftAdapterFixture";
 
 const mockedGetRuntime = vi.mocked(apiClient.getRuntime);
 const mockedGetDiagnostics = vi.mocked(apiClient.getDiagnostics);
@@ -54,6 +55,19 @@ const optionalTutorReadiness = () => {
 };
 
 describe("Home and Runtime Setup routes", () => {
+  it("keeps unreadable-only drafts manageable after dismissing recovery", async () => {
+    const adapter = draftAdapterFixture();
+    adapter.list.mockResolvedValue({ drafts: [], unreadableIds: ["a".repeat(32)] });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/"], locale: "en", draftAdapter: adapter });
+    expect(await screen.findByTestId("draft.unreadable")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Continue without resuming" }));
+    const manage = await screen.findAllByRole("button", { name: "Manage saved drafts" });
+    fireEvent.click(manage[0]);
+    expect(screen.getByTestId("draft.unreadable")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Discard draft and take" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discard draft and take" }));
+    await waitFor(() => expect(adapter.discard).toHaveBeenCalledWith("a".repeat(32)));
+  });
   it("keeps readiness complete when no checks are required", () => {
     expect(practiceReadinessPercent(0, 0)).toBe(100);
     expect(practiceReadinessPercent(3, 4)).toBe(75);
