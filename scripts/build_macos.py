@@ -79,7 +79,15 @@ def audit(bundle):
     return {'minimum_macos': '.'.join(map(str, minimum)), 'native_files': entries}
 
 
-def validate_profile(profile: dict, bundle_id: str, team_id: str) -> dict:
+def signing_certificate_sha1(identity: str, identities: str) -> str:
+    matches = [match.group(1).upper() for line in identities.splitlines()
+               if (match := re.fullmatch(r'\s*\d+\)\s+([0-9a-fA-F]{40})\s+"' + re.escape(identity) + r'"\s*', line))]
+    if len(matches) != 1:
+        raise RuntimeError('The requested Developer ID identity is missing or ambiguous in the signing keychain')
+    return matches[0]
+
+
+def validate_profile(profile: dict, bundle_id: str, team_id: str, signing_cert_sha1: str) -> dict:
     app_id = f'{team_id}.{bundle_id}'
     approved = profile.get('Entitlements', {})
     groups = approved.get('keychain-access-groups', [])
@@ -88,8 +96,10 @@ def validate_profile(profile: dict, bundle_id: str, team_id: str) -> dict:
             or approved.get('com.apple.application-identifier') != app_id
             or approved.get('com.apple.developer.team-identifier') != team_id
             or not any(group in (app_id, f'{team_id}.*') for group in groups)
+            or not any(isinstance(cert, bytes) and hashlib.sha1(cert).hexdigest().upper() == signing_cert_sha1
+                       for cert in profile.get('DeveloperCertificates', []))
             or approved.get('get-task-allow') is True):
-        raise RuntimeError('Developer ID provisioning profile does not authorize this team, app ID, and Keychain group')
+        raise RuntimeError('Developer ID provisioning profile does not authorize this signing certificate, team, app ID, and Keychain group')
     return {
         'com.apple.application-identifier': app_id,
         'com.apple.developer.team-identifier': team_id,
@@ -97,11 +107,11 @@ def validate_profile(profile: dict, bundle_id: str, team_id: str) -> dict:
     }
 
 
-def load_profile(path: Path, bundle_id: str, team_id: str) -> dict:
+def load_profile(path: Path, bundle_id: str, team_id: str, signing_cert_sha1: str) -> dict:
     if not path.is_file():
         raise RuntimeError(f'Provisioning profile is missing: {path}')
     decoded = run(['security', 'cms', '-D', '-i', path], capture_output=True).stdout
-    return validate_profile(plistlib.loads(decoded), bundle_id, team_id)
+    return validate_profile(plistlib.loads(decoded), bundle_id, team_id, signing_cert_sha1)
 
 
 def embed_profile(bundle: Path, source: Path, claims: dict, entitlements: Path) -> Path:
@@ -150,13 +160,17 @@ def main(argv=None):
     release = args.mode == 'release'
     if args.local_sign_only and not release:
         parser.error('--local-sign-only requires --mode release')
+    signing_cert_sha1 = None
     if release:
         if args.reuse_helper or not args.identity.startswith('Developer ID Application:') or (not args.local_sign_only and not args.notary_profile):
             parser.error('Release requires a Developer ID Application identity and, unless local-sign-only, a Keychain notary profile; no reused helper.')
         if not args.local_sign_only and not os.environ.get(PROFILE_ENV):
             parser.error(f'Notarized release requires {PROFILE_ENV} for device-only draft storage.')
-        if args.identity not in output(['security', 'find-identity', '-v', '-p', 'codesigning']):
-            parser.error('The requested Developer ID identity is not available.')
+        try:
+            signing_cert_sha1 = signing_certificate_sha1(
+                args.identity, output(['security', 'find-identity', '-v', '-p', 'codesigning']))
+        except RuntimeError as exc:
+            parser.error(str(exc))
     config = json.loads((ROOT / 'frontend/src-tauri/tauri.conf.json').read_text())
     version = config['version']
     if tomllib.loads((ROOT / 'frontend/src-tauri/Cargo.toml').read_text())['package']['version'] != version:
@@ -167,7 +181,7 @@ def main(argv=None):
         team = re.search(r'\(([A-Z0-9]{10})\)$', args.identity)
         if not team:
             raise RuntimeError('Developer ID signing identity must include its Team ID')
-        profile_claims = load_profile(profile_source, config['identifier'], team.group(1))
+        profile_claims = load_profile(profile_source, config['identifier'], team.group(1), signing_cert_sha1)
     BUILD.mkdir(exist_ok=True)
     python = BUILD / 'venv/bin/python'
     if not python.exists():
@@ -225,7 +239,7 @@ def main(argv=None):
     entitlements = ROOT / 'packaging/entitlements.plist'
     if profile_source and profile_claims:
         entitlements = embed_profile(bundle, profile_source, profile_claims, BUILD / 'release-entitlements.plist')
-    sign(bundle, args.identity if release else '-', release, entitlements)
+    sign(bundle, signing_cert_sha1 if release else '-', release, entitlements)
     smoke_env = {key: os.environ[key] for key in ('HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG') if key in os.environ}
     smoke_env['PATH'] = '/usr/bin:/bin:/usr/sbin:/sbin'
     smoke = run([bundle / 'Contents/Helpers/VostavoBackend.app/Contents/MacOS/vostavo-backend', '--self-test'], cwd='/', env=smoke_env, capture_output=True, text=True, timeout=90)
@@ -243,7 +257,7 @@ def main(argv=None):
     suffix = 'arm64-signed-unnotarized' if args.local_sign_only else 'arm64' if release else 'arm64-internal-adhoc'
     artifact = BUILD / f'Vostavo-{version}-{suffix}.dmg'
     run(['hdiutil', 'create', '-ov', '-volname', 'Vostavo', '-srcfolder', stage, '-format', 'UDZO', artifact])
-    run(['codesign', '--force', '--sign', args.identity if release else '-', '--timestamp' if release else '--timestamp=none', artifact])
+    run(['codesign', '--force', '--sign', signing_cert_sha1 if release else '-', '--timestamp' if release else '--timestamp=none', artifact])
     if release and not args.local_sign_only:
         evidence['dmg_notarization'] = notarize(artifact, args.notary_profile)
         run(['xcrun', 'stapler', 'staple', artifact])

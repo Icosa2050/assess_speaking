@@ -1,4 +1,5 @@
 import ast
+import hashlib
 from pathlib import Path
 import plistlib
 from unittest.mock import patch
@@ -49,9 +50,12 @@ def test_frozen_helper_declares_the_same_mac_os_floor() -> None:
 
 def test_developer_id_profile_must_authorize_exact_app_and_keychain_group() -> None:
     app_id = 'L98MZWWR98.com.vostavo.desktop'
+    signing_certificate = b'signing certificate fixture'
+    signing_cert_sha1 = hashlib.sha1(signing_certificate).hexdigest().upper()
     profile = {
         'ProvisionsAllDevices': True,
         'TeamIdentifier': ['L98MZWWR98'],
+        'DeveloperCertificates': [signing_certificate],
         'Entitlements': {
             'com.apple.application-identifier': app_id,
             'com.apple.developer.team-identifier': 'L98MZWWR98',
@@ -59,7 +63,7 @@ def test_developer_id_profile_must_authorize_exact_app_and_keychain_group() -> N
             'get-task-allow': False,
         },
     }
-    assert build_macos.validate_profile(profile, 'com.vostavo.desktop', 'L98MZWWR98') == {
+    assert build_macos.validate_profile(profile, 'com.vostavo.desktop', 'L98MZWWR98', signing_cert_sha1) == {
         'com.apple.application-identifier': app_id,
         'com.apple.developer.team-identifier': 'L98MZWWR98',
         'keychain-access-groups': [app_id],
@@ -67,12 +71,24 @@ def test_developer_id_profile_must_authorize_exact_app_and_keychain_group() -> N
     for change in (
         {'ProvisionsAllDevices': False},
         {'TeamIdentifier': ['OTHERTEAM']},
+        {'DeveloperCertificates': [b'another certificate fixture']},
         {'Entitlements': {**profile['Entitlements'], 'com.apple.application-identifier': 'L98MZWWR98.other.app'}},
         {'Entitlements': {**profile['Entitlements'], 'keychain-access-groups': ['OTHERTEAM.*']}},
         {'Entitlements': {**profile['Entitlements'], 'get-task-allow': True}},
     ):
         with pytest.raises(RuntimeError, match='does not authorize'):
-            build_macos.validate_profile({**profile, **change}, 'com.vostavo.desktop', 'L98MZWWR98')
+            build_macos.validate_profile({**profile, **change}, 'com.vostavo.desktop', 'L98MZWWR98', signing_cert_sha1)
+
+
+def test_signing_identity_must_resolve_to_one_certificate() -> None:
+    identity = 'Developer ID Application: Markus Frommherz (L98MZWWR98)'
+    certificate_hash = 'A' * 40
+    line = f'  1) {certificate_hash} "{identity}"'
+    assert build_macos.signing_certificate_sha1(identity, line) == certificate_hash
+    with pytest.raises(RuntimeError, match='missing or ambiguous'):
+        build_macos.signing_certificate_sha1(identity, line + '\n' + line)
+    with pytest.raises(RuntimeError, match='missing or ambiguous'):
+        build_macos.signing_certificate_sha1(identity, line.replace(identity, 'Other identity'))
 
 
 def test_profile_is_embedded_and_its_claims_are_signed(tmp_path: Path) -> None:
