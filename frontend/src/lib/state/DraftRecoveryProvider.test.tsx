@@ -10,6 +10,8 @@ import { DraftRecoveryProvider, useDraftRecovery } from "./DraftRecoveryProvider
 import { createDraftStoreAdapter, sameDraftAttempt } from "./draftStore";
 import { buildSessionDraft } from "./sessionDraft";
 import { persistRetryDraft, readLegacyRetryBrief, RETRY_DRAFT_STORAGE_KEY } from "./retryBriefStorage";
+import { rememberFreshRetryParents, rememberRestoredRetryParents } from "@/lib/rehearsal/draftConflicts";
+import { apiClient, ApiClientError } from "@/lib/api/client";
 
 const bytes = new TextEncoder().encode("finalized browser audio");
 const digest = createHash("sha256").update(bytes).digest("hex");
@@ -24,6 +26,7 @@ const draft = (): SavedDraft => ({
 const fake = (entries = [draft()]): DesktopDraftStoreBridge => ({
   list: vi.fn().mockResolvedValue({ drafts: entries, unreadableIds: [] }),
   recoveryIds: vi.fn().mockResolvedValue([]), saveSetup: vi.fn(), replaceSetup: vi.fn(), importLegacyBrief: vi.fn(),
+  detachRetry: vi.fn(),
   beginTake: vi.fn(), writeTakeChunk: vi.fn(), abortTake: vi.fn(),
   abortTakeForDraft: vi.fn().mockResolvedValue(undefined), finishTake: vi.fn(),
   loadTakeChunk: vi.fn().mockResolvedValue(Array.from(bytes)), markSubmission: vi.fn(),
@@ -46,6 +49,7 @@ const Probe = () => {
     <button onClick={recovery.manageDrafts}>Manage drafts probe</button>
     <button onClick={() => recovery.active && void recovery.saveSetup({ ...recovery.active.setup, coachingGoal: "Updated goal" }).catch(() => undefined)}>Edit active probe</button>
     <button onClick={() => void recovery.prepareNewAttempt("Alex")}>Prepare replacement probe</button>
+    <button onClick={() => void recovery.reconcileActiveRetryParent()}>Reconcile retry probe</button>
     <button onClick={() => recovery.active && void recovery.saveSetup({ ...recovery.active.setup, sessionId: "next-attempt" }).catch(() => undefined)}>Save replacement probe</button>
     <button onClick={() => { setRecordingJob({ assessmentId: "assessment-1", status: "completed" }); updateReview({ reportId: "report-1" }); }}>Complete off Speak probe</button>
     <button onClick={() => updateRecording({ assessmentState: "queued" })}>Queue assessment probe</button>
@@ -64,6 +68,73 @@ const show = (bridge: DesktopDraftStoreBridge) => render(
 describe("desktop draft recovery gate", () => {
   beforeEach(() => { vi.stubGlobal("crypto", webcrypto); window.localStorage.clear(); });
   afterEach(() => vi.unstubAllGlobals());
+
+  it("detaches an imported retry parent before loading the saved take", async () => {
+    const ready = draft();
+    ready.setup = { ...ready.setup, retryOfSessionId: "imported-parent", coachingGoal: "Finish clearly", retryGoalEligible: true };
+    rememberRestoredRetryParents(["imported-parent"]);
+    const bridge = fake([ready]);
+    const detached = { ...ready, revision: ready.revision + 1, setup: { ...ready.setup, retryOfSessionId: "", retryGoalEligible: false } };
+    vi.mocked(bridge.detachRetry!).mockResolvedValue(detached);
+    show(bridge);
+    expect(await screen.findByText(/refers to an attempt imported from a backup/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(bridge.detachRetry).toHaveBeenCalledWith(ready.draftId, ready.revision, "imported-parent"));
+    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("Alex|take.webm"));
+    expect(screen.getByTestId("retry-context")).toHaveTextContent("|Finish clearly|false");
+  });
+
+  it("checks a retry parent after fresh start and detaches only when history is absent", async () => {
+    const ready = draft();
+    ready.setup = { ...ready.setup, retryOfSessionId: "quarantined-parent", coachingGoal: "Finish clearly", retryGoalEligible: true };
+    rememberFreshRetryParents(["quarantined-parent"]);
+    const lookup = vi.spyOn(apiClient, "getHistoryDetail").mockRejectedValue(new ApiClientError(404, { code: "runtime_error", detail: "Missing" }));
+    try {
+      const bridge = fake([ready]);
+      vi.mocked(bridge.detachRetry!).mockResolvedValue({ ...ready, revision: ready.revision + 1,
+        setup: { ...ready.setup, retryOfSessionId: "", retryGoalEligible: false } });
+      show(bridge);
+      fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+      await waitFor(() => expect(lookup).toHaveBeenCalledWith("quarantined-parent"));
+      await waitFor(() => expect(bridge.detachRetry).toHaveBeenCalledOnce());
+      expect(screen.getByTestId("retry-context")).toHaveTextContent("|Finish clearly|false");
+    } finally { lookup.mockRestore(); }
+  });
+
+  it("keeps a valid retry parent after fresh start", async () => {
+    const ready = draft();
+    ready.setup = { ...ready.setup, retryOfSessionId: "saved-parent", coachingGoal: "Finish clearly", retryGoalEligible: true };
+    rememberFreshRetryParents(["saved-parent"]);
+    const lookup = vi.spyOn(apiClient, "getHistoryDetail").mockResolvedValue({} as Awaited<ReturnType<typeof apiClient.getHistoryDetail>>);
+    try {
+      const bridge = fake([ready]);
+      show(bridge);
+      fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+      await waitFor(() => expect(lookup).toHaveBeenCalledWith("saved-parent"));
+      await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("Alex|take.webm"));
+      expect(bridge.detachRetry).not.toHaveBeenCalled();
+      expect(screen.getByTestId("retry-context")).toHaveTextContent("saved-parent|Finish clearly|true");
+    } finally { lookup.mockRestore(); }
+  });
+
+  it("updates the active setup after fresh start without dropping its take", async () => {
+    const ready = draft();
+    ready.setup = { ...ready.setup, retryOfSessionId: "old-parent", coachingGoal: "Finish clearly", retryGoalEligible: true };
+    const bridge = fake([ready]);
+    vi.mocked(bridge.detachRetry!).mockResolvedValue({ ...ready, revision: ready.revision + 1,
+      setup: { ...ready.setup, retryOfSessionId: "", retryGoalEligible: false } });
+    show(bridge);
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("Alex|take.webm"));
+    rememberFreshRetryParents(["old-parent"]);
+    const lookup = vi.spyOn(apiClient, "getHistoryDetail").mockRejectedValue(new ApiClientError(404, { code: "runtime_error", detail: "Missing" }));
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Reconcile retry probe" }));
+      await waitFor(() => expect(bridge.detachRetry).toHaveBeenCalledOnce());
+      expect(screen.getByTestId("retry-context")).toHaveTextContent("|Finish clearly|false");
+      expect(screen.getByTestId("probe")).toHaveTextContent("Alex|take.webm");
+    } finally { lookup.mockRestore(); }
+  });
 
   it("waits for listing, resumes the verified file, and never sends it", async () => {
     const bridge = fake();

@@ -556,7 +556,7 @@ class Journal:
                 private_json(work / 'trash-before.json', read_json(self.directory / 'trash.json', {}))
                 state.update(phase='backend_staged', restored_from=identity, history_existed=history.exists(), history_before=digest(history) if history.exists() else None)
                 self.save(state)
-                return {'id': transaction, 'phase': state['phase'], 'browser': manifest['browser'], 'attempts': len(manifest['attempts']), 'skipped_attempts': skipped, 'missing': manifest.get('missing', [])}
+                return {'id': transaction, 'phase': state['phase'], 'browser': manifest['browser'], 'attempts': len(manifest['attempts']), 'restored_attempt_ids': [entry['session_id'] for entry in manifest['attempts']], 'skipped_attempts': skipped, 'missing': manifest.get('missing', [])}
             except (zipfile.BadZipFile, json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, AttributeError) as exc:
                 shutil.rmtree(extracted, ignore_errors=True)
                 raise JournalError('The backup format is invalid; nothing was restored.') from exc

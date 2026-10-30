@@ -56,6 +56,14 @@ const injectDraftBridge = async (page: Page) => page.addInitScript(() => {
       write(entries);
       return entry.manifest;
     },
+    detachRetry: async (draftId: string, expectedRevision: number, parentId: string) => {
+      const entries = read();
+      const entry = entries.find(item => item.manifest.draftId === draftId);
+      if (!entry || entry.manifest.revision !== expectedRevision || entry.manifest.setup.retryOfSessionId !== parentId) throw Error("Draft changed in another window");
+      entry.manifest = { ...entry.manifest, revision: expectedRevision + 1,
+        setup: { ...entry.manifest.setup, retryOfSessionId: "", retryGoalEligible: false } };
+      write(entries); return entry.manifest;
+    },
     importLegacyBrief: async (setup: Record<string, any>, createdAt: number) => {
       const manifest = await store.saveSetup(setup);
       const entries = read(); const entry = entries.find(item => item.manifest.draftId === manifest.draftId)!;
@@ -168,3 +176,44 @@ for (const [label, viewport] of [["1360x900", { width: 1360, height: 900 }], ["1
     });
   });
 }
+
+test("restore warns about an imported retry parent and keeps the unsent take", async ({ page }) => {
+  const requests = { uploads: 0, assessments: 0 };
+  await injectDraftBridge(page); await backend(page, requests);
+  await save(page);
+  await page.evaluate(() => {
+    const key = "draft-playwright-v1";
+    const entries = JSON.parse(localStorage.getItem(key)!);
+    entries[0].manifest.setup.retryOfSessionId = "imported-parent";
+    entries[0].manifest.setup.retryGoalEligible = true;
+    entries[0].manifest.setup.coachingGoal = "Finish clearly";
+    localStorage.setItem(key, JSON.stringify(entries));
+  });
+  const transaction = "c".repeat(32);
+  await page.route("**/v1/journal/status", route => route.fulfill({ json: { transaction: null, archived: [], completed: [] } }));
+  await page.route("**/v1/journal/begin-restore", route => route.fulfill({ json: { id: transaction } }));
+  await page.route(`**/v1/journal/${transaction}/restore`, route => route.fulfill({ json: {
+    id: transaction, attempts: 1, restored_attempt_ids: ["imported-parent"], skipped_attempts: [],
+    skipped_rehearsals: [], missing: [], browser: { sessions: [], recordings: [] },
+  } }));
+  await page.route(`**/v1/journal/${transaction}/commit`, route => route.fulfill({ json: { phase: "committed" } }));
+  await page.route(`**/v1/journal/${transaction}/complete`, route => route.fulfill({ json: { phase: "complete" } }));
+  await page.reload();
+  await page.getByRole("button", { name: "Continue without resuming" }).click();
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await expect(page.getByText(/Unfinished drafts and unsent recordings stay only on this Mac/).first()).toBeVisible();
+  await page.getByLabel("Open backup ZIP").setInputFiles({ name: "backup.zip", mimeType: "application/zip", buffer: Buffer.from("synthetic") });
+  const preview = page.getByRole("region", { name: /Restore 1 attempts/ });
+  await expect(preview.getByRole("alert")).toContainText("1 local draft(s)");
+  const commit = preview.getByRole("button", { name: "Restore these new items" });
+  await expect(commit).toBeDisabled();
+  await preview.getByLabel(/I understand that matching local drafts/).check();
+  await commit.click();
+  await expect(page.getByText("Backup restored.")).toBeVisible();
+  await page.reload();
+  await expect(page.getByText(/This draft refers to an attempt imported from a backup/)).toBeVisible();
+  await page.getByRole("button", { name: "Resume" }).click();
+  await expect(page.getByTestId("speak.recording_status")).toContainText("Saved on this Mac");
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("draft-playwright-v1")!)[0].manifest.setup.retryOfSessionId)).toBe("");
+  expect(requests).toEqual({ uploads: 0, assessments: 0 });
+});

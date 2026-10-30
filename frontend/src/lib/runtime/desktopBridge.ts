@@ -46,6 +46,7 @@ export interface DesktopDraftStoreBridge {
   recoveryIds(): Promise<string[]>;
   saveSetup(setup: SessionDraft, draftId?: string, expectedRevision?: number): Promise<SavedDraft>;
   replaceSetup(setup: SessionDraft, draftId: string, expectedRevision: number): Promise<SavedDraft>;
+  detachRetry?(draftId: string, expectedRevision: number, parentId: string): Promise<SavedDraft>;
   importLegacyBrief(setup: SessionDraft, createdAt: number): Promise<SavedDraft>;
   beginTake(draftId: string, expectedRevision: number, take: Omit<SavedTake, "mediaId">): Promise<string>;
   writeTakeChunk(transferId: string, bytes: number[]): Promise<number>;

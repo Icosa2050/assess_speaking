@@ -50,6 +50,10 @@ class SupportBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as app_dir, tempfile.TemporaryDirectory() as cache_dir:
             config = build_backend_runtime_config(app_data_dir=app_dir, cache_dir=cache_dir, port=8772)
             config.state_file.write_text("{not json", encoding="utf-8")
+            drafts = config.app_data.root / 'drafts' / 'v1'
+            drafts.mkdir(parents=True)
+            (drafts / 'private.manifest').write_bytes(b'draft-manifest-sentinel')
+            (drafts / 'private.media').write_bytes(b'unsent-media-sentinel')
             config.log_file.parent.mkdir(parents=True, exist_ok=True)
             config.log_file.write_text(
                 'backend ready\napi_key="log-secret"\nsecret_ref="connection:primary"\n',
@@ -106,6 +110,9 @@ class SupportBundleTests(unittest.TestCase):
                         "has_active_connection": True,
                         "llm_api_key": "client-secret",
                         "secret_ref": "connection:primary",
+                        "draft_manifest": "draft-manifest-sentinel",
+                        "draft_count": 1,
+                        "keychain_mode": "local-login",
                     },
                     client_diagnostics=[
                         {
@@ -145,6 +152,12 @@ class SupportBundleTests(unittest.TestCase):
                 client_snapshot = json.loads(archive.read("client/client_snapshot.json"))
                 self.assertEqual(client_snapshot["llm_api_key"], REDACTED_VALUE)
                 self.assertNotIn("secret_ref", client_snapshot)
+                self.assertEqual(client_snapshot["draft_count"], 1)
+                self.assertEqual(client_snapshot["keychain_mode"], "local-login")
+                self.assertNotIn("draft_manifest", client_snapshot)
+                self.assertFalse(any(name.startswith('drafts/') for name in names))
+                self.assertTrue(all(token not in archive.read(name) for name in names
+                                    for token in (b'draft-manifest-sentinel', b'unsent-media-sentinel')))
 
                 client_diagnostics = json.loads(archive.read("client/client_diagnostics.json"))
                 self.assertEqual(

@@ -1,6 +1,6 @@
 # Support, Cleanup, And Packaging-Safe Maintenance Plan
 
-Last updated: 2026-10-08
+Last updated: 2026-10-30
 Status: Backend maintenance, native support save and explicit attached Mail draft implemented
 
 The current implementation uses `app_backend/support_bundle.py`, the support
@@ -16,6 +16,27 @@ See the [current action plan](plans/2026-10-06-app-gap-action-plan.md) and
 completed work and remaining failure/accessibility/public-release rows. The
 original proposal below is retained as design context. Learner backup/restore
 and recoverable deletion have a separate [two-store contract](plans/2026-10-08-storage-contract.md).
+
+## Unfinished local drafts
+
+The macOS shell owns encrypted draft manifests and unsent takes under
+`<app-data-root>/drafts/v1/`. The Keychain content key is never stored in the
+app-data tree. The learner ZIP contains completed journal attempts and browser
+rehearsals only; it excludes local drafts, unsent media, and key material. An
+additive restore leaves drafts and their media in place. If an imported attempt
+matches a draft's retry parent, Settings requires an explicit acknowledgment;
+Resume then removes that retry link atomically while keeping the take, goal,
+and original expiry. Start fresh quarantines damaged recovery metadata and
+forgets a pending browser restore transaction. It preserves local drafts and
+the standalone retry brief. Discarding unfinished practice remains a separate
+confirmed action on the draft card.
+
+Support bundles do not traverse `drafts/v1/`. Client supplied diagnostic
+snapshots are filtered so draft media, manifests, and key material cannot be
+included. Only a bounded draft count and a Keychain mode name may appear in a
+snapshot. Installed DMG acceptance checks a killed replacement save, restart,
+and reinstall over the same app-data root. A signed Developer ID device-only
+Keychain test and live WebView recording/playback remain release gates.
 
 ## Summary
 

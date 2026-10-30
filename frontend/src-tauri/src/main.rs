@@ -55,6 +55,7 @@ const DRAFT_BRIDGE_JS: &str = r#"({
     recoveryIds: () => window.__TAURI_INTERNALS__.invoke("draft_recovery_ids"),
     saveSetup: (setup, draftId, expectedRevision) => window.__TAURI_INTERNALS__.invoke("draft_save_setup", { setup, draftId, expectedRevision }),
     replaceSetup: (setup, draftId, expectedRevision) => window.__TAURI_INTERNALS__.invoke("draft_replace_setup", { setup, draftId, expectedRevision }),
+    detachRetry: (draftId, expectedRevision, parentId) => window.__TAURI_INTERNALS__.invoke("draft_detach_retry", { draftId, expectedRevision, parentId }),
     importLegacyBrief: (setup, createdAt) => window.__TAURI_INTERNALS__.invoke("draft_import_legacy_brief", { setup, createdAt }),
     beginTake: (draftId, expectedRevision, take) => window.__TAURI_INTERNALS__.invoke("draft_begin_take", { draftId, expectedRevision, take }),
     writeTakeChunk: (transferId, bytes) => {
@@ -80,6 +81,12 @@ fn bridge(runtime: &desktop::Runtime) -> String {
 }
 
 fn main() {
+    if let Some(phase) = std::env::args().find_map(|arg| arg.strip_prefix("--internal-draft-delivery=").map(str::to_owned)) {
+        match draft_store::internal_delivery_check(&phase) {
+            Ok(result) => { println!("{result}"); return; }
+            Err(error) => { eprintln!("{error}"); std::process::exit(1); }
+        }
+    }
     let previous_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |information| {
         log_startup_issue(&format!("Desktop startup failure: {information}"));
@@ -93,7 +100,7 @@ fn main() {
     context.set_default_window_icon(None);
     let app = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![confirm_draft_action, support::save_support_bundle, support::save_learner_backup, support::draft_support_email,
-            draft_store::draft_list, draft_store::draft_recovery_ids, draft_store::draft_save_setup, draft_store::draft_replace_setup, draft_store::draft_import_legacy_brief, draft_store::draft_begin_take,
+            draft_store::draft_list, draft_store::draft_recovery_ids, draft_store::draft_save_setup, draft_store::draft_replace_setup, draft_store::draft_detach_retry, draft_store::draft_import_legacy_brief, draft_store::draft_begin_take,
             draft_store::draft_write_take_chunk, draft_store::draft_abort_take, draft_store::draft_abort_take_for_draft, draft_store::draft_finish_take, draft_store::draft_load_take_chunk,
             draft_store::draft_mark_submission, draft_store::draft_discard, draft_store::draft_expire])
         .manage(Mutex::new(None::<desktop::BackendOwner>))

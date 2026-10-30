@@ -37,6 +37,7 @@ test("damaged journal offers a safe first action and confirms start fresh withou
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText(/Kept: saved reports, history, recordings, uploads, archived attempts, and existing backup ZIPs/)).toBeVisible();
   await expect(dialog.getByText(/A new recovery journal replaces the active damaged journal/)).toBeVisible();
+  await expect(dialog.getByText(/Local unfinished drafts and unsent takes are kept/)).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Cancel and keep current state" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
@@ -139,6 +140,7 @@ test("a backup can be previewed before restore from the damaged view", async ({ 
   await expect(page.getByRole("region", { name: /Restore .* attempts and .* rehearsals/ })).toBeVisible();
   await expect(page.getByRole("heading", { name: /Restore .* attempts and .* rehearsals/ })).toBeFocused();
   await expect(page.getByText(/Existing items are kept unchanged and skipped/)).toBeVisible();
+  await expect(page.getByText(/Unfinished drafts and unsent recordings stay only on this Mac/).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Restore these new items" })).toBeEnabled();
   await page.unroute("**/v1/journal/status");
   await page.getByRole("region", { name: /Restore .* attempts and .* rehearsals/ }).getByRole("button", { name: "Cancel" }).click();

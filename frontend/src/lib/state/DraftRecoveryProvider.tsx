@@ -8,6 +8,8 @@ import { useAppStore, useAppStoreApi } from "./appStore";
 import { createDraftStoreAdapter, DraftStoreError, normalizedLearner, sameDraftAttempt, type DraftStoreAdapter } from "./draftStore";
 import { clearRetryDraft, readLegacyRetryBrief, readRetryDraft } from "./retryBriefStorage";
 import { confirmLocalDraft } from "@/lib/runtime/confirmLocalDraft";
+import { freshRetryParents, restoredRetryParents } from "@/lib/rehearsal/draftConflicts";
+import { apiClient, ApiClientError } from "@/lib/api/client";
 import type { SessionDraft } from "./sessionDraft";
 
 type LegacyBrief = NonNullable<ReturnType<typeof readLegacyRetryBrief>>;
@@ -42,6 +44,7 @@ type RecoveryContext = {
   reloadActiveTake: () => Promise<void>;
   findLearner: (speakerId: string) => SavedDraft | undefined;
   manageDrafts: () => void;
+  reconcileActiveRetryParent: () => Promise<void>;
 };
 
 const defaultContext: RecoveryContext = {
@@ -57,6 +60,7 @@ const defaultContext: RecoveryContext = {
   reloadActiveTake: async () => undefined,
   findLearner: () => undefined,
   manageDrafts: () => undefined,
+  reconcileActiveRetryParent: async () => undefined,
 };
 const Context = createContext<RecoveryContext>(defaultContext);
 export const useDraftRecovery = (): RecoveryContext => useContext(Context);
@@ -265,6 +269,18 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     setRecoveredFile(null);
     return true;
   };
+  const resolveRetryParent = async (entry: SavedDraft): Promise<SavedDraft> => {
+    const parent = entry.setup.retryOfSessionId;
+    let detached = Boolean(parent && restoredRetryParents().has(parent));
+    if (parent && freshRetryParents().has(parent) && !detached) {
+      try { await apiClient.getHistoryDetail(parent); }
+      catch (error) {
+        if (error instanceof ApiClientError && error.responseStatus === 404) detached = true;
+        else throw new DraftStoreError("storage", "Could not verify the retry parent after journal recovery");
+      }
+    }
+    return detached ? adapter.detachRetry(entry) : entry;
+  };
   const resume = (entry: SavedDraft) => {
     setBusy(true);
     void enqueue(async () => { try {
@@ -275,14 +291,16 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
         if (!draftsRef.current.length && !unreadableIds.length && !legacy) { setChoosing(false); setManaging(false); }
         return;
       }
-      const file = entry.take ? await adapter.loadTake(entry) : null;
-      applySetup(entry.setup);
-      setCurrent(entry);
+      const saved = await resolveRetryParent(entry);
+      if (saved !== entry) replaceListing(saved);
+      const file = saved.take ? await adapter.loadTake(saved) : null;
+      applySetup(saved.setup);
+      setCurrent(saved);
       setRecoveredFile(file);
       setChoosing(false);
       setManaging(false);
       setError(null);
-      navigate(entry.take || (entry.setup.retryOfSessionId && entry.setup.retryGoalEligible) ? "/speak" : "/session-setup", { replace: true });
+      navigate(saved.take || (saved.setup.retryOfSessionId && saved.setup.retryGoalEligible) ? "/speak" : "/session-setup", { replace: true });
     } catch (resumeError) {
       setError(resumeError as DraftStoreError);
       if (["unreadable", "lost_key"].includes((resumeError as DraftStoreError).kind)) {
@@ -304,6 +322,17 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     }),
     findLearner: speakerId => draftsRef.current.find(item => item.speakerId === normalizedLearner(speakerId)),
     manageDrafts: () => { setManaging(true); setChoosing(true); },
+    reconcileActiveRetryParent: () => enqueue(async () => {
+      const entry = activeRef.current;
+      if (!entry?.setup.retryOfSessionId) return;
+      const saved = await resolveRetryParent(entry);
+      if (saved !== entry) {
+        setCurrent(saved); replaceListing(saved);
+        if (sameDraftAttempt(entry, appStore.getState().draft)) {
+          appStore.getState().updateDraft({ retryOfSessionId: "", retryGoalEligible: false });
+        }
+      }
+    }),
   };
   const pending = choosing && (drafts.length > 0 || unreadableIds.length > 0 || legacy || error || managing);
   const recoveryCard = (
@@ -316,6 +345,8 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
           <p>{translate(entry.take ? "draft.take_saved" : "draft.setup_saved", { date: new Date(entry.expiresAt).toLocaleString(locale) })}</p>
           {entry.expiresAt - Date.now() < 24 * 60 * 60 * 1000 && <p>{translate("draft.expires_soon")}</p>}
           {entry.take && <p>{entry.submission ? translate("draft.submission_uncertain") : translate("draft.not_sent")}</p>}
+          {entry.setup.retryOfSessionId && restoredRetryParents().has(entry.setup.retryOfSessionId) && <p>{translate("draft.restored_parent_conflict")}</p>}
+          {entry.setup.retryOfSessionId && freshRetryParents().has(entry.setup.retryOfSessionId) && <p>{translate("draft.fresh_parent_check")}</p>}
           {confirmDiscard === entry.draftId ? <div role="group" aria-label={translate("draft.discard_confirm_title")}>
             <p>{translate("draft.discard_confirm", { learner: entry.setup.speakerId, task: entry.setup.themeLabel, size: entry.take ? `${(entry.take.size / 1024 / 1024).toFixed(1)} MiB` : "0 MiB" })}</p>
             <Button disabled={busy} onClick={() => void discard(entry.draftId)}>{translate("draft.discard_action")}</Button>

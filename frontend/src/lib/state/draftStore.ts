@@ -119,6 +119,12 @@ export const createDraftStoreAdapter = (bridge: DesktopDraftStoreBridge | undefi
         throw failure(error);
       }
     },
+    async detachRetry(draft: SavedDraft): Promise<SavedDraft> {
+      if (!bridge?.detachRetry) throw new DraftStoreError("unsupported", "This draft store cannot detach an imported retry link");
+      if (!draft.setup.retryOfSessionId) return draft;
+      try { return await bridge.detachRetry(draft.draftId, draft.revision, draft.setup.retryOfSessionId); }
+      catch (error) { throw failure(error); }
+    },
     async importLegacyBrief(setup: SessionDraft, createdAt: number): Promise<SavedDraft> {
       if (!bridge) return unsupported();
       try { return await bridge.importLegacyBrief(setup, createdAt); }

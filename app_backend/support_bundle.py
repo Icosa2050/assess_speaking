@@ -171,6 +171,28 @@ def _sanitize_for_bundle(value: Any, stats: RedactionStats) -> Any:
     return _sanitize_text(value, stats) if isinstance(value, str) else value
 
 
+def _sanitize_client_draft_fields(value: Any) -> Any:
+    """Client snapshots are untrusted; permit only aggregate draft facts."""
+    if isinstance(value, list):
+        return [_sanitize_client_draft_fields(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    safe: dict[str, Any] = {}
+    for key, child in value.items():
+        name = str(key).lower()
+        if name in {"draft_count", "saved_draft_count"}:
+            if isinstance(child, int) and not isinstance(child, bool) and 0 <= child <= 3:
+                safe[key] = child
+        elif name in {"keychain_mode", "draft_keychain_mode"}:
+            if isinstance(child, str) and child in {"device-only", "local-login", "unavailable", "unknown"}:
+                safe[key] = child
+        elif any(part in name for part in ("draft", "take", "manifest", "keychain", "ciphertext", "plaintext", "media", "recording", "key_material")):
+            continue
+        else:
+            safe[key] = _sanitize_client_draft_fields(child)
+    return safe
+
+
 def _read_json(path: Path) -> dict[str, Any] | list[Any] | None:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -349,13 +371,13 @@ def create_support_bundle(
         _add_json_file_to_archive(
             archive,
             entry_name="client/client_snapshot.json",
-            payload=request.client_snapshot,
+            payload=_sanitize_client_draft_fields(request.client_snapshot),
             stats=stats,
         )
         _add_json_file_to_archive(
             archive,
             entry_name="client/client_diagnostics.json",
-            payload=request.client_diagnostics,
+            payload=_sanitize_client_draft_fields(request.client_diagnostics),
             stats=stats,
         )
         _add_json_file_to_archive(archive, entry_name="storage_summary.json", payload=build_storage_summary(runtime_config).model_dump(), stats=stats)

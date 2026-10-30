@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest import mock
 
 from app_core.app_data import AppDataPaths
-from app_core.diagnostics import collect_startup_diagnostics
+from app_core.diagnostics import collect_startup_diagnostics, collect_support_bundle_diagnostics
 from app_core.runtime_resolver import RuntimeConfig
 from app_core.state import AppPreferences, AppState, ProviderConnection
 
@@ -358,9 +358,17 @@ class StartupDiagnosticsTests(unittest.TestCase):
             support_dir.mkdir(parents=True, exist_ok=True)
             (support_dir / "fresh.zip").write_text("bundle", encoding="utf-8")
             (paths.logs_dir / "backend.log").write_text("active", encoding="utf-8")
+            drafts = paths.root / "drafts" / "v1"
+            drafts.mkdir(parents=True)
+            (drafts / "private.manifest").write_bytes(b"draft-manifest-sentinel")
+            (drafts / "private.media").write_bytes(b"unsent-media-sentinel")
 
             with mock.patch("app_core.diagnostics.bootstrap_app_environment", return_value=paths):
                 diagnostics = collect_startup_diagnostics(
+                    AppState(prefs=AppPreferences(log_dir=str(paths.reports_dir))),
+                    include_runtime_health=False,
+                )
+                support = collect_support_bundle_diagnostics(
                     AppState(prefs=AppPreferences(log_dir=str(paths.reports_dir))),
                     include_runtime_health=False,
                 )
@@ -369,6 +377,9 @@ class StartupDiagnosticsTests(unittest.TestCase):
         self.assertNotIn("maintenance_tmp", by_key)
         self.assertNotIn("maintenance_jobs", by_key)
         self.assertNotIn("maintenance_logs", by_key)
+        self.assertNotIn("draft-manifest-sentinel", repr(support))
+        self.assertNotIn("unsent-media-sentinel", repr(support))
+        self.assertNotIn("private.manifest", repr(support))
 
 
 if __name__ == "__main__":
