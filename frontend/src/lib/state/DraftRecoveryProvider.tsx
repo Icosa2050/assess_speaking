@@ -1,9 +1,11 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { createTranslator } from "@/lib/i18n";
-import type { SavedDraft } from "@/lib/runtime/desktopBridge";
+import { apiClient, ApiClientError } from "@/lib/api/client";
+import type { JobStatus } from "@/lib/api/types";
+import type { DraftSubmission, SavedDraft } from "@/lib/runtime/desktopBridge";
 import { useAppStore, useAppStoreApi } from "./appStore";
 import { createDraftStoreAdapter, DraftStoreError, normalizedLearner, sameDraftAttempt, type DraftStoreAdapter } from "./draftStore";
 import { clearRetryDraft, readLegacyRetryBrief, readRetryDraft } from "./retryBriefStorage";
@@ -34,6 +36,7 @@ type RecoveryContext = {
   saveSetup: (setup: SessionDraft) => Promise<SavedDraft | null>;
   replaceSetup: (setup: SessionDraft, previous: SavedDraft) => Promise<SavedDraft>;
   saveTake: (setup: SessionDraft, file: File, duration: number, method: "record" | "upload", progress: (percent: number) => void) => Promise<SavedDraft>;
+  markSubmission: (status: SavedDraft["status"], submission: DraftSubmission) => Promise<SavedDraft | null>;
   prepareNewAttempt: (speakerId: string) => Promise<boolean>;
   discardActive: () => Promise<void>;
   discardDraft: (id: string) => Promise<boolean>;
@@ -49,6 +52,7 @@ const defaultContext: RecoveryContext = {
   saveSetup: async () => null,
   replaceSetup: async () => { throw new Error("Local draft storage is unavailable"); },
   saveTake: async () => { throw new Error("Local draft storage is unavailable"); },
+  markSubmission: async () => null,
   prepareNewAttempt: async () => true,
   discardActive: async () => undefined,
   discardDraft: async () => true,
@@ -66,6 +70,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   adapter = stableAdapter;
   const appStore = useAppStoreApi();
   const navigate = useNavigate();
+  const location = useLocation();
   const locale = useAppStore(state => state.preferences.uiLocale);
   const applySetup = useAppStore(state => state.applySetup);
   const clearRecording = useAppStore(state => state.clearRecording);
@@ -77,6 +82,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   const [choosing, setChoosing] = useState(false);
   const [managing, setManaging] = useState(false);
   const [drafts, setDrafts] = useState<SavedDraft[]>([]);
+  const [receiptStatuses, setReceiptStatuses] = useState<Record<string, JobStatus>>({});
   const draftsRef = useRef<SavedDraft[]>([]);
   const [unreadableIds, setUnreadableIds] = useState<string[]>([]);
   const [active, setActive] = useState<SavedDraft | null>(null);
@@ -206,6 +212,58 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       return saved;
     } catch (saveError) { setError(saveError as DraftStoreError); throw saveError; }
   });
+  const markSubmission: RecoveryContext["markSubmission"] = (status, submission) => enqueue(async () => {
+    if (!adapter.supported || !activeRef.current) return null;
+    const saved = await adapter.markSubmission(activeRef.current, status, submission);
+    setCurrent(saved); replaceListing(saved);
+    return saved;
+  });
+  useEffect(() => {
+    if (!booted || !adapter.supported) return;
+    let cancelled = false;
+    void enqueue(async () => {
+      for (const entry of [...draftsRef.current]) {
+        if (cancelled || !entry.submission) continue;
+        const receipt = entry.submission;
+        try {
+          if (receipt.assessmentRequestId) {
+            const found = await apiClient.getAssessmentByRequest(receipt.assessmentRequestId);
+            if (cancelled) return;
+            setReceiptStatuses(previous => ({ ...previous, [entry.draftId]: found.status }));
+            if (found.status === "completed" && found.report_id) {
+              await adapter.discard(entry.draftId);
+              draftsRef.current = draftsRef.current.filter(item => item.draftId !== entry.draftId);
+              setDrafts(draftsRef.current);
+              if (activeRef.current?.draftId === entry.draftId) { setCurrent(null); setRecoveredFile(null); }
+              const brief = readRetryDraft();
+              if (brief && sameDraftAttempt(entry, brief)) clearRetryDraft();
+            } else if (entry.status === "assessment_uncertain" ||
+                (["failed", "cancelled"].includes(found.status) && receipt.lastConfirmedPhase !== found.status)) {
+              const saved = await adapter.markSubmission(entry, "assessing", {
+                ...receipt, assessmentId: found.assessment_id,
+                lastConfirmedPhase: found.status === "failed" || found.status === "cancelled" ? found.status : "assessment",
+              });
+              replaceListing(saved);
+              if (activeRef.current?.draftId === entry.draftId) setCurrent(saved);
+            }
+          } else if (receipt.uploadRequestId && !receipt.audioId) {
+            const found = await apiClient.getUploadByRequest(receipt.uploadRequestId);
+            if (cancelled) return;
+            const saved = await adapter.markSubmission(entry, "uploaded", {
+              ...receipt, audioId: found.audio_id, lastConfirmedPhase: "upload",
+            });
+            replaceListing(saved);
+            if (activeRef.current?.draftId === entry.draftId) setCurrent(saved);
+          }
+        } catch (lookupError) {
+          if (!(lookupError instanceof ApiClientError && lookupError.responseStatus === 404)) {
+            // Transport failure leaves the take and receipt untouched.
+          }
+        }
+      }
+    });
+    return () => { cancelled = true; };
+  }, [booted, adapter, location.pathname]);
   const discardActive = () => enqueue(async () => {
     const id = activeRef.current?.draftId;
     if (!id) return;
@@ -277,6 +335,11 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       }
       const file = entry.take ? await adapter.loadTake(entry) : null;
       applySetup(entry.setup);
+      const status = receiptStatuses[entry.draftId];
+      if (status && entry.submission?.assessmentId) {
+        appStore.getState().setRecordingJob({ assessmentId: entry.submission.assessmentId, status,
+          phase: status, progress: ["completed", "failed", "cancelled"].includes(status) ? 1 : 0 });
+      }
       setCurrent(entry);
       setRecoveredFile(file);
       setChoosing(false);
@@ -294,7 +357,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   };
   const context: RecoveryContext = {
     supported: adapter.supported, active, drafts, hasStoredEntries: Boolean(drafts.length || unreadableIds.length), recoveredFile, error,
-    saveSetup, replaceSetup, saveTake, prepareNewAttempt, discardActive, discardDraft: discard,
+    saveSetup, replaceSetup, saveTake, markSubmission, prepareNewAttempt, discardActive, discardDraft: discard,
     leaveActive: () => { setCurrent(null); setRecoveredFile(null); setError(null); },
     clearRecoveredFile: () => setRecoveredFile(null),
     reloadActiveTake: () => enqueue(async () => {
@@ -315,7 +378,11 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
           <p>{translate(entry.take ? "draft.recorded_at" : "draft.edited_at", { date: new Date(entry.take?.captureEndedAt ?? entry.updatedAt).toLocaleString(locale) })}</p>
           <p>{translate(entry.take ? "draft.take_saved" : "draft.setup_saved", { date: new Date(entry.expiresAt).toLocaleString(locale) })}</p>
           {entry.expiresAt - Date.now() < 24 * 60 * 60 * 1000 && <p>{translate("draft.expires_soon")}</p>}
-          {entry.take && <p>{entry.submission ? translate("draft.submission_uncertain") : translate("draft.not_sent")}</p>}
+          {entry.take && <p>{!entry.submission ? translate("draft.not_sent") : receiptStatuses[entry.draftId] === "failed"
+            ? translate("draft.assessment_failed") : receiptStatuses[entry.draftId] === "cancelled"
+            ? translate("draft.assessment_cancelled") : receiptStatuses[entry.draftId] === "queued" || receiptStatuses[entry.draftId] === "running"
+            ? translate("draft.assessment_pending") : entry.status === "uploaded"
+            ? translate("draft.upload_confirmed") : translate("draft.submission_uncertain")}</p>}
           {confirmDiscard === entry.draftId ? <div role="group" aria-label={translate("draft.discard_confirm_title")}>
             <p>{translate("draft.discard_confirm", { learner: entry.setup.speakerId, task: entry.setup.themeLabel, size: entry.take ? `${(entry.take.size / 1024 / 1024).toFixed(1)} MiB` : "0 MiB" })}</p>
             <Button disabled={busy} onClick={() => void discard(entry.draftId)}>{translate("draft.discard_action")}</Button>
@@ -344,6 +411,6 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       </Card>
   );
   return <Context.Provider value={context}>
-    {!booted ? <p role="status">{translate("journey.loading")}</p> : pending && !managing ? recoveryCard : <>{children}{managing && recoveryCard}</>}
+    {!booted ? <p role="status">{translate("journey.loading")}</p> : pending && !managing ? recoveryCard : <>{managing && recoveryCard}{children}</>}
   </Context.Provider>;
 };

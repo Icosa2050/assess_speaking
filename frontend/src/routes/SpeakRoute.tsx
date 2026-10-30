@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { apiClient, ApiClientError } from "@/lib/api/client";
+import type { DraftSubmission } from "@/lib/runtime/desktopBridge";
 import type {
   AssessmentStatusResponse,
   RuntimeResponse,
@@ -43,6 +44,12 @@ const DEFAULT_SCORING_WHISPER_MODEL = "large-v3";
 const isIndeterminateAssessmentResponse = (error: unknown): boolean =>
   error instanceof TypeError ||
   (error instanceof DOMException && ["AbortError", "NetworkError", "TimeoutError"].includes(error.name));
+
+const emptyReceipt = (uploadRequestId: string): DraftSubmission => ({ uploadRequestId, audioId: "",
+  assessmentRequestId: "", assessmentId: "", requestFingerprint: "", frozenRequestBody: "", lastConfirmedPhase: "none" });
+const safeSubmissionBody = (request: Record<string, unknown>): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(request).filter(([key]) => !["llm_base_url", "llm_api_key", "openrouter_http_referer", "openrouter_app_title"].includes(key)));
+const isAbsentRequest = (error: unknown): boolean => error instanceof ApiClientError && error.responseStatus === 404;
 
 const cardStyle = {
   display: "grid",
@@ -277,10 +284,23 @@ export const SpeakRoute = () => {
     previewUrlRef.current = url;
     setPreviewUrl(url);
     setAttachedFile(file);
+    const receipt = draftRecovery.active?.submission;
+    if (receipt) {
+      uploadIdentity.current = { file, requestId: receipt.uploadRequestId };
+      if (receipt.audioId) savedUpload.current = { file, audioId: receipt.audioId };
+      if (receipt.assessmentRequestId && receipt.frozenRequestBody) {
+        const frozen = JSON.parse(receipt.frozenRequestBody) as Record<string, unknown>;
+        const { request_id: _requestId, ...safe } = frozen;
+        submission.current = { signature: JSON.stringify(safe), requestId: receipt.assessmentRequestId };
+      }
+      setUploadUnconfirmed(!receipt.audioId);
+      setRetryResponseUnknown(Boolean(receipt.assessmentRequestId && !receipt.assessmentId));
+      if (receipt.assessmentRequestId && !receipt.assessmentId) setRetryError(translate("speak.job_status_unknown"));
+    }
     setInputMode(draftRecovery.active?.take?.inputMethod || "record");
     setRecordedDurationSec(draftRecovery.active?.take?.durationSec ?? null);
     setLocalSaveState("saved");
-    updateRecording({ status: "ready", ...(["queued", "running", "uncertain"].includes(lifecycleState) ? {} : { assessmentState: "idle" }), audioPath: url,
+    updateRecording({ status: "ready", ...(["queued", "running", "uncertain", "failed", "cancelled"].includes(lifecycleState) ? {} : { assessmentState: "idle" }), audioPath: url,
       durationSec: draftRecovery.active?.take?.durationSec ?? 0,
       inputDigest: `${file.name}:${file.size}:${file.lastModified}`,
       inputMethod: draftRecovery.active?.take?.inputMethod || "record", error: "" });
@@ -609,6 +629,7 @@ export const SpeakRoute = () => {
 
     let uploadAttempted = false;
     let assessmentRequestAttempted = false;
+    let receipt = activeMatches ? draftRecovery.active?.submission ?? null : null;
     const priorTerminalJob = recording.job.assessmentId && (recording.job.status === "failed" || recording.job.status === "cancelled")
       ? recording.job : null;
     try {
@@ -624,9 +645,49 @@ export const SpeakRoute = () => {
         await Promise.all([runtimeQuery.refetch(), runtimeSettingsQuery.refetch()]); return;
       }
       updateRecording(priorTerminalJob ? { error: "" } : { error: "", assessmentState: "idle" });
+      if (draftRecovery.supported && (!activeMatches || localSaveState !== "saved")) {
+        saveInFlight.current = true;
+        setLocalSaveState("saving");
+        try {
+          if (!activeMatches) await draftRecovery.saveSetup(draft);
+          const duration = recordedDurationSec ?? await capturedAudioSeconds(attachedFile);
+          if (!duration) throw new Error("Could not decode duration");
+          const saved = await draftRecovery.saveTake(draft, attachedFile, duration, inputMode === "upload" ? "upload" : "record", setLocalSaveProgress);
+          receipt = saved.submission;
+          setLocalSaveState("saved");
+        } finally { saveInFlight.current = false; }
+      }
+      if (receipt?.assessmentRequestId) {
+        try {
+          const found = await apiClient.getAssessmentByRequest(receipt.assessmentRequestId);
+          if (resumeAssessmentId && ["failed", "cancelled"].includes(found.status)) {
+            receipt = { ...receipt, assessmentId: found.assessment_id,
+              lastConfirmedPhase: found.status === "failed" ? "failed" : "cancelled" };
+            await draftRecovery.markSubmission("assessing", receipt);
+          } else {
+            setRecordingAssessing({ assessmentId: found.assessment_id, status: found.status, phase: found.status,
+              progress: ["completed", "failed", "cancelled"].includes(found.status) ? 1 : 0, error: "", reportPath: "" });
+            if (found.status === "completed") {
+              const full = await apiClient.getAssessmentStatus(found.assessment_id);
+              if (full.payload) updateReview(toReviewState(full));
+            }
+            return;
+          }
+        } catch (error) { if (!isAbsentRequest(error)) throw error; }
+      }
       if (savedUpload.current?.file !== attachedFile) {
-        const replayingUpload = uploadUnconfirmed && uploadIdentity.current?.file === attachedFile;
-        if (uploadIdentity.current?.file !== attachedFile) uploadIdentity.current = { file: attachedFile, requestId: crypto.randomUUID() };
+        const replayingUpload = Boolean(receipt?.uploadRequestId || (uploadUnconfirmed && uploadIdentity.current?.file === attachedFile));
+        if (receipt?.audioId) savedUpload.current = { file: attachedFile, audioId: receipt.audioId };
+        else if (receipt?.uploadRequestId) {
+          try {
+            const found = await apiClient.getUploadByRequest(receipt.uploadRequestId);
+            receipt = { ...receipt, audioId: found.audio_id, lastConfirmedPhase: "upload" };
+            await draftRecovery.markSubmission("uploaded", receipt);
+            savedUpload.current = { file: attachedFile, audioId: found.audio_id };
+          } catch (error) { if (!isAbsentRequest(error)) throw error; }
+        }
+        if (savedUpload.current?.file !== attachedFile) {
+        if (uploadIdentity.current?.file !== attachedFile) uploadIdentity.current = { file: attachedFile, requestId: receipt?.uploadRequestId || crypto.randomUUID() };
         const controller = new AbortController();
         uploadController.current = controller;
         const startedAt = Date.now();
@@ -640,15 +701,24 @@ export const SpeakRoute = () => {
         if (!replayingUpload && attachedFile.size > limits.available_bytes) {
           throw new Error(translate("speak.upload_disk_error"));
         }
+        if (draftRecovery.supported) {
+          receipt ??= emptyReceipt(uploadIdentity.current.requestId);
+          await draftRecovery.markSubmission("upload_uncertain", receipt);
+        }
         uploadAttempted = true;
         const upload = await apiClient.uploadAudio(attachedFile, { signal: controller.signal,
           requestId: uploadIdentity.current.requestId,
           onProgress: (percent) => { setUploadProgress(percent); setUploadUpdatedAt(Date.now()); } });
         savedUpload.current = { file: attachedFile, audioId: upload.audio_id };
+        if (draftRecovery.supported && receipt) {
+          receipt = { ...receipt, audioId: upload.audio_id, lastConfirmedPhase: "upload" };
+          await draftRecovery.markSubmission("uploaded", receipt);
+        }
         uploadAttempted = false;
         setUploadUnconfirmed(false);
         uploadController.current = null;
         setUploadProgress(null);
+        }
       }
       const openrouterHttpReferer = String(
         activeRuntimeConnection?.openrouter_http_referer || "",
@@ -684,11 +754,32 @@ export const SpeakRoute = () => {
             }
           : {}),
       };
-      const signature = JSON.stringify(request);
-      if (submission.current?.signature !== signature) submission.current = { signature, requestId: crypto.randomUUID() };
+      const safeRequest = safeSubmissionBody(request);
+      const signature = JSON.stringify(safeRequest);
+      const terminalRetry = receipt?.lastConfirmedPhase === "failed" || receipt?.lastConfirmedPhase === "cancelled";
+      if (receipt?.assessmentRequestId && !terminalRetry) {
+        if (receipt.frozenRequestBody !== JSON.stringify({ ...safeRequest, request_id: receipt.assessmentRequestId })) {
+          throw new Error(translate("sharing.changed"));
+        }
+        submission.current = { signature, requestId: receipt.assessmentRequestId };
+      } else if (submission.current?.signature !== signature || terminalRetry) {
+        submission.current = { signature, requestId: crypto.randomUUID() };
+      }
       const body = { ...request, request_id: submission.current.requestId };
+      if (draftRecovery.supported && receipt) {
+        receipt = { ...receipt, assessmentRequestId: submission.current.requestId,
+          assessmentId: terminalRetry ? "" : receipt.assessmentId,
+          requestFingerprint: sharingQuery.data.fingerprint,
+          frozenRequestBody: JSON.stringify({ ...safeRequest, request_id: submission.current.requestId }),
+          lastConfirmedPhase: terminalRetry ? "upload" : receipt.lastConfirmedPhase };
+        await draftRecovery.markSubmission("assessment_uncertain", receipt);
+      }
       assessmentRequestAttempted = true;
       const created = await apiClient.createAssessment(body);
+      if (draftRecovery.supported && receipt) {
+        receipt = { ...receipt, assessmentId: created.assessment_id, lastConfirmedPhase: "assessment" };
+        await draftRecovery.markSubmission("assessing", receipt);
+      }
       setRecordingAssessing({
         assessmentId: created.assessment_id,
         status: created.status,

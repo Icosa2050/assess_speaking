@@ -86,7 +86,12 @@ const injectDraftBridge = async (page: Page) => page.addInitScript(() => {
       if (!entry) throw Error("Saved take is damaged");
       return decode(entry.chunks[index]);
     },
-    markSubmission: async () => { throw Error("No automatic submission receipt"); },
+    markSubmission: async (draftId: string, revision: number, status: string, submission: Record<string, any>) => {
+      const entries = read(); const entry = entries.find(item => item.manifest.draftId === draftId);
+      if (!entry || entry.manifest.revision !== revision || !entry.manifest.take) throw Error("Draft changed or expired");
+      entry.manifest = { ...entry.manifest, revision: revision + 1, status, submission, updatedAt: Date.now() };
+      write(entries); return entry.manifest;
+    },
     discard: async (draftId: string) => write(read().filter(entry => entry.manifest.draftId !== draftId)),
     expire: async () => 0,
   };
@@ -96,7 +101,10 @@ const injectDraftBridge = async (page: Page) => page.addInitScript(() => {
   };
 });
 
-const backend = async (page: Page, requests: { uploads: number; assessments: number }) => {
+type Requests = { uploads: number; assessments: number; uploadId?: string; assessmentId?: string;
+  assessmentStatus?: "queued" | "completed" | "failed" | "cancelled"; reportId?: string;
+  loseUploadResponse?: boolean; loseAssessmentResponse?: boolean };
+const backend = async (page: Page, requests: Requests) => {
   await stubReadyReadiness(page);
   await page.route("**/v1/runtime", route => route.fulfill({ json: { configured: true, provider: "ollama", model: "test",
     base_url: "http://127.0.0.1:11434/v1", requires_api_key: false, has_api_key: false } }));
@@ -107,9 +115,21 @@ const backend = async (page: Page, requests: { uploads: number; assessments: num
     fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" },
     analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null } }));
   await page.route("**/v1/uploads/limits", route => route.fulfill({ json: { max_bytes: 100 * 1024 * 1024, available_bytes: 200 * 1024 * 1024 } }));
-  await page.route("**/v1/uploads", route => { requests.uploads++; return route.fulfill({ json: {
-    audio_id: "audio-1", stored_path: "/private/audio-1", sha1: "x", original_name: "take.wav" } }); });
-  await page.route("**/v1/assessments", route => { requests.assessments++; return route.fulfill({ json: { assessment_id: "assessment-1", status: "queued" } }); });
+  await page.route("**/v1/uploads/by-request/*", route => requests.uploadId
+    ? route.fulfill({ json: { audio_id: "audio-1" } }) : route.fulfill({ status: 404, json: { detail: "absent" } }));
+  await page.route("**/v1/assessments/by-request/*", route => requests.assessmentId
+    ? route.fulfill({ json: { assessment_id: "assessment-1", status: requests.assessmentStatus || "queued", report_id: requests.reportId || null } })
+    : route.fulfill({ status: 404, json: { detail: "absent" } }));
+  await page.route("**/v1/uploads", route => {
+    requests.uploads++; requests.uploadId = route.request().headers()["x-upload-request-id"];
+    if (requests.loseUploadResponse) { requests.loseUploadResponse = false; return route.abort("failed"); }
+    return route.fulfill({ json: { audio_id: "audio-1", stored_path: "/private/audio-1", sha1: "x", original_name: "take.wav" } });
+  });
+  await page.route("**/v1/assessments", route => {
+    requests.assessments++; requests.assessmentId = (route.request().postDataJSON() as {request_id: string}).request_id;
+    if (requests.loseAssessmentResponse) { requests.loseAssessmentResponse = false; return route.abort("failed"); }
+    return route.fulfill({ json: { assessment_id: "assessment-1", status: "queued" } });
+  });
   await page.route("**/v1/assessments/assessment-1", route => route.fulfill({ json: {
     assessment_id: "assessment-1", status: "queued", phase: "queued", progress: 0,
     error: null, report_path: null, payload: null, summary: null } }));
@@ -165,6 +185,87 @@ for (const [label, viewport] of [["1360x900", { width: 1360, height: 900 }], ["1
       await page.reload();
       await expect(page.getByTestId("draft.recovery")).toHaveCount(0);
       expect(requests).toEqual({ uploads: 0, assessments: 0 });
+    });
+    test("lost assessment response reconciles after restart and clears only on a completed report", async ({ page }) => {
+      const requests: Requests = { uploads: 0, assessments: 0, loseAssessmentResponse: true };
+      await injectDraftBridge(page); await backend(page, requests);
+      await save(page);
+      expect(requests.uploads).toBe(0); expect(requests.assessments).toBe(0);
+      await page.getByTestId("speak.submit").click();
+      await expect.poll(() => requests.assessments).toBe(1);
+      expect(requests.uploads).toBe(1);
+      const submittedId = requests.assessmentId;
+      await page.getByTestId("home.open_history").click();
+      await page.reload();
+      await expect(page.getByTestId("draft.entry")).toContainText("Alex");
+      await expect(page.getByTestId("draft.entry")).toContainText("in progress");
+      expect(requests.uploads).toBe(1); expect(requests.assessments).toBe(1);
+      expect(requests.assessmentId).toBe(submittedId);
+      requests.assessmentStatus = "completed"; requests.reportId = "report-1";
+      await page.reload();
+      await expect(page.getByTestId("draft.entry")).toHaveCount(0);
+      expect(requests.uploads).toBe(1); expect(requests.assessments).toBe(1);
+    });
+    test("failed or cancelled reconciliation keeps the take and does not submit", async ({ page }) => {
+      const requests: Requests = { uploads: 0, assessments: 0, loseAssessmentResponse: true };
+      await injectDraftBridge(page); await backend(page, requests);
+      await save(page);
+      await page.getByTestId("speak.submit").click();
+      await expect.poll(() => requests.assessments).toBe(1);
+      await page.getByTestId("home.open_history").click();
+      requests.assessmentStatus = "failed";
+      await page.reload();
+      await expect(page.getByTestId("draft.entry")).toContainText("assessment failed");
+      expect(requests.uploads).toBe(1); expect(requests.assessments).toBe(1);
+      requests.assessmentStatus = "cancelled";
+      await page.reload();
+      await expect(page.getByTestId("draft.entry")).toContainText("assessment was cancelled");
+      expect(requests.uploads).toBe(1); expect(requests.assessments).toBe(1);
+      const previousId = requests.assessmentId;
+      await page.getByRole("button", { name: "Resume" }).click();
+      await expect(page.getByTestId("speak.retry_assessment")).toBeEnabled();
+      expect(requests.assessments).toBe(1);
+      await page.getByTestId("speak.retry_assessment").click();
+      await expect.poll(() => requests.assessments).toBe(2);
+      expect(requests.assessmentId).not.toBe(previousId);
+      expect(requests.uploads).toBe(1);
+    });
+    test("unknown assessment stays local and reuses the request ID only after Submit", async ({ page }) => {
+      const requests: Requests = { uploads: 0, assessments: 0, loseAssessmentResponse: true };
+      await injectDraftBridge(page); await backend(page, requests);
+      await save(page);
+      await page.getByTestId("speak.submit").click();
+      await expect.poll(() => requests.assessments).toBe(1);
+      const submittedId = requests.assessmentId;
+      requests.assessmentId = undefined;
+      await page.reload();
+      await expect(page.getByTestId("draft.entry")).toContainText("Alex");
+      expect(requests.uploads).toBe(1); expect(requests.assessments).toBe(1);
+      await page.getByRole("button", { name: "Resume" }).click();
+      await expect(page.getByTestId("speak.submit")).toBeEnabled();
+      expect(requests.assessments).toBe(1);
+      await page.getByTestId("speak.submit").click();
+      await expect.poll(() => requests.assessments).toBe(2);
+      expect(requests.assessmentId).toBe(submittedId);
+      expect(requests.uploads).toBe(1);
+    });
+    test("lost upload response is resolved by request ID without a second upload", async ({ page }) => {
+      const requests: Requests = { uploads: 0, assessments: 0, loseUploadResponse: true };
+      await injectDraftBridge(page); await backend(page, requests);
+      await save(page);
+      await page.getByTestId("speak.submit").click();
+      await expect.poll(() => requests.uploads).toBe(1);
+      expect(requests.assessments).toBe(0);
+      const originalId = requests.uploadId;
+      await page.reload();
+      await expect(page.getByTestId("draft.entry")).toContainText("local helper has the upload");
+      expect(requests.uploads).toBe(1); expect(requests.assessments).toBe(0);
+      await page.getByRole("button", { name: "Resume" }).click();
+      await expect(page.getByTestId("speak.submit")).toBeEnabled();
+      await page.getByTestId("speak.submit").click();
+      await expect.poll(() => requests.assessments).toBe(1);
+      expect(requests.uploads).toBe(1);
+      expect(requests.uploadId).toBe(originalId);
     });
   });
 }

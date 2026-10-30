@@ -419,6 +419,30 @@ class JobManager:
                        for path in self.uploads_dir.glob("aud_*.json")
                        if (saved := _read_json(path)))
 
+    def lookup_upload_request(self, request_id: str) -> str | None:
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", request_id):
+            return None
+        with locked_file(self.uploads_dir / ".upload-requests.lock"):
+            for path in self.uploads_dir.glob("aud_*.json"):
+                saved = _read_json(path)
+                if saved.get("request_id") != request_id:
+                    continue
+                stored = Path(str(saved.get("stored_path") or ""))
+                if stored.is_file() and not stored.is_symlink() and stored.parent.resolve() == self.uploads_dir.resolve():
+                    return str(saved.get("audio_id") or "") or None
+        return None
+
+    def lookup_assessment_request(self, request_id: str) -> AssessmentStatusResponse | None:
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", request_id):
+            return None
+        with self._submit_lock:
+            for path in self._config.jobs_dir.glob("*.json"):
+                saved = _read_json(path)
+                request = saved.get("request")
+                if isinstance(request, dict) and request.get("request_id") == request_id:
+                    return self._get_status_locked(str(saved.get("assessment_id") or ""))
+        return None
+
     def register_upload_stream(self, *, source: BinaryIO, filename: str, request_id: str = "") -> UploadResponse:
         if request_id and not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", request_id):
             raise UploadRejected("Choose a valid upload request ID.", 400)
@@ -468,7 +492,8 @@ class JobManager:
                     hasher.update(chunk)
             digest = hasher.hexdigest()
             _write_json(metadata_path, {"audio_id": audio_id, "stored_path": str(stored_path.resolve()),
-                                      "sha1": digest, "original_name": filename, "request_id": request_id})
+                                      "sha1": digest, "original_name": filename, "request_id": request_id,
+                                      "created_at": _now_iso()})
         except BaseException:  # quality: allow[broad-except] remove partial files on cancellation too, then re-raise
             stored_path.unlink(missing_ok=True)
             metadata_path.unlink(missing_ok=True)

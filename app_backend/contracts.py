@@ -52,9 +52,11 @@ CANONICAL_PRODUCT_API_ROUTES: tuple[str, ...] = (
     "/v1/runtime",
     "/v1/uploads",
     "/v1/uploads/limits",
+    "/v1/uploads/by-request/{request_id}",
     "/v1/assessment-route",
     "/v1/runtime/sharing",
     "/v1/assessments",
+    "/v1/assessments/by-request/{request_id}",
     "/v1/assessments/{assessment_id}",
     "/v1/assessments/{assessment_id}/cancel",
     "/v1/assessments/{assessment_id}/resume",
@@ -277,6 +279,16 @@ class UploadResponse(BaseModel):
     stored_path: str
     sha1: str
     original_name: str = ""
+
+
+class UploadRequestLookupResponse(BaseModel):
+    audio_id: str
+
+
+class AssessmentRequestLookupResponse(BaseModel):
+    assessment_id: str
+    status: JobStatus
+    report_id: str | None = None
 
 
 class AssessmentCreateRequest(BaseModel):

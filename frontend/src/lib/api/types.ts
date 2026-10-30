@@ -22,6 +22,7 @@ export type ConnectionSecretState = "absent" | "present" | "missing";
 export type FrozenApiRoute =
   | `/v1/journal/${string}`
   | "/v1/uploads/limits"
+  | `/v1/uploads/by-request/${string}`
   | "/v1/health"
   | "/v1/diagnostics"
   | "/v1/readiness"
@@ -40,6 +41,7 @@ export type FrozenApiRoute =
   | "/v1/assessment-route"
   | "/v1/runtime/sharing"
   | "/v1/assessments"
+  | `/v1/assessments/by-request/${string}`
   | `/v1/assessments/${string}`
   | `/v1/assessments/${string}/cancel`
   | `/v1/assessments/${string}/resume`
@@ -218,6 +220,12 @@ export interface UploadResponse {
   stored_path: string;
   sha1: string;
   original_name: string;
+}
+
+export interface AssessmentRequestLookupResponse {
+  assessment_id: string;
+  status: JobStatus;
+  report_id: string | null;
 }
 
 export interface AssessmentCreateRequest {

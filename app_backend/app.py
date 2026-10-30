@@ -25,6 +25,7 @@ from app_backend.contracts import (
     AssessmentCreateRequest,
     AssessmentCreateResponse,
     AssessmentStatusResponse,
+    AssessmentRequestLookupResponse,
     CANONICAL_PRODUCT_API_ROUTES,
     ConnectionSecretState,
     DiagnosticsResponse,
@@ -51,6 +52,7 @@ from app_backend.contracts import (
     SupportBundleCreateRequest,
     SupportBundleCreateResponse,
     UploadResponse,
+    UploadRequestLookupResponse,
     WhisperModelStatusResponse,
 )
 from assessment_runtime.llm_client import LLMClientError
@@ -680,6 +682,13 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
     def current_upload_limits() -> dict[str, int]:
         return upload_limits(runtime_config.app_data.uploads_dir)
 
+    @app.get("/v1/uploads/by-request/{request_id}", response_model=UploadRequestLookupResponse, tags=[PRODUCT_API_TAG])
+    def upload_by_request(request_id: str) -> UploadRequestLookupResponse:
+        audio_id = app.state.job_manager.lookup_upload_request(request_id)
+        if not audio_id:
+            raise _http_error(404, ErrorCode.VALIDATION, "Upload request is not retained.")
+        return UploadRequestLookupResponse(audio_id=audio_id)
+
     @app.post("/v1/uploads", response_model=UploadResponse, tags=[PRODUCT_API_TAG])
     async def upload_audio(request: Request) -> UploadResponse:
         if upload_slots.locked():
@@ -718,6 +727,17 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
     @app.get("/v1/runtime/sharing", tags=[PRODUCT_API_TAG])
     def current_sharing_route():
         return sharing_route({})
+
+    @app.get("/v1/assessments/by-request/{request_id}", response_model=AssessmentRequestLookupResponse, tags=[PRODUCT_API_TAG])
+    def assessment_by_request(request_id: str) -> AssessmentRequestLookupResponse:
+        found = app.state.job_manager.lookup_assessment_request(request_id)
+        if found is None:
+            raise _http_error(404, ErrorCode.VALIDATION, "Assessment request is not retained.")
+        report = found.payload.get("report") if isinstance(found.payload, dict) else None
+        return AssessmentRequestLookupResponse(
+            assessment_id=found.assessment_id, status=found.status,
+            report_id=str(report.get("session_id")) if isinstance(report, dict) and report.get("session_id") else None,
+        )
 
     @app.get("/v1/assessments/{assessment_id}/resume-route", tags=[PRODUCT_API_TAG])
     def assessment_resume_route(assessment_id: str):

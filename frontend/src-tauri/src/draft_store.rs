@@ -456,7 +456,7 @@ impl Submission {
         .iter()
         .any(|s| !text_ok(s, 128))
             || !text_ok(&self.frozen_request_body, 16_384)
-            || !["none", "upload", "assessment", "completed"]
+            || !["none", "upload", "assessment", "completed", "failed", "cancelled"]
                 .contains(&self.last_confirmed_phase.as_str())
         {
             return Err(err("Invalid submission receipt"));
@@ -1432,32 +1432,36 @@ impl DraftStore {
             "assessment_uncertain" => {
                 matches!(status.as_str(), "assessment_uncertain" | "assessing")
             }
-            "assessing" => status == "assessing",
+            "assessing" => matches!(status.as_str(), "assessment_uncertain" | "assessing"),
             _ => false,
         };
         if !next_allowed {
             return Err(err("Invalid submission transition"));
         }
         if let Some(previous) = &manifest.submission {
+            let resetting = matches!(previous.last_confirmed_phase.as_str(), "failed" | "cancelled")
+                && status == "assessment_uncertain"
+                && submission.assessment_id.is_empty()
+                && !submission.assessment_request_id.is_empty()
+                && submission.assessment_request_id != previous.assessment_request_id;
             for (old, new) in [
                 (&previous.upload_request_id, &submission.upload_request_id),
                 (&previous.audio_id, &submission.audio_id),
-                (
-                    &previous.assessment_request_id,
-                    &submission.assessment_request_id,
-                ),
-                (&previous.assessment_id, &submission.assessment_id),
-                (
-                    &previous.request_fingerprint,
-                    &submission.request_fingerprint,
-                ),
-                (
-                    &previous.frozen_request_body,
-                    &submission.frozen_request_body,
-                ),
             ] {
                 if !old.is_empty() && old != new {
                     return Err(err("Submission receipt identity cannot change"));
+                }
+            }
+            if !resetting {
+                for (old, new) in [
+                    (&previous.assessment_request_id, &submission.assessment_request_id),
+                    (&previous.assessment_id, &submission.assessment_id),
+                    (&previous.request_fingerprint, &submission.request_fingerprint),
+                    (&previous.frozen_request_body, &submission.frozen_request_body),
+                ] {
+                    if !old.is_empty() && old != new {
+                        return Err(err("Submission receipt identity cannot change"));
+                    }
                 }
             }
             let phase = |value: &str| match value {
@@ -1465,9 +1469,10 @@ impl DraftStore {
                 "upload" => 1,
                 "assessment" => 2,
                 "completed" => 3,
+                "failed" | "cancelled" => 3,
                 _ => 4,
             };
-            if phase(&submission.last_confirmed_phase) < phase(&previous.last_confirmed_phase) {
+            if !resetting && phase(&submission.last_confirmed_phase) < phase(&previous.last_confirmed_phase) {
                 return Err(err("Submission confirmation cannot move backward"));
             }
         }
@@ -2865,6 +2870,49 @@ mod tests {
         assert!(store
             .begin_take(ready.draft_id.clone(), pending.revision, take(bytes))
             .is_err());
+    }
+    #[test]
+    fn submission_receipt_survives_restart_and_terminal_retry_needs_a_new_identity() {
+        let root = TestRoot::new();
+        let mut first_store = store(&root);
+        let draft = first_store.save_setup(setup("Alex"), None, None).unwrap();
+        let bytes = b"saved take";
+        let transfer = first_store.begin_take(draft.draft_id.clone(), draft.revision, take(bytes)).unwrap();
+        first_store.write_take_chunk(&transfer, bytes.to_vec()).unwrap();
+        let ready = first_store.finish_take(&transfer).unwrap();
+        let pending = first_store.mark_submission(&ready.draft_id, ready.revision, "upload_uncertain".into(), Submission {
+            upload_request_id: "upload-one".into(), audio_id: "".into(), assessment_request_id: "".into(),
+            assessment_id: "".into(), request_fingerprint: "".into(), frozen_request_body: "".into(),
+            last_confirmed_phase: "none".into(),
+        }).unwrap();
+        drop(first_store);
+        let mut reopened = store(&root);
+        assert_eq!(reopened.list().unwrap()[0].submission.as_ref().unwrap().upload_request_id, "upload-one");
+        let mut receipt = pending.submission.unwrap();
+        receipt.audio_id = "aud_one".into();
+        receipt.last_confirmed_phase = "upload".into();
+        let uploaded = reopened.mark_submission(&ready.draft_id, pending.revision, "uploaded".into(), receipt.clone()).unwrap();
+        receipt.assessment_request_id = "assessment-one".into();
+        receipt.request_fingerprint = "fingerprint".into();
+        receipt.frozen_request_body = r#"{"audio_id":"aud_one","request_id":"assessment-one","sharing_fingerprint":"fingerprint"}"#.into();
+        let uncertain = reopened.mark_submission(&ready.draft_id, uploaded.revision, "assessment_uncertain".into(), receipt.clone()).unwrap();
+        receipt.assessment_id = "asmt_one".into();
+        receipt.last_confirmed_phase = "assessment".into();
+        let accepted = reopened.mark_submission(&ready.draft_id, uncertain.revision, "assessing".into(), receipt.clone()).unwrap();
+        let mut illegal = receipt.clone();
+        illegal.assessment_request_id = "assessment-two".into();
+        assert!(reopened.mark_submission(&ready.draft_id, accepted.revision, "assessment_uncertain".into(), illegal).is_err());
+        receipt.last_confirmed_phase = "failed".into();
+        let failed = reopened.mark_submission(&ready.draft_id, accepted.revision, "assessing".into(), receipt.clone()).unwrap();
+        receipt.assessment_request_id = "assessment-two".into();
+        receipt.assessment_id.clear();
+        receipt.last_confirmed_phase = "upload".into();
+        receipt.frozen_request_body = r#"{"audio_id":"aud_one","request_id":"assessment-two","sharing_fingerprint":"fingerprint"}"#.into();
+        let retry = reopened.mark_submission(&ready.draft_id, failed.revision, "assessment_uncertain".into(), receipt).unwrap();
+        drop(reopened);
+        let mut restarted = store(&root);
+        assert_eq!(restarted.list().unwrap()[0].submission.as_ref().unwrap().assessment_request_id, "assessment-two");
+        assert_eq!(restarted.list().unwrap()[0].revision, retry.revision);
     }
     #[cfg(target_os = "macos")]
     #[test]

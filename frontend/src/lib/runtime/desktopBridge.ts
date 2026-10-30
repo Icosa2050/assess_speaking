@@ -20,7 +20,7 @@ export interface DraftSubmission {
   assessmentId: string;
   requestFingerprint: string;
   frozenRequestBody: string;
-  lastConfirmedPhase: "none" | "upload" | "assessment" | "completed";
+  lastConfirmedPhase: "none" | "upload" | "assessment" | "completed" | "failed" | "cancelled";
 }
 
 export interface SavedDraft {

@@ -29,6 +29,8 @@ vi.mock("@/lib/api/client", () => ({
     cancelAssessment: vi.fn(),
     createAssessment: vi.fn(),
     getAssessmentStatus: vi.fn(),
+    getAssessmentByRequest: vi.fn(),
+    getUploadByRequest: vi.fn(),
     getRuntime: vi.fn(),
     getDiagnostics: vi.fn(),
     getReadiness: vi.fn().mockResolvedValue({ ready: true, checks: [
@@ -502,6 +504,8 @@ describe("Speak route", () => {
     window.localStorage.removeItem("assess-speaking.first-take-recorded");
     vi.mocked(apiClient.getUploadLimits).mockResolvedValue({ max_bytes: 104857600, available_bytes: 104857600 });
     vi.clearAllMocks();
+    vi.mocked(apiClient.getAssessmentByRequest).mockRejectedValue(new ApiClientError(404, { code: "validation_error", detail: "absent" }));
+    vi.mocked(apiClient.getUploadByRequest).mockRejectedValue(new ApiClientError(404, { code: "validation_error", detail: "absent" }));
     mockedGetReadiness.mockResolvedValue(readyReadiness);
     vi.mocked(apiClient.getSharingRoute).mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null });
     stopTrack.mockClear();
@@ -805,6 +809,36 @@ describe("Speak route", () => {
     await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledTimes(2));
     expect(mockedCreateAssessment.mock.calls[1][0]).toEqual(mockedCreateAssessment.mock.calls[0][0]);
     expect(mockedUploadAudio).toHaveBeenCalledTimes(1);
+  });
+
+  it("commits the upload and assessment receipts before their POSTs", async () => {
+    const adapter = draftAdapterFixture([savedDraftFixture()]);
+    mockedUploadAudio.mockImplementation(async () => {
+      expect(adapter.markSubmission).toHaveBeenCalledWith(expect.anything(), "upload_uncertain", expect.objectContaining({ uploadRequestId: expect.any(String) }));
+      return { audio_id: "audio-1", stored_path: "/tmp/audio-1.wav", sha1: "sha1", original_name: "saved.wav" };
+    });
+    mockedCreateAssessment.mockImplementation(async () => {
+      expect(adapter.markSubmission).toHaveBeenCalledWith(expect.anything(), "assessment_uncertain", expect.objectContaining({ assessmentRequestId: expect.any(String) }));
+      return { assessment_id: "asmt-1", status: "queued" };
+    });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(mockedCreateAssessment).toHaveBeenCalledOnce());
+    await waitFor(() => expect(adapter.markSubmission).toHaveBeenCalledWith(expect.anything(), "assessing", expect.objectContaining({ assessmentId: "asmt-1" })));
+  });
+
+  it("never uploads when the local receipt cannot be committed", async () => {
+    const adapter = draftAdapterFixture([savedDraftFixture()]);
+    adapter.markSubmission.mockRejectedValueOnce(new Error("disk full"));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("speak.submit"));
+    await waitFor(() => expect(adapter.markSubmission).toHaveBeenCalledOnce());
+    expect(mockedUploadAudio).not.toHaveBeenCalled();
+    expect(mockedCreateAssessment).not.toHaveBeenCalled();
   });
 
   it("explains a stall and retries only after cancellation with retained audio", async () => {

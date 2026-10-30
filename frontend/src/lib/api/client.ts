@@ -4,6 +4,7 @@ import type {
   AssessmentCreateRequest,
   SharingRoute, SharingSelection,
   AssessmentCreateResponse,
+  AssessmentRequestLookupResponse,
   AssessmentStatusResponse,
   DiagnosticsResponse,
   ReadinessResponse,
@@ -165,6 +166,10 @@ const requestBlob = async (
 };
 
 export const createApiClient = (baseUrl?: string) => ({
+  getUploadByRequest: (requestId: string, options?: ClientOptions) =>
+    requestJson<{ audio_id: string }>(`/v1/uploads/by-request/${pathSegment(requestId)}`, { method: "GET" }, { ...options, baseUrl }),
+  getAssessmentByRequest: (requestId: string, options?: ClientOptions) =>
+    requestJson<AssessmentRequestLookupResponse>(`/v1/assessments/by-request/${pathSegment(requestId)}`, { method: "GET" }, { ...options, baseUrl }),
   getUploadLimits: (options?: ClientOptions) =>
     requestJson<{ max_bytes: number; available_bytes: number }>(
       "/v1/uploads/limits", { method: "GET" }, { ...options, baseUrl },

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import type { DesktopDraftStoreBridge, SavedDraft } from "@/lib/runtime/desktopBridge";
 import { desktopBridge } from "@/lib/runtime/desktopBridge";
+import { apiClient } from "@/lib/api/client";
 import { AppStoreProvider, useAppStore } from "./appStore";
 import { DraftRecoveryProvider, useDraftRecovery } from "./DraftRecoveryProvider";
 import { createDraftStoreAdapter, sameDraftAttempt } from "./draftStore";
@@ -63,7 +64,28 @@ const show = (bridge: DesktopDraftStoreBridge) => render(
 
 describe("desktop draft recovery gate", () => {
   beforeEach(() => { vi.stubGlobal("crypto", webcrypto); window.localStorage.clear(); });
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+  it("clears a matching take and retry brief after a completed receipt resolves on boot", async () => {
+    const saved = draft();
+    saved.setup = { ...saved.setup, retryOfSessionId: "prior", coachingGoal: "Finish clearly", retryGoalEligible: true };
+    saved.status = "assessment_uncertain";
+    saved.submission = { uploadRequestId: "upload-one", audioId: "aud_one", assessmentRequestId: "assessment-one",
+      assessmentId: "", requestFingerprint: "a".repeat(64),
+      frozenRequestBody: JSON.stringify({ audio_id: "aud_one", request_id: "assessment-one", sharing_fingerprint: "a".repeat(64) }),
+      lastConfirmedPhase: "upload" };
+    let resolveLookup: (value: {assessment_id: string; status: "completed"; report_id: string}) => void = () => undefined;
+    vi.spyOn(apiClient, "getAssessmentByRequest").mockImplementation(() => new Promise(resolve => { resolveLookup = resolve; }));
+    const bridge = fake([saved]);
+    show(bridge);
+    await screen.findByTestId("draft.entry");
+    await waitFor(() => expect(apiClient.getAssessmentByRequest).toHaveBeenCalledWith("assessment-one"));
+    persistRetryDraft(saved.setup);
+    resolveLookup({ assessment_id: "asmt_one", status: "completed", report_id: "report-one" });
+    await waitFor(() => expect(bridge.discard).toHaveBeenCalledWith(saved.draftId));
+    await waitFor(() => expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull());
+    expect(screen.queryByTestId("draft.entry")).not.toBeInTheDocument();
+  });
 
   it("waits for listing, resumes the verified file, and never sends it", async () => {
     const bridge = fake();

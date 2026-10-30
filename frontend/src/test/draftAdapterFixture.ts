@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { SavedDraft } from "@/lib/runtime/desktopBridge";
+import type { DraftSubmission, SavedDraft } from "@/lib/runtime/desktopBridge";
 import type { DraftStoreAdapter } from "@/lib/state/draftStore";
 import { buildSessionDraft, type SessionDraft } from "@/lib/state/sessionDraft";
 
@@ -37,6 +37,9 @@ export const draftAdapterFixture = (entries: SavedDraft[] = []) => {
     saveTake: vi.fn(async (draft: SavedDraft, file: File) => ({ ...draft, revision: draft.revision + 1, status: "take_ready" as const,
       take: { ...savedDraftFixture().take!, originalFilename: file.name, size: file.size } })),
     loadTake: vi.fn(async () => new File(["audio"], "saved.wav", { type: "audio/wav" })),
+    markSubmission: vi.fn(async (draft: SavedDraft, status: SavedDraft["status"], submission: DraftSubmission) => ({
+      ...draft, status, submission, revision: draft.revision + 1,
+    })),
     discard: vi.fn(async () => undefined),
   } satisfies DraftStoreAdapter;
   return adapter;
