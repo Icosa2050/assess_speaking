@@ -65,6 +65,10 @@ jobs:
             config: playwright.journeys.config.ts
             browser: webkit
             filter: '--grep WebKit'
+          - lane: visual-webkit
+            config: playwright.visual-webkit.config.ts
+            browser: webkit
+            filter: ''
           - lane: contracts
             config: playwright.contract.config.ts
             browser: chromium
@@ -130,6 +134,7 @@ jobs:
           LANE='${{ matrix.lane }}'
           FOLDER="$LANE"
           if [[ "$LANE" == journeys-* ]]; then FOLDER=journeys; fi
+          if [[ "$LANE" == visual-webkit ]]; then FOLDER=default; fi
           python scripts/check_browser_results.py "$LANE" "frontend/output/playwright/$FOLDER/results.json"
       - name: Retain browser execution and guard evidence
         if: always()
