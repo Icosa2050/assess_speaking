@@ -1274,9 +1274,6 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
             const containerBox = scrollContainer.getBoundingClientRect();
             const elementBox = element.getBoundingClientRect();
             scrollContainer.scrollTop += elementBox.top - containerBox.top - (containerBox.height - elementBox.height) / 2;
-          } else {
-            // At 200% the dialog itself scrolls, and its footer sits outside the text region.
-            element.scrollIntoView({ behavior: "instant" as ScrollBehavior, block: "center", inline: "nearest" });
           }
         } else {
           element.scrollIntoView({ behavior: "instant" as ScrollBehavior, block: "center", inline: "nearest" });
