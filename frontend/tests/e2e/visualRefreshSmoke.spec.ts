@@ -190,7 +190,7 @@ const fulfillJson = (route: Route, json: unknown) =>
     json,
   });
 
-const installVisualBackend = async (page: Page) => {
+const installVisualBackend = async (page: Page, locale = "en") => {
   await stubReadyReadiness(page);
   let assessmentCount = 0;
   let activeAssessment: {
@@ -214,7 +214,7 @@ const installVisualBackend = async (page: Page) => {
       has_api_key: false,
     }),
   );
-  await page.route("**/v1/runtime/settings", (route) => fulfillJson(route, runtimeSettings));
+  await page.route("**/v1/runtime/settings", (route) => fulfillJson(route, { ...runtimeSettings, ui_locale: locale }));
   await page.route("**/v1/uploads", (route) =>
     fulfillJson(route, {
       audio_id: "visual-audio",
@@ -270,9 +270,7 @@ const attachAudio = async (page: Page) => {
     mimeType: "audio/wav",
     buffer: Buffer.from("visual smoke audio"),
   });
-  await expect(page.getByTestId("speak.recording_status")).toHaveText(
-    "A recording is attached and ready for assessment.",
-  );
+  await expect(page.getByTestId("speak.recording_status")).toBeVisible();
 };
 
 test("report finalization marks Coach complete and Finalizing current", async ({ page }) => {
@@ -706,9 +704,12 @@ test("stored appearance is applied before loading and main DOM content is ready"
   });
   await page.goto("/");
   for (const [appearance, system, theme] of [
+    ["", "light", "light"], ["", "dark", "dark"],
     ["dark", "light", "dark"], ["system", "dark", "dark"], ["light", "dark", "light"],
   ] as const) {
-    await page.evaluate(value => localStorage.setItem("vostavo.appearance.v1", value), appearance);
+    await page.evaluate(value => value
+      ? localStorage.setItem("vostavo.appearance.v1", value)
+      : localStorage.removeItem("vostavo.appearance.v1"), appearance);
     await page.emulateMedia({ colorScheme: system });
     for (const url of ["/loading.html", "/"]) {
       await page.goto(url);
@@ -725,12 +726,12 @@ test("stored appearance is applied before loading and main DOM content is ready"
   }
 });
 
-test("light routes and opt-in dark journal card stay usable at desktop sizes", async ({ page }) => {
+test("system default and explicit themes keep the journal card usable at desktop sizes", async ({ page }) => {
   test.setTimeout(120_000);
   await installVisualBackend(page);
   await page.goto("/");
   await page.emulateMedia({ colorScheme: "dark" });
-  await expect(page.locator("body")).toHaveCSS("background-color", "rgb(247, 249, 247)");
+  await expect(page.locator("body")).toHaveCSS("background-color", "rgb(17, 27, 25)");
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto("/runtime-setup");
   const otherRoutes = page.getByText("Choose another route: cloud or expert setup");
@@ -852,22 +853,29 @@ test("light routes and opt-in dark journal card stay usable at desktop sizes", a
   await page.mouse.up();
 });
 
-test("semantic light and dark surfaces keep primary routes readable at both desktop sizes", async ({ page }) => {
+for (const locale of ["de", "en", "es", "fr", "it"] as const) {
+test(`semantic light and dark surfaces keep primary routes readable at both desktop sizes (${locale})`, async ({ page }) => {
   test.setTimeout(180_000);
-  await installVisualBackend(page);
+  await installVisualBackend(page, locale);
   const healthyJournal = (route: Route) => fulfillJson(route, {
     transaction: null, archived: [], completed: [], recovery_error: null,
   });
   await page.route("**/v1/journal/status", healthyJournal);
   await page.emulateMedia({ reducedMotion: "reduce" });
   const output = process.env.THEME_MIGRATION_SCREENSHOT_DIR;
-  const contrastChecks: Array<{ route: string; theme: string; viewport: string; text: number; border: number; textCount: number; borderCount: number }> = [];
+  const contrastChecks: Array<{ locale: string; route: string; theme: string; viewport: string; text: number; border: number; focus: number; textCount: number; borderCount: number }> = [];
 
   const audit = async (route: string, theme: string) => {
     for (const viewport of [{ width: 1360, height: 900 }, { width: 1100, height: 760 }]) {
       await page.setViewportSize(viewport);
       await expect(page.locator("main").getByRole("heading").first()).toBeVisible();
+      await expect(page.locator("html")).toHaveAttribute("lang", locale);
       await expectNoPageHorizontalOverflow(page);
+      const focusScope = await page.locator("dialog[open]").count() ? "dialog[open]" : "main";
+      const focusTarget = page.locator(`${focusScope} button:visible:not(:disabled):not([aria-disabled='true']), ${focusScope} input:visible:not(:disabled), ${focusScope} select:visible:not(:disabled), ${focusScope} a[href]:visible:not([aria-disabled='true']), ${focusScope} summary:visible`).first();
+      await expect(focusTarget).toBeVisible();
+      await page.keyboard.press("Tab");
+      await focusTarget.focus();
       const computed = await page.evaluate(() => {
         const scope = document.querySelector("dialog[open]") ?? document.body;
         const parse = (value: string): [number, number, number, number] => {
@@ -942,30 +950,51 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
             return ratios.length ? [{ label: (element.textContent?.trim() || element.getAttribute("aria-label") || element.tagName).slice(0, 55),
               ratio: Math.min(...ratios) }] : [];
           });
-        return { text, border };
+        const clippedText = [...scope.querySelectorAll<HTMLElement>("button, a, summary, label, h1, h2, h3, p, span")]
+          .filter(element => visible(element) && element.textContent?.trim())
+          .flatMap(element => {
+            const style = getComputedStyle(element);
+            if (element.clientWidth <= 1 || style.clipPath === "inset(50%)" || style.clip === "rect(0px, 0px, 0px, 0px)") return [];
+            if (!/hidden|clip/.test(style.overflowX)) return [];
+            return element.scrollWidth > element.clientWidth + 1
+              ? [{ label: element.textContent!.trim().slice(0, 55), width: element.clientWidth, scrollWidth: element.scrollWidth }]
+              : [];
+          });
+        const focused = document.activeElement;
+        if (!focused) throw new Error("No focused control to audit");
+        const focusStyle = getComputedStyle(focused);
+        const focusInk = parse(focusStyle.outlineColor);
+        const focus = { width: Number.parseFloat(focusStyle.outlineWidth),
+          ratio: Math.max(ratio(focusInk, background(focused)), ratio(focusInk, background(focused.parentElement ?? focused))) };
+        return { text, border, clippedText, focus };
       });
       expect(computed.text.length, `${theme} ${route} ${viewport.width} text coverage`).toBeGreaterThan(0);
       if (route === "review") {
         expect(computed.text.some(item => item.label === "1"), "score-scale tick coverage").toBe(true);
-        expect(computed.text.some(item => item.label.includes("Provisional CEFR")), "CEFR badge coverage").toBe(true);
+        await expect(page.getByTestId("review-provisional-cefr")).toBeVisible();
+        expect(computed.text.some(item => item.label.includes("B2")), "CEFR badge coverage").toBe(true);
       }
       if (route === "settings-error") {
         expect(computed.text.some(item => item.label.includes("Recovery files are unavailable")), "error-banner coverage").toBe(true);
       }
       for (const item of computed.text) expect(item.ratio, `${theme} ${route} ${viewport.width}: ${JSON.stringify(item)}`).toBeGreaterThanOrEqual(4.5);
       for (const item of computed.border) expect(item.ratio, `${theme} ${route} ${viewport.width}: ${item.label} border`).toBeGreaterThanOrEqual(3);
+      expect(computed.focus.width, `${locale} ${theme} ${route} ${viewport.width} focus width`).toBeGreaterThanOrEqual(3);
+      expect(computed.focus.ratio, `${locale} ${theme} ${route} ${viewport.width} focus contrast`).toBeGreaterThanOrEqual(3);
+      expect(computed.clippedText, `${locale} ${theme} ${route} ${viewport.width} clipped text`).toEqual([]);
       if (route === "speak" || route === "speak-wait") await expectStatusRailIconContrast(page, "active");
-      contrastChecks.push({ route, theme, viewport: `${viewport.width}x${viewport.height}`,
+      contrastChecks.push({ locale, route, theme, viewport: `${viewport.width}x${viewport.height}`,
         text: Math.min(...computed.text.map(item => item.ratio)),
         border: computed.border.length ? Math.min(...computed.border.map(item => item.ratio)) : -1,
+        focus: computed.focus.ratio,
         textCount: computed.text.length, borderCount: computed.border.length });
       if (output) {
         mkdirSync(output, { recursive: true });
         if (route !== "your-data" && route !== "speak-wait") await page.evaluate(() => window.scrollTo(0, 0));
-        await page.screenshot({ path: path.join(output, `${theme}-${route}-${viewport.width}x${viewport.height}.png`) });
+        await page.screenshot({ path: path.join(output, `${locale}-${theme}-${route}-${viewport.width}x${viewport.height}.png`) });
         if (route === "settings") {
           await page.getByTestId("settings.appearance").scrollIntoViewIfNeeded();
-          await page.screenshot({ path: path.join(output, `${theme}-settings-appearance-${viewport.width}x${viewport.height}.png`) });
+          await page.screenshot({ path: path.join(output, `${locale}-${theme}-settings-appearance-${viewport.width}x${viewport.height}.png`) });
         }
       }
     }
@@ -1004,6 +1033,7 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
 
   for (const theme of ["light", "dark"] as const) {
     await page.goto("/settings");
+    await expect(page.locator("html")).toHaveAttribute("lang", locale);
     await page.getByTestId("settings.appearance").selectOption(theme);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
     await expect(page.locator("html")).toHaveCSS("color-scheme", theme);
@@ -1022,7 +1052,7 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
         }));
         await page.reload();
         await audit("settings-error", theme);
-        await page.getByRole("button", { name: "Start a fresh journal" }).click();
+        await page.locator("#journal-fresh").click();
         await expect(page.locator("dialog[open]")).toBeVisible();
         await audit("settings-dialog", theme);
         await page.locator("#fresh-cancel").click();
@@ -1030,6 +1060,24 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
         await page.route("**/v1/journal/status", healthyJournal);
       }
     }
+
+    await page.unroute("**/v1/history");
+    await page.route("**/v1/history", response => fulfillJson(response, { items: [] }));
+    await page.goto("/history");
+    await expect(page.getByTestId("history-empty")).toBeVisible();
+    await audit("history-empty", theme);
+    await page.unroute("**/v1/history");
+    await page.route("**/v1/history", response => fulfillJson(response, { items: historyRows }));
+
+    await page.route("**/v1/samples", response => response.fulfill({ status: 503, json: { detail: "Samples unavailable" } }));
+    await page.goto("/library");
+    await expect(page.getByTestId("library-samples-error")).toBeVisible({ timeout: 20_000 });
+    await audit("library-error", theme);
+    await page.unroute("**/v1/samples");
+
+    await page.goto("/review");
+    await expect(page.getByTestId("review-guard-missing-review")).toBeVisible();
+    await audit("review-empty", theme);
 
     await page.goto("/");
     await page.getByTestId("home.start_new").click();
@@ -1056,26 +1104,29 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
     await page.unroute("**/v1/assessments");
     await page.unroute("**/v1/assessments/*");
     let submission = 0;
-    let complete = false;
+    let outcome: "running" | "completed" | "failed" | "cancelled" = "running";
     await page.route("**/v1/assessments", route => {
       submission += 1;
       return fulfillJson(route, { assessment_id: `visual-${theme}-${submission}`, status: "queued" });
     });
     await page.route("**/v1/assessments/*", route => {
       const id = route.request().url().split("/").pop();
-      return fulfillJson(route, complete
+      return fulfillJson(route, outcome === "completed"
       ? { assessment_id: id, status: "completed", phase: "finalizing_report", progress: 1,
           report_path: "/tmp/visual-second.json", payload: reportPayload, summary: assessmentSummary(reportPayload) }
+      : outcome === "failed" || outcome === "cancelled"
+      ? { assessment_id: id, status: outcome, phase: outcome, last_phase: "scoring_rubric", progress: 1,
+          error: outcome === "failed" ? { code: "runtime_error", detail: "Model request failed" } : null }
       : { assessment_id: id, status: "running", phase: "scoring_rubric", progress: .6,
           created_at: new Date().toISOString(), updated_at: new Date().toISOString(), worker_seen_at: new Date().toISOString() });
     });
     await page.getByTestId("speak.submit").click();
     await expect(page.getByTestId("speak.assessment_progress")).toBeVisible();
     await audit("speak-wait", theme);
-    complete = true;
+    outcome = "completed";
     await expect(page).toHaveURL(/\/review$/, { timeout: 15000 });
     await audit("review", theme);
-    complete = false;
+    outcome = "running";
     await page.getByTestId("review-action-try-again").click();
     await attachAudio(page);
     await page.getByTestId("speak.submit").click();
@@ -1083,11 +1134,18 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
     await expect(retryGoal).toBeDisabled();
     await expect(retryGoal).toHaveCSS("background-color", theme === "light" ? "rgb(227, 233, 229)" : "rgb(51, 69, 61)");
     await expect(retryGoal).toHaveCSS("color", theme === "light" ? "rgb(65, 88, 80)" : "rgb(198, 215, 206)");
+    outcome = "failed";
+    await expect(page.getByTestId("speak.retry_assessment")).toBeVisible({ timeout: 15_000 });
+    await audit("speak-failed", theme);
+    outcome = "cancelled";
+    await page.getByTestId("speak.retry_assessment").click();
+    await expect(page.getByTestId("speak.status_panel")).toHaveAttribute("data-assessment-state", "cancelled", { timeout: 15_000 });
+    await audit("speak-cancelled", theme);
 
     await page.goto("/");
     await page.setViewportSize({ width: 1100, height: 760 });
     await page.keyboard.press("Tab");
-    const skip = page.getByRole("link", { name: "Skip to content" });
+    const skip = page.locator('a[href="#main-content"]');
     await expect(skip).toBeFocused();
     await expect(skip).toHaveCSS("outline-width", "3px");
     const focus = await skip.evaluate(element => ({
@@ -1110,5 +1168,6 @@ test("semantic light and dark surfaces keep primary routes readable at both desk
     await expectNoPageHorizontalOverflow(page);
   }
 
-  if (output) writeFileSync(path.join(output, "computed-contrast.json"), JSON.stringify(contrastChecks, null, 2));
+  if (output) writeFileSync(path.join(output, `computed-contrast-${locale}.json`), JSON.stringify(contrastChecks, null, 2));
 });
+}

@@ -582,7 +582,7 @@ describe("Settings route", () => {
     renderWithProviders(<AppFrame />, { initialEntries: ["/settings"], locale: "en" });
 
     const appearance = await screen.findByTestId("settings.appearance");
-    expect(appearance).toHaveValue("light");
+    expect(appearance).toHaveValue("system");
     fireEvent.change(appearance, { target: { value: "dark" } });
     await waitFor(() => expect(document.documentElement.dataset.theme).toBe("dark"));
     expect(document.documentElement.style.colorScheme).toBe("dark");

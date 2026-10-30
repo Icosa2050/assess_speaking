@@ -11,10 +11,12 @@ import {
 describe("appearance preference", () => {
   beforeEach(() => window.localStorage.clear());
 
-  it("defaults to Light, ignores stale values, and restores a saved choice", () => {
-    expect(readAppearance()).toBe("light");
+  it("defaults to System, ignores stale values, and restores a saved choice", () => {
+    expect(readAppearance()).toBe("system");
     window.localStorage.setItem(APPEARANCE_STORAGE_KEY, "unexpected");
-    expect(readAppearance()).toBe("light");
+    expect(readAppearance()).toBe("system");
+    expect(resolvedTheme(readAppearance(), false)).toBe("light");
+    expect(resolvedTheme(readAppearance(), true)).toBe("dark");
     const store = createAppStore();
     store.getState().setAppearance("dark");
     expect(window.localStorage.getItem(APPEARANCE_STORAGE_KEY)).toBe("dark");
