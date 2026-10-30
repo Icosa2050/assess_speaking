@@ -17,7 +17,8 @@ type RecoveryContext = {
   recoveredFile: File | null;
   error: DraftStoreError | null;
   saveSetup: (setup: SessionDraft) => Promise<SavedDraft | null>;
-  saveTake: (file: File, duration: number, method: "record" | "upload", progress: (percent: number) => void) => Promise<SavedDraft>;
+  saveTake: (setup: SessionDraft, file: File, duration: number, method: "record" | "upload", progress: (percent: number) => void) => Promise<SavedDraft>;
+  prepareNewAttempt: (speakerId: string) => Promise<boolean>;
   discardActive: () => Promise<void>;
   discardDraft: (id: string) => Promise<void>;
   leaveActive: () => void;
@@ -30,6 +31,7 @@ const defaultContext: RecoveryContext = {
   supported: false, active: null, drafts: [], recoveredFile: null, error: null,
   saveSetup: async () => null,
   saveTake: async () => { throw new Error("Local draft storage is unavailable"); },
+  prepareNewAttempt: async () => true,
   discardActive: async () => undefined,
   discardDraft: async () => undefined,
   leaveActive: () => undefined,
@@ -116,14 +118,20 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     const previous = activeRef.current?.speakerId === normalizedLearner(setup.speakerId)
       ? activeRef.current : draftsRef.current.find(item => item.speakerId === normalizedLearner(setup.speakerId));
     try {
+      if (previous && previous.setup.sessionId !== setup.sessionId && previous.take) {
+        throw new Error("Confirm replacement of the saved take before starting another attempt");
+      }
       const saved = await adapter.saveSetup(setup, previous);
       setCurrent(saved); replaceListing(saved); setError(null);
       return saved;
     } catch (saveError) { setError(saveError as DraftStoreError); throw saveError; }
   });
-  const saveTake: RecoveryContext["saveTake"] = (file, duration, method, progress) => enqueue(async () => {
+  const saveTake: RecoveryContext["saveTake"] = (setup, file, duration, method, progress) => enqueue(async () => {
     let current = activeRef.current;
-    if (!current) throw new Error("Session setup has not been saved locally");
+    if (!current || current.speakerId !== normalizedLearner(setup.speakerId) ||
+        current.setup.sessionId !== setup.sessionId || current.setup.retryOfSessionId !== setup.retryOfSessionId) {
+      throw new Error("Session setup has not been saved for this attempt");
+    }
     try {
       const saved = await adapter.saveTake(current, file, duration, method, progress);
       setCurrent(saved); replaceListing(saved); setError(null);
@@ -150,6 +158,17 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     } catch (discardError) { setError(discardError as DraftStoreError); }
     finally { setBusy(false); }
   };
+  const prepareNewAttempt = async (speakerId: string): Promise<boolean> => {
+    const existing = draftsRef.current.find(item => item.speakerId === normalizedLearner(speakerId));
+    if (existing && !window.confirm(translate("draft.replace_setup_confirm", { learner: existing.setup.speakerId }))) return false;
+    if (existing) {
+      try { await discard(existing.draftId); }
+      catch { return false; }
+      if (draftsRef.current.some(item => item.draftId === existing.draftId)) return false;
+    }
+    setCurrent(null); setRecoveredFile(null);
+    return true;
+  };
   const resume = async (entry: SavedDraft) => {
     setBusy(true);
     try {
@@ -160,7 +179,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       setRecoveredFile(file);
       setChoosing(false);
       setError(null);
-      navigate(entry.take ? "/speak" : "/session-setup", { replace: true });
+      navigate(entry.take || (entry.setup.retryOfSessionId && entry.setup.retryGoalEligible) ? "/speak" : "/session-setup", { replace: true });
     } catch (resumeError) {
       setError(resumeError as DraftStoreError);
       setUnreadableIds(previous => [...new Set([...previous, entry.draftId])]);
@@ -170,7 +189,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   };
   const context: RecoveryContext = {
     supported: adapter.supported, active, drafts, recoveredFile, error,
-    saveSetup, saveTake, discardActive, discardDraft: discard,
+    saveSetup, saveTake, prepareNewAttempt, discardActive, discardDraft: discard,
     leaveActive: () => { setCurrent(null); setRecoveredFile(null); },
     clearRecoveredFile: () => setRecoveredFile(null),
     reloadActiveTake: async () => {

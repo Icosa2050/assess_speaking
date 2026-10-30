@@ -9,13 +9,20 @@ import { AppFrame } from "@/App";
 import { createTranslator } from "@/lib/i18n";
 import { formatTrendSummary, verifiedComparisonParentId } from "@/routes/HistoryRoute";
 import { renderWithProviders } from "@/test/renderWithProviders";
+import { draftAdapterFixture, savedDraftFixture } from "@/test/draftAdapterFixture";
 
 vi.mock("@/lib/api/client", () => ({
+  ApiClientError: class ApiClientError extends Error {},
   apiClient: {
     getSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
     getResumeSharingRoute: vi.fn().mockResolvedValue({ version: 1, available: true, fingerprint: "a".repeat(64), audio: { provider: "local", model: "small", connection_id: "", host: "", local: true, mode: "" }, analysis: { provider: "ollama", model: "test", connection_id: "", host: "localhost", local: true, mode: "" }, fallback: null }),
     getHistory: vi.fn(),
     getHistoryDetail: vi.fn(),
+    getRuntime: vi.fn().mockResolvedValue({ configured: true, provider: "ollama_local", model: "llama3.2:3b", base_url: "http://localhost:11434", requires_api_key: false, has_api_key: false }),
+    getRuntimeSettings: vi.fn().mockResolvedValue({ ui_locale: "en", whisper_model: "small", active_connection_id: "conn-primary", connections: [] }),
+    getDiagnostics: vi.fn().mockResolvedValue({ items: [] }),
+    getReadiness: vi.fn().mockResolvedValue({ ready: true, checks: ["speech_recognition", "ai_tutor", "media_decoder", "storage"].map(key => ({ key, state: "available", blocking: true, reason: "available", detail_args: {} })) }),
+    getWhisperModelStatus: vi.fn().mockResolvedValue({ available: true }),
   },
 }));
 
@@ -183,6 +190,24 @@ const detailPayload = (sessionId: string, options: { review?: boolean; topicPass
 });
 
 describe("History route", () => {
+  it("starts another learner's retry without restoring the active learner's take", async () => {
+    const alex = savedDraftFixture("Alex");
+    const adapter = draftAdapterFixture([alex]);
+    const practice = { version: 1, goal: "B2", prompt_id: "trip", prompt_text: "Tell a trip story", retry_of_session_id: "",
+      target_duration_sec: 120, scoring_version: "v1", scoring_mode: "hybrid" as const, analysis_signature: "settings-v1",
+      provider: "ollama", model: "model", whisper_model: "small", asr_provider: "faster_whisper", dry_run: false };
+    mockedGetHistory.mockResolvedValue({ items: [{ ...historyRows[0], practice }] });
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/history"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await screen.findByTestId("speak.recording_panel");
+    fireEvent.click(screen.getByRole("link", { name: "Progress" }));
+    fireEvent.click(await screen.findByTestId("practice-retry"));
+    await waitFor(() => expect(store.getState().draft.speakerId).toBe("anna"));
+    expect(await screen.findByTestId("speak.recording_panel")).toBeVisible();
+    expect(screen.queryByText("Saved on this Mac.")).not.toBeInTheDocument();
+    expect(adapter.discard).not.toHaveBeenCalled();
+    expect(adapter.saveSetup).toHaveBeenCalledWith(expect.objectContaining({ speakerId: "anna" }), undefined);
+  });
   it("accepts only an explicitly verified report parent ID", () => {
     const payload = (verified: boolean | undefined) => ({ report: { progress_delta: {
       ...(verified === undefined ? {} : { comparison_verified: verified }), previous_session_id: "s1",

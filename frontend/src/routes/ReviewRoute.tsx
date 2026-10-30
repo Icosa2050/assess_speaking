@@ -14,7 +14,8 @@ import { ApiClientError, apiClient } from "@/lib/api/client";
 import { createTranslator } from "@/lib/i18n";
 import { followUpBrief } from "@/lib/retryBrief";
 import { pollingIntervals, queryKeys } from "@/lib/query/queryClient";
-import { useAppStore } from "@/lib/state/appStore";
+import { useAppStore, useAppStoreApi } from "@/lib/state/appStore";
+import { useDraftRecovery } from "@/lib/state/DraftRecoveryProvider";
 import { hasReviewState } from "@/lib/state/sessionDraft";
 
 import styles from "./ReviewRoute.module.css";
@@ -154,6 +155,8 @@ const GuardCard = ({
 );
 
 export const ReviewRoute = () => {
+  const appStore = useAppStoreApi();
+  const draftRecovery = useDraftRecovery();
   const [resumeError, setResumeError] = useState("");
   const [resuming, setResuming] = useState(false);
   const resumeSubmission = useRef<{sessionId: string; requestId: string} | null>(null);
@@ -240,7 +243,8 @@ export const ReviewRoute = () => {
   const followUp = followUpBrief(summary, draft);
   const coachTakeaway = summary.coachSummary || translate("review.coach_takeaway_placeholder");
 
-  const handleTryAgain = () => {
+  const handleTryAgain = async () => {
+    if (!await draftRecovery.prepareNewAttempt(draft.speakerId)) return;
     // A failed retry does not create new guidance. Keep the learner's existing
     // goal tied to its last assessable parent so the next take can continue it.
     const continueEarlierGoal = summary.eligibilityState !== "assessable" && followUp !== null;
@@ -250,6 +254,7 @@ export const ReviewRoute = () => {
       coachingGoal: summary.eligibilityState === "assessable" ? chosenGoal.trim() : continueEarlierGoal ? followUp.goal : "",
       retryGoalEligible: summary.eligibilityState === "assessable" || continueEarlierGoal,
     });
+    try { await draftRecovery.saveSetup(appStore.getState().draft); } catch { /* Speak shows the local storage failure. */ }
     setReturnTo("review");
     navigate("/speak");
   };

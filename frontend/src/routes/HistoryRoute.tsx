@@ -17,6 +17,8 @@ import { withJournalLock } from "@/lib/rehearsal/storage";
 import { journalRequest } from "@/lib/rehearsal/maintenance";
 import { queryKeys } from "@/lib/query/queryClient";
 import { useAppStore } from "@/lib/state/appStore";
+import { useDraftRecovery } from "@/lib/state/DraftRecoveryProvider";
+import { buildSessionDraft } from "@/lib/state/sessionDraft";
 
 import type { HistoryRow } from "@/lib/api/types";
 
@@ -295,6 +297,7 @@ export const HistoryRoute = () => {
   const navigate = useNavigate();
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const applySetup = useAppStore((state) => state.applySetup);
+  const draftRecovery = useDraftRecovery();
   const setCurrentPage = useAppStore((state) => state.setCurrentPage);
   const translate = useMemo(() => createTranslator(locale), [locale]);
   const [speakerScope, setSpeakerScope] = useState("");
@@ -471,10 +474,15 @@ export const HistoryRoute = () => {
         comparisonState={detailQuery.isPending ? "loading" : detailQuery.isError ? "error" : "ready"}
         onSelect={setSelectedSessionId}
         onRetry={(row) => {
-          const savedDraft = retryDraft(row);
-          if (savedDraft) {
-            applySetup(savedDraft);
-            navigate("/speak");
+          const retry = retryDraft(row);
+          if (retry) {
+            const savedDraft = buildSessionDraft(retry);
+            void (async () => {
+              if (!await draftRecovery.prepareNewAttempt(savedDraft.speakerId)) return;
+              applySetup(savedDraft);
+              try { await draftRecovery.saveSetup(savedDraft); } catch { /* Speak shows the local storage failure. */ }
+              navigate("/speak");
+            })();
           }
         }}
       />

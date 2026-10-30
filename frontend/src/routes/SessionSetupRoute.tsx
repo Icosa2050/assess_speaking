@@ -391,7 +391,7 @@ const SessionSetupContent = () => {
       promptText: brief.prompt,
     });
     const existing = draftRecovery.findLearner(nextSetup.speakerId);
-    if (existing?.take && JSON.stringify(existing.setup) !== JSON.stringify(nextSetup)) {
+    if (existing && JSON.stringify(existing.setup) !== JSON.stringify(nextSetup)) {
       if (!window.confirm(translate("draft.replace_setup_confirm", { learner: existing.setup.speakerId }))) return;
       await draftRecovery.discardDraft(existing.draftId);
     }

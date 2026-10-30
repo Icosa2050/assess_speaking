@@ -240,6 +240,10 @@ export const SpeakRoute = () => {
   const savedUpload = useRef<{ file: File; audioId: string } | null>(null);
   const uploadIdentity = useRef<{ file: File; requestId: string } | null>(null);
   const previewUrlRef = useRef("");
+  const saveInFlight = useRef(false);
+  const activeMatches = draftRecovery.active?.speakerId === draft.speakerId.trim().toLowerCase() &&
+    draftRecovery.active?.setup.sessionId === draft.sessionId &&
+    draftRecovery.active?.setup.retryOfSessionId === draft.retryOfSessionId;
   const readinessBlocked = !speakingChecksPending && !canEnterSpeak(speakingChecks);
   const ownsTake = recordingActive || Boolean(attachedFile) || Boolean(draftRecovery.recoveredFile) || hasRecordingAttachment(recording) ||
     isSubmitting || uploadProgress !== null || lifecycleState === "queued" || lifecycleState === "running";
@@ -266,7 +270,7 @@ export const SpeakRoute = () => {
 
   useEffect(() => {
     const file = draftRecovery.recoveredFile;
-    if (!file) return;
+    if (!file || !activeMatches) return;
     const url = URL.createObjectURL(file);
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
     previewUrlRef.current = url;
@@ -275,22 +279,23 @@ export const SpeakRoute = () => {
     setInputMode(draftRecovery.active?.take?.inputMethod || "record");
     setRecordedDurationSec(draftRecovery.active?.take?.durationSec ?? null);
     setLocalSaveState("saved");
-    updateRecording({ status: "ready", assessmentState: "idle", audioPath: url,
+    updateRecording({ status: "ready", ...(lifecycleState === "queued" || lifecycleState === "running" ? {} : { assessmentState: "idle" }), audioPath: url,
       durationSec: draftRecovery.active?.take?.durationSec ?? 0,
       inputDigest: `${file.name}:${file.size}:${file.lastModified}`,
       inputMethod: draftRecovery.active?.take?.inputMethod || "record", error: "" });
     draftRecovery.clearRecoveredFile();
-  }, [draftRecovery.recoveredFile]);
+  }, [draftRecovery.recoveredFile, activeMatches]);
 
   useEffect(() => {
-    if (draftRecovery.active?.take && !draftRecovery.recoveredFile && !attachedFile) {
+    if (activeMatches && draftRecovery.active?.take && !draftRecovery.recoveredFile && !attachedFile) {
       void draftRecovery.reloadActiveTake();
     }
-  }, [draftRecovery.active?.draftId]);
+  }, [draftRecovery.active?.draftId, activeMatches]);
 
-  const confirmReplace = () => !draftRecovery.supported || (!attachedFile && !draftRecovery.active?.take) || window.confirm(translate("draft.replace_confirm"));
+  const confirmReplace = () => !saveInFlight.current && (!draftRecovery.supported || (!attachedFile && !draftRecovery.active?.take) || window.confirm(translate("draft.replace_confirm")));
 
   const handleRemove = async (): Promise<boolean> => {
+    if (saveInFlight.current) return false;
     try {
       if (draftRecovery.active?.take) {
         await draftRecovery.discardActive();
@@ -325,19 +330,13 @@ export const SpeakRoute = () => {
   }, [attachedFile, localSaveState, draftRecovery.supported, translate]);
 
   const handleInputModeChange = (nextMode: RecordingInputMethod) => {
-    if (nextMode === inputMode) {
-      return;
-    }
-    if (!draftRecovery.active?.take) {
-      clearAttachment();
-      setInputMode(nextMode);
-      return;
-    }
-    void handleRemove().then(removed => { if (removed) setInputMode(nextMode); });
+    if (nextMode === inputMode || saveInFlight.current) return;
+    if (!draftRecovery.active?.take) clearAttachment();
+    setInputMode(nextMode);
   };
 
   const handleFileSelected = async (file: File | null, durationSec?: number) => {
-    if (!file) return;
+    if (!file || saveInFlight.current) return;
     clearAttachment();
     if (file.size > 100 * 1024 * 1024 || file.size === 0) {
       setRecordingError(translate("speak.upload_size_error"));
@@ -370,26 +369,30 @@ export const SpeakRoute = () => {
       },
     });
     if (inputMode === "record" && draftRecovery.supported && durationSec !== undefined && durationSec > 0) {
+      saveInFlight.current = true;
       setLocalSaveState("saving");
       try {
-        if (!draftRecovery.active) await draftRecovery.saveSetup(draft);
-        await draftRecovery.saveTake(file, durationSec, "record", setLocalSaveProgress);
+        if (!activeMatches) await draftRecovery.saveSetup(draft);
+        await draftRecovery.saveTake(draft, file, durationSec, "record", setLocalSaveProgress);
         setLocalSaveState("saved");
       } catch { setLocalSaveState("failed"); }
+      finally { saveInFlight.current = false; }
     }
   };
 
   const keepSelectedFile = async () => {
-    if (!attachedFile || !draftRecovery.supported || inputMode !== "upload") return;
+    if (!attachedFile || !draftRecovery.supported || inputMode !== "upload" || saveInFlight.current) return;
+    saveInFlight.current = true;
     setLocalSaveState("saving");
     try {
       const duration = recordedDurationSec ?? await capturedAudioSeconds(attachedFile);
       if (!duration) throw new Error("Could not decode duration");
-      if (!draftRecovery.active) await draftRecovery.saveSetup(draft);
-      await draftRecovery.saveTake(attachedFile, duration, "upload", setLocalSaveProgress);
+      if (!activeMatches) await draftRecovery.saveSetup(draft);
+      await draftRecovery.saveTake(draft, attachedFile, duration, "upload", setLocalSaveProgress);
       setRecordedDurationSec(duration);
       setLocalSaveState("saved");
     } catch { setLocalSaveState("failed"); }
+    finally { saveInFlight.current = false; }
   };
 
   const sharingSelection = { provider: runtimeQuery.data?.provider || "", llm_model: runtimeQuery.data?.model || "", llm_base_url: runtimeQuery.data?.base_url || "", whisper: effectiveWhisperModel };
@@ -849,7 +852,7 @@ export const SpeakRoute = () => {
           alignItems: "start",
         }}
       >
-        <fieldset disabled={isSubmitting || lifecycleState === "queued" || lifecycleState === "running"} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+        <fieldset disabled={isSubmitting || localSaveState === "saving" || lifecycleState === "queued" || lifecycleState === "running"} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <p data-testid="speak.minimum_duration">{translate("speak.recording_too_short")}</p>
         <SharingSummary route={sharingQuery.data} locale={locale} />
       <RecorderPanel onMicrophoneStatusChange={setMicrophoneStatus}
@@ -874,7 +877,7 @@ export const SpeakRoute = () => {
               ? "error"
               : lifecycleState === "cancelled"
                 ? "warning"
-                : localSaveState === "saved"
+                : localSaveState === "saved" || (!draftRecovery.supported && hasAttachment)
                   ? "success"
                   : "info"
           }

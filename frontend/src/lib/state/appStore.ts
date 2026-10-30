@@ -401,6 +401,12 @@ export const useAppStore = <T,>(selector: (state: AppStore) => T): T => {
   return useStore(store, selector);
 };
 
+export const useAppStoreApi = (): AppStoreApi => {
+  const store = useContext(AppStoreContext);
+  if (store === null) throw new Error("useAppStoreApi must be used inside an AppStoreProvider.");
+  return store;
+};
+
 export const selectAssessmentLifecycleState = (
   state: Pick<AppStoreState, "recording">,
 ): RecordingState["assessmentState"] => state.recording.assessmentState;

@@ -7,6 +7,7 @@ import { AppFrame } from "@/App";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { readyReadiness, readinessWith } from "@/test/readinessFixtures";
 import { queryKeys } from "@/lib/query/queryClient";
+import { draftAdapterFixture, savedDraftFixture } from "@/test/draftAdapterFixture";
 
 vi.mock("@/lib/api/client", () => ({
   ApiClientError: class ApiClientError extends Error {
@@ -114,6 +115,65 @@ const expectDecorativeIcon = (element: HTMLElement) => {
 
 describe("Speak route", () => {
   afterEach(() => vi.unstubAllGlobals());
+
+  it("retains a saved take when changing mode and cancelling replacement", async () => {
+    const saved = savedDraftFixture();
+    const adapter = draftAdapterFixture([saved]);
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.recording_status")).toHaveTextContent("Saved on this Mac"));
+    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    expect(adapter.discard).not.toHaveBeenCalled();
+    expect(screen.getByTestId("speak.download_recording")).toHaveAttribute("download", "saved.wav");
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+    expect(adapter.discard).not.toHaveBeenCalled();
+    expect(screen.getByTestId("speak.recording_status")).toHaveTextContent("Saved on this Mac");
+  });
+
+  it("keeps a queued assessment live when its local audio is reattached", async () => {
+    const adapter = draftAdapterFixture([savedDraftFixture()]);
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await screen.findByTestId("speak.recording_status");
+    act(() => store.getState().setRecordingAssessing({ assessmentId: "asmt-1", status: "queued" }));
+    fireEvent.click(screen.getByRole("link", { name: "Practice" }));
+    fireEvent.click(screen.getByRole("link", { name: "Speak" }));
+    await waitFor(() => expect(screen.getByTestId("speak.status_panel")).toHaveAttribute("data-assessment-state", "running"));
+    expect(screen.getByTestId("speak.cancel_assessment")).toBeVisible();
+    expect(screen.getByTestId("speak.submit")).toBeDisabled();
+    expect(store.getState().recording.job.assessmentId).toBe("asmt-1");
+  });
+
+  it("does not mark a second selected file saved while the first finish is pending", async () => {
+    const adapter = draftAdapterFixture();
+    vi.stubGlobal("OfflineAudioContext", class { decodeAudioData = async () => ({ duration: 32 }); });
+    let finish: (value: Awaited<ReturnType<typeof adapter.saveTake>>) => void = () => undefined;
+    adapter.saveTake.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const audio = (name: string) => {
+      const bytes = new Uint8Array(44 + 8000 * 32 * 2);
+      const view = new DataView(bytes.buffer);
+      bytes.set(new TextEncoder().encode("RIFF"), 0); view.setUint32(4, bytes.length - 8, true);
+      bytes.set(new TextEncoder().encode("WAVEfmt "), 8); view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, 8000, true);
+      view.setUint32(28, 16000, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+      bytes.set(new TextEncoder().encode("data"), 36); view.setUint32(40, bytes.length - 44, true);
+      return new File([bytes], name, { type: "audio/wav" });
+    };
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [audio("first.wav")] } });
+    fireEvent.click(screen.getByRole("button", { name: "Keep this selected file as the local take" }));
+    await waitFor(() => expect(adapter.saveTake).toHaveBeenCalledOnce());
+    expect(screen.getByTestId("speak.recording_status")).not.toHaveTextContent("Saved on this Mac");
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [audio("second.wav")] } });
+    expect(screen.getByTestId("speak.download_recording")).toHaveAttribute("download", "first.wav");
+    const saved = adapter.saveTake.mock.calls[0][0];
+    act(() => finish({ ...saved, revision: saved.revision + 1, status: "take_ready",
+      take: { ...savedDraftFixture().take!, originalFilename: "first.wav" } }));
+    await waitFor(() => expect(screen.getByTestId("speak.recording_status")).toHaveTextContent("Saved on this Mac"));
+    expect(screen.getByTestId("speak.download_recording")).toHaveAttribute("download", "first.wav");
+  });
 
   it("shows an editable, clearable retry goal before recording", async () => {
     const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",

@@ -30,9 +30,10 @@ const fake = (entries = [draft()]): DesktopDraftStoreBridge => ({
 });
 const Probe = () => {
   const speaker = useAppStore(state => state.draft.speakerId);
+  const retry = useAppStore(state => `${state.draft.retryOfSessionId}|${state.draft.coachingGoal}|${state.draft.retryGoalEligible}`);
   const recovery = useDraftRecovery();
   const location = useLocation();
-  return <div data-testid="probe">{speaker}|{recovery.recoveredFile?.name}|{location.pathname}</div>;
+  return <><div data-testid="probe">{speaker}|{recovery.recoveredFile?.name}|{location.pathname}</div><div data-testid="retry-context">{retry}</div></>;
 };
 const show = (bridge: DesktopDraftStoreBridge) => render(
   <MemoryRouter initialEntries={["/speak"]}>
@@ -99,6 +100,9 @@ describe("desktop draft recovery gate", () => {
     expect(await screen.findAllByTestId("draft.entry")).toHaveLength(1);
     expect(bridge.importLegacyBrief).toHaveBeenCalledWith(brief, stored.createdAt);
     expect(readLegacyRetryBrief()).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("Alex||/speak"));
+    expect(screen.getByTestId("retry-context")).toHaveTextContent("old-session|Speak more clearly|true");
   });
 
   it("keeps a colliding legacy brief untouched until an explicit choice", async () => {
