@@ -35,4 +35,4 @@ exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name='vostavo-backend', con
 collection = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name='vostavo-backend')
 app = BUNDLE(collection, name='VostavoBackend.app', bundle_identifier='com.vostavo.desktop.backend',
              info_plist={'CFBundleShortVersionString': version, 'CFBundleVersion': version,
-                         'LSBackgroundOnly': True, 'LSMinimumSystemVersion': '13.4'})
+                         'LSBackgroundOnly': True, 'LSMinimumSystemVersion': '14.0'})

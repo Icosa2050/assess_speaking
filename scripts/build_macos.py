@@ -17,7 +17,7 @@ import tomllib
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / '.build-macos'
 PYTHON_VERSION = '3.12.11'
-MINIMUM_MACOS = '14.0'  # Native audit of the shipped 111-binary bundle requires 14.0.
+MINIMUM_MACOS = '14.0'  # The native audit of the built app requires this floor.
 
 
 def run(args, **kwargs):

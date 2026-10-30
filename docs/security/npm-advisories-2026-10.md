@@ -21,7 +21,25 @@ their established Vite and Vitest project ownership. The lockfile changes 36 exi
 including Vitest companion packages and Rolldown's existing platform bindings.
 The registry publishes a `prepare` script for undici's source repository, but
 the locked registry tarball has no install-script flag and `npm ci --ignore-scripts`
-does not run it. All four fix versions predate this triage by at least two weeks.
+does not run it. The Vite, Vitest, undici, and source-map-js fix versions all
+predate this triage by at least two weeks.
+
+## Package safety checks
+
+| Package | Maintenance and issue response | Published package shape | Dependency tree | Registry integrity evidence |
+| --- | --- | --- | --- | --- |
+| `vite@8.1.6` | Active [Vite project](https://github.com/vitejs/vite); this fixed release followed the reported Vite advisories and was published October 6. | 35 published files: expected CLI JS, client declarations, and build output; no native binary or install entry point. | Existing Vite/Rolldown tree; no new package names. | Registry signatures and SLSA provenance advertised. |
+| `vitest@4.1.12` | Active [Vitest project](https://github.com/vitest-dev/vitest); this patch addresses the mocker advisories and was published October 15. | 114 published files: test runner JS, declarations, and build output; no native binary or install entry point. | Existing `@vitest/*` companions move to the same patch; no new package names. | Registry signature and SLSA provenance advertised. |
+| `undici@7.30.1` | Active [Node.js undici project](https://github.com/nodejs/undici); this release addresses the cited undici advisories and was published October 15. | 210 published files: HTTP library JS and docs; no native binary or install entry point in the registry tarball. | Existing jsdom child through the existing override; no new package names. | Registry signatures and SLSA provenance advertised. |
+| `source-map-js@1.2.2` | [source-map-js project](https://github.com/7rulnik/source-map-js); this patch addresses its indexed source-map advisory and was published September 30. | 18 published files: source-map JS, declarations, docs, and license; no native binary or install entry point. | Existing build-tooling child, exact override; no new package names. | Registry signatures advertised; no provenance attestation shown in package metadata. |
+
+`npm pack --dry-run --json` supplied the published file lists. The lockfile has
+no new git or tarball sources and no new `hasInstallScript` flags. The installed
+tree passed `npm --prefix frontend audit signatures`: all 246 packages have
+verified registry signatures and 57 have verified attestations. No unexpected
+install-time network fetches or generated binaries were found in these four
+package tarballs; expected Rolldown platform bindings were already present in
+the prior lockfile.
 
 No residual advisory is accepted for this snapshot. Re-run the audit for new
 advisories before the next dependency change.
