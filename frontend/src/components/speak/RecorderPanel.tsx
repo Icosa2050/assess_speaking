@@ -139,6 +139,10 @@ export const RecorderPanel = ({
   const recordingMimeTypeRef = useRef("audio/webm");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const requestIdRef = useRef(0);
+  const startAttemptRef = useRef(0);
+  const inputModeRef = useRef(inputMode);
+  const previousInputModeRef = useRef(inputMode);
+  inputModeRef.current = inputMode;
   const confirmationPendingRef = useRef(false);
   const startedAtRef = useRef(0);
   const stoppedAtRef = useRef(0);
@@ -244,6 +248,8 @@ export const RecorderPanel = ({
 
   const stopRecording = useCallback(
     ({ discard = false } = {}) => {
+      startAttemptRef.current += 1;
+      confirmationPendingRef.current = false;
       requestIdRef.current += 1;
       discardStopRef.current = discard;
       const recorder = recorderRef.current;
@@ -277,6 +283,8 @@ export const RecorderPanel = ({
 
     return () => {
       mountedRef.current = false;
+      startAttemptRef.current += 1;
+      confirmationPendingRef.current = false;
       requestIdRef.current += 1;
       discardStopRef.current = true;
       const recorder = recorderRef.current;
@@ -290,6 +298,13 @@ export const RecorderPanel = ({
       cleanupRecorder();
     };
   }, [cleanupRecorder]);
+
+  useEffect(() => {
+    if (previousInputModeRef.current !== inputMode && inputMode !== "record") {
+      stopRecording({ discard: true });
+    }
+    previousInputModeRef.current = inputMode;
+  }, [inputMode, stopRecording]);
 
   const afterConfirmation = (confirm: (() => boolean | Promise<boolean>) | undefined, accepted: () => void, denied?: () => void) => {
     const decision = confirm?.() ?? true;
@@ -314,6 +329,7 @@ export const RecorderPanel = ({
 
   const handleStartRecording = async () => {
     if (confirmationPendingRef.current) return;
+    if (inputModeRef.current !== "record" || !mountedRef.current) return;
     if (!microphoneSetupPassed) {
       setRecorderMessage(translate("speak.microphone_setup_required"));
       return;
@@ -337,12 +353,25 @@ export const RecorderPanel = ({
     }
 
     setSignalWarning("");
+    const attempt = ++startAttemptRef.current;
     // Start the meter in the Record gesture. A native replacement dialog can
     // consume transient activation before microphone permission is requested.
     if (typeof AudioContext !== "undefined") {
       try { meterContext.current = microphoneContext(); void meterContext.current.resume().catch(() => undefined); }
       catch { setSignalWarning(translate("speak.meter_unavailable")); }
     }
+    const armedMeter = meterContext.current;
+    const attemptIsCurrent = () => mountedRef.current && startAttemptRef.current === attempt && inputModeRef.current === "record";
+    const cancelStart = () => {
+      if (startAttemptRef.current === attempt) {
+        startAttemptRef.current += 1;
+        confirmationPendingRef.current = false;
+      }
+      if (armedMeter && meterContext.current === armedMeter) {
+        cleanupRecorder();
+        if (mountedRef.current) setSignalWarning("");
+      }
+    };
     if (onBeforeReplace) {
       confirmationPendingRef.current = true;
       let allowed = false;
@@ -350,8 +379,8 @@ export const RecorderPanel = ({
         const decision = onBeforeReplace();
         allowed = typeof decision === "boolean" ? decision : await decision;
       } catch { /* A failed dialog is a cancelled replacement. */ }
+      if (!allowed || !attemptIsCurrent()) { cancelStart(); return; }
       confirmationPendingRef.current = false;
-      if (!allowed || !mountedRef.current) { cleanupRecorder(); setSignalWarning(""); return; }
     }
     if (onPrepareRecording) {
       confirmationPendingRef.current = true;
@@ -359,9 +388,11 @@ export const RecorderPanel = ({
       try {
         prepared = await onPrepareRecording();
       } catch { /* Storage failed; keep the microphone closed. */ }
+      if (!prepared || !attemptIsCurrent()) { cancelStart(); return; }
       confirmationPendingRef.current = false;
-      if (!prepared || !mountedRef.current) { cleanupRecorder(); setSignalWarning(""); return; }
     }
+
+    if (!attemptIsCurrent()) { cancelStart(); return; }
 
     setRecorderPhase("requesting");
     setRecorderMessage("");
@@ -372,6 +403,7 @@ export const RecorderPanel = ({
     let requestTimeoutId: number | null = null;
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
+    if (!attemptIsCurrent()) { cancelStart(); return; }
     const streamPromise = navigator.mediaDevices.getUserMedia(microphoneConstraints(microphoneDeviceId, microphoneVoiceProcessing));
     streamPromise.then(
       (stream) => {
