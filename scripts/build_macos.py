@@ -17,6 +17,7 @@ import tomllib
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / '.build-macos'
 PYTHON_VERSION = '3.12.11'
+MINIMUM_MACOS = '14.0'  # Native audit of the shipped 111-binary bundle requires 14.0.
 
 
 def run(args, **kwargs):
@@ -42,7 +43,7 @@ def macho_files(bundle):
 
 def audit(bundle):
     entries = []
-    minimum = (13, 4)
+    minimum = tuple(map(int, MINIMUM_MACOS.split('.')))
     for path in macho_files(bundle):
         architectures = output(['lipo', '-archs', path]).split()
         if architectures != ['arm64']:
@@ -132,7 +133,7 @@ def main(argv=None):
         raise RuntimeError('Packaging requires pinned CPython 3.12.11 arm64')
     if plistlib.loads((helper / 'Contents/Info.plist').read_bytes())['CFBundleShortVersionString'] != version:
         raise RuntimeError('Helper version differs')
-    env = dict(os.environ, MACOSX_DEPLOYMENT_TARGET='13.4')
+    env = dict(os.environ, MACOSX_DEPLOYMENT_TARGET=MINIMUM_MACOS)
     cargo = shutil.which('cargo') or str(Path.home() / '.cargo/bin/cargo')
     run([cargo, 'build', '--release', '--locked', '--features', 'custom-protocol', '--manifest-path', ROOT / 'frontend/src-tauri/Cargo.toml'], env=env)
     stage = BUILD / 'stage'

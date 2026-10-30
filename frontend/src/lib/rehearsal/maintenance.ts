@@ -3,7 +3,7 @@ import type { FrozenApiRoute } from "@/lib/api/types";
 import { clearRetryDraft } from "@/lib/state/retryBriefStorage";
 import {
   clearRehearsalMaintenance, commitRehearsals, rehearsalMaintenance,
-  snapshotRehearsals, stageRehearsals, withJournalLock,
+  snapshotRehearsals, stageRehearsals, withJournalLock, purgeArchivedRehearsal,
   type BrowserSnapshot, type BrowserRestore,
 } from "./storage";
 
@@ -156,7 +156,6 @@ export async function attemptRemoval(sessionId: string, purge = false, fingerpri
   }, true);
 }
 export async function rehearsalRemoval(session: import("./session").Rehearsal): Promise<void> {
-  const { purgeArchivedRehearsal } = await import("./storage");
   await withJournalLock(async access => {
     const { id } = await journalRequest<{ id: string }>("begin", {});
     try { await purgeArchivedRehearsal(session, access); }

@@ -13,7 +13,7 @@ The packaged backend includes the Python interpreter, application modules, Pytho
 ## Release Boundary
 
 - Architecture: `arm64` (`aarch64-apple-darwin`).
-- Minimum macOS version: 13.4, currently imposed by the packaged ONNX Runtime binary.
+- Minimum macOS version: 14.0, as required by the audited native code in the built app.
 - Main bundle identifier: `com.vostavo.desktop`.
 - Backend helper identifier: `com.vostavo.desktop.backend`.
 - Distribution artifact: `Vostavo-0.1.0-arm64.dmg`.
@@ -28,7 +28,7 @@ The packaged backend includes the Python interpreter, application modules, Pytho
 
 A universal build is a later release lane. The current CTranslate2, ONNX Runtime, PyAV, Parselmouth, NumPy, and related native wheels are arm64-only; a universal release needs a separately resolved and tested x86_64 backend.
 
-The `arm64`-only minimum of macOS 13.4 is imposed today by the `onnxruntime==1.23.0` wheel's deployment target. The build report records the exact wheel tag so a future dependency bump can revisit the floor deliberately rather than by accident.
+The audited internal DMG contains 111 native binaries and reports a macOS 14.0 floor (`docs/delivery/2026-10-05-acceptance.json`). The build script uses that floor for the Rust deployment target and both app bundle declarations. The native audit can raise it if a future dependency requires a newer system.
 
 ## Bundle Architecture
 
@@ -122,7 +122,7 @@ The main app bundle includes:
 - `NSMicrophoneUsageDescription` with localized user-facing text.
 - The `com.apple.security.device.audio-input` entitlement. Under Hardened Runtime a non-sandboxed app still needs this entitlement to reach the microphone; the usage-description string alone yields a prompt-less denial inside the WKWebView. This entitlement is required, not speculative.
 - A 512-pixel source icon converted to a complete `.icns` icon set.
-- Minimum system version 13.4.
+- Minimum system version 14.0, matching the audited native code.
 - Version and bundle identifiers consistent across Tauri, PyInstaller, and release filenames (see [Version single source of truth](#version-single-source-of-truth)).
 - A CSP whose `connect-src` and `media-src` name the concrete loopback origin(s) the backend can occupy — the fixed default port plus the bounded fallback range from [Desktop Lifecycle](#desktop-lifecycle), and nothing else. The current dev-only `:4173` Vite origins are stripped from the shipped configuration. Because Tauri bakes the CSP at build time, the port set must be fixed and enumerable rather than a wide-open `127.0.0.1:*`.
 
