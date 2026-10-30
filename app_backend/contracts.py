@@ -52,9 +52,11 @@ CANONICAL_PRODUCT_API_ROUTES: tuple[str, ...] = (
     "/v1/runtime",
     "/v1/uploads",
     "/v1/uploads/limits",
+    "/v1/uploads/by-request/{request_id}",
     "/v1/assessment-route",
     "/v1/runtime/sharing",
     "/v1/assessments",
+    "/v1/assessments/by-request/{request_id}",
     "/v1/assessments/{assessment_id}",
     "/v1/assessments/{assessment_id}/cancel",
     "/v1/assessments/{assessment_id}/resume",
@@ -279,6 +281,16 @@ class UploadResponse(BaseModel):
     original_name: str = ""
 
 
+class UploadRequestLookupResponse(BaseModel):
+    audio_id: str
+
+
+class AssessmentRequestLookupResponse(BaseModel):
+    assessment_id: str
+    status: JobStatus
+    report_id: str | None = None
+
+
 class AssessmentCreateRequest(BaseModel):
     sharing_fingerprint: str = Field(default="", max_length=64, pattern=r"^[a-f0-9]*$")
     request_id: str = Field(default="", max_length=128, pattern=r"^[a-zA-Z0-9_-]*$")
@@ -298,8 +310,8 @@ class AssessmentCreateRequest(BaseModel):
     prompt_text: str = Field(default="", max_length=12000)
     retry_of_session_id: str = Field(default="", max_length=128)
     language_profile_key: str | None = None
-    label: str = ""
-    notes: str = ""
+    label: str = Field(default="", max_length=500)
+    notes: str = Field(default="", max_length=12000)
     llm_base_url: str = ""
     llm_api_key: str = ""
     openrouter_http_referer: str = ""
