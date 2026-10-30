@@ -1023,6 +1023,7 @@
     "preferences_need_connection": "Configura un proveedor antes de guardar estas preferencias.",
     "session_only_saved_notice": "Conexión guardada. La credencial solo está disponible durante esta sesión; vuelve a conectarte tras reiniciar la aplicación.",
     "secret_session_only_state": "Credencial disponible solo durante esta sesión; vuelve a conectarte tras reiniciar la aplicación.",
+    "active_restore_failed_notice": "Conexión guardada, pero no se pudo restaurar la conexión activa anterior. Vuelve a elegirla en Configuración.",
     "open_setup": "Abrir configuración guiada",
     "saved_connection": "Conexión guardada",
     "create_new_connection": "Crear conexión",

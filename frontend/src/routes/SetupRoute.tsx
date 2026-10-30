@@ -263,11 +263,16 @@ export const SetupRoute = () => {
     state: { from: navigation?.settingsFrom, focusConnectionId, fromSetup: true, saveNotice, connectionNotice },
   });
   const restorePreviousActiveConnection = async (newActiveId: string) => {
+    // Keep the active choice from Settings when editing a different connection.
     const previousId = runtimeSettings?.active_connection_id;
     if (returningToSettings && editingConnection && previousId && previousId !== editingConnection.connection_id && newActiveId !== previousId) {
-      return apiClient.postRuntimeSettingsSetDefault(previousId);
+      try {
+        return { restored: await apiClient.postRuntimeSettingsSetDefault(previousId), restoreFailed: false };
+      } catch {
+        return { restored: null, restoreFailed: true };
+      }
     }
-    return null;
+    return { restored: null, restoreFailed: false };
   };
 
   const recommendedWhisperModel = recommendWhisperModel(draft.learningLanguage, draft.cefrLevel);
@@ -470,7 +475,7 @@ export const SetupRoute = () => {
         connection,
       });
       const savedConnectionId = connection.connection_id || response.active_connection_id;
-      const restored = await restorePreviousActiveConnection(response.active_connection_id);
+      const { restored, restoreFailed } = await restorePreviousActiveConnection(response.active_connection_id);
       setActiveConnectionId(restored?.active_connection_id || response.active_connection_id);
       setSetupComplete(response.connections.length > 0);
       setFormStatus("saved");
@@ -478,7 +483,8 @@ export const SetupRoute = () => {
       const sessionOnly = saved?.provider_metadata.persistent === false;
       setFormStatusMessage(translate(sessionOnly ? "settings.session_only_saved_notice" : "runtime_setup.save_success"));
       await handleInvalidateRuntime();
-      if (returningToSettings) returnToSettings(savedConnectionId, sessionOnly ? "session-only" : undefined);
+      if (returningToSettings) returnToSettings(savedConnectionId, sessionOnly ? "session-only" : undefined,
+        restoreFailed ? translate("settings.active_restore_failed_notice") : undefined);
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
       setFormStatus("save-failed");
@@ -644,12 +650,13 @@ export const SetupRoute = () => {
             void (async () => {
               try {
                 const connected = await apiClient.getRuntimeSettings();
-                const restored = await restorePreviousActiveConnection(connected.active_connection_id);
+                const { restored, restoreFailed } = await restorePreviousActiveConnection(connected.active_connection_id);
                 setActiveConnectionId(restored?.active_connection_id || connected.active_connection_id);
                 setSetupComplete(connected.connections.length > 0);
                 await handleInvalidateRuntime();
                 const sessionOnly = connected.connections.find(c => c.connection_id === id)?.provider_metadata.persistent === false;
-                returnToSettings(id, sessionOnly ? "session-only" : undefined);
+                returnToSettings(id, sessionOnly ? "session-only" : undefined,
+                  restoreFailed ? translate("settings.active_restore_failed_notice") : undefined);
               } catch (caught) {
                 const detail = caught instanceof Error ? caught.message : String(caught);
                 setFormStatus("save-failed");

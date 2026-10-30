@@ -325,6 +325,25 @@ describe("Settings route", () => {
     expect(screen.queryByTestId("runtime_connection.provider")).not.toBeInTheDocument();
   });
 
+  it("reports a saved edit when the previous active connection cannot be restored", async () => {
+    const edited = runtimeSettings({ active_connection_id: "conn-alpha", connections: [
+      { ...alphaConnection, model: "new-local-model", is_default: true },
+      { ...bravoConnection, is_default: false },
+    ] });
+    mockedGetRuntimeSettings.mockResolvedValueOnce(runtimeSettings()).mockResolvedValue(edited);
+    mockedPutRuntimeSettings.mockResolvedValue(edited);
+    mockedPostRuntimeSettingsSetDefault.mockRejectedValue(new Error("backend busy"));
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/settings"], locale: "en" });
+    fireEvent.click((await screen.findAllByTestId("settings.connection_row_edit"))[1]);
+    fireEvent.change(await screen.findByTestId("runtime_connection.model"), { target: { value: "new-local-model" } });
+    fireEvent.click(screen.getByTestId("runtime_connection.save_connection"));
+    expect(await screen.findByTestId("settings.connection_id")).toHaveValue("conn-alpha");
+    expect(screen.getByText("Connection saved, but the previous active connection could not be restored. Choose it again in Settings.")).toBeVisible();
+    expect(screen.queryByText(/Connection could not be saved/)).not.toBeInTheDocument();
+    expect(store.getState().preferences.activeConnectionId).toBe("conn-alpha");
+    expect(mockedPostRuntimeSettingsSetDefault).toHaveBeenCalledWith("conn-bravo");
+  });
+
   it("shows a session-only warning after returning from Setup", async () => {
     const sessionOnly = runtimeSettings({ connections: [alphaConnection, { ...bravoConnection, provider_metadata: { persistent: false } }] });
     mockedGetRuntimeSettings.mockResolvedValueOnce(runtimeSettings()).mockResolvedValue(sessionOnly);
