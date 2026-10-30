@@ -530,6 +530,8 @@ pub struct Manifest {
     created_at: u64,
     updated_at: u64,
     expires_at: u64,
+    #[serde(default)]
+    legacy_expiry_locked: bool,
     revision: u64,
     status: String,
     take: Option<Take>,
@@ -1035,6 +1037,7 @@ impl DraftStore {
             created_at: legacy_created_at.unwrap_or(now),
             updated_at: now,
             expires_at: legacy_created_at.unwrap_or(now) + TTL,
+            legacy_expiry_locked: legacy_created_at.is_some(),
             revision: 0,
             status: "setup".into(),
             take: None,
@@ -1043,10 +1046,8 @@ impl DraftStore {
         manifest.setup = setup;
         manifest.updated_at = now.max(manifest.updated_at);
         manifest.revision += 1;
-        if manifest.take.is_none() {
-            manifest.expires_at = legacy_created_at
-                .unwrap_or(manifest.updated_at)
-                .saturating_add(TTL);
+        if manifest.take.is_none() && !manifest.legacy_expiry_locked {
+            manifest.expires_at = manifest.updated_at.saturating_add(TTL);
         }
         self.commit(&manifest, &key)
             .map_err(|error| error.message)?;
@@ -2141,6 +2142,15 @@ mod tests {
             .unwrap();
         assert_eq!(imported.created_at, created_at);
         assert_eq!(imported.expires_at, created_at + TTL);
+        let edited = store
+            .save_setup(
+                brief.clone(),
+                Some(imported.draft_id.clone()),
+                Some(imported.revision),
+            )
+            .unwrap();
+        assert_eq!(edited.expires_at, imported.expires_at);
+        assert!(edited.legacy_expiry_locked);
         assert_eq!(store.list().unwrap().len(), 1);
         assert!(store
             .import_legacy_brief(brief.clone(), created_at)

@@ -209,6 +209,26 @@ describe("Speak route", () => {
     expect(screen.getByTestId("speak.download_recording")).toHaveAttribute("download", "first.wav");
   });
 
+  it("keeps the local audio download usable after a draft save fails", async () => {
+    const adapter = draftAdapterFixture();
+    adapter.saveTake.mockRejectedValue(new Error("Disk unavailable"));
+    vi.stubGlobal("OfflineAudioContext", class { decodeAudioData = async () => ({ duration: 32 }); });
+    vi.stubGlobal("confirm", vi.fn(() => false));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByTestId("speak.input_mode_upload"));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
+    fireEvent.click(screen.getByRole("button", { name: "Keep this selected file as the local take" }));
+    await waitFor(() => expect(screen.getByTestId("speak.recording_status")).toHaveTextContent("Could not save locally"));
+    const download = screen.getByTestId("speak.download_recording");
+    expect(download).toHaveAttribute("download", "attempt.wav");
+    let allowed = false;
+    download.addEventListener("click", event => { allowed = !event.defaultPrevented; event.preventDefault(); }, { once: true });
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+    download.dispatchEvent(click);
+    expect(allowed).toBe(true);
+    expect(window.confirm).not.toHaveBeenCalled();
+  });
+
   it("shows an editable, clearable retry goal before recording", async () => {
     const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en",
       appState: { ...validDraftState, draft: { ...validDraftState.draft,

@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { createHash, webcrypto } from "node:crypto";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import type { DesktopDraftStoreBridge, SavedDraft } from "@/lib/runtime/desktopBridge";
@@ -33,7 +33,9 @@ const Probe = () => {
   const retry = useAppStore(state => `${state.draft.retryOfSessionId}|${state.draft.coachingGoal}|${state.draft.retryGoalEligible}`);
   const recovery = useDraftRecovery();
   const location = useLocation();
-  return <><div data-testid="probe">{speaker}|{recovery.recoveredFile?.name}|{location.pathname}</div><div data-testid="retry-context">{retry}</div></>;
+  return <><div data-testid="probe">{speaker}|{recovery.recoveredFile?.name}|{location.pathname}</div><div data-testid="retry-context">{retry}</div>
+    <button onClick={() => void recovery.discardActive()}>Discard active probe</button>
+    <button onClick={() => recovery.leaveActive()}>Leave active probe</button></>;
 };
 const show = (bridge: DesktopDraftStoreBridge) => render(
   <MemoryRouter initialEntries={["/speak"]}>
@@ -73,6 +75,21 @@ describe("desktop draft recovery gate", () => {
     fireEvent.click(screen.getByRole("button", { name: "Discard draft and take" }));
     await waitFor(() => expect(bridge.discard).toHaveBeenCalledWith("a".repeat(32)));
     expect(await screen.findByTestId("probe")).toBeVisible();
+  });
+
+  it("finishes an in-flight discard after the active draft is left", async () => {
+    const bridge = fake();
+    let finishDiscard: () => void = () => undefined;
+    vi.mocked(bridge.discard).mockImplementation(() => new Promise(resolve => { finishDiscard = resolve; }));
+    show(bridge);
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("Alex|take.webm"));
+    fireEvent.click(screen.getByRole("button", { name: "Discard active probe" }));
+    await waitFor(() => expect(bridge.discard).toHaveBeenCalledWith("a".repeat(32)));
+    fireEvent.click(screen.getByRole("button", { name: "Leave active probe" }));
+    await act(async () => finishDiscard());
+    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("Alex||/speak"));
+    expect(screen.queryByTestId("draft.entry")).not.toBeInTheDocument();
   });
 
   it("offers unreadable IDs for discard when the Keychain cannot open", async () => {

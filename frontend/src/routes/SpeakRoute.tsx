@@ -320,7 +320,7 @@ export const SpeakRoute = () => {
     const beforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
     const blockLink = (event: MouseEvent) => {
       const target = event.target;
-      if (!(target instanceof Element) || !target.closest("a[href]")) return;
+      if (!(target instanceof Element) || !target.closest("a[href]:not([download])")) return;
       if (localSaveState === "saving" || !window.confirm(translate("draft.save_failed"))) event.preventDefault();
     };
     window.addEventListener("beforeunload", beforeUnload);

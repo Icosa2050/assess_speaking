@@ -138,10 +138,12 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     } catch (saveError) { setError(saveError as DraftStoreError); throw saveError; }
   });
   const discardActive = async () => {
-    if (!activeRef.current) return;
-    await adapter.discard(activeRef.current.draftId);
-    const id = activeRef.current.draftId;
-    setCurrent(null); setRecoveredFile(null);
+    const id = activeRef.current?.draftId;
+    if (!id) return;
+    await adapter.discard(id);
+    if (activeRef.current?.draftId === id) {
+      setCurrent(null); setRecoveredFile(null);
+    }
     draftsRef.current = draftsRef.current.filter(item => item.draftId !== id);
     setDrafts(draftsRef.current);
   };
