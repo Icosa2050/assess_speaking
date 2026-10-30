@@ -342,6 +342,9 @@ def build_progress_delta(history_path: Path, report: dict, *, practice: dict | N
     ]
     previous_priorities = [item for item in previous_priorities if item]
     latest_priorities = [item for item in (report.get("coaching", {}) or {}).get("top_3_priorities", []) if item]
+    if not latest_priorities:
+        latest_priorities = [str(item.get("why") or "") for item in (report.get("coaching", {}) or {}).get("fixes", [])
+                             if isinstance(item, dict) and str(item.get("why") or "").strip()]
 
     current_grammar = _split_pipe_categories(
         _extract_issue_categories(report.get("rubric"), "recurring_grammar_errors")
@@ -888,7 +891,7 @@ def run_assessment(
         )
 
     from assessment_runtime.checkpoints import StageCache
-    from assess_core.schemas import CoachingSummary
+    from assess_core.schemas import CoachingSummary, CompactFeedback
     from assessment_runtime.cloud_transport import provenance
     import hashlib
     stage_cache = StageCache(stage_cache_dir) if stage_cache_dir else None
@@ -913,7 +916,8 @@ def run_assessment(
         routes = provenance.get()
         if routes is not None and saved.get("cloud_route") and (not routes or routes[-1] != saved["cloud_route"]):
             routes.append(saved["cloud_route"])
-        cls = RubricResult if name == "rubric" else CoachingSummary
+        cls = (RubricResult if name == "rubric" else
+               CompactFeedback if "fixes" in saved["value"] else CoachingSummary)
         return cls.from_dict(saved["value"]), saved["raw"]
 
     tmp_wav = audio
@@ -1079,6 +1083,9 @@ def run_assessment(
                     max_validation_retries=1,
                     target_duration_sec=target_duration_sec,
                     rubric=rubric_obj.to_dict(),
+                    transcript=transcript,
+                    feedback_language=chosen_feedback_language,
+                    practice_language=chosen_language,
                 ))
             except LLMClientError as exc:
                 warnings.append("coaching_unavailable")

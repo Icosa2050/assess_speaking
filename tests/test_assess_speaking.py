@@ -252,18 +252,18 @@ class MetricsAndPromptTests(unittest.TestCase):
             expected_language="it",
             feedback_language="en",
         )
-        self.assertIn("learners of Italian", prompt)
-        self.assertIn("Write every natural-language string value in English", prompt)
-        self.assertIn("Do NOT translate `category` values", prompt)
+        self.assertIn("practice task in Italian", prompt)
+        self.assertIn("must be in English (UI language)", prompt)
+        self.assertIn("`better` must be a meaning-preserving sentence in Italian", prompt)
         self.assertNotIn('"confidence": "high"', prompt)
-        self.assertIn("concrete spoken retry", prompt)
-        self.assertIn("Write all generated text fields", prompt)
-        self.assertIn("do NOT translate the quote", prompt)
+        self.assertIn("spoken retry lasting 180 seconds", prompt)
+        self.assertIn("Give zero to three fixes", prompt)
+        self.assertIn("Never translate either example", prompt)
 
     def test_language_name_falls_back_to_explicit_code_description(self):
         self.assertEqual(
-            assessment_prompts.language_name("fr"),
-            "the language identified by code 'fr'",
+            assessment_prompts.language_name("nl"),
+            "the language identified by code 'nl'",
         )
 
 

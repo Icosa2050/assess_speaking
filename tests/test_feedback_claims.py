@@ -75,14 +75,18 @@ def test_rubric_claim_rejection_repairs_then_fails_closed():
     assert chat.call_count == 2
 
 
-def test_coaching_client_receives_rubric_and_repairs_missing_priority():
-    missing = coaching_payload()
-    fixed = coaching_payload()
-    fixed['top_3_priorities'][0] = "Correct 'can saves' to 'can save'."
+def test_coaching_client_repairs_missing_compact_fix_field():
+    fixed = {"summary": "Your answer has a clear topic.",
+             "fixes": [{"you_said": "can saves", "better": "can save.", "why": "Use the base verb after can."}],
+             "next_step": "Record a 90 seconds retry with one clear example.",
+             "feedback_language": "en", "practice_language": "en"}
+    missing = {**fixed, "fixes": [{"you_said": "can saves", "why": "Use the base verb after can."}]}
     with mock.patch.object(llm_client, '_chat_completion', side_effect=[json.dumps(missing), json.dumps(fixed)]) as chat:
-        result, _ = llm_client.generate_coaching_summary('ollama', 'model', 'prompt', target_duration_sec=90, rubric=error_rubric())
+        result, _ = llm_client.generate_coaching_summary('ollama', 'model', 'prompt', target_duration_sec=90,
+                                                         rubric=error_rubric(), transcript="can saves time",
+                                                         feedback_language="en", practice_language="en")
     assert chat.call_count == 2
-    assert 'can saves' in result.top_3_priorities[0]
+    assert result.fixes[0].you_said == 'can saves'
 
 
 @pytest.mark.parametrize('text', [

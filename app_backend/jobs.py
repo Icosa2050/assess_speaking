@@ -216,7 +216,7 @@ def _build_summary(payload: dict[str, Any] | None) -> AssessmentSummary | None:
     return AssessmentSummary(
         score_overall=scores.get("final") if assessable else None,
         band=str(scores.get("band") or "") if assessable else "",
-        next_focus=str(coaching.get("next_focus") or ""),
+        next_focus=str(coaching.get("next_focus") or coaching.get("next_step") or ""),
     )
 
 

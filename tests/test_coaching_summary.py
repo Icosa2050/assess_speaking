@@ -7,11 +7,11 @@ from assessment_runtime.feedback import build_fallback_coaching
 
 VALID_COACHING_JSON = """
 {
-  "strengths": ["Resti sul tema."],
-  "top_3_priorities": ["Più connettivi", "Meno filler", "Passato più stabile"],
-  "next_focus": "Ordina meglio gli eventi",
-  "next_exercise": "Racconta di nuovo il viaggio usando prima, poi e alla fine.",
-  "coach_summary": "Buona base, ma serve una struttura narrativa più chiara."
+  "summary": "Your answer stays on the topic.",
+  "fixes": [],
+  "next_step": "Record a 90 seconds retry and add one example.",
+  "feedback_language": "en",
+  "practice_language": "it"
 }
 """
 
@@ -81,9 +81,11 @@ class CoachingSummaryTests(unittest.TestCase):
             model="x",
             prompt="p",
             rubric={},
+            target_duration_sec=90,
+            transcript="Sono andato a Roma.",
         )
-        self.assertEqual(len(coaching.top_3_priorities), 3)
-        self.assertIn("coach_summary", raw)
+        self.assertEqual(len(coaching.fixes), 0)
+        self.assertIn("summary", raw)
 
     def test_generate_coaching_summary_retries_then_fails(self):
         with mock.patch("assessment_runtime.llm_client._chat_completion", return_value='{"coach_summary":"x"}'):

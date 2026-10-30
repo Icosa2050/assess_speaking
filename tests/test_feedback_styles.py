@@ -93,7 +93,7 @@ def test_prompt_preserves_spoken_register_and_separates_optional_advice():
     assert 'never in recurring_grammar_errors or lexical_gaps' in prompt
     assert 'do not translate either original or suggestion' in prompt.lower()
     prompt = coaching_prompt(metrics, style_payload(), "Travel", 90)
-    assert 'dedicated optional section' in prompt
+    assert 'not a style preference' in prompt
 
 @pytest.mark.parametrize('grammar_quote,style_quote', [('The trip was good', 'trip was good'), ('trip was good', 'The trip was good'), ('The trip was', 'trip was good')])
 def test_overlapping_error_style_evidence_rejected(grammar_quote, style_quote):

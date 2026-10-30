@@ -10,12 +10,12 @@ from datetime import UTC, datetime
 from typing import Any, Callable
 from urllib import error, request
 
-from assess_core.schemas import CoachingSummary, RubricResult, SchemaValidationError
+from assess_core.schemas import CompactFeedback, RubricResult, SchemaValidationError
 from app_core.runtime_providers import normalize_provider, runtime_base_url, service_base_url
 from assessment_runtime.output_validation import (
     UncertainTranscriptEvidenceError,
     generation_json_schema,
-    validate_coaching_generation,
+    validate_compact_generation,
     validate_rubric_generation,
 )
 
@@ -285,14 +285,18 @@ def _chat_completion(
     return _extract_assistant_message_text(result)
 
 
-def _generation_payload(provider: str, kind: str, *, target_duration_sec: float | None = None) -> dict[str, Any] | None:
+def _generation_payload(provider: str, kind: str, *, target_duration_sec: float | None = None,
+                        feedback_language: str | None = None,
+                        practice_language: str | None = None) -> dict[str, Any] | None:
     normalized_provider = normalize_provider(provider)
     if normalized_provider not in {"openrouter", "ollama", "chatgpt", "xai", "groq"}:
         return None
     payload = {
         "response_format": {"type": "json_schema", "json_schema": {
             "name": f"assess_speaking_{kind}", "strict": True,
-            "schema": generation_json_schema(kind, target_duration_sec=target_duration_sec),
+            "schema": generation_json_schema(kind, target_duration_sec=target_duration_sec,
+                                              feedback_language=feedback_language,
+                                              practice_language=practice_language),
         }},
     }
     if normalized_provider == "openrouter":
@@ -375,7 +379,10 @@ def generate_coaching_summary(
     target_duration_sec: float | None = None,
     *,
     rubric: dict[str, Any],
-) -> tuple[CoachingSummary, str]:
+    transcript: str | None = None,
+    feedback_language: str = "en",
+    practice_language: str = "it",
+) -> tuple[CompactFeedback, str]:
     attempt_prompt = prompt
     last_error: Exception | None = None
     for attempt in range(max_validation_retries + 1):
@@ -390,12 +397,17 @@ def generate_coaching_summary(
             openrouter_http_referer=openrouter_http_referer,
             openrouter_app_title=openrouter_app_title,
             require_json_object=True,
-            extra_payload=_generation_payload(provider, "coaching", target_duration_sec=target_duration_sec),
+            extra_payload=_generation_payload(provider, "coaching", target_duration_sec=target_duration_sec,
+                                              feedback_language=feedback_language,
+                                              practice_language=practice_language),
         )
         try:
             payload = extract_json_object(raw)
-            coaching = CoachingSummary.from_dict(payload)
-            validate_coaching_generation(coaching, target_duration_sec, rubric)
+            coaching = CompactFeedback.from_dict(payload)
+            validate_compact_generation(coaching, transcript=transcript,
+                                        feedback_language=feedback_language,
+                                        practice_language=practice_language,
+                                        target_duration_sec=target_duration_sec, rubric=rubric)
             return coaching, raw
         except (SchemaValidationError, LLMClientError) as exc:
             _reject_cloud_reply()

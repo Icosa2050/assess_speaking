@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppFrame } from "@/App";
 import { createQueryClient, queryKeys } from "@/lib/query/queryClient";
 import { renderWithProviders } from "@/test/renderWithProviders";
+import { createTranslator } from "@/lib/i18n";
 import { draftAdapterFixture, savedDraftFixture } from "@/test/draftAdapterFixture";
 
 vi.mock("@/lib/api/client", () => ({
@@ -156,6 +157,49 @@ describe("Review route", () => {
       report_path: null,
       summary: null,
     });
+  });
+
+  it.each(["en", "de", "it", "fr", "es"] as const)("shows compact bilingual feedback in %s", async (locale) => {
+    const payload = { ...reviewPayload, report: { ...reviewPayload.report, warnings: [],
+      coaching: { summary: "Your answer has a clear topic.",
+        fixes: [{ you_said: "I goes to Rome", better: "I go to Rome", why: "Use the base verb with I." }],
+        next_step: "Record a 120 seconds retry with one clear opening.",
+        feedback_language: locale, practice_language: "en" },
+    } };
+    renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale, appState: {
+      ...validDraftState, review: { reportId: "compact", transcript: "I goes to Rome", scoreOverall: 3.5,
+        band: "4", summary: "", payload },
+    } });
+    expect(await screen.findByTestId("review-compact-fixes")).toBeVisible();
+    expect(screen.getByTestId("review-coach-takeaway")).toHaveTextContent("Your answer has a clear topic.");
+    expect(screen.getByTestId("review-coach-takeaway")).toHaveAttribute("lang", locale);
+    const fixes = screen.getByTestId("review-compact-fixes");
+    const translate = createTranslator(locale);
+    expect(within(fixes).getByText(translate("review.compact_fixes_title"))).toBeVisible();
+    expect(within(fixes).getByText(translate("review.compact_you_said"))).toBeVisible();
+    expect(within(fixes).getByText(translate("review.compact_better"))).toBeVisible();
+    expect(within(fixes).getByText("I goes to Rome")).toHaveAttribute("lang", "en");
+    expect(within(fixes).getByText("I go to Rome")).toHaveAttribute("lang", "en");
+    expect(screen.getByTestId("review-compact-next-step")).toHaveTextContent("120 seconds");
+    expect(screen.queryByTestId("review-strengths")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("review-next-step-exercise")).not.toBeInTheDocument();
+  });
+
+  it.each(["en", "de", "it", "fr", "es"] as const)("uses a concise localized fallback in %s", async (locale) => {
+    const payload = { ...reviewPayload, report: { ...reviewPayload.report,
+      input: { ...reviewPayload.report.input, feedback_language: locale, target_duration_sec: 120 },
+      coaching: { ...reviewPayload.report.coaching, coach_summary: "Long legacy text. ".repeat(100) },
+      warnings: ["coaching_unavailable"],
+    } };
+    renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale, appState: {
+      ...validDraftState, review: { reportId: "fallback", transcript: "Synthetic words", scoreOverall: 3.5,
+        band: "4", summary: "", payload },
+    } });
+    const translate = createTranslator(locale);
+    expect(await screen.findByTestId("review-coach-takeaway")).toHaveTextContent(translate("review.compact_unavailable_summary"));
+    expect(screen.getByTestId("review-compact-next-step")).toHaveTextContent(translate("review.compact_unavailable_step", { duration: 120 }));
+    expect(within(screen.getByTestId("review-next-step-card")).queryByText(/Long legacy text/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("review-strengths")).not.toBeInTheDocument();
   });
 
   it("does not turn a three-word attempt into a scored result", async () => {

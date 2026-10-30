@@ -240,7 +240,9 @@ export const ReviewRoute = () => {
   useEffect(() => setChosenGoal(summary.nextFocus.slice(0, 12000)), [summary.reportId, summary.nextFocus]);
   const goalOptions = [...new Set([summary.nextFocus, ...summary.priorities].map(value => value.trim()).filter(Boolean))];
   const followUp = followUpBrief(summary, draft);
-  const coachTakeaway = summary.coachSummary || translate("review.coach_takeaway_placeholder");
+  const coachTakeaway = summary.compactReport
+    ? summary.compactReport.summary || translate("review.compact_unavailable_summary")
+    : summary.coachSummary || translate("review.coach_takeaway_placeholder");
 
   const handleTryAgain = async () => {
     setResumeError("");
@@ -386,19 +388,39 @@ export const ReviewRoute = () => {
               {translate("review.coach_note_eyebrow")}
             </p>
             <h2 style={{ margin: 0, fontSize: "1.5rem", color: "var(--color-text)" }}>
-              {translate("review.next_step_title")}
+              {translate(summary.compactReport ? "review.summary_title" : "review.next_step_title")}
             </h2>
             <p
               className={styles.coachTakeaway}
+              lang={summary.compactReport?.feedbackLanguage}
               data-testid="review-coach-takeaway"
               data-semantic-id="review-coach-takeaway"
             >
               {coachTakeaway}
             </p>
-            <p className={styles.coachHelper}>
+            {summary.compactReport && summary.compactReport.fixes.length > 0 && (
+              <section className={styles.compactFixes} aria-label={translate("review.compact_fixes_title")} data-testid="review-compact-fixes">
+                <h3>{translate("review.compact_fixes_title")}</h3>
+                <ol>
+                  {summary.compactReport.fixes.map((fix, index) => <li key={`${fix.youSaid}-${index}`}>
+                    <div className={styles.compactPair}>
+                      <div><strong>{translate("review.compact_you_said")}</strong><p lang={summary.compactReport!.practiceLanguage}>{fix.youSaid}</p></div>
+                      <div><strong>{translate("review.compact_better")}</strong><p lang={summary.compactReport!.practiceLanguage}>{fix.better}</p></div>
+                    </div>
+                    <p className={styles.compactWhy} lang={summary.compactReport!.feedbackLanguage}>{fix.why}</p>
+                  </li>)}
+                </ol>
+              </section>
+            )}
+            {summary.compactReport && <div className={styles.compactNext} data-testid="review-compact-next-step">
+              <h3>{translate("review.compact_next_step")}</h3><p lang={summary.compactReport.feedbackLanguage}>
+                {summary.compactReport.nextStep || translate("review.compact_unavailable_step", { duration: summary.targetDurationSec || 90 })}
+              </p>
+            </div>}
+            {!summary.compactReport && <p className={styles.coachHelper}>
               {translate("review.coach_takeaway_body")}
-            </p>
-            <div style={focusChipGroupStyle}>
+            </p>}
+            {!summary.compactReport && <div style={focusChipGroupStyle}>
               <div
                 style={focusChipStyle}
                 data-testid="review-next-step-focus"
@@ -423,8 +445,10 @@ export const ReviewRoute = () => {
                   {translate("review.next_exercise", { value: summary.nextExercise })}
                 </div>
               ) : null}
-            </div>
+            </div>}
             {summary.eligibilityState === "assessable" ? (
+              <details open={!summary.compactReport} className={styles.goalDisclosure} data-testid="review-goal-disclosure">
+                <summary>{translate("retry.choose_goal")}</summary>
               <div className={styles.goalPicker} data-testid="review-goal-picker">
                 <strong>{translate("retry.choose_goal")}</strong>
                 <div className={styles.goalOptions} role="group" aria-label={translate("retry.choose_goal")}>
@@ -440,6 +464,7 @@ export const ReviewRoute = () => {
                   data-testid="review-goal-input" />
                 <Button variant="quiet" onClick={() => setChosenGoal("")}>{translate("retry.clear_goal")}</Button>
               </div>
+              </details>
             ) : null}
             {summary.requiresHumanReview ? (
               <p
