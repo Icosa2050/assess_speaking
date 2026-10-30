@@ -6,6 +6,37 @@ use std::sync::{mpsc, Mutex};
 use std::time::Duration;
 use tauri::{webview::PageLoadEvent, Manager};
 
+fn validate_draft_confirmation(label: &str, message: &str) -> Result<(), String> {
+    if label != "main"
+        || message.is_empty()
+        || message.len() > 16_384
+        || message.chars().any(|character| {
+            character == '\0' || (character.is_control() && character != '\n' && character != '\t')
+        })
+    {
+        return Err("Draft confirmation is unavailable".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn confirm_draft_action(
+    window: tauri::WebviewWindow,
+    message: String,
+) -> Result<bool, String> {
+    validate_draft_confirmation(window.label(), &message)?;
+    Ok(matches!(
+        rfd::AsyncMessageDialog::new()
+            .set_title("Vostavo")
+            .set_description(message)
+            .set_buttons(rfd::MessageButtons::OkCancel)
+            .set_parent(&window)
+            .show()
+            .await,
+        rfd::MessageDialogResult::Ok
+    ))
+}
+
 fn log_startup_issue(message: &str) {
     use std::io::Write;
     let logs = desktop::data_root().join("logs");
@@ -40,7 +71,7 @@ const DRAFT_BRIDGE_JS: &str = r#"({
 })"#;
 
 fn bridge(runtime: &desktop::Runtime) -> String {
-    format!("window.__VOSTAVO_DESKTOP__ = Object.freeze(Object.assign({{}}, {}, {{ saveLearnerBackup: (backupId) => window.__TAURI_INTERNALS__.invoke(\"save_learner_backup\", {{ backupId }}), draftSupportEmail: (bundleId, recipient) => window.__TAURI_INTERNALS__.invoke(\"draft_support_email\", {{ bundleId, recipient }}), saveSupportBundle: (bundleId) => window.__TAURI_INTERNALS__.invoke(\"save_support_bundle\", {{ bundleId }}), draftStore: Object.freeze({}) }}));", serde_json::json!({
+    format!("window.__VOSTAVO_DESKTOP__ = Object.freeze(Object.assign({{}}, {}, {{ confirmDraft: (message) => window.__TAURI_INTERNALS__.invoke(\"confirm_draft_action\", {{ message }}), saveLearnerBackup: (backupId) => window.__TAURI_INTERNALS__.invoke(\"save_learner_backup\", {{ backupId }}), draftSupportEmail: (bundleId, recipient) => window.__TAURI_INTERNALS__.invoke(\"draft_support_email\", {{ bundleId, recipient }}), saveSupportBundle: (bundleId) => window.__TAURI_INTERNALS__.invoke(\"save_support_bundle\", {{ bundleId }}), draftStore: Object.freeze({}) }}));", serde_json::json!({
         "apiBaseUrl": runtime.api_base_url, "sessionToken": runtime.session_token,
         "mediaToken": runtime.media_token,
         "deploymentMode": "local", "launchMode": runtime.launch_mode,
@@ -61,7 +92,7 @@ fn main() {
     #[cfg(target_os = "macos")]
     context.set_default_window_icon(None);
     let app = tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![support::save_support_bundle, support::save_learner_backup, support::draft_support_email,
+        .invoke_handler(tauri::generate_handler![confirm_draft_action, support::save_support_bundle, support::save_learner_backup, support::draft_support_email,
             draft_store::draft_list, draft_store::draft_recovery_ids, draft_store::draft_save_setup, draft_store::draft_replace_setup, draft_store::draft_import_legacy_brief, draft_store::draft_begin_take,
             draft_store::draft_write_take_chunk, draft_store::draft_abort_take, draft_store::draft_abort_take_for_draft, draft_store::draft_finish_take, draft_store::draft_load_take_chunk,
             draft_store::draft_mark_submission, draft_store::draft_discard, draft_store::draft_expire])
@@ -146,6 +177,16 @@ fn startup_failure(handle: &tauri::AppHandle, error: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn draft_confirmation_is_bounded_and_main_window_only() {
+        assert!(validate_draft_confirmation("main", "Replace saved take?").is_ok());
+        assert!(validate_draft_confirmation("loading", "Replace saved take?").is_err());
+        assert!(validate_draft_confirmation("main", "").is_err());
+        assert!(validate_draft_confirmation("main", &"a".repeat(16_385)).is_err());
+        assert!(validate_draft_confirmation("main", "Unexpected\0byte").is_err());
+        assert!(validate_draft_confirmation("main", "Two\nlines").is_ok());
+    }
 
     #[test]
     fn page_load_signal_prevents_the_fallback() {

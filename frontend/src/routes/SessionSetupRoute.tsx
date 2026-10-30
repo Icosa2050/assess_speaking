@@ -24,6 +24,7 @@ import {
 } from "@/lib/setup/sessionSetupContent";
 import { useAppStore } from "@/lib/state/appStore";
 import { useDraftRecovery } from "@/lib/state/DraftRecoveryProvider";
+import { confirmLocalDraft } from "@/lib/runtime/confirmLocalDraft";
 import { normalizedLearner, sameDraftAttempt, type DraftStoreError } from "@/lib/state/draftStore";
 import { buildSessionDraft, type CefrLevel, type DurationOption, type TaskFamily } from "@/lib/state/sessionDraft";
 
@@ -403,7 +404,7 @@ const SessionSetupContent = () => {
     const replacement = existing && (!sameDraftAttempt(existing, nextSetup) ||
       existing.setup.themeLabel !== nextSetup.themeLabel ||
       existing.setup.learningLanguageLabel !== nextSetup.learningLanguageLabel);
-    if (replacement && !window.confirm(translate("draft.replace_setup_detail", {
+    if (replacement && !await confirmLocalDraft(translate("draft.replace_setup_detail", {
       learner: existing.setup.speakerId,
       task: existing.setup.themeLabel || existing.setup.promptText,
       size: existing.take ? `${(existing.take.size / 1024 / 1024).toFixed(1)} MiB` : "0 MiB",
@@ -510,9 +511,9 @@ const SessionSetupContent = () => {
           setErrors([]);
         }}
         onSetupStepChange={setSetupStep}
-        onSpeakerIdChange={(value) => {
+        onSpeakerIdChange={async (value) => {
           if (draftRecovery.active && normalizedLearner(value) !== draftRecovery.active.speakerId) {
-            if (!window.confirm(translate("draft.learner_switch_confirm", { learner: draftRecovery.active.setup.speakerId }))) return;
+            if (!await confirmLocalDraft(translate("draft.learner_switch_confirm", { learner: draftRecovery.active.setup.speakerId }))) return;
             draftRecovery.leaveActive();
             clearRecording();
           }

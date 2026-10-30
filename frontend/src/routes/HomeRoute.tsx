@@ -12,6 +12,7 @@ import { buildSetupReadinessRows, canRecord, isBlockingSetupReadinessRow } from 
 import { useReadiness } from "@/lib/setup/useReadiness";
 import { useAppStore } from "@/lib/state/appStore";
 import { useDraftRecovery } from "@/lib/state/DraftRecoveryProvider";
+import { confirmLocalDraft } from "@/lib/runtime/confirmLocalDraft";
 import { hasReviewState, hasSetupDraft } from "@/lib/state/sessionDraft";
 
 import styles from "./HomeRoute.module.css";
@@ -124,8 +125,8 @@ export const HomeRoute = () => {
   const practiceReadinessLabel = translate("home.practice_checks", { ready: readyChecks, total: requiredPracticeChecks.length });
   const resumeDisabled = !hasSetupDraft(draft);
 
-  const handleStartNew = () => {
-    if (draftRecovery.active?.take && !window.confirm(translate("draft.start_new_confirm"))) return;
+  const handleStartNew = async () => {
+    if (draftRecovery.active?.take && !await confirmLocalDraft(translate("draft.start_new_confirm"))) return;
     draftRecovery.leaveActive();
     beginNewSession();
     navigate("/session-setup");

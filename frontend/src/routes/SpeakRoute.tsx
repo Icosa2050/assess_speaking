@@ -20,6 +20,7 @@ import { createTranslator } from "@/lib/i18n";
 import { MIN_REVIEW_SECONDS } from "@/lib/recordingPolicy";
 import { capturedAudioSeconds } from "@/lib/setup/audioCapture";
 import { useDraftRecovery } from "@/lib/state/DraftRecoveryProvider";
+import { confirmLocalDraft } from "@/lib/runtime/confirmLocalDraft";
 import { sameDraftAttempt } from "@/lib/state/draftStore";
 import { hasFirstTakeMilestone, recordFirstTakeMilestone } from "@/lib/history/firstTakeMilestone";
 import { StatusBanner } from "@/components/ui/StatusBanner";
@@ -291,9 +292,9 @@ export const SpeakRoute = () => {
     }
   }, [draftRecovery.active?.draftId, activeMatches]);
 
-  const confirmReplace = () => !saveInFlight.current && (!draftRecovery.supported || (!attachedFile && !draftRecovery.active?.take) || window.confirm(translate("draft.replace_confirm")));
+  const confirmReplace = () => !saveInFlight.current && (!draftRecovery.supported || (!attachedFile && !draftRecovery.active?.take) || confirmLocalDraft(translate("draft.replace_confirm")));
   const confirmRemove = () => !saveInFlight.current && (localSaveState !== "saved" || !draftRecovery.active?.take ||
-    window.confirm(translate("draft.discard_saved_confirm", {
+    confirmLocalDraft(translate("draft.discard_saved_confirm", {
       learner: draftRecovery.active.setup.speakerId,
       task: draftRecovery.active.setup.themeLabel || draftRecovery.active.setup.promptText,
       size: `${(draftRecovery.active.take.size / 1024 / 1024).toFixed(1)} MiB`,
@@ -329,13 +330,21 @@ export const SpeakRoute = () => {
     const beforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
     const blockLink = (event: MouseEvent) => {
       const target = event.target;
-      if (!(target instanceof Element) || !target.closest("a[href]:not([download])")) return;
-      if (localSaveState === "saving" || !window.confirm(translate("draft.save_failed"))) event.preventDefault();
+      const link = target instanceof Element ? target.closest<HTMLAnchorElement>("a[href]:not([download])") : null;
+      if (!link) return;
+      event.preventDefault();
+      if (localSaveState === "saving") return;
+      const destination = link.getAttribute("href");
+      void Promise.resolve(confirmLocalDraft(translate("draft.save_failed"))).then(confirmed => {
+        if (!confirmed || !destination) return;
+        if (destination.startsWith("/")) navigate(destination);
+        else window.location.assign(link.href);
+      });
     };
     window.addEventListener("beforeunload", beforeUnload);
     document.addEventListener("click", blockLink, true);
     return () => { window.removeEventListener("beforeunload", beforeUnload); document.removeEventListener("click", blockLink, true); };
-  }, [attachedFile, localSaveState, draftRecovery.supported, translate]);
+  }, [attachedFile, localSaveState, draftRecovery.supported, navigate, translate]);
 
   const handleInputModeChange = (nextMode: RecordingInputMethod) => {
     if (nextMode === inputMode || saveInFlight.current) return;

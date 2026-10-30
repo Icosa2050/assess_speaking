@@ -190,14 +190,18 @@ describe("Session Setup route", () => {
     const field = await screen.findByLabelText("Learner name or nickname");
     fireEvent.click(screen.getByRole("button", { name: "Seed saved take" }));
     await waitFor(() => expect(screen.getByTestId("active-draft")).toHaveTextContent(saved.draftId));
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const confirm = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    (window as Window & { __VOSTAVO_DESKTOP__?: unknown }).__VOSTAVO_DESKTOP__ = { confirmDraft: confirm };
+    const browserConfirm = vi.spyOn(window, "confirm");
     fireEvent.change(field, { target: { value: "Bea" } });
     expect(store.getState().draft.speakerId).toBe("Alex");
     fireEvent.change(field, { target: { value: "Bea" } });
-    expect(store.getState().draft.speakerId).toBe("Bea");
+    await waitFor(() => expect(store.getState().draft.speakerId).toBe("Bea"));
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining("saved take stays with Alex"));
+    expect(browserConfirm).not.toHaveBeenCalled();
     expect(bridge.discard).not.toHaveBeenCalled();
-    confirm.mockRestore();
+    browserConfirm.mockRestore();
+    delete (window as Window & { __VOSTAVO_DESKTOP__?: unknown }).__VOSTAVO_DESKTOP__;
   });
 
   it("routes a restored retry through confirmation before showing setup fields", async () => {

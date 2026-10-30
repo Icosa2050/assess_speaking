@@ -109,8 +109,8 @@ export const RecorderPanel = ({
   inputMode: RecordingInputMethod;
   onFileSelected: (file: File | null, durationSec?: number) => void | Promise<void>;
   onInputModeChange: (mode: RecordingInputMethod) => void;
-  onBeforeReplace?: () => boolean;
-  onBeforeRemove?: () => boolean;
+  onBeforeReplace?: () => boolean | Promise<boolean>;
+  onBeforeRemove?: () => boolean | Promise<boolean>;
   onRemove: () => void;
   previewUrl: string;
   preferStatusMessage?: boolean;
@@ -281,19 +281,32 @@ export const RecorderPanel = ({
     };
   }, [cleanupRecorder]);
 
-  const handleModeChange = (mode: RecordingInputMethod) => {
-    if (mode !== inputMode) {
-      if (onBeforeReplace && !onBeforeReplace()) return;
-      stopRecording({ discard: true });
-      setRecorderMessage("");
-      elapsedSecondsRef.current = 0;
-      setElapsedSeconds(0);
+  const afterConfirmation = (confirm: (() => boolean | Promise<boolean>) | undefined, accepted: () => void, denied?: () => void) => {
+    const decision = confirm?.() ?? true;
+    if (typeof decision === "boolean") {
+      if (decision) accepted(); else denied?.();
+      return;
     }
-    onInputModeChange(mode);
+    void decision.then(allowed => { if (allowed) accepted(); else denied?.(); }).catch(() => denied?.());
+  };
+
+  const handleModeChange = (mode: RecordingInputMethod) => {
+    afterConfirmation(mode !== inputMode ? onBeforeReplace : undefined, () => {
+      if (mode !== inputMode) {
+        stopRecording({ discard: true });
+        setRecorderMessage("");
+        elapsedSecondsRef.current = 0;
+        setElapsedSeconds(0);
+      }
+      onInputModeChange(mode);
+    });
   };
 
   const handleStartRecording = async () => {
-    if (onBeforeReplace && !onBeforeReplace()) return;
+    if (onBeforeReplace) {
+      const decision = onBeforeReplace();
+      if (typeof decision === "boolean" ? !decision : !await decision) return;
+    }
     if (!microphoneSetupPassed) {
       setRecorderMessage(translate("speak.microphone_setup_required"));
       return;
@@ -582,8 +595,9 @@ export const RecorderPanel = ({
             accept="audio/*"
             aria-label={translate("speak.upload")}
             onChange={(event) => {
-              if (onBeforeReplace && !onBeforeReplace()) { event.currentTarget.value = ""; return; }
-              void onFileSelected(event.currentTarget.files?.[0] ?? null);
+              const input = event.currentTarget;
+              const file = input.files?.[0] ?? null;
+              afterConfirmation(onBeforeReplace, () => { void onFileSelected(file); }, () => { input.value = ""; });
             }}
             style={hiddenFileInputStyle}
             data-testid="speak.upload_input"
@@ -637,7 +651,7 @@ export const RecorderPanel = ({
       {canRemove ? (
         <Button
           type="button"
-          onClick={() => { if (onBeforeRemove ? onBeforeRemove() : !onBeforeReplace || onBeforeReplace()) onRemove(); }}
+          onClick={() => afterConfirmation(onBeforeRemove ?? onBeforeReplace, onRemove)}
           {...{
             "data-testid": "speak.remove_recording",
             "data-semantic-id": "speak.remove_recording",

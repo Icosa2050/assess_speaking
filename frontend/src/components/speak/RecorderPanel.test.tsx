@@ -6,6 +6,19 @@ import { RecorderPanel } from "./RecorderPanel";
 const props = { microphoneSetupPassed: true, canRemove: false, inputMode: "record" as const, onInputModeChange: vi.fn(), onRemove: vi.fn(),
   previewUrl: "", showReadyCheckpoint: false, statusMessage: "ready", statusTone: "info" as const, translate: (key: string) => key };
 afterEach(() => vi.unstubAllGlobals());
+it("waits for native replacement confirmation before switching input modes", async () => {
+  let finish: (approved: boolean) => void = () => undefined;
+  const onMode = vi.fn();
+  render(<RecorderPanel {...props} onFileSelected={vi.fn()} onInputModeChange={onMode}
+    onBeforeReplace={() => new Promise(resolve => { finish = resolve; })} />);
+  fireEvent.click(screen.getByTestId("speak.input_mode_upload"));
+  expect(onMode).not.toHaveBeenCalled();
+  await act(async () => finish(false));
+  expect(onMode).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByTestId("speak.input_mode_upload"));
+  await act(async () => finish(true));
+  expect(onMode).toHaveBeenCalledWith("upload");
+});
 function microphone() {
   const stop = vi.fn();
   Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop }] }) } });

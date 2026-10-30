@@ -7,6 +7,7 @@ import type { SavedDraft } from "@/lib/runtime/desktopBridge";
 import { useAppStore } from "./appStore";
 import { createDraftStoreAdapter, normalizedLearner, sameDraftAttempt, type DraftStoreAdapter, type DraftStoreError } from "./draftStore";
 import { clearRetryDraft, readLegacyRetryBrief } from "./retryBriefStorage";
+import { confirmLocalDraft } from "@/lib/runtime/confirmLocalDraft";
 import type { SessionDraft } from "./sessionDraft";
 
 type LegacyBrief = NonNullable<ReturnType<typeof readLegacyRetryBrief>>;
@@ -202,7 +203,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   };
   const prepareNewAttempt = async (speakerId: string): Promise<boolean> => {
     const existing = draftsRef.current.find(item => item.speakerId === normalizedLearner(speakerId));
-    if (existing && !window.confirm(translate("draft.replace_setup_confirm", { learner: existing.setup.speakerId }))) return false;
+    if (existing && !await confirmLocalDraft(translate("draft.replace_setup_confirm", { learner: existing.setup.speakerId }))) return false;
     confirmedReplacement.current = existing?.draftId ?? null;
     if (!existing) setCurrent(null);
     setRecoveredFile(null);
