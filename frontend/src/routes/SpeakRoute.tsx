@@ -160,7 +160,8 @@ const toReviewState = (
   return {
     band: response.summary?.band ?? String(report.band ?? ""),
     payload,
-    reportId: response.report_path ?? response.assessment_id,
+    reportId: typeof report.session_id === "string" && report.session_id
+      ? report.session_id : response.report_path ?? response.assessment_id,
     scoreOverall: response.summary?.score_overall ?? null,
     summary: String(response.summary?.next_focus ?? summaryPayload.coach_summary ?? ""),
     transcript: String(transcriptPayload.text ?? report.transcript ?? ""),

@@ -204,11 +204,15 @@ describe("Speak route", () => {
       await waitFor(() => expect(screen.getByTestId("speak.recording_status")).toHaveTextContent("Saved on this Mac"));
       persistRetryDraft(saved.setup);
       expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).not.toBeNull();
-      act(() => {
-        first.store.getState().setRecordingJob({ assessmentId: "asmt-1", status: "completed" });
-        first.store.getState().updateReview({ reportId: "report-1" });
-      });
+      act(() => first.store.getState().setRecordingJob({ assessmentId: "asmt-1", status: "queued" }));
+      await waitFor(() => expect(mockedGetAssessmentStatus).toHaveBeenCalled());
+      act(() => first.queryClient.setQueryData(queryKeys.assessment("asmt-1"), {
+        assessment_id: "asmt-1", status: "completed", phase: "completed", progress: 1,
+        error: null, report_path: "/private/tmp/report-1.json", summary: null,
+        payload: { report: { session_id: "report-1" } },
+      }));
       await waitFor(() => expect(adapter.discard).toHaveBeenCalledWith(saved.draftId));
+      expect(first.store.getState().review.reportId).toBe("report-1");
       await waitFor(() => expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull());
       first.unmount();
       renderWithProviders(<AppFrame />, { initialEntries: ["/"], locale: "en", appState: validDraftState, draftAdapter: adapter });
