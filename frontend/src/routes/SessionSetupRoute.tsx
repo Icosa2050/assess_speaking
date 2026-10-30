@@ -24,7 +24,7 @@ import {
 } from "@/lib/setup/sessionSetupContent";
 import { useAppStore } from "@/lib/state/appStore";
 import { useDraftRecovery } from "@/lib/state/DraftRecoveryProvider";
-import { normalizedLearner } from "@/lib/state/draftStore";
+import { normalizedLearner, sameDraftAttempt, type DraftStoreError } from "@/lib/state/draftStore";
 import { buildSessionDraft, type CefrLevel, type DurationOption, type TaskFamily } from "@/lib/state/sessionDraft";
 
 const pageStyle = {
@@ -389,14 +389,27 @@ const SessionSetupContent = () => {
       durationSec: selectedDuration,
       promptId: `${themeEntryId({ title: resolvedThemeLabel, level: selectedCefr })}-${selectedCefr.toLowerCase()}`,
       promptText: brief.prompt,
+      retryOfSessionId: draft.retryOfSessionId,
+      coachingGoal: draft.coachingGoal,
+      retryGoalEligible: draft.retryGoalEligible,
     });
     const existing = draftRecovery.findLearner(nextSetup.speakerId);
-    if (existing && JSON.stringify(existing.setup) !== JSON.stringify(nextSetup)) {
-      if (!window.confirm(translate("draft.replace_setup_confirm", { learner: existing.setup.speakerId }))) return;
-      if (!await draftRecovery.discardDraft(existing.draftId)) return;
+    const replacement = existing && (!sameDraftAttempt(existing, nextSetup) ||
+      existing.setup.themeLabel !== nextSetup.themeLabel ||
+      existing.setup.learningLanguageLabel !== nextSetup.learningLanguageLabel);
+    if (replacement && !window.confirm(translate("draft.replace_setup_detail", {
+      learner: existing.setup.speakerId,
+      task: existing.setup.themeLabel || existing.setup.promptText,
+      size: existing.take ? `${(existing.take.size / 1024 / 1024).toFixed(1)} MiB` : "0 MiB",
+    }))) return;
+    try {
+      if (replacement) await draftRecovery.replaceSetup(nextSetup, existing);
+      else await draftRecovery.saveSetup(nextSetup);
+    } catch (error) {
+      setErrors([translate((error as DraftStoreError).kind === "limit" ? "draft.limit_error" : "draft.storage_error")]);
+      return;
     }
     applySetup(nextSetup);
-    try { await draftRecovery.saveSetup(nextSetup); } catch { /* The setup stays in memory; Speak shows the local storage failure. */ }
 
     if (canContinueToSpeak) {
       navigate("/speak");
@@ -450,6 +463,9 @@ const SessionSetupContent = () => {
           {translate(readyToRecord ? "first_run.ready_for_task_body" : canContinueToSpeak ? "first_run.continue_to_speak_body" : "first_run.task_setup_body")}
         </StatusBanner>
       </div>
+      {draftRecovery.supported && (draftRecovery.drafts.length > 0 || draftRecovery.error) && (
+        <button type="button" onClick={draftRecovery.manageDrafts}>{translate("draft.manage_saved")}</button>
+      )}
       <ThemeForm
         availableLanguages={availableLanguages}
         availableThemes={availableThemes.map((theme) => ({ title: theme.title }))}

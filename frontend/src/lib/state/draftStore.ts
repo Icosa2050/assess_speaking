@@ -4,8 +4,17 @@ import type { SessionDraft } from "./sessionDraft";
 const CHUNK_BYTES = 256 * 1024;
 const MAX_TAKE_BYTES = 100 * 1024 * 1024;
 const ID = /^[0-9a-f]{32}$/;
+const TAKE_MIMES = new Set(["audio/webm", "audio/webm;codecs=opus", "audio/mp4", "audio/mp4;codecs=mp4a.40.2",
+  "audio/wav", "audio/mpeg", "audio/ogg", "audio/ogg;codecs=opus", "audio/x-wav", "audio/flac", "audio/x-flac",
+  "audio/aac", "audio/x-aac", "audio/aiff", "audio/x-aiff", "audio/x-m4a", "audio/opus"]);
+const MIME_BY_EXTENSION: Record<string, string> = {
+  wav: "audio/wav", mp3: "audio/mpeg", webm: "audio/webm", ogg: "audio/ogg", opus: "audio/opus",
+  m4a: "audio/mp4", mp4: "audio/mp4", aac: "audio/aac", flac: "audio/flac", aiff: "audio/aiff", aif: "audio/aiff",
+};
+const safeTakeName = (name: string) => Boolean(name && name.length <= 256 && !/[\\/\\\\\x00-\x1f\x7f]/.test(name));
+const takeMime = (file: File): string => file.type || MIME_BY_EXTENSION[file.name.split(".").pop()?.toLowerCase() || ""] || "";
 
-export type DraftStoreFailure = "unsupported" | "keychain" | "storage" | "conflict" | "unreadable";
+export type DraftStoreFailure = "unsupported" | "keychain" | "storage" | "conflict" | "unreadable" | "uncertain" | "limit" | "format";
 
 export class DraftStoreError extends Error {
   constructor(readonly kind: DraftStoreFailure, message: string) {
@@ -16,7 +25,10 @@ export class DraftStoreError extends Error {
 const failure = (error: unknown): DraftStoreError => {
   if (error instanceof DraftStoreError) return error;
   const message = error instanceof Error ? error.message : String(error);
-  const kind: DraftStoreFailure = /keychain|key is unavailable|content key/i.test(message) ? "keychain"
+  const kind: DraftStoreFailure = /save may have changed/i.test(message) ? "uncertain"
+    : /keychain|key is unavailable|content key/i.test(message) ? "keychain"
+    : /three learner drafts|resolve unreadable drafts|draft storage limit|total encrypted/i.test(message) ? "limit"
+    : /unsupported.*(mime|format)|invalid saved take metadata/i.test(message) ? "format"
     : /revision|another window|already exists|changed or expired/i.test(message) ? "conflict"
       : /damaged|unreadable|digest|saved take file/i.test(message) ? "unreadable" : "storage";
   return new DraftStoreError(kind, message);
@@ -38,6 +50,9 @@ export const validSavedDraft = (value: SavedDraft): boolean =>
   Number.isFinite(value.expiresAt) && value.expiresAt > value.createdAt &&
   ["setup", "take_ready", "upload_uncertain", "uploaded", "assessment_uncertain", "assessing"].includes(value.status) &&
   (!value.take || (ID.test(value.take.mediaId) && value.take.size > 0 && value.take.size <= MAX_TAKE_BYTES &&
+    safeTakeName(value.take.originalFilename) && TAKE_MIMES.has(value.take.mime) &&
+    Number.isFinite(value.take.durationSec) && value.take.durationSec > 0 && value.take.durationSec <= 1200 &&
+    Number.isFinite(value.take.captureEndedAt) && ["record", "upload"].includes(value.take.inputMethod) &&
     /^[0-9a-f]{64}$/.test(value.take.sha256)));
 
 const sha256 = async (bytes: ArrayBuffer): Promise<string> =>
@@ -73,7 +88,30 @@ export const createDraftStoreAdapter = (bridge: DesktopDraftStoreBridge | undefi
     async saveSetup(setup: SessionDraft, previous?: SavedDraft): Promise<SavedDraft> {
       if (!bridge) return unsupported();
       try { return await bridge.saveSetup(setup, previous?.draftId, previous?.revision); }
-      catch (error) { throw failure(error); }
+      catch (error) {
+        if (failure(error).kind === "uncertain" && previous) {
+          try {
+            await bridge.expire();
+            const current = (await bridge.list()).drafts.find(entry => entry.draftId === previous.draftId);
+            if (current && current.revision > previous.revision && current.setup.sessionId === setup.sessionId) return current;
+          } catch { /* The state remains uncertain. */ }
+        }
+        throw failure(error);
+      }
+    },
+    async replaceSetup(setup: SessionDraft, previous: SavedDraft): Promise<SavedDraft> {
+      if (!bridge?.replaceSetup) return unsupported();
+      try { return await bridge.replaceSetup(setup, previous.draftId, previous.revision); }
+      catch (error) {
+        if (failure(error).kind === "uncertain") {
+          try {
+            await bridge.expire();
+            const current = (await bridge.list()).drafts.find(entry => entry.draftId === previous.draftId);
+            if (current && current.revision > previous.revision && !current.take && current.setup.sessionId === setup.sessionId) return current;
+          } catch { /* The state remains uncertain. */ }
+        }
+        throw failure(error);
+      }
     },
     async importLegacyBrief(setup: SessionDraft, createdAt: number): Promise<SavedDraft> {
       if (!bridge) return unsupported();
@@ -85,11 +123,16 @@ export const createDraftStoreAdapter = (bridge: DesktopDraftStoreBridge | undefi
       if (file.size <= 0 || file.size > MAX_TAKE_BYTES || !Number.isFinite(durationSec) || durationSec <= 0 || durationSec > 1200) {
         throw new DraftStoreError("storage", "Take size or duration is outside local storage limits");
       }
+      const mime = takeMime(file);
+      if (!safeTakeName(file.name) || !TAKE_MIMES.has(mime)) {
+        throw new DraftStoreError("format", "This audio format cannot be saved for local recovery");
+      }
       let transfer: string | undefined;
+      let digest = "";
       try {
-        const digest = await sha256(await file.arrayBuffer());
+        digest = await sha256(await file.arrayBuffer());
         transfer = await bridge.beginTake(draft.draftId, draft.revision, {
-          originalFilename: file.name, mime: file.type, size: file.size, sha256: digest,
+          originalFilename: file.name, mime, size: file.size, sha256: digest,
           durationSec, captureEndedAt: Date.now(), inputMethod,
         });
         let written = 0;
@@ -105,6 +148,14 @@ export const createDraftStoreAdapter = (bridge: DesktopDraftStoreBridge | undefi
         return saved;
       } catch (error) {
         if (transfer) await bridge.abortTake(transfer).catch(() => undefined);
+        if (failure(error).kind === "uncertain") {
+          try {
+            await bridge.expire();
+            const current = (await bridge.list()).drafts.find(entry => entry.draftId === draft.draftId);
+            if (current && current.revision > draft.revision && current.take?.sha256 === digest &&
+                current.take.size === file.size) return current;
+          } catch { /* The take may have published; do not claim it is durable. */ }
+        }
         throw failure(error);
       }
     },

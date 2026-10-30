@@ -535,10 +535,28 @@ describe("Review route", () => {
     expect(store.getState().review.reportId).toBe("report-1");
     confirm.mockReturnValue(true);
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    await waitFor(() => expect(adapter.discard).toHaveBeenCalledWith(saved.draftId));
+    await waitFor(() => expect(adapter.replaceSetup).toHaveBeenCalledWith(expect.objectContaining({ speakerId: "bern" }), saved));
+    expect(adapter.discard).not.toHaveBeenCalled();
     expect(await screen.findByTestId("speak.recording_panel")).toBeVisible();
     expect(store.getState().draft.sessionId).not.toBe(saved.setup.sessionId);
-    expect(adapter.saveSetup).toHaveBeenCalledWith(expect.objectContaining({ speakerId: "bern" }), undefined);
+    expect(adapter.saveSetup).not.toHaveBeenCalled();
+  });
+
+  it("keeps the reviewed attempt when Try Again replacement storage fails", async () => {
+    const saved = savedDraftFixture("bern");
+    const adapter = draftAdapterFixture([saved]);
+    adapter.replaceSetup.mockRejectedValue(new Error("disk unavailable"));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", draftAdapter: adapter,
+      appState: { ...validDraftState, review: { reportId: "report-1", transcript: "Full transcript text",
+        scoreOverall: 3.5, band: "4", summary: "Focus on connectors.", payload: reviewPayload } } });
+    fireEvent.click(await screen.findByRole("button", { name: "Continue without resuming" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not use local draft storage");
+    expect(store.getState().review.reportId).toBe("report-1");
+    expect(adapter.discard).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
+    confirm.mockRestore();
   });
 
   it("clears task-specific setup when the learner chooses change task", async () => {

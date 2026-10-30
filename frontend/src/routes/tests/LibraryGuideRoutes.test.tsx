@@ -49,12 +49,30 @@ describe("Library and Guide routes", () => {
     await screen.findByTestId("speak.recording_panel");
     fireEvent.click(screen.getByRole("link", { name: "Library" }));
     fireEvent.click(await screen.findByTestId("library.sample_prepare"));
-    await waitFor(() => expect(adapter.discard).toHaveBeenCalledWith(saved.draftId));
+    await waitFor(() => expect(adapter.replaceSetup).toHaveBeenCalledWith(expect.objectContaining({ themeId: "en_B1_travel_story" }), saved));
+    expect(adapter.discard).not.toHaveBeenCalled();
     await waitFor(() => expect(store.getState().draft.themeId).toBe("en_B1_travel_story"));
     expect(store.getState().draft.sessionId).not.toBe(saved.setup.sessionId);
-    expect(adapter.saveSetup).toHaveBeenCalledWith(expect.objectContaining({ themeId: "en_B1_travel_story" }), undefined);
+    expect(adapter.saveSetup).not.toHaveBeenCalled();
     expect(await screen.findByTestId("speak.recording_panel")).toBeVisible();
     expect(screen.queryByTestId("speak.download_recording")).not.toBeInTheDocument();
+    confirm.mockRestore();
+  });
+
+  it("keeps the previous Library task and take when replacement storage fails", async () => {
+    const saved = savedDraftFixture("Alex");
+    saved.setup = buildSessionDraft({ ...saved.setup, learningLanguage: "en", learningLanguageLabel: "English" });
+    const adapter = draftAdapterFixture([saved]);
+    adapter.replaceSetup.mockRejectedValue(new Error("disk unavailable"));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/library"], locale: "en", draftAdapter: adapter,
+      appState: { draft: saved.setup, preferences: { activeConnectionId: "conn-local", setupComplete: true } } });
+    fireEvent.click(await screen.findByRole("button", { name: "Continue without resuming" }));
+    fireEvent.click(await screen.findByTestId("library.sample_prepare"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not use local draft storage");
+    expect(store.getState().draft.themeId).toBe(saved.setup.themeId);
+    expect(adapter.discard).not.toHaveBeenCalled();
+    expect(screen.getByTestId("library.sample_prepare")).toBeVisible();
     confirm.mockRestore();
   });
   beforeEach(() => {

@@ -325,6 +325,17 @@ pub struct Setup {
     retry_goal_eligible: bool,
 }
 impl Setup {
+    fn same_attempt(&self, other: &Self) -> bool {
+        self.session_id == other.session_id
+            && self.retry_of_session_id == other.retry_of_session_id
+            && self.learning_language == other.learning_language
+            && self.cefr_level == other.cefr_level
+            && self.theme_id == other.theme_id
+            && self.prompt_id == other.prompt_id
+            && self.prompt_text == other.prompt_text
+            && self.task_family == other.task_family
+            && self.duration_sec == other.duration_sec
+    }
     fn validate(&self) -> StoreResult<String> {
         for (text, max) in [
             (&self.session_id, 128),
@@ -394,6 +405,14 @@ impl Take {
                 "audio/ogg",
                 "audio/ogg;codecs=opus",
                 "audio/x-wav",
+                "audio/flac",
+                "audio/x-flac",
+                "audio/aac",
+                "audio/x-aac",
+                "audio/aiff",
+                "audio/x-aiff",
+                "audio/x-m4a",
+                "audio/opus",
             ]
             .contains(&self.mime.as_str())
             || self.size == 0
@@ -707,6 +726,8 @@ pub struct DraftStore {
     #[cfg(test)]
     fail_manifest_sync: bool,
     #[cfg(test)]
+    fail_manifest_before_commit: bool,
+    #[cfg(test)]
     fail_chunk_write_after_length: bool,
     #[cfg(test)]
     free_bytes_override: Option<u64>,
@@ -753,6 +774,8 @@ impl DraftStore {
             #[cfg(test)]
             fail_manifest_sync: false,
             #[cfg(test)]
+            fail_manifest_before_commit: false,
+            #[cfg(test)]
             fail_chunk_write_after_length: false,
             #[cfg(test)]
             free_bytes_override: None,
@@ -773,6 +796,7 @@ impl DraftStore {
             incoming: HashMap::new(),
             verified: HashMap::new(),
             fail_manifest_sync: false,
+            fail_manifest_before_commit: false,
             fail_chunk_write_after_length: false,
             free_bytes_override: None,
             media_verifications: 0,
@@ -892,6 +916,10 @@ impl DraftStore {
     }
     fn commit(&self, manifest: &Manifest, key: &[u8; 32]) -> Result<(), CommitFailure> {
         manifest.validate(&manifest.draft_id, now_ms())?;
+        #[cfg(test)]
+        if self.fail_manifest_before_commit {
+            return Err(err("Injected manifest failure before commit").into());
+        }
         let final_path = self.manifest_path(&manifest.draft_id)?;
         regular_file(&final_path)?;
         let plain = serde_json::to_vec(manifest).map_err(|_| err("Could not encode draft"))?;
@@ -1015,6 +1043,9 @@ impl DraftStore {
             if old.speaker_id != speaker {
                 return Err(err("Learner cannot be changed on a saved draft"));
             }
+            if old.take.is_some() && !old.setup.same_attempt(&setup) {
+                return Err(err("Use atomic setup replacement for a saved take"));
+            }
         } else if expected_revision.is_some() {
             return Err(err("Unexpected draft revision"));
         }
@@ -1051,6 +1082,50 @@ impl DraftStore {
         }
         self.commit(&manifest, &key)
             .map_err(|error| error.message)?;
+        Ok(manifest)
+    }
+    pub fn replace_setup(
+        &mut self,
+        setup: Setup,
+        draft_id: String,
+        expected_revision: u64,
+    ) -> StoreResult<Manifest> {
+        let speaker = setup.validate()?;
+        let now = now_ms();
+        self.expire(now)?;
+        let key = self.key()?;
+        let mut manifest = self.read(&draft_id, &key, now)?;
+        if manifest.revision != expected_revision || manifest.expires_at <= now {
+            return Err(err("Draft changed or expired"));
+        }
+        if !["setup", "take_ready"].contains(&manifest.status.as_str())
+            || manifest.speaker_id != speaker
+        {
+            return Err(err("Saved draft cannot be replaced"));
+        }
+        let old_take = manifest.take.take();
+        manifest.setup = setup;
+        manifest.created_at = now;
+        manifest.updated_at = now;
+        manifest.expires_at = now.saturating_add(TTL);
+        manifest.legacy_expiry_locked = false;
+        manifest.revision += 1;
+        manifest.status = "setup".into();
+        manifest.submission = None;
+        let result = self.commit(&manifest, &key);
+        if match &result {
+            Ok(()) => true,
+            Err(error) => error.published,
+        } {
+            if let Some(old) = old_take {
+                self.verified
+                    .remove(&format!("{}:{}", draft_id, old.media_id));
+                if let Ok(path) = self.media_path(&draft_id, &old.media_id) {
+                    let _ = fs::remove_file(path);
+                }
+            }
+        }
+        result.map_err(|error| error.message)?;
         Ok(manifest)
     }
     pub fn begin_take(
@@ -1635,6 +1710,18 @@ pub async fn draft_save_setup(
     .await
 }
 #[tauri::command]
+pub async fn draft_replace_setup(
+    window: tauri::WebviewWindow,
+    setup: Setup,
+    draft_id: String,
+    expected_revision: u64,
+) -> StoreResult<Manifest> {
+    with_store(window, move |s| {
+        s.replace_setup(setup, draft_id, expected_revision)
+    })
+    .await
+}
+#[tauri::command]
 pub async fn draft_import_legacy_brief(
     window: tauri::WebviewWindow,
     setup: Setup,
@@ -1850,6 +1937,118 @@ mod tests {
             store.list_with_issues().unwrap().unreadable_ids,
             vec![ready.draft_id.clone()]
         );
+    }
+    #[test]
+    fn atomic_setup_replacement_preserves_old_take_until_publish() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let first = store.save_setup(setup("Alex"), None, None).unwrap();
+        let bytes = b"saved first take";
+        let transfer = store
+            .begin_take(first.draft_id.clone(), first.revision, take(bytes))
+            .unwrap();
+        store.write_take_chunk(&transfer, bytes.to_vec()).unwrap();
+        let ready = store.finish_take(&transfer).unwrap();
+        let old_media_id = ready.take.as_ref().unwrap().media_id.clone();
+        let old_path = store.media_path(&ready.draft_id, &old_media_id).unwrap();
+        let mut next = setup("Alex");
+        next.session_id = "different-attempt".into();
+        next.prompt_text = "A different prompt".into();
+        assert!(store
+            .save_setup(
+                next.clone(),
+                Some(ready.draft_id.clone()),
+                Some(ready.revision)
+            )
+            .is_err());
+        assert!(store
+            .replace_setup(next.clone(), ready.draft_id.clone(), ready.revision - 1)
+            .is_err());
+        assert!(old_path.exists());
+        assert_eq!(
+            store
+                .load_take_chunk(&ready.draft_id, &old_media_id, 0)
+                .unwrap(),
+            bytes
+        );
+        store.fail_manifest_before_commit = true;
+        assert!(store
+            .replace_setup(next.clone(), ready.draft_id.clone(), ready.revision)
+            .is_err());
+        store.fail_manifest_before_commit = false;
+        assert!(old_path.exists());
+        assert_eq!(
+            store.list().unwrap()[0].setup.session_id,
+            ready.setup.session_id
+        );
+        assert_eq!(
+            store
+                .load_take_chunk(&ready.draft_id, &old_media_id, 0)
+                .unwrap(),
+            bytes
+        );
+        let replaced = store
+            .replace_setup(next.clone(), ready.draft_id.clone(), ready.revision)
+            .unwrap();
+        assert_eq!(replaced.draft_id, ready.draft_id);
+        assert_eq!(replaced.revision, ready.revision + 1);
+        assert_eq!(replaced.setup.session_id, next.session_id);
+        assert!(replaced.take.is_none());
+        assert!(!old_path.exists());
+        assert_eq!(store.list().unwrap().len(), 1);
+    }
+    #[test]
+    fn atomic_setup_replacement_sync_failure_leaves_new_manifest_readable() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let first = store.save_setup(setup("Alex"), None, None).unwrap();
+        let bytes = b"saved first take";
+        let transfer = store
+            .begin_take(first.draft_id.clone(), first.revision, take(bytes))
+            .unwrap();
+        store.write_take_chunk(&transfer, bytes.to_vec()).unwrap();
+        let ready = store.finish_take(&transfer).unwrap();
+        let old_path = store
+            .media_path(&ready.draft_id, &ready.take.as_ref().unwrap().media_id)
+            .unwrap();
+        let mut next = setup("Alex");
+        next.session_id = "different-attempt".into();
+        store.fail_manifest_sync = true;
+        assert!(store
+            .replace_setup(next.clone(), ready.draft_id.clone(), ready.revision)
+            .unwrap_err()
+            .contains("may have changed"));
+        assert!(!old_path.exists());
+        drop(store);
+        let mut recovered = self::store(&root);
+        let manifest = recovered.list().unwrap().remove(0);
+        assert_eq!(manifest.setup.session_id, next.session_id);
+        assert!(manifest.take.is_none());
+    }
+    #[test]
+    fn accepted_audio_mimes_cover_the_picker_formats() {
+        let root = TestRoot::new();
+        let mut store = store(&root);
+        let draft = store.save_setup(setup("Alex"), None, None).unwrap();
+        for mime in [
+            "audio/flac",
+            "audio/aac",
+            "audio/aiff",
+            "audio/x-m4a",
+            "audio/opus",
+        ] {
+            let mut candidate = take(b"audio");
+            candidate.mime = mime.into();
+            let transfer = store
+                .begin_take(draft.draft_id.clone(), draft.revision, candidate)
+                .unwrap();
+            store.abort_take(&transfer).unwrap();
+        }
+        let mut unsupported = take(b"audio");
+        unsupported.mime = "audio/unknown".into();
+        assert!(store
+            .begin_take(draft.draft_id, draft.revision, unsupported)
+            .is_err());
     }
     #[test]
     fn truncated_and_swapped_encrypted_chunks_are_not_listed() {

@@ -146,6 +146,23 @@ describe("Speak route", () => {
     expect(adapter.discard).not.toHaveBeenCalled();
   });
 
+  it("blocks assessment Retry while a replacement recording is active", async () => {
+    const adapter = draftAdapterFixture([savedDraftFixture()]);
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.submit")).toBeEnabled());
+    act(() => store.getState().setRecordingJob({ assessmentId: "asmt-1", status: "failed", error: "retry" }));
+    expect(await screen.findByTestId("speak.retry_assessment")).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    fireEvent.click(screen.getByTestId("speak.record_start"));
+    await screen.findByTestId("speak.record_stop");
+    expect(screen.getByTestId("speak.retry_assessment")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("speak.retry_assessment"));
+    expect(mockedUploadAudio).not.toHaveBeenCalled();
+    expect(adapter.discard).not.toHaveBeenCalled();
+  });
+
   it("keeps a queued assessment live when its local audio is reattached", async () => {
     const adapter = draftAdapterFixture([savedDraftFixture()]);
     const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
@@ -227,6 +244,63 @@ describe("Speak route", () => {
     download.dispatchEvent(click);
     expect(allowed).toBe(true);
     expect(window.confirm).not.toHaveBeenCalled();
+  });
+
+  it("keeps a saved take after an invalid replacement upload", async () => {
+    const adapter = draftAdapterFixture([savedDraftFixture()]);
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.download_recording")).toHaveAttribute("download", "saved.wav"));
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [new File([], "empty.wav", { type: "audio/wav" })] } });
+    expect(screen.getByTestId("speak.download_recording")).toHaveAttribute("download", "saved.wav");
+    expect(adapter.discard).not.toHaveBeenCalled();
+  });
+
+  it("keeps and reattaches the saved take after removing a failed unsaved replacement", async () => {
+    const saved = savedDraftFixture();
+    const adapter = draftAdapterFixture([saved]);
+    adapter.saveTake.mockRejectedValue(new Error("disk unavailable"));
+    vi.stubGlobal("OfflineAudioContext", class { decodeAudioData = async () => ({ duration: 32 }); });
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(screen.getByTestId("speak.download_recording")).toHaveAttribute("download", "saved.wav"));
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+    fireEvent.change(screen.getByTestId("speak.upload_input"), { target: { files: [uploadFile] } });
+    fireEvent.click(screen.getByRole("button", { name: "Keep this selected file as the local take" }));
+    await waitFor(() => expect(screen.getByTestId("speak.recording_status")).toHaveTextContent("Could not save locally"));
+    fireEvent.click(screen.getByTestId("speak.remove_recording"));
+    await waitFor(() => expect(screen.getByTestId("speak.download_recording")).toHaveAttribute("download", "saved.wav"));
+    expect(adapter.discard).not.toHaveBeenCalled();
+    expect(adapter.loadTake).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries saving the same finalized recording after a transient failure", async () => {
+    const adapter = draftAdapterFixture();
+    adapter.saveTake.mockRejectedValueOnce(new Error("disk unavailable"));
+    vi.stubGlobal("OfflineAudioContext", class { decodeAudioData = async () => ({ duration: 32 }); });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByTestId("speak.record_start"));
+    fireEvent.click(await screen.findByTestId("speak.record_stop"));
+    const retry = await screen.findByRole("button", { name: "Try saving this recording again" });
+    expect(screen.getByTestId("speak.recording_status")).not.toHaveTextContent("Saved on this Mac");
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.getByTestId("speak.recording_status")).toHaveTextContent("Saved on this Mac"));
+    expect(adapter.saveTake).toHaveBeenCalledTimes(2);
+    expect(adapter.saveTake.mock.calls[0][1]).toBe(adapter.saveTake.mock.calls[1][1]);
+  });
+
+  it("does not persist or label a take shorter than the review minimum", async () => {
+    const adapter = draftAdapterFixture();
+    vi.stubGlobal("OfflineAudioContext", class { decodeAudioData = async () => ({ duration: 1 }); });
+    renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
+    fireEvent.click(await screen.findByTestId("speak.record_start"));
+    fireEvent.click(await screen.findByTestId("speak.record_stop"));
+    await waitFor(() => expect(screen.getByTestId("speak.recording_status")).toHaveTextContent("Record at least 30 seconds"));
+    expect(adapter.saveTake).not.toHaveBeenCalled();
+    expect(screen.getByTestId("speak.recording_status")).not.toHaveTextContent("Saved on this Mac");
   });
 
   it("shows an editable, clearable retry goal before recording", async () => {

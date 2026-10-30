@@ -106,7 +106,9 @@ const buildAppStoreState = (seed: AppStoreSeed = {}): AppStoreState => {
 const retryContextChanged = (draft: SessionDraft, updates: Partial<SessionDraft>): boolean =>
   Boolean(draft.retryOfSessionId) &&
   (["speakerId", "learningLanguage", "themeId", "promptId", "promptText", "taskFamily", "cefrLevel", "durationSec"] as const)
-    .some(key => key in updates && updates[key] !== draft[key]);
+    .some(key => key in updates && (key === "speakerId"
+      ? updates.speakerId?.trim().toLowerCase() !== draft.speakerId.trim().toLowerCase()
+      : updates[key] !== draft[key]));
 
 export const createAppStore = (seed: AppStoreSeed = {}): AppStoreApi => {
   const initialState = buildAppStoreState(seed);

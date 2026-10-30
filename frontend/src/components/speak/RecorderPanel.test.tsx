@@ -1,3 +1,4 @@
+import "@testing-library/jest-dom/vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { RecorderPanel } from "./RecorderPanel";
@@ -36,6 +37,16 @@ it("does not present a recorder error's partial chunks as a saved answer", async
   expect(stop).toHaveBeenCalled();
   expect(selected.mock.calls.some(([file]) => file instanceof File)).toBe(false);
   expect(screen.getByTestId("speak.recording_visualizer").getAttribute("data-recording-state")).toBe("error");
+});
+
+it("shows a microphone error over a previously saved status", async () => {
+  Object.defineProperty(navigator, "mediaDevices", { configurable: true,
+    value: { getUserMedia: vi.fn().mockRejectedValue(new DOMException("denied", "NotAllowedError")) } });
+  vi.stubGlobal("MediaRecorder", class { static isTypeSupported() { return true; } });
+  render(<RecorderPanel {...props} onFileSelected={vi.fn()} statusMessage="Saved on this Mac" preferStatusMessage />);
+  fireEvent.click(screen.getByTestId("speak.record_start"));
+  await waitFor(() => expect(screen.getByTestId("speak.recording_status")).toHaveTextContent("speak.recording_permission_denied"));
+  expect(screen.getByTestId("speak.recording_status")).not.toHaveTextContent("Saved on this Mac");
 });
 
 it("does not claim clear input merely because a recording was saved", async () => {

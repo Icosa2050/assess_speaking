@@ -87,6 +87,7 @@ export const RecorderPanel = ({
   onFileSelected,
   onInputModeChange,
   onBeforeReplace,
+  onBeforeRemove,
   onRemove,
   previewUrl,
   preferStatusMessage = false,
@@ -109,6 +110,7 @@ export const RecorderPanel = ({
   onFileSelected: (file: File | null, durationSec?: number) => void | Promise<void>;
   onInputModeChange: (mode: RecordingInputMethod) => void;
   onBeforeReplace?: () => boolean;
+  onBeforeRemove?: () => boolean;
   onRemove: () => void;
   previewUrl: string;
   preferStatusMessage?: boolean;
@@ -433,7 +435,7 @@ export const RecorderPanel = ({
       ? translate("speak.recording_requesting")
       : recorderPhase === "recording"
         ? translate("speak.recording_live", { seconds: elapsedSeconds })
-        : preferStatusMessage ? statusMessage : recorderMessage || statusMessage;
+        : preferStatusMessage && recorderPhase === "idle" ? statusMessage : recorderMessage || statusMessage;
   const visibleStatusTone =
     inputMode === "upload"
       ? statusTone
@@ -635,7 +637,7 @@ export const RecorderPanel = ({
       {canRemove ? (
         <Button
           type="button"
-          onClick={() => { if (!onBeforeReplace || onBeforeReplace()) onRemove(); }}
+          onClick={() => { if (onBeforeRemove ? onBeforeRemove() : !onBeforeReplace || onBeforeReplace()) onRemove(); }}
           {...{
             "data-testid": "speak.remove_recording",
             "data-semantic-id": "speak.remove_recording",

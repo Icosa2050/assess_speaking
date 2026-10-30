@@ -14,9 +14,9 @@ import { ApiClientError, apiClient } from "@/lib/api/client";
 import { createTranslator } from "@/lib/i18n";
 import { followUpBrief } from "@/lib/retryBrief";
 import { pollingIntervals, queryKeys } from "@/lib/query/queryClient";
-import { useAppStore, useAppStoreApi } from "@/lib/state/appStore";
+import { useAppStore } from "@/lib/state/appStore";
 import { useDraftRecovery } from "@/lib/state/DraftRecoveryProvider";
-import { hasReviewState } from "@/lib/state/sessionDraft";
+import { buildSessionDraft, hasReviewState } from "@/lib/state/sessionDraft";
 
 import styles from "./ReviewRoute.module.css";
 
@@ -155,7 +155,6 @@ const GuardCard = ({
 );
 
 export const ReviewRoute = () => {
-  const appStore = useAppStoreApi();
   const draftRecovery = useDraftRecovery();
   const [resumeError, setResumeError] = useState("");
   const [resuming, setResuming] = useState(false);
@@ -186,7 +185,7 @@ export const ReviewRoute = () => {
   const setRecordingJob = useAppStore((state) => state.setRecordingJob);
   const setReturnTo = useAppStore((state) => state.setReturnTo);
   const updateReview = useAppStore((state) => state.updateReview);
-  const updateDraft = useAppStore((state) => state.updateDraft);
+  const applySetup = useAppStore((state) => state.applySetup);
 
   const translate = createTranslator(locale);
   const hasReview = hasReviewState(review);
@@ -244,17 +243,22 @@ export const ReviewRoute = () => {
   const coachTakeaway = summary.coachSummary || translate("review.coach_takeaway_placeholder");
 
   const handleTryAgain = async () => {
+    setResumeError("");
     if (!await draftRecovery.prepareNewAttempt(draft.speakerId)) return;
     // A failed retry does not create new guidance. Keep the learner's existing
     // goal tied to its last assessable parent so the next take can continue it.
     const continueEarlierGoal = summary.eligibilityState !== "assessable" && followUp !== null;
-    clearAttempt({ keepSetup: true });
-    updateDraft({
-      ...(continueEarlierGoal ? { retryOfSessionId: draft.retryOfSessionId } : {}),
+    const reportSessionId = (review.payload.report as Record<string, unknown> | undefined)?.session_id;
+    const nextDraft = buildSessionDraft({
+      ...draft,
+      sessionId: undefined,
+      retryOfSessionId: continueEarlierGoal ? draft.retryOfSessionId : typeof reportSessionId === "string" ? reportSessionId : "",
       coachingGoal: summary.eligibilityState === "assessable" ? chosenGoal.trim() : continueEarlierGoal ? followUp.goal : "",
       retryGoalEligible: summary.eligibilityState === "assessable" || continueEarlierGoal,
     });
-    try { await draftRecovery.saveSetup(appStore.getState().draft); } catch { /* Speak shows the local storage failure. */ }
+    try { await draftRecovery.saveSetup(nextDraft); } catch { setResumeError(translate("draft.storage_error")); return; }
+    clearAttempt({ keepSetup: true });
+    applySetup(nextDraft);
     setReturnTo("review");
     navigate("/speak");
   };

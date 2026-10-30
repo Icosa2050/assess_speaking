@@ -10,6 +10,17 @@ import { clearRetryDraft, readLegacyRetryBrief } from "./retryBriefStorage";
 import type { SessionDraft } from "./sessionDraft";
 
 type LegacyBrief = NonNullable<ReturnType<typeof readLegacyRetryBrief>>;
+type BootResult = { drafts: SavedDraft[]; unreadableIds: string[]; legacy: LegacyBrief | null; error: DraftStoreError | null };
+const BOOT_TIMEOUT_MS = 15_000;
+const boundedList = async (adapter: DraftStoreAdapter) => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      adapter.list(),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Draft listing timed out")), BOOT_TIMEOUT_MS); }),
+    ]);
+  } finally { if (timer) clearTimeout(timer); }
+};
 type RecoveryContext = {
   supported: boolean;
   active: SavedDraft | null;
@@ -17,6 +28,7 @@ type RecoveryContext = {
   recoveredFile: File | null;
   error: DraftStoreError | null;
   saveSetup: (setup: SessionDraft) => Promise<SavedDraft | null>;
+  replaceSetup: (setup: SessionDraft, previous: SavedDraft) => Promise<SavedDraft>;
   saveTake: (setup: SessionDraft, file: File, duration: number, method: "record" | "upload", progress: (percent: number) => void) => Promise<SavedDraft>;
   prepareNewAttempt: (speakerId: string) => Promise<boolean>;
   discardActive: () => Promise<void>;
@@ -25,11 +37,13 @@ type RecoveryContext = {
   clearRecoveredFile: () => void;
   reloadActiveTake: () => Promise<void>;
   findLearner: (speakerId: string) => SavedDraft | undefined;
+  manageDrafts: () => void;
 };
 
 const defaultContext: RecoveryContext = {
   supported: false, active: null, drafts: [], recoveredFile: null, error: null,
   saveSetup: async () => null,
+  replaceSetup: async () => { throw new Error("Local draft storage is unavailable"); },
   saveTake: async () => { throw new Error("Local draft storage is unavailable"); },
   prepareNewAttempt: async () => true,
   discardActive: async () => undefined,
@@ -38,6 +52,7 @@ const defaultContext: RecoveryContext = {
   clearRecoveredFile: () => undefined,
   reloadActiveTake: async () => undefined,
   findLearner: () => undefined,
+  manageDrafts: () => undefined,
 };
 const Context = createContext<RecoveryContext>(defaultContext);
 export const useDraftRecovery = (): RecoveryContext => useContext(Context);
@@ -52,6 +67,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   const translate = useMemo(() => createTranslator(locale), [locale]);
   const [booted, setBooted] = useState(!adapter.supported);
   const [choosing, setChoosing] = useState(false);
+  const [managing, setManaging] = useState(false);
   const [drafts, setDrafts] = useState<SavedDraft[]>([]);
   const draftsRef = useRef<SavedDraft[]>([]);
   const [unreadableIds, setUnreadableIds] = useState<string[]>([]);
@@ -64,7 +80,8 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   const [busy, setBusy] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const serial = useRef<Promise<unknown>>(Promise.resolve());
-  const bootRun = useRef<Promise<{ drafts: SavedDraft[]; unreadableIds: string[]; legacy: LegacyBrief | null; error: DraftStoreError | null }> | null>(null);
+  const bootRun = useRef<Promise<BootResult> | null>(null);
+  const confirmedReplacement = useRef<string | null>(null);
   const setCurrent = (value: SavedDraft | null) => { activeRef.current = value; setActive(value); };
   const enqueue = <T,>(work: () => Promise<T>): Promise<T> => {
     const result = serial.current.then(work, work);
@@ -76,40 +93,50 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     setDrafts(draftsRef.current);
   };
 
-  useEffect(() => {
-    if (!adapter.supported) return;
-    bootRun.current ??= (async () => {
+  const loadBoot = async (): Promise<BootResult> => {
       try {
-        const listing = await adapter.list();
-        await adapter.abortAbandoned(listing);
+        const listing = await boundedList(adapter);
+        let cleanupError: DraftStoreError | null = null;
+        try { await adapter.abortAbandoned(listing); }
+        catch (error) { cleanupError = error as DraftStoreError; }
         const brief = readLegacyRetryBrief();
         if (brief && !listing.drafts.some(item => item.speakerId === normalizedLearner(brief.draft.speakerId)) && !listing.unreadableIds.length) {
           try {
             const imported = await adapter.importLegacyBrief(brief.draft, brief.createdAt);
             clearRetryDraft();
-            return { drafts: [imported, ...listing.drafts], unreadableIds: listing.unreadableIds, legacy: null, error: null };
+            return { drafts: [imported, ...listing.drafts], unreadableIds: listing.unreadableIds, legacy: null, error: cleanupError };
           } catch (importError) {
             return { ...listing, legacy: brief, error: importError as DraftStoreError };
           }
         }
-        return { ...listing, legacy: brief, error: null };
+        return { ...listing, legacy: brief, error: cleanupError };
       } catch (bootError) {
-        let unreadableIds: string[] = [];
-        try { unreadableIds = await adapter.recoveryIds(); } catch { /* The storage root itself is unavailable. */ }
-        return { drafts: [], unreadableIds, legacy: readLegacyRetryBrief(), error: bootError as DraftStoreError };
+        return { drafts: [], unreadableIds: [], legacy: readLegacyRetryBrief(), error: bootError as DraftStoreError };
       }
-    })();
+  };
+  const applyBoot = (result: BootResult) => {
+    draftsRef.current = result.drafts;
+    setDrafts(result.drafts); setUnreadableIds(result.unreadableIds);
+    setLegacy(result.legacy); setError(result.error);
+    setBooted(true);
+    setChoosing(Boolean(result.drafts.length || result.unreadableIds.length || result.legacy || result.error));
+  };
+  useEffect(() => {
+    if (!adapter.supported) return;
+    bootRun.current ??= loadBoot();
     let cancelled = false;
     void bootRun.current.then(result => {
       if (cancelled) return;
-      draftsRef.current = result.drafts;
-      setDrafts(result.drafts); setUnreadableIds(result.unreadableIds);
-      setLegacy(result.legacy); setError(result.error);
-      setBooted(true);
-      setChoosing(Boolean(result.drafts.length || result.unreadableIds.length || result.legacy || result.error));
+      applyBoot(result);
     });
     return () => { cancelled = true; };
   }, [adapter]);
+  const retryBoot = () => {
+    if (busy) return;
+    setBusy(true);
+    bootRun.current = loadBoot();
+    void bootRun.current.then(result => { applyBoot(result); setBusy(false); });
+  };
 
   useEffect(() => { if (booted && choosing) heading.current?.focus(); }, [booted, choosing, drafts.length, unreadableIds.length]);
 
@@ -118,13 +145,23 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     const previous = activeRef.current?.speakerId === normalizedLearner(setup.speakerId)
       ? activeRef.current : draftsRef.current.find(item => item.speakerId === normalizedLearner(setup.speakerId));
     try {
-      if (previous?.take && !sameDraftAttempt(previous, setup)) {
+      const replacing = previous && confirmedReplacement.current === previous.draftId && !sameDraftAttempt(previous, setup);
+      if (previous?.take && !sameDraftAttempt(previous, setup) && !replacing) {
         throw new Error("Confirm replacement of the saved take before starting another attempt");
       }
-      const saved = await adapter.saveSetup(setup, previous);
+      const saved = replacing ? await adapter.replaceSetup(setup, previous) : await adapter.saveSetup(setup, previous);
+      if (replacing) confirmedReplacement.current = null;
       setCurrent(saved); replaceListing(saved); setError(null);
       return saved;
     } catch (saveError) { setError(saveError as DraftStoreError); throw saveError; }
+  });
+  const replaceSetup: RecoveryContext["replaceSetup"] = (setup, previous) => enqueue(async () => {
+    try {
+      const saved = await adapter.replaceSetup(setup, previous);
+      confirmedReplacement.current = null;
+      setCurrent(saved); replaceListing(saved); setRecoveredFile(null); setError(null);
+      return saved;
+    } catch (replaceError) { setError(replaceError as DraftStoreError); throw replaceError; }
   });
   const saveTake: RecoveryContext["saveTake"] = (setup, file, duration, method, progress) => enqueue(async () => {
     let current = activeRef.current;
@@ -137,7 +174,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       return saved;
     } catch (saveError) { setError(saveError as DraftStoreError); throw saveError; }
   });
-  const discardActive = async () => {
+  const discardActive = () => enqueue(async () => {
     const id = activeRef.current?.draftId;
     if (!id) return;
     await adapter.discard(id);
@@ -146,38 +183,47 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     }
     draftsRef.current = draftsRef.current.filter(item => item.draftId !== id);
     setDrafts(draftsRef.current);
-  };
+    setError(null);
+  });
   const discard = async (id: string): Promise<boolean> => {
     setBusy(true);
-    try {
+    return enqueue(async () => { try {
       await adapter.discard(id);
       draftsRef.current = draftsRef.current.filter(item => item.draftId !== id);
       setDrafts(draftsRef.current);
-      setUnreadableIds(previous => previous.filter(item => item !== id));
+      const remainingUnreadable = unreadableIds.filter(item => item !== id);
+      setUnreadableIds(remainingUnreadable);
       if (activeRef.current?.draftId === id) { setCurrent(null); setRecoveredFile(null); clearRecording(); }
       setConfirmDiscard(null); setError(null);
+      if (!draftsRef.current.length && !remainingUnreadable.length && !legacy) { setChoosing(false); setManaging(false); }
       return true;
     } catch (discardError) { setError(discardError as DraftStoreError); return false; }
-    finally { setBusy(false); }
+    finally { setBusy(false); } });
   };
   const prepareNewAttempt = async (speakerId: string): Promise<boolean> => {
     const existing = draftsRef.current.find(item => item.speakerId === normalizedLearner(speakerId));
     if (existing && !window.confirm(translate("draft.replace_setup_confirm", { learner: existing.setup.speakerId }))) return false;
-    if (existing) {
-      if (!await discard(existing.draftId)) return false;
-    }
-    setCurrent(null); setRecoveredFile(null);
+    confirmedReplacement.current = existing?.draftId ?? null;
+    if (!existing) setCurrent(null);
+    setRecoveredFile(null);
     return true;
   };
-  const resume = async (entry: SavedDraft) => {
+  const resume = (entry: SavedDraft) => {
     setBusy(true);
-    try {
-      if (entry.expiresAt <= Date.now()) { await discard(entry.draftId); return; }
+    void enqueue(async () => { try {
+      if (entry.expiresAt <= Date.now()) {
+        await adapter.discard(entry.draftId);
+        draftsRef.current = draftsRef.current.filter(item => item.draftId !== entry.draftId);
+        setDrafts(draftsRef.current);
+        if (!draftsRef.current.length && !unreadableIds.length && !legacy) { setChoosing(false); setManaging(false); }
+        return;
+      }
       const file = entry.take ? await adapter.loadTake(entry) : null;
       applySetup(entry.setup);
       setCurrent(entry);
       setRecoveredFile(file);
       setChoosing(false);
+      setManaging(false);
       setError(null);
       navigate(entry.take || (entry.setup.retryOfSessionId && entry.setup.retryGoalEligible) ? "/speak" : "/session-setup", { replace: true });
     } catch (resumeError) {
@@ -185,23 +231,23 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       setUnreadableIds(previous => [...new Set([...previous, entry.draftId])]);
       draftsRef.current = draftsRef.current.filter(item => item.draftId !== entry.draftId);
       setDrafts(draftsRef.current);
-    } finally { setBusy(false); }
+    } finally { setBusy(false); } });
   };
   const context: RecoveryContext = {
     supported: adapter.supported, active, drafts, recoveredFile, error,
-    saveSetup, saveTake, prepareNewAttempt, discardActive, discardDraft: discard,
-    leaveActive: () => { setCurrent(null); setRecoveredFile(null); },
+    saveSetup, replaceSetup, saveTake, prepareNewAttempt, discardActive, discardDraft: discard,
+    leaveActive: () => { setCurrent(null); setRecoveredFile(null); setError(null); },
     clearRecoveredFile: () => setRecoveredFile(null),
-    reloadActiveTake: async () => {
+    reloadActiveTake: () => enqueue(async () => {
       if (!activeRef.current?.take) return;
       try { setRecoveredFile(await adapter.loadTake(activeRef.current)); setError(null); }
       catch (loadError) { setError(loadError as DraftStoreError); }
-    },
+    }),
     findLearner: speakerId => draftsRef.current.find(item => item.speakerId === normalizedLearner(speakerId)),
+    manageDrafts: () => { setManaging(true); setChoosing(true); },
   };
-  const pending = choosing && (drafts.length > 0 || unreadableIds.length > 0 || legacy || error);
-  return <Context.Provider value={context}>
-    {!booted ? <p role="status">{translate("journey.loading")}</p> : pending ? (
+  const pending = choosing && (drafts.length > 0 || unreadableIds.length > 0 || legacy || error || managing);
+  const recoveryCard = (
       <Card as="section" data-testid="draft.recovery" style={{ display: "grid", gap: "var(--space-3)" }}>
         <h1 ref={heading} tabIndex={-1}>{translate("draft.resume_title")}</h1>
         <p>{translate("draft.privacy")}</p>
@@ -229,11 +275,14 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
         </div>)}
         {legacy && <div data-testid="draft.legacy">
           <p>{translate("draft.legacy_conflict", { learner: legacy.draft.speakerId, date: new Date(legacy.createdAt + 7 * 24 * 60 * 60 * 1000).toLocaleString(locale) })}</p>
-          <Button onClick={() => { clearRetryDraft(); setLegacy(null); }}>{translate("draft.discard_legacy")}</Button>
+          <Button onClick={() => { clearRetryDraft(); setLegacy(null); if (!drafts.length && !unreadableIds.length && !error) { setChoosing(false); setManaging(false); } }}>{translate("draft.discard_legacy")}</Button>
         </div>}
         {error && <p role="alert">{translate(error.kind === "keychain" ? "draft.keychain_error" : "draft.storage_error")}</p>}
-        <Button variant="quiet" onClick={() => setChoosing(false)}>{translate("draft.continue_without_resume")}</Button>
+        {error && <Button disabled={busy} onClick={retryBoot}>{translate("draft.retry_listing")}</Button>}
+        <Button variant="quiet" onClick={() => { setChoosing(false); setManaging(false); }}>{translate("draft.continue_without_resume")}</Button>
       </Card>
-    ) : children}
+  );
+  return <Context.Provider value={context}>
+    {!booted ? <p role="status">{translate("journey.loading")}</p> : pending && !managing ? recoveryCard : <>{children}{managing && recoveryCard}</>}
   </Context.Provider>;
 };

@@ -294,6 +294,7 @@ export const HistoryRoute = () => {
   const [archiveConfirm, setArchiveConfirm] = useState(false);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [archiveError, setArchiveError] = useState("");
+  const [draftError, setDraftError] = useState("");
   const navigate = useNavigate();
   const locale = useAppStore((state) => state.preferences.uiLocale);
   const applySetup = useAppStore((state) => state.applySetup);
@@ -425,6 +426,7 @@ export const HistoryRoute = () => {
       data-semantic-id="history-route"
     >
       <section className={historyStyles.header}>
+        {draftError && <p role="alert">{draftError}</p>}
         <div className={historyStyles.heading}>
           <div>
             <h2>{translate("journey.headline")}</h2>
@@ -478,9 +480,10 @@ export const HistoryRoute = () => {
           if (retry) {
             const savedDraft = buildSessionDraft(retry);
             void (async () => {
+              setDraftError("");
               if (!await draftRecovery.prepareNewAttempt(savedDraft.speakerId)) return;
+              try { await draftRecovery.saveSetup(savedDraft); } catch { setDraftError(translate("draft.storage_error")); return; }
               applySetup(savedDraft);
-              try { await draftRecovery.saveSetup(savedDraft); } catch { /* Speak shows the local storage failure. */ }
               navigate("/speak");
             })();
           }

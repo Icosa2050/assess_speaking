@@ -63,6 +63,53 @@ describe("desktop draft adapter", () => {
     expect(fake.finishTake).not.toHaveBeenCalled();
   });
 
+  it("syncs and verifies a take that published before finish reported an uncertain result", async () => {
+    const fake = bridge();
+    const file = new File(["audio"], "take.webm", { type: "audio/webm" });
+    const digest = createHash("sha256").update("audio").digest("hex");
+    const published: SavedDraft = { ...base(), revision: 2, status: "take_ready",
+      take: { mediaId: MEDIA, originalFilename: file.name, mime: file.type, size: file.size,
+        sha256: digest, durationSec: 8, captureEndedAt: Date.now(), inputMethod: "record" } };
+    vi.mocked(fake.writeTakeChunk).mockResolvedValue(file.size);
+    vi.mocked(fake.finishTake).mockRejectedValue(new Error("Could not sync draft directory; save may have changed, refresh before retrying"));
+    vi.mocked(fake.list).mockResolvedValue({ drafts: [published], unreadableIds: [] });
+    expect(await createDraftStoreAdapter(fake).saveTake(base(), file, 8, "record")).toEqual(published);
+    expect(fake.expire).toHaveBeenCalledOnce();
+    vi.mocked(fake.expire).mockRejectedValue(new Error("Disk unavailable"));
+    await expect(createDraftStoreAdapter(fake).saveTake(base(), file, 8, "record")).rejects.toMatchObject({ kind: "uncertain" });
+  });
+
+  it("accepts backend audio formats and rejects formats the local store cannot represent", async () => {
+    const fake = bridge();
+    for (const file of [new File(["a"], "take.flac", { type: "audio/flac" }), new File(["a"], "take.m4a")]) {
+      vi.mocked(fake.writeTakeChunk).mockResolvedValue(file.size);
+      const digest = createHash("sha256").update("a").digest("hex");
+      vi.mocked(fake.finishTake).mockResolvedValue({ ...base(), revision: 2, status: "take_ready",
+        take: { mediaId: MEDIA, originalFilename: file.name, mime: file.name.endsWith(".m4a") ? "audio/mp4" : "audio/flac",
+          size: file.size, sha256: digest, durationSec: 8, captureEndedAt: Date.now(), inputMethod: "upload" } });
+      await createDraftStoreAdapter(fake).saveTake(base(), file, 8, "upload");
+    }
+    expect(vi.mocked(fake.beginTake).mock.calls.map(call => call[2].mime)).toEqual(["audio/flac", "audio/mp4"]);
+    await expect(createDraftStoreAdapter(fake).saveTake(base(), new File(["a"], "take.xyz", { type: "audio/unknown" }), 8, "upload"))
+      .rejects.toMatchObject({ kind: "format" });
+    expect(fake.beginTake).toHaveBeenCalledTimes(2);
+  });
+
+  it("classifies draft caps and refuses malformed take metadata before loading", async () => {
+    const fake = bridge();
+    vi.mocked(fake.saveSetup).mockRejectedValue(new Error("Three learner drafts are already saved"));
+    await expect(createDraftStoreAdapter(fake).saveSetup(setup)).rejects.toMatchObject({ kind: "limit" });
+    vi.mocked(fake.saveSetup).mockRejectedValue(new Error("Resolve unreadable drafts before creating another"));
+    await expect(createDraftStoreAdapter(fake).saveSetup(setup)).rejects.toMatchObject({ kind: "limit" });
+    const malformed: SavedDraft = { ...base(), revision: 2, status: "take_ready",
+      take: { mediaId: MEDIA, originalFilename: "../take.wav", mime: "audio/wav", size: 5,
+        sha256: "a".repeat(64), durationSec: 8, captureEndedAt: Date.now(), inputMethod: "upload" } };
+    vi.mocked(fake.list).mockResolvedValue({ drafts: [malformed], unreadableIds: [] });
+    expect((await createDraftStoreAdapter(fake).list()).unreadableIds).toContain(ID);
+    await expect(createDraftStoreAdapter(fake).loadTake(malformed)).rejects.toMatchObject({ kind: "unreadable" });
+    expect(fake.loadTakeChunk).not.toHaveBeenCalled();
+  });
+
   it("reports a revision conflict without writing a take", async () => {
     const fake = bridge();
     vi.mocked(fake.beginTake).mockRejectedValue(new Error("Draft changed in another window"));

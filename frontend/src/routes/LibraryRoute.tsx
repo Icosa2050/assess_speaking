@@ -121,6 +121,7 @@ export const LibraryRoute = () => {
   const [themeFamily, setThemeFamily] = useState<TaskFamily>("free_monologue");
   const [errors, setErrors] = useState<Record<string, boolean>>({});
   const [successMessage, setSuccessMessage] = useState("");
+  const [draftError, setDraftError] = useState("");
 
   const samplesQuery = useQuery({
     queryKey: queryKeys.samples,
@@ -163,9 +164,10 @@ export const LibraryRoute = () => {
       promptText: title,
     });
     void (async () => {
+      setDraftError("");
       if (!await draftRecovery.prepareNewAttempt(nextDraft.speakerId)) return;
+      try { await draftRecovery.saveSetup(nextDraft); } catch { setDraftError(translate("draft.storage_error")); return; }
       applySetup(nextDraft);
-      try { await draftRecovery.saveSetup(nextDraft); } catch { /* Speak shows the local storage failure. */ }
       navigate(hasSetupDraft(nextDraft) ? "/speak" : "/session-setup");
     })();
   };
@@ -266,6 +268,7 @@ export const LibraryRoute = () => {
         <p style={{ margin: 0, lineHeight: 1.6, color: "var(--color-text-muted)" }}>
           {translate("library.samples_body")}
         </p>
+        {draftError && <p role="alert">{draftError}</p>}
         {samplesContent}
       </section>
 

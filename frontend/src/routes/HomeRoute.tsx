@@ -125,7 +125,7 @@ export const HomeRoute = () => {
   const resumeDisabled = !hasSetupDraft(draft);
 
   const handleStartNew = () => {
-    if (draftRecovery.active?.take && !window.confirm(translate("draft.replace_confirm"))) return;
+    if (draftRecovery.active?.take && !window.confirm(translate("draft.start_new_confirm"))) return;
     draftRecovery.leaveActive();
     beginNewSession();
     navigate("/session-setup");
@@ -179,6 +179,11 @@ export const HomeRoute = () => {
               {translate("first_run.open_local_setup")}
             </button>
             {rehearsalAction}
+            {draftRecovery.supported && (draftRecovery.drafts.length > 0 || draftRecovery.error) && (
+              <button type="button" onClick={draftRecovery.manageDrafts} className={`${styles.action} ${styles.secondaryAction}`}>
+                {translate("draft.manage_saved")}
+              </button>
+            )}
           </div>
         </section>
       ) : (
@@ -240,6 +245,11 @@ export const HomeRoute = () => {
         </div>
         <p className={styles.cardBody}>{diagnosticsMessage.body}</p>
         <div className={styles.actionRow}>
+          {draftRecovery.supported && (draftRecovery.drafts.length > 0 || draftRecovery.error) && (
+            <button type="button" onClick={draftRecovery.manageDrafts} className={`${styles.action} ${styles.secondaryAction}`}>
+              {translate("draft.manage_saved")}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => navigate("/runtime-setup")}

@@ -292,15 +292,24 @@ export const SpeakRoute = () => {
   }, [draftRecovery.active?.draftId, activeMatches]);
 
   const confirmReplace = () => !saveInFlight.current && (!draftRecovery.supported || (!attachedFile && !draftRecovery.active?.take) || window.confirm(translate("draft.replace_confirm")));
+  const confirmRemove = () => !saveInFlight.current && (localSaveState !== "saved" || !draftRecovery.active?.take ||
+    window.confirm(translate("draft.discard_saved_confirm", {
+      learner: draftRecovery.active.setup.speakerId,
+      task: draftRecovery.active.setup.themeLabel || draftRecovery.active.setup.promptText,
+      size: `${(draftRecovery.active.take.size / 1024 / 1024).toFixed(1)} MiB`,
+    })));
 
   const handleRemove = async (): Promise<boolean> => {
     if (saveInFlight.current) return false;
     try {
-      if (draftRecovery.active?.take) {
+      if (draftRecovery.active?.take && activeMatches && localSaveState === "saved") {
         await draftRecovery.discardActive();
         await draftRecovery.saveSetup(draft);
       }
       clearAttachment();
+      if (draftRecovery.active?.take && activeMatches && localSaveState !== "saved") {
+        await draftRecovery.reloadActiveTake();
+      }
       return true;
     } catch { setLocalSaveState("failed"); return false; }
   };
@@ -333,14 +342,25 @@ export const SpeakRoute = () => {
     if (!draftRecovery.active?.take) clearAttachment();
     setInputMode(nextMode);
   };
+  const saveRecordedTake = async (file: File, durationSec: number) => {
+    if (!draftRecovery.supported || saveInFlight.current || durationSec < MIN_REVIEW_SECONDS) return;
+    saveInFlight.current = true;
+    setLocalSaveState("saving");
+    try {
+      if (!activeMatches) await draftRecovery.saveSetup(draft);
+      await draftRecovery.saveTake(draft, file, durationSec, "record", setLocalSaveProgress);
+      setLocalSaveState("saved");
+    } catch { setLocalSaveState("failed"); }
+    finally { saveInFlight.current = false; }
+  };
 
   const handleFileSelected = async (file: File | null, durationSec?: number) => {
     if (!file || saveInFlight.current) return;
-    clearAttachment();
     if (file.size > 100 * 1024 * 1024 || file.size === 0) {
       setRecordingError(translate("speak.upload_size_error"));
       return;
     }
+    clearAttachment();
 
     const nextPreviewUrl = URL.createObjectURL(file);
     previewUrlRef.current = nextPreviewUrl;
@@ -367,15 +387,8 @@ export const SpeakRoute = () => {
         reportPath: "",
       },
     });
-    if (inputMode === "record" && draftRecovery.supported && durationSec !== undefined && durationSec > 0) {
-      saveInFlight.current = true;
-      setLocalSaveState("saving");
-      try {
-        if (!activeMatches) await draftRecovery.saveSetup(draft);
-        await draftRecovery.saveTake(draft, file, durationSec, "record", setLocalSaveProgress);
-        setLocalSaveState("saved");
-      } catch { setLocalSaveState("failed"); }
-      finally { saveInFlight.current = false; }
+    if (inputMode === "record" && draftRecovery.supported && durationSec !== undefined && durationSec >= MIN_REVIEW_SECONDS) {
+      await saveRecordedTake(file, durationSec);
     }
   };
 
@@ -510,9 +523,10 @@ export const SpeakRoute = () => {
       : retryResponseUnknown ? "speak.wait_retry_unconfirmed" : "speak.wait_retry_not_ready", { detail: retryError })
     : pollError ? translate("speak.wait_status_failed", { detail: pollError })
     : attachedFile && draftRecovery.supported && lifecycleState === "idle" && !isSubmitting && localSaveState === "saving" ? translate("draft.save_progress", { percent: localSaveProgress })
+    : shortRecording ? translate("speak.recording_too_short")
     : attachedFile && draftRecovery.supported && lifecycleState === "idle" && !isSubmitting && localSaveState === "saved" ? translate("draft.saved_on_mac")
     : attachedFile && draftRecovery.supported && lifecycleState === "idle" && !isSubmitting && localSaveState === "failed" ? translate("draft.save_failed")
-    : shortRecording ? translate("speak.recording_too_short") : buildStatusMessage({
+    : buildStatusMessage({
     errorMessage: recording.error || recording.job.error,
     hasAttachment,
     hasMissingAttachment: storeHasAttachment && !attachedFile && !assessmentOwnsAttachment,
@@ -748,8 +762,12 @@ export const SpeakRoute = () => {
   return (
     <div style={{ display: "grid", gap: "1rem" }}>
       {draftRecovery.supported && draftRecovery.error ? (
-        <StatusBanner title={translate(draftRecovery.error.kind === "keychain" ? "draft.keychain_error" : "draft.storage_error")} tone="warning">
-          <p>{translate("draft.save_failed")}</p>
+        <StatusBanner title={translate(draftRecovery.error.kind === "keychain" ? "draft.keychain_error"
+          : draftRecovery.error.kind === "limit" ? "draft.limit_error"
+          : draftRecovery.error.kind === "format" ? "draft.format_error"
+          : draftRecovery.error.kind === "uncertain" ? "draft.save_uncertain" : "draft.storage_error")} tone="warning">
+          <p>{translate(draftRecovery.error.kind === "uncertain" ? "draft.save_uncertain" : "draft.save_failed")}</p>
+          <Button onClick={draftRecovery.manageDrafts}>{translate("draft.manage_saved")}</Button>
         </StatusBanner>
       ) : null}
       {readinessBlocked && ownsTake ? (
@@ -868,6 +886,7 @@ export const SpeakRoute = () => {
           inputMode={inputMode}
           onFileSelected={handleFileSelected}
           onBeforeReplace={confirmReplace}
+          onBeforeRemove={confirmRemove}
           onInputModeChange={handleInputModeChange}
           onRemove={() => { void handleRemove(); }}
           previewUrl={previewUrl}
@@ -879,6 +898,7 @@ export const SpeakRoute = () => {
               ? "error"
               : lifecycleState === "cancelled"
                 ? "warning"
+                : shortRecording ? "warning"
                 : localSaveState === "saved" || (!draftRecovery.supported && hasAttachment)
                   ? "success"
                   : "info"
@@ -891,6 +911,9 @@ export const SpeakRoute = () => {
             <p>{translate("draft.save_upload_note")}</p>
             <Button onClick={() => void keepSelectedFile()}>{translate("draft.save_upload_action")}</Button>
           </div>
+        ) : null}
+        {draftRecovery.supported && inputMode === "record" && attachedFile && localSaveState === "failed" && recordedDurationSec !== null ? (
+          <Button onClick={() => void saveRecordedTake(attachedFile, recordedDurationSec)}>{translate("draft.retry_save_action")}</Button>
         ) : null}
         </fieldset>
         <AssessmentStatusPanel

@@ -35,7 +35,11 @@ const Probe = () => {
   const location = useLocation();
   return <><div data-testid="probe">{speaker}|{recovery.recoveredFile?.name}|{location.pathname}</div><div data-testid="retry-context">{retry}</div>
     <button onClick={() => void recovery.discardActive()}>Discard active probe</button>
-    <button onClick={() => recovery.leaveActive()}>Leave active probe</button></>;
+    <button onClick={() => recovery.leaveActive()}>Leave active probe</button>
+    <button onClick={() => void recovery.saveSetup(buildSessionDraft({ speakerId: "Bea", themeId: "trip", themeLabel: "Trip", promptText: "Trip" })).catch(() => undefined)}>Save setup probe</button>
+    <button onClick={recovery.manageDrafts}>Manage drafts probe</button>
+    <button onClick={() => recovery.active && void recovery.saveSetup({ ...recovery.active.setup, coachingGoal: "Updated goal" }).catch(() => undefined)}>Edit active probe</button>
+    <div data-testid="draft-error-kind">{recovery.error?.kind}</div></>;
 };
 const show = (bridge: DesktopDraftStoreBridge) => render(
   <MemoryRouter initialEntries={["/speak"]}>
@@ -77,6 +81,19 @@ describe("desktop draft recovery gate", () => {
     expect(await screen.findByTestId("probe")).toBeVisible();
   });
 
+  it("does not re-open the gate when a new setup is saved after discarding the last draft", async () => {
+    const bridge = fake();
+    vi.mocked(bridge.saveSetup).mockResolvedValue({ ...draft(), draftId: "c".repeat(32), speakerId: "bea",
+      setup: buildSessionDraft({ speakerId: "Bea", themeId: "trip", themeLabel: "Trip", promptText: "Trip" }),
+      take: null, status: "setup" });
+    show(bridge);
+    fireEvent.click(await screen.findByRole("button", { name: "Discard draft and take" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discard draft and take" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save setup probe" }));
+    await waitFor(() => expect(bridge.saveSetup).toHaveBeenCalledOnce());
+    expect(screen.queryByTestId("draft.recovery")).not.toBeInTheDocument();
+  });
+
   it("finishes an in-flight discard after the active draft is left", async () => {
     const bridge = fake();
     let finishDiscard: () => void = () => undefined;
@@ -92,16 +109,91 @@ describe("desktop draft recovery gate", () => {
     expect(screen.queryByTestId("draft.entry")).not.toBeInTheDocument();
   });
 
-  it("offers unreadable IDs for discard when the Keychain cannot open", async () => {
+  it("serializes discard after an in-flight setup edit", async () => {
+    const bridge = fake();
+    let finishSave: (value: SavedDraft) => void = () => undefined;
+    vi.mocked(bridge.saveSetup).mockImplementation(() => new Promise(resolve => { finishSave = resolve; }));
+    show(bridge);
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await screen.findByTestId("probe");
+    fireEvent.click(screen.getByRole("button", { name: "Edit active probe" }));
+    await waitFor(() => expect(bridge.saveSetup).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Discard active probe" }));
+    expect(bridge.discard).not.toHaveBeenCalled();
+    await act(async () => finishSave({ ...draft(), revision: 3, setup: { ...draft().setup, coachingGoal: "Updated goal" } }));
+    await waitFor(() => expect(bridge.discard).toHaveBeenCalledWith("a".repeat(32)));
+    expect(screen.getByTestId("draft-error-kind")).toBeEmptyDOMElement();
+  });
+
+  it("does not offer destructive discard for a temporary Keychain outage and can retry", async () => {
     const bridge = fake([]);
-    vi.mocked(bridge.list).mockRejectedValue(new Error("Mac Keychain is unavailable"));
+    vi.mocked(bridge.list).mockRejectedValueOnce(new Error("Mac Keychain is unavailable"))
+      .mockResolvedValueOnce({ drafts: [draft()], unreadableIds: [] });
     vi.mocked(bridge.recoveryIds).mockResolvedValue(["a".repeat(32)]);
     show(bridge);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Mac Keychain is unavailable");
+    expect(screen.queryByTestId("draft.unreadable")).not.toBeInTheDocument();
+    expect(bridge.recoveryIds).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Try loading local drafts again" }));
+    expect(await screen.findByTestId("draft.entry")).toBeVisible();
+    expect(bridge.discard).not.toHaveBeenCalled();
+  });
+
+  it("offers genuinely unreadable entries for confirmed discard", async () => {
+    const bridge = fake([]);
+    vi.mocked(bridge.list).mockResolvedValue({ drafts: [], unreadableIds: ["a".repeat(32)] });
+    show(bridge);
     expect(await screen.findByTestId("draft.unreadable")).toBeVisible();
-    expect(screen.getByRole("alert")).toHaveTextContent("Mac Keychain is unavailable");
     fireEvent.click(screen.getByRole("button", { name: "Discard draft and take" }));
     fireEvent.click(screen.getByRole("button", { name: "Discard draft and take" }));
     await waitFor(() => expect(bridge.discard).toHaveBeenCalledWith("a".repeat(32)));
+  });
+
+  it("keeps readable drafts visible if abandoned-transfer cleanup fails", async () => {
+    const bridge = fake();
+    vi.mocked(bridge.abortTakeForDraft).mockRejectedValue(new Error("Could not cancel take save"));
+    show(bridge);
+    expect(await screen.findByTestId("draft.entry")).toHaveTextContent("Alex");
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not use local draft storage");
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    expect(await screen.findByTestId("probe")).toHaveTextContent("Alex|take.webm");
+  });
+
+  it("bounds an unresponsive listing and offers a real retry", async () => {
+    const bridge = fake();
+    vi.mocked(bridge.list).mockImplementationOnce(() => new Promise(() => undefined))
+      .mockResolvedValueOnce({ drafts: [draft()], unreadableIds: [] });
+    vi.useFakeTimers();
+    try {
+      show(bridge);
+      expect(screen.queryByTestId("probe")).not.toBeInTheDocument();
+      await act(async () => vi.advanceTimersByTimeAsync(15_000));
+      expect(screen.getByRole("alert")).toHaveTextContent("Could not use local draft storage");
+      fireEvent.click(screen.getByRole("button", { name: "Try loading local drafts again" }));
+      await act(async () => { await Promise.resolve(); });
+      expect(screen.getByTestId("draft.entry")).toBeVisible();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("lets a fourth learner resolve the draft cap without reloading", async () => {
+    const other = (id: string, speakerId: string): SavedDraft => ({ ...draft(), draftId: id,
+      speakerId: speakerId.toLowerCase(), setup: buildSessionDraft({ speakerId, themeId: "trip", themeLabel: "Trip", promptText: "Trip" }) });
+    const bridge = fake([draft(), other("c".repeat(32), "Cia"), other("d".repeat(32), "Dee")]);
+    vi.mocked(bridge.saveSetup).mockRejectedValueOnce(new Error("Three learner drafts are already saved"))
+      .mockResolvedValueOnce({ ...other("e".repeat(32), "Bea"), take: null, status: "setup" });
+    show(bridge);
+    fireEvent.click(await screen.findByRole("button", { name: "Continue without resuming" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save setup probe" }));
+    await waitFor(() => expect(screen.getByTestId("draft-error-kind")).toHaveTextContent("limit"));
+    fireEvent.click(screen.getByRole("button", { name: "Manage drafts probe" }));
+    expect(screen.getAllByTestId("draft.entry")).toHaveLength(3);
+    fireEvent.click(screen.getAllByRole("button", { name: "Discard draft and take" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Discard draft and take" })[0]);
+    await waitFor(() => expect(bridge.discard).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Continue without resuming" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save setup probe" }));
+    await waitFor(() => expect(bridge.saveSetup).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId("draft.recovery")).not.toBeInTheDocument();
   });
 
   it("imports a valid #26 retry brief once with its original expiry", async () => {
