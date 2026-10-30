@@ -42,6 +42,55 @@ it("resumes the meter in the Record gesture before an asynchronous confirmation"
   expect(close).toHaveBeenCalledOnce();
   expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
 });
+it("does not request the microphone after switching to Upload during preparation", async () => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  vi.stubGlobal("AudioContext", class { resume = vi.fn().mockResolvedValue(undefined); close = close; });
+  microphone();
+  vi.stubGlobal("MediaRecorder", class { static isTypeSupported() { return true; } });
+  let finish: (prepared: boolean) => void = () => undefined;
+  const onMode = vi.fn();
+  const { rerender } = render(<RecorderPanel {...props} onFileSelected={vi.fn()} onInputModeChange={onMode}
+    onPrepareRecording={() => new Promise(resolve => { finish = resolve; })} />);
+  fireEvent.click(screen.getByTestId("speak.record_start"));
+  fireEvent.click(screen.getByTestId("speak.input_mode_upload"));
+  expect(onMode).toHaveBeenCalledWith("upload");
+  rerender(<RecorderPanel {...props} inputMode="upload" onFileSelected={vi.fn()} onInputModeChange={onMode} />);
+  await act(async () => finish(true));
+  expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+  expect(close).toHaveBeenCalledOnce();
+});
+it("does not request the microphone after switching to Upload during native confirmation", async () => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  vi.stubGlobal("AudioContext", class { resume = vi.fn().mockResolvedValue(undefined); close = close; });
+  microphone();
+  vi.stubGlobal("MediaRecorder", class { static isTypeSupported() { return true; } });
+  let finish: (allowed: boolean) => void = () => undefined;
+  const beforeReplace = vi.fn().mockImplementationOnce(() => new Promise(resolve => { finish = resolve; })).mockReturnValue(true);
+  const onMode = vi.fn();
+  const { rerender } = render(<RecorderPanel {...props} onFileSelected={vi.fn()} onInputModeChange={onMode}
+    onBeforeReplace={beforeReplace} />);
+  fireEvent.click(screen.getByTestId("speak.record_start"));
+  fireEvent.click(screen.getByTestId("speak.input_mode_upload"));
+  expect(onMode).toHaveBeenCalledWith("upload");
+  rerender(<RecorderPanel {...props} inputMode="upload" onFileSelected={vi.fn()} onInputModeChange={onMode} />);
+  await act(async () => finish(true));
+  expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+  expect(close).toHaveBeenCalledOnce();
+});
+it("does not request the microphone after unmounting during preparation", async () => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  vi.stubGlobal("AudioContext", class { resume = vi.fn().mockResolvedValue(undefined); close = close; });
+  microphone();
+  vi.stubGlobal("MediaRecorder", class { static isTypeSupported() { return true; } });
+  let finish: (prepared: boolean) => void = () => undefined;
+  const { unmount } = render(<RecorderPanel {...props} onFileSelected={vi.fn()}
+    onPrepareRecording={() => new Promise(resolve => { finish = resolve; })} />);
+  fireEvent.click(screen.getByTestId("speak.record_start"));
+  unmount();
+  await act(async () => finish(true));
+  expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+  expect(close).toHaveBeenCalledOnce();
+});
 it("does not report silence when the meter remains suspended after confirmation", async () => {
   const status = vi.fn();
   const node = () => ({ connect: vi.fn(), disconnect: vi.fn() });
