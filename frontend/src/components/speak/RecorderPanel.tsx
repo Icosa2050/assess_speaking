@@ -88,6 +88,7 @@ export const RecorderPanel = ({
   onFileSelected,
   onInputModeChange,
   onBeforeReplace,
+  onPrepareRecording,
   onBeforeRemove,
   onRemove,
   previewUrl,
@@ -112,6 +113,7 @@ export const RecorderPanel = ({
   onFileSelected: (file: File | null, durationSec?: number) => void | Promise<void>;
   onInputModeChange: (mode: RecordingInputMethod) => void;
   onBeforeReplace?: () => boolean | Promise<boolean>;
+  onPrepareRecording?: () => boolean | Promise<boolean>;
   onBeforeRemove?: () => boolean | Promise<boolean>;
   onRemove: () => void;
   previewUrl: string;
@@ -350,6 +352,15 @@ export const RecorderPanel = ({
       } catch { /* A failed dialog is a cancelled replacement. */ }
       confirmationPendingRef.current = false;
       if (!allowed || !mountedRef.current) { cleanupRecorder(); setSignalWarning(""); return; }
+    }
+    if (onPrepareRecording) {
+      confirmationPendingRef.current = true;
+      let prepared = false;
+      try {
+        prepared = await onPrepareRecording();
+      } catch { /* Storage failed; keep the microphone closed. */ }
+      confirmationPendingRef.current = false;
+      if (!prepared || !mountedRef.current) { cleanupRecorder(); setSignalWarning(""); return; }
     }
 
     setRecorderPhase("requesting");

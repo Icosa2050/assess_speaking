@@ -294,6 +294,16 @@ export const SpeakRoute = () => {
   }, [draftRecovery.active?.draftId, activeMatches]);
 
   const confirmReplace = () => !assessmentLocksTake && !saveInFlight.current && (!draftRecovery.supported || (!attachedFile && !draftRecovery.active?.take) || confirmLocalDraft(translate("draft.replace_confirm")));
+  const prepareRecording = async () => {
+    if (assessmentLocksTake || saveInFlight.current) return false;
+    // A failed setup recreation after Remove leaves no native manifest. Create
+    // it before capture so the native store accepts the real recording end time.
+    if (draftRecovery.supported && !activeMatches) {
+      try { await draftRecovery.saveSetup(draft); }
+      catch { return false; }
+    }
+    return true;
+  };
   const confirmRemove = () => !assessmentLocksTake && !saveInFlight.current && (localSaveState !== "saved" || !draftRecovery.active?.take ||
     confirmLocalDraft(translate("draft.discard_saved_confirm", {
       learner: draftRecovery.active.setup.speakerId,
@@ -894,6 +904,7 @@ export const SpeakRoute = () => {
           inputMode={inputMode}
           onFileSelected={handleFileSelected}
           onBeforeReplace={confirmReplace}
+          onPrepareRecording={draftRecovery.supported ? prepareRecording : undefined}
           onBeforeRemove={confirmRemove}
           onInputModeChange={handleInputModeChange}
           onRemove={() => { void handleRemove(); }}

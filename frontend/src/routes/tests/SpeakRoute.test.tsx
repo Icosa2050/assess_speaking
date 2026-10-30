@@ -286,10 +286,13 @@ describe("Speak route", () => {
     expect(adapter.loadTake).toHaveBeenCalledTimes(2);
   });
 
-  it("clears a discarded take even if recreating its setup fails", async () => {
+  it("recreates setup before recording after a discarded take's setup save fails", async () => {
     const saved = savedDraftFixture();
+    saved.take!.inputMethod = "record";
     const adapter = draftAdapterFixture([saved]);
-    adapter.saveSetup.mockRejectedValue(new Error("Mac storage is unavailable"));
+    adapter.saveSetup.mockRejectedValueOnce(new Error("Mac storage is unavailable"))
+      .mockRejectedValueOnce(new Error("Mac storage is still unavailable"));
+    vi.stubGlobal("OfflineAudioContext", class { decodeAudioData = async () => ({ duration: 32 }); });
     vi.stubGlobal("confirm", vi.fn(() => true));
     renderWithProviders(<AppFrame />, { initialEntries: ["/speak"], locale: "en", appState: validDraftState, draftAdapter: adapter });
     fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
@@ -301,6 +304,18 @@ describe("Speak route", () => {
     expect(screen.queryByTestId("speak.remove_recording")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Try saving this recording again" })).not.toBeInTheDocument();
     expect(adapter.saveTake).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("speak.record_start"));
+    await waitFor(() => expect(adapter.saveSetup).toHaveBeenCalledTimes(2));
+    expect(getUserMedia).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("speak.record_start"));
+    await waitFor(() => expect(adapter.saveSetup).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(getUserMedia).toHaveBeenCalledOnce());
+    expect(adapter.saveSetup.mock.invocationCallOrder[2]).toBeLessThan(getUserMedia.mock.invocationCallOrder[0]);
+    fireEvent.click(await screen.findByTestId("speak.record_stop"));
+    await waitFor(() => expect(adapter.saveTake).toHaveBeenCalledOnce());
+    const [createdSetup, recordedFile] = adapter.saveTake.mock.calls[0];
+    expect(recordedFile.lastModified).toBeGreaterThanOrEqual(createdSetup.createdAt);
+    expect(screen.getByTestId("speak.recording_status")).toHaveTextContent("Saved on this Mac");
   });
 
   it("retries saving the same finalized recording after a transient failure", async () => {
