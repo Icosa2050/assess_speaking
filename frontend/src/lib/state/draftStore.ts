@@ -18,7 +18,7 @@ const MIME_ALIASES: Record<string, string> = {
 const safeTakeName = (name: string) => Boolean(name && new TextEncoder().encode(name).length <= 256 && !/[\\/\\\\\x00-\x1f\x7f]/.test(name));
 const takeMime = (file: File): string => MIME_ALIASES[file.type] || file.type || MIME_BY_EXTENSION[file.name.split(".").pop()?.toLowerCase() || ""] || "";
 
-export type DraftStoreFailure = "unsupported" | "keychain" | "lost_key" | "storage" | "conflict" | "unreadable" | "uncertain" | "limit" | "format" | "history";
+export type DraftStoreFailure = "unsupported" | "keychain" | "device_only_unavailable" | "lost_key" | "storage" | "conflict" | "unreadable" | "uncertain" | "limit" | "format" | "history";
 
 export class DraftStoreError extends Error {
   constructor(readonly kind: DraftStoreFailure, message: string) {
@@ -31,6 +31,7 @@ const failure = (error: unknown): DraftStoreError => {
   const message = error instanceof Error ? error.message : String(error);
   const kind: DraftStoreFailure = /save may have changed/i.test(message) ? "uncertain"
     : /saved take cannot be opened on this mac/i.test(message) ? "lost_key"
+    : /keychain.*code -34018/i.test(message) ? "device_only_unavailable"
     : /keychain|key is unavailable|content key/i.test(message) ? "keychain"
     : /three learner drafts|resolve unreadable drafts|draft storage limit|total encrypted/i.test(message) ? "limit"
     : /unsupported.*(mime|format)|invalid (saved )?take metadata/i.test(message) ? "format"
