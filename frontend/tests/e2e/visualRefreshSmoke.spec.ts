@@ -16,6 +16,13 @@ const desktopViewport = { width: 1280, height: 720 };
 const mobileViewport = { width: 390, height: 844 };
 const narrowMobileViewport = { width: 360, height: 780 };
 
+// Playwright WebKit on macOS follows the system's default Tab preference, which
+// skips links and buttons. Option+Tab exercises full keyboard navigation there.
+const pressFullKeyboardTab = async (page: Page, reverse = false) => {
+  const webkit = page.context().browser()?.browserType().name() === "webkit";
+  await page.keyboard.press(`${reverse ? "Shift+" : ""}${webkit ? "Alt+" : ""}Tab`);
+};
+
 // Compare rendered text fragments, not element boxes (which include padding and descendants).
 function findTextOverlaps() {
   const dialog = document.querySelector("dialog[open]");
@@ -678,7 +685,7 @@ test("renders primary visual-refresh artifacts without serif typography", async 
     await page.keyboard.press("ControlOrMeta+Home");
     let guideFocused = false;
     for (let step = 0; step < 60 && !guideFocused; step += 1) {
-      await page.keyboard.press("Tab");
+      await pressFullKeyboardTab(page);
       guideFocused = await page.evaluate(() =>
         document.activeElement?.getAttribute("href") === "/guide" &&
         Boolean(document.activeElement?.closest('[data-testid="review-result-estimate"]')));
@@ -817,7 +824,7 @@ test("system default and explicit themes keep the journal card usable at desktop
     const homeLink = page.getByRole("link", { name: "Practice", exact: true });
     await homeLink.focus();
     await expect(homeLink).toHaveCSS("outline-width", "3px");
-    await page.keyboard.press("Tab");
+    await pressFullKeyboardTab(page);
     expect(await page.evaluate(() => document.activeElement?.tagName)).toBe("A");
     await expectNoPageHorizontalOverflow(page);
     await captureScreenshot(page, `migration-shell-${suffix}`);
@@ -876,8 +883,8 @@ test("system default and explicit themes keep the journal card usable at desktop
     expect(contrastRatio(headingColor, panelBackground)).toBeGreaterThanOrEqual(4.5);
     const backup = darkJournal.getByRole("button", { name: "Create and save backup" });
     await backup.focus();
-    await page.keyboard.press("Tab");
-    await page.keyboard.press("Shift+Tab");
+    await pressFullKeyboardTab(page);
+    await pressFullKeyboardTab(page, true);
     await expect(backup).toBeFocused();
     await expect(backup).toHaveCSS("outline-width", "3px");
     const focusColor = await backup.evaluate(element => getComputedStyle(element).outlineColor);
@@ -930,6 +937,12 @@ test(`start-fresh actions stay reachable at 200% (${locale})`, async ({ page }) 
   await expect(dialog.locator("#fresh-dialog-consequences")).toBeVisible();
   await expect(dialog.locator("#fresh-dialog-consequences p")).toHaveCount(3);
   await expect(dialog.locator("#fresh-error")).toHaveCount(0);
+  await page.setViewportSize({ width: 1100, height: 760 });
+  const desktopBottomGap = await dialog.evaluate(element =>
+    element.getBoundingClientRect().bottom - element.lastElementChild!.getBoundingClientRect().bottom);
+  expect(desktopBottomGap, `${locale} desktop dialog follows its actions`).toBeGreaterThanOrEqual(0);
+  expect(desktopBottomGap, `${locale} desktop dialog follows its actions`).toBeLessThanOrEqual(4);
+  await page.setViewportSize({ width: 550, height: 380 });
   const captureDir = process.env.DIALOG_REACHABILITY_SCREENSHOT_DIR;
   if (captureDir) {
     mkdirSync(captureDir, { recursive: true });
@@ -948,7 +961,7 @@ test(`start-fresh actions stay reachable at 200% (${locale})`, async ({ page }) 
   await page.setViewportSize({ width: 550, height: 321 });
   const scrollBody = dialog.getByRole("region", { name: /.+/ });
   await page.locator("#fresh-cancel").focus();
-  await page.keyboard.press("Shift+Tab");
+  await pressFullKeyboardTab(page, true);
   await expect(scrollBody).toBeFocused();
   expect(await scrollBody.evaluate(element => element.scrollHeight - element.clientHeight), `${locale} consequences overflow`).toBeGreaterThan(0);
   await page.keyboard.press("PageDown");
@@ -1018,8 +1031,8 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
       await expect(focusTarget).toBeVisible();
       await expect(focusTarget).toBeEnabled();
       await focusTarget.focus();
-      await page.keyboard.press("Tab");
-      await page.keyboard.press("Shift+Tab");
+      await pressFullKeyboardTab(page);
+      await pressFullKeyboardTab(page, true);
       await expect(focusTarget).toBeFocused();
       expect(await focusTarget.evaluate(element => element.matches(":focus-visible")), `${locale} ${theme} ${route} keyboard focus-visible`).toBe(true);
       await expect(focusTarget).toHaveCSS("outline-offset", "3px");
@@ -1217,8 +1230,8 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
       await page.evaluate(() => window.scrollTo(0, 0));
       const skip = page.locator('a[href="#main-content"]');
       await skip.focus();
-      await page.keyboard.press("Tab");
-      await page.keyboard.press("Shift+Tab");
+      await pressFullKeyboardTab(page);
+      await pressFullKeyboardTab(page, true);
       await expect(skip).toBeFocused();
       expect(await skip.evaluate(element => element.matches(":focus-visible"))).toBe(true);
       await expect(skip).toHaveCSS("transform", "none");
@@ -1242,6 +1255,11 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
     const reachability = await page.evaluate(() => {
       const root = document.body;
       const dialog = document.querySelector("dialog[open]");
+      const dialogGeometry = dialog ? (() => {
+        const box = dialog.getBoundingClientRect();
+        return { top: box.top, bottom: box.bottom, height: box.height,
+          maxHeight: getComputedStyle(dialog).maxHeight, supportsDvh: CSS.supports("height", "100dvh") };
+      })() : null;
       const skipLink = root.querySelector<HTMLElement>('a[href="#main-content"]');
       if (!dialog && !skipLink) throw new Error("Missing shell skip link");
       const candidates = [...root.querySelectorAll<HTMLElement>("button, a[href], input, select, textarea, summary")];
@@ -1299,7 +1317,7 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
             covering: covering?.getAttribute("data-testid") || covering?.tagName || "none", element: element.outerHTML.slice(0, 180) });
         }
       }
-      return { checked, checkedTargets, excluded, issues };
+      return { checked, checkedTargets, excluded, issues, dialogGeometry };
     });
     expect(reachability.checked, `${locale} ${theme} ${route} 200% control coverage ${JSON.stringify(reachability.excluded)}`).toBeGreaterThan(0);
     const contentReachabilityCount = reachability.checkedTargets.filter(target => target.inContent).length;
@@ -1311,7 +1329,7 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
       expect(reachability.checkedTargets.some(target => target.href === "/settings" && target.inNav), `${locale} ${theme} ${route} preferences navigation coverage`).toBe(true);
       if (route === "settings") expect(reachability.checkedTargets.some(target => target.testId === "settings.appearance"), `${locale} ${theme} appearance coverage`).toBe(true);
     }
-    expect(reachability.issues, `${locale} ${theme} ${route} 200% control reachability`).toEqual([]);
+    expect(reachability.issues, `${locale} ${theme} ${route} 200% control reachability ${JSON.stringify(reachability.dialogGeometry)}`).toEqual([]);
     for (const item of contrastChecks.slice(-2)) {
       item.reachabilityCount = reachability.checked;
       item.contentReachabilityCount = contentReachabilityCount;
@@ -1434,7 +1452,7 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
 
     await page.goto("/");
     await page.setViewportSize({ width: 1100, height: 760 });
-    await page.keyboard.press("Tab");
+    await pressFullKeyboardTab(page);
     const skip = page.locator('a[href="#main-content"]');
     await expect(skip).toBeFocused();
     await expect(skip).toHaveCSS("outline-width", "3px");
