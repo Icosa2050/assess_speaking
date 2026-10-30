@@ -320,8 +320,8 @@ describe("Settings route", () => {
     })));
     await waitFor(() => expect(mockedPostRuntimeSettingsSetDefault).toHaveBeenCalledWith("conn-bravo"));
     expect(store.getState().preferences.activeConnectionId).toBe("conn-bravo");
-    expect(await screen.findByTestId("settings.connection_id")).toHaveValue("conn-alpha");
-    expect(screen.getByRole("heading", {name: "Saved connections"})).toHaveFocus();
+    await waitFor(() => expect(screen.getByTestId("settings.connection_id")).toHaveValue("conn-alpha"));
+    await waitFor(() => expect(screen.getByRole("heading", {name: "Saved connections"})).toHaveFocus());
     expect(screen.queryByTestId("runtime_connection.provider")).not.toBeInTheDocument();
   });
 
@@ -337,7 +337,7 @@ describe("Settings route", () => {
     fireEvent.click((await screen.findAllByTestId("settings.connection_row_edit"))[1]);
     fireEvent.change(await screen.findByTestId("runtime_connection.model"), { target: { value: "new-local-model" } });
     fireEvent.click(screen.getByTestId("runtime_connection.save_connection"));
-    expect(await screen.findByTestId("settings.connection_id")).toHaveValue("conn-alpha");
+    await waitFor(() => expect(screen.getByTestId("settings.connection_id")).toHaveValue("conn-alpha"));
     expect(screen.getByText("Connection saved, but the previous active connection could not be restored. Choose it again in Settings.")).toBeVisible();
     expect(screen.queryByText(/Connection could not be saved/)).not.toBeInTheDocument();
     expect(store.getState().preferences.activeConnectionId).toBe("conn-alpha");

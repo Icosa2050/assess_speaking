@@ -129,6 +129,12 @@ export const SettingsRoute = () => {
   }, [runtimeSettingsQuery.data, setUiLocale, location.state]);
 
   const connections = useMemo(() => toSavedConnectionRecords(runtimeSettingsQuery.data?.connections ?? []), [runtimeSettingsQuery.data?.connections]);
+  const requestedConnectionId = (location.state as SettingsLocationState | null)?.focusConnectionId;
+  const displayedConnectionId = selectedConnectionId ?? (
+    requestedConnectionId && connections.some((connection) => connection.connectionId === requestedConnectionId)
+      ? requestedConnectionId
+      : runtimeSettingsQuery.data?.active_connection_id || connections.find((connection) => connection.isDefault)?.connectionId || ""
+  );
   const activeConnection = useMemo(() => {
     const data = runtimeSettingsQuery.data;
     return data?.connections.find((connection) => connection.connection_id === data.active_connection_id) ??
@@ -253,7 +259,7 @@ export const SettingsRoute = () => {
         onOpenSetup={() => openSetup("__new__")}
         onSelectConnection={setSelectedConnectionId}
         onSetDefault={(connectionId) => { void handleSetDefault(connectionId); }}
-        selectedConnectionId={selectedConnectionId ?? ""}
+        selectedConnectionId={displayedConnectionId}
       />
       {connectionMessage ? <p role="alert">{connectionMessage}</p> : null}
       {setupNotice ? <p role="status">{setupNotice}</p> : null}
