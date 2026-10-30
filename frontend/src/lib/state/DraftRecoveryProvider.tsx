@@ -109,6 +109,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   const [recoveredFile, setRecoveredFile] = useState<File | null>(null);
   const [legacy, setLegacy] = useState<LegacyBrief | null>(null);
   const [error, setError] = useState<DraftStoreError | null>(null);
+  const [deviceOnlyUnavailable, setDeviceOnlyUnavailable] = useState(false);
   const [historyPendingId, setHistoryPendingId] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -172,6 +173,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     draftsRef.current = result.drafts;
     setDrafts(result.drafts); setUnreadableIds(result.unreadableIds);
     setLegacy(result.legacy); setError(result.error);
+    setDeviceOnlyUnavailable(result.error?.kind === "device_only_unavailable");
     setBooted(true);
     setChoosing(Boolean(result.drafts.length || result.unreadableIds.length || result.legacy || result.error));
   };
@@ -200,7 +202,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   useEffect(() => { if (booted && choosing) heading.current?.focus(); }, [booted, choosing, drafts.length, unreadableIds.length]);
 
   const saveSetup = (setup: SessionDraft): Promise<SavedDraft | null> => enqueue(async () => {
-    if (!adapter.supported) return null;
+    if (!adapter.supported || deviceOnlyUnavailable) return null;
     const activeAtStart = activeRef.current;
     const previous = activeRef.current?.speakerId === normalizedLearner(setup.speakerId)
       ? activeRef.current : draftsRef.current.find(item => item.speakerId === normalizedLearner(setup.speakerId));
@@ -486,7 +488,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     } finally { setBusy(false); } });
   };
   const context: RecoveryContext = {
-    supported: adapter.supported, active, drafts, hasStoredEntries: Boolean(drafts.length || unreadableIds.length), recoveredFile, error,
+    supported: adapter.supported && !deviceOnlyUnavailable, active, drafts, hasStoredEntries: Boolean(drafts.length || unreadableIds.length), recoveredFile, error,
     retryParentCheckPending: Boolean(active && historyPendingId === active.draftId),
     saveSetup, replaceSetup, saveTake, markSubmission, prepareNewAttempt, discardActive, discardDraft: discard,
     leaveActive: () => { setCurrent(null); setRecoveredFile(null); setError(null); setHistoryPendingId(null); },
@@ -516,7 +518,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
       }
     }),
   };
-  const pending = choosing && (drafts.length > 0 || unreadableIds.length > 0 || legacy || error || managing);
+  const pending = !deviceOnlyUnavailable && choosing && (drafts.length > 0 || unreadableIds.length > 0 || legacy || error || managing);
   const recoveryCard = (
       <Card as="section" data-testid="draft.recovery" style={{ display: "grid", gap: "var(--space-3)" }}>
         <h1 ref={heading} tabIndex={-1}>{translate("draft.resume_title")}</h1>
@@ -563,6 +565,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   );
   return <Context.Provider value={context}>
     {!booted ? <p role="status">{translate("journey.loading")}</p> : pending && !managing ? recoveryCard : <>
+      {deviceOnlyUnavailable && <StatusBanner title={translate("draft.device_only_unavailable")} tone="warning" urgent />}
       {managing && recoveryCard}
       {active && historyPendingId === active.draftId && <StatusBanner title={translate("draft.history_error")} tone="warning">
         <Button onClick={() => void context.reconcileActiveRetryParent().catch(() => undefined)}>{translate("draft.retry_history_check")}</Button>

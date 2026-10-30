@@ -68,6 +68,7 @@ const Probe = () => {
     <button onClick={() => updateRecording({ assessmentState: "queued" })}>Queue assessment probe</button>
     <button onClick={() => recovery.active && void recovery.replaceSetup({ ...recovery.active.setup, sessionId: "next-attempt" }, recovery.active).catch(() => undefined)}>Direct replace probe</button>
     <div data-testid="draft-error-kind">{recovery.error?.kind}</div>
+    <div data-testid="draft-supported">{String(recovery.supported)}</div>
     <div data-testid="probe-assessment">{assessmentState}|{String(sameDraftAttempt(recovery.active, currentDraft))}</div></>;
 };
 const show = (bridge: DesktopDraftStoreBridge) => render(
@@ -513,6 +514,21 @@ describe("desktop draft recovery gate", () => {
     fireEvent.click(screen.getByRole("button", { name: "Try loading local drafts again" }));
     expect(await screen.findByTestId("draft.entry")).toBeVisible();
     expect(bridge.discard).not.toHaveBeenCalled();
+  });
+
+  it("shows a stable unavailable state when release Keychain entitlement is missing", async () => {
+    const bridge = fake([]);
+    vi.mocked(bridge.list).mockRejectedValue(new Error("Mac Keychain is unavailable; local save is disabled (code -34018)"));
+    show(bridge);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Local drafts are unavailable on this Mac");
+    expect(screen.getByTestId("draft-supported")).toHaveTextContent("false");
+    expect(screen.getByTestId("probe")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Try loading local drafts again" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save setup probe" }));
+    expect(bridge.saveSetup).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Leave active probe" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Local drafts are unavailable on this Mac");
+    expect(screen.getByTestId("draft-supported")).toHaveTextContent("false");
   });
 
   it("offers keyless discard only when the content key is confirmed lost", async () => {

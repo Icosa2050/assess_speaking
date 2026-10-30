@@ -183,9 +183,12 @@ const MISSING_ENTITLEMENT: i32 = -34018;
 fn choose_keychain_load(
     protected: impl FnOnce() -> Result<Option<[u8; 32]>, i32>,
     local: impl FnOnce() -> Result<Option<[u8; 32]>, i32>,
+    device_only_required: bool,
 ) -> Result<(KeychainMode, Option<[u8; 32]>), i32> {
     match protected() {
         Ok(Some(key)) => Ok((KeychainMode::DeviceOnly, Some(key))),
+        Ok(None) if device_only_required => Ok((KeychainMode::DeviceOnly, None)),
+        Err(MISSING_ENTITLEMENT) if device_only_required => Err(MISSING_ENTITLEMENT),
         Ok(None) | Err(MISSING_ENTITLEMENT) => local().map(|key| {
             if key.is_some() {
                 (KeychainMode::LocalLogin, key)
@@ -199,12 +202,17 @@ fn choose_keychain_load(
 fn choose_keychain_create(
     protected: impl FnOnce() -> Result<(), i32>,
     local: impl FnOnce() -> Result<(), i32>,
+    device_only_required: bool,
 ) -> Result<KeychainMode, i32> {
     match protected() {
         Ok(()) => Ok(KeychainMode::DeviceOnly),
-        Err(MISSING_ENTITLEMENT) => local().map(|()| KeychainMode::LocalLogin),
+        Err(MISSING_ENTITLEMENT) if !device_only_required => local().map(|()| KeychainMode::LocalLogin),
         Err(code) => Err(code),
     }
+}
+
+fn device_only_required() -> bool {
+    cfg!(not(any(debug_assertions, test, feature = "internal-dmg-acceptance")))
 }
 impl MacKeychain {
     fn production() -> Self {
@@ -254,6 +262,7 @@ impl KeySource for MacKeychain {
             choose_keychain_load(
                 || load(KeychainMode::DeviceOnly),
                 || load(KeychainMode::LocalLogin),
+                device_only_required(),
             )
         };
         let (mode, key) = selected.map_err(|code| {
@@ -265,7 +274,11 @@ impl KeySource for MacKeychain {
         if key.is_some() {
             let mut selected = self.mode.lock().unwrap();
             if selected.is_none() {
-                eprintln!("Draft Keychain mode: {}", mode.label());
+                if mode == KeychainMode::LocalLogin {
+                    eprintln!("Draft Keychain fallback: {} (development/internal build)", mode.label());
+                } else {
+                    eprintln!("Draft Keychain mode: {}", mode.label());
+                }
                 *selected = Some(mode);
             }
         }
@@ -288,14 +301,15 @@ impl KeySource for MacKeychain {
             }
             set_generic_password_options(key, options).map_err(|error| error.code())
         };
-        // TODO(signed DMG): require DeviceOnly after validating Developer ID
-        // entitlements and an explicit migration of earlier local-login keys.
+        // Development/internal builds may use the login keychain. A packaged
+        // release never reads or creates a login-keychain draft key.
         let mode = if let Some(mode) = self.mode() {
             create(mode).map(|()| mode)
         } else {
             choose_keychain_create(
                 || create(KeychainMode::DeviceOnly),
                 || create(KeychainMode::LocalLogin),
+                device_only_required(),
             )
         }
         .map_err(|code| {
@@ -303,7 +317,11 @@ impl KeySource for MacKeychain {
         })?;
         let mut selected = self.mode.lock().unwrap();
         if selected.is_none() {
-            eprintln!("Draft Keychain mode: {}", mode.label());
+            if mode == KeychainMode::LocalLogin {
+                eprintln!("Draft Keychain fallback: {} (development/internal build)", mode.label());
+            } else {
+                eprintln!("Draft Keychain mode: {}", mode.label());
+            }
         }
         *selected = Some(mode);
         Ok(())
@@ -3226,18 +3244,22 @@ mod tests {
     }
     #[cfg(target_os = "macos")]
     #[test]
-    fn real_keychain_round_trip_uses_isolated_non_synchronizing_item() {
-        use security_framework::passwords::{delete_generic_password_options, PasswordOptions};
+    fn real_keychain_round_trip_or_fail_closed_without_entitlement() {
+        use security_framework::passwords::{delete_generic_password_options, generic_password, PasswordOptions};
         let service = format!("com.vostavo.desktop.drafts.test.{}", new_id().unwrap());
         let keychain = MacKeychain::for_service(service.clone());
         let result = (|| -> StoreResult<()> {
             assert!(keychain.load()?.is_none());
-            keychain.create(&[9; 32])?;
+            if let Err(error) = keychain.create(&[9; 32]) {
+                if !error.contains("(code -34018)") { return Err(error); }
+                let mut local = PasswordOptions::new_generic_password(&service, KEY_ACCOUNT);
+                local.set_access_synchronized(Some(false));
+                assert_eq!(generic_password(local).unwrap_err().code(), -25300);
+                return Ok(());
+            }
             assert_eq!(keychain.load()?, Some([9; 32]));
-            assert!(matches!(
-                keychain.mode(),
-                Some(KeychainMode::DeviceOnly | KeychainMode::LocalLogin)
-            ));
+            assert!(!device_only_required());
+            assert!(matches!(keychain.mode(), Some(KeychainMode::DeviceOnly | KeychainMode::LocalLogin)));
             let root = TestRoot::new();
             let mut store =
                 DraftStore::test(&root.0, Box::new(MacKeychain::for_service(service.clone())));
@@ -3264,29 +3286,27 @@ mod tests {
         result.unwrap();
     }
     #[test]
-    fn device_only_keychain_is_preferred_and_missing_entitlement_uses_local_fallback() {
+    fn device_only_keychain_policy_preserves_dev_fallback() {
         let (mode, key) =
-            choose_keychain_load(|| Ok(Some([3; 32])), || panic!("no fallback")).unwrap();
+            choose_keychain_load(|| Ok(Some([3; 32])), || panic!("no fallback"), true).unwrap();
         assert_eq!(mode.label(), "device-only");
         assert_eq!(key, Some([3; 32]));
         let (mode, key) =
-            choose_keychain_load(|| Err(MISSING_ENTITLEMENT), || Ok(Some([4; 32]))).unwrap();
+            choose_keychain_load(|| Err(MISSING_ENTITLEMENT), || Ok(Some([4; 32])), false).unwrap();
         assert_eq!(mode.label(), "local-login");
         assert_eq!(key, Some([4; 32]));
+        assert!(matches!(choose_keychain_load(|| Err(MISSING_ENTITLEMENT), || panic!("no fallback"), true), Err(MISSING_ENTITLEMENT)));
+        assert!(matches!(choose_keychain_load(|| Ok(None), || panic!("no fallback"), true), Ok((KeychainMode::DeviceOnly, None))));
+        assert!(matches!(choose_keychain_create(|| Err(MISSING_ENTITLEMENT), || panic!("no fallback"), true), Err(MISSING_ENTITLEMENT)));
+        assert_eq!(choose_keychain_create(|| Err(MISSING_ENTITLEMENT), || Ok(()), false).unwrap().label(), "local-login");
         assert_eq!(
-            choose_keychain_create(|| Err(MISSING_ENTITLEMENT), || Ok(()))
-                .unwrap()
-                .label(),
-            "local-login"
-        );
-        assert_eq!(
-            choose_keychain_create(|| Ok(()), || panic!("no fallback"))
+            choose_keychain_create(|| Ok(()), || panic!("no fallback"), true)
                 .unwrap()
                 .label(),
             "device-only"
         );
-        assert!(choose_keychain_load(|| Err(-25293), || panic!("no fallback")).is_err());
-        assert!(choose_keychain_create(|| Err(-25293), || panic!("no fallback")).is_err());
+        assert!(choose_keychain_load(|| Err(-25293), || panic!("no fallback"), false).is_err());
+        assert!(choose_keychain_create(|| Err(-25293), || panic!("no fallback"), false).is_err());
     }
     #[test]
     fn frozen_request_field_policy_tracks_backend_contract_without_credentials() {

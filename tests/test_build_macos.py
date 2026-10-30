@@ -1,5 +1,6 @@
 import ast
 from pathlib import Path
+import plistlib
 from unittest.mock import patch
 import pytest
 
@@ -44,3 +45,58 @@ def test_frozen_helper_declares_the_same_mac_os_floor() -> None:
         if ast.literal_eval(key) == "LSMinimumSystemVersion"
     )
     assert ast.literal_eval(minimum) == build_macos.MINIMUM_MACOS
+
+
+def test_developer_id_profile_must_authorize_exact_app_and_keychain_group() -> None:
+    app_id = 'L98MZWWR98.com.vostavo.desktop'
+    profile = {
+        'ProvisionsAllDevices': True,
+        'TeamIdentifier': ['L98MZWWR98'],
+        'Entitlements': {
+            'com.apple.application-identifier': app_id,
+            'com.apple.developer.team-identifier': 'L98MZWWR98',
+            'keychain-access-groups': ['L98MZWWR98.*'],
+            'get-task-allow': False,
+        },
+    }
+    assert build_macos.validate_profile(profile, 'com.vostavo.desktop', 'L98MZWWR98') == {
+        'com.apple.application-identifier': app_id,
+        'com.apple.developer.team-identifier': 'L98MZWWR98',
+        'keychain-access-groups': [app_id],
+    }
+    for change in (
+        {'ProvisionsAllDevices': False},
+        {'TeamIdentifier': ['OTHERTEAM']},
+        {'Entitlements': {**profile['Entitlements'], 'com.apple.application-identifier': 'L98MZWWR98.other.app'}},
+        {'Entitlements': {**profile['Entitlements'], 'keychain-access-groups': ['OTHERTEAM.*']}},
+        {'Entitlements': {**profile['Entitlements'], 'get-task-allow': True}},
+    ):
+        with pytest.raises(RuntimeError, match='does not authorize'):
+            build_macos.validate_profile({**profile, **change}, 'com.vostavo.desktop', 'L98MZWWR98')
+
+
+def test_profile_is_embedded_and_its_claims_are_signed(tmp_path: Path) -> None:
+    bundle = tmp_path / 'Vostavo.app'
+    (bundle / 'Contents').mkdir(parents=True)
+    source = tmp_path / 'Vostavo-Developer-ID.provisionprofile'
+    source.write_bytes(b'profile fixture')
+    app_id = 'L98MZWWR98.com.vostavo.desktop'
+    claims = {'com.apple.application-identifier': app_id,
+              'com.apple.developer.team-identifier': 'L98MZWWR98',
+              'keychain-access-groups': [app_id]}
+    output = tmp_path / 'entitlements.plist'
+    assert build_macos.embed_profile(bundle, source, claims, output) == output
+    assert (bundle / 'Contents/embedded.provisionprofile').read_bytes() == source.read_bytes()
+    signed = plistlib.loads(output.read_bytes())
+    assert all(signed[key] == value for key, value in claims.items())
+    assert signed['com.apple.security.device.audio-input'] is True
+
+
+def test_notarized_release_refuses_missing_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(build_macos.PROFILE_ENV, raising=False)
+    monkeypatch.setattr(build_macos.platform, 'machine', lambda: 'arm64')
+    monkeypatch.setattr(build_macos, 'output', lambda _: 'Developer ID Application: Markus Frommherz (L98MZWWR98)')
+    with pytest.raises(SystemExit, match='2'):
+        build_macos.main(['--mode', 'release', '--identity',
+                          'Developer ID Application: Markus Frommherz (L98MZWWR98)',
+                          '--notary-profile', 'vostavo-notary'])

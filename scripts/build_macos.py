@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / '.build-macos'
 PYTHON_VERSION = '3.12.11'
 MINIMUM_MACOS = '14.0'  # The native audit of the built app requires this floor.
+PROFILE_ENV = 'VOSTAVO_PROVISIONING_PROFILE'
 
 
 def run(args, **kwargs):
@@ -78,7 +79,40 @@ def audit(bundle):
     return {'minimum_macos': '.'.join(map(str, minimum)), 'native_files': entries}
 
 
-def sign(bundle, identity, release):
+def validate_profile(profile: dict, bundle_id: str, team_id: str) -> dict:
+    app_id = f'{team_id}.{bundle_id}'
+    approved = profile.get('Entitlements', {})
+    groups = approved.get('keychain-access-groups', [])
+    if (profile.get('ProvisionsAllDevices') is not True
+            or team_id not in profile.get('TeamIdentifier', [])
+            or approved.get('com.apple.application-identifier') != app_id
+            or approved.get('com.apple.developer.team-identifier') != team_id
+            or not any(group in (app_id, f'{team_id}.*') for group in groups)
+            or approved.get('get-task-allow') is True):
+        raise RuntimeError('Developer ID provisioning profile does not authorize this team, app ID, and Keychain group')
+    return {
+        'com.apple.application-identifier': app_id,
+        'com.apple.developer.team-identifier': team_id,
+        'keychain-access-groups': [app_id],
+    }
+
+
+def load_profile(path: Path, bundle_id: str, team_id: str) -> dict:
+    if not path.is_file():
+        raise RuntimeError(f'Provisioning profile is missing: {path}')
+    decoded = run(['security', 'cms', '-D', '-i', path], capture_output=True).stdout
+    return validate_profile(plistlib.loads(decoded), bundle_id, team_id)
+
+
+def embed_profile(bundle: Path, source: Path, claims: dict, entitlements: Path) -> Path:
+    shutil.copy2(source, bundle / 'Contents/embedded.provisionprofile')
+    entitlements.write_bytes(plistlib.dumps({
+        **plistlib.loads((ROOT / 'packaging/entitlements.plist').read_bytes()), **claims,
+    }))
+    return entitlements
+
+
+def sign(bundle, identity, release, entitlements):
     options = ['--force', '--sign', identity, '--options', 'runtime', '--timestamp' if release else '--timestamp=none']
     for path in sorted(macho_files(bundle), key=lambda value: len(value.parts), reverse=True):
         run(['codesign', *options, path])
@@ -90,7 +124,7 @@ def sign(bundle, identity, release):
     # their embedded Python libraries. Developer ID releases keep validation.
     helper_entitlements = [] if release else ['--entitlements', ROOT / 'packaging/internal-helper-entitlements.plist']
     run(['codesign', *options, *helper_entitlements, helper])
-    run(['codesign', *options, '--entitlements', ROOT / 'packaging/entitlements.plist', bundle])
+    run(['codesign', *options, '--entitlements', entitlements, bundle])
     run(['codesign', '--verify', '--deep', '--strict', '--verbose=2', bundle])
 
 
@@ -106,21 +140,34 @@ def main(argv=None):
     parser.add_argument('--mode', choices=['internal', 'release'], required=True)
     parser.add_argument('--identity', default='')
     parser.add_argument('--notary-profile', default='')
+    parser.add_argument('--local-sign-only', action='store_true',
+                        help='Developer ID sign app and DMG locally without notarizing or uploading.')
     parser.add_argument('--python', default=PYTHON_VERSION)
     parser.add_argument('--reuse-helper', action='store_true', help='Local iteration only; forbidden for releases.')
     args = parser.parse_args(argv)
     if sys.platform != 'darwin' or platform.machine() != 'arm64':
         parser.error('This build requires an Apple Silicon Mac.')
     release = args.mode == 'release'
+    if args.local_sign_only and not release:
+        parser.error('--local-sign-only requires --mode release')
     if release:
-        if args.reuse_helper or not args.identity.startswith('Developer ID Application:') or not args.notary_profile:
-            parser.error('Release requires a Developer ID Application identity and Keychain notary profile; no reused helper.')
+        if args.reuse_helper or not args.identity.startswith('Developer ID Application:') or (not args.local_sign_only and not args.notary_profile):
+            parser.error('Release requires a Developer ID Application identity and, unless local-sign-only, a Keychain notary profile; no reused helper.')
+        if not args.local_sign_only and not os.environ.get(PROFILE_ENV):
+            parser.error(f'Notarized release requires {PROFILE_ENV} for device-only draft storage.')
         if args.identity not in output(['security', 'find-identity', '-v', '-p', 'codesigning']):
             parser.error('The requested Developer ID identity is not available.')
     config = json.loads((ROOT / 'frontend/src-tauri/tauri.conf.json').read_text())
     version = config['version']
     if tomllib.loads((ROOT / 'frontend/src-tauri/Cargo.toml').read_text())['package']['version'] != version:
         raise RuntimeError('Rust and Tauri versions differ')
+    profile_source = Path(os.environ[PROFILE_ENV]).expanduser() if release and os.environ.get(PROFILE_ENV) else None
+    profile_claims = None
+    if profile_source:
+        team = re.search(r'\(([A-Z0-9]{10})\)$', args.identity)
+        if not team:
+            raise RuntimeError('Developer ID signing identity must include its Team ID')
+        profile_claims = load_profile(profile_source, config['identifier'], team.group(1))
     BUILD.mkdir(exist_ok=True)
     python = BUILD / 'venv/bin/python'
     if not python.exists():
@@ -175,14 +222,17 @@ def main(argv=None):
     helper_plist = plistlib.loads(helper_info.read_bytes())
     helper_plist['LSMinimumSystemVersion'] = evidence['minimum_macos']
     helper_info.write_bytes(plistlib.dumps(helper_plist))
-    sign(bundle, args.identity if release else '-', release)
+    entitlements = ROOT / 'packaging/entitlements.plist'
+    if profile_source and profile_claims:
+        entitlements = embed_profile(bundle, profile_source, profile_claims, BUILD / 'release-entitlements.plist')
+    sign(bundle, args.identity if release else '-', release, entitlements)
     smoke_env = {key: os.environ[key] for key in ('HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG') if key in os.environ}
     smoke_env['PATH'] = '/usr/bin:/bin:/usr/sbin:/sbin'
     smoke = run([bundle / 'Contents/Helpers/VostavoBackend.app/Contents/MacOS/vostavo-backend', '--self-test'], cwd='/', env=smoke_env, capture_output=True, text=True, timeout=90)
     evidence['frozen_self_test'] = json.loads(smoke.stdout)
     if not evidence['frozen_self_test'].get('ok'):
         raise RuntimeError('Signed frozen helper self-test failed')
-    if release:
+    if release and not args.local_sign_only:
         archive = BUILD / 'Vostavo.zip'
         run(['ditto', '-c', '-k', '--keepParent', bundle, archive])
         evidence['app_notarization'] = notarize(archive, args.notary_profile)
@@ -190,17 +240,20 @@ def main(argv=None):
         run(['xcrun', 'stapler', 'validate', bundle])
         run(['spctl', '-a', '-t', 'exec', '-vvv', bundle])
     (stage / 'Applications').symlink_to('/Applications')
-    suffix = 'arm64' if release else 'arm64-internal-adhoc'
+    suffix = 'arm64-signed-unnotarized' if args.local_sign_only else 'arm64' if release else 'arm64-internal-adhoc'
     artifact = BUILD / f'Vostavo-{version}-{suffix}.dmg'
     run(['hdiutil', 'create', '-ov', '-volname', 'Vostavo', '-srcfolder', stage, '-format', 'UDZO', artifact])
     run(['codesign', '--force', '--sign', args.identity if release else '-', '--timestamp' if release else '--timestamp=none', artifact])
-    if release:
+    if release and not args.local_sign_only:
         evidence['dmg_notarization'] = notarize(artifact, args.notary_profile)
         run(['xcrun', 'stapler', 'staple', artifact])
         run(['xcrun', 'stapler', 'validate', artifact])
         run(['spctl', '-a', '-t', 'open', '--context', 'context:primary-signature', '-vvv', artifact])
     run(['codesign', '--verify', '--deep', '--strict', bundle])
-    evidence.update(mode=args.mode, gatekeeper_accepted=release, version=version, artifact=str(artifact), sha256=hashlib.sha256(artifact.read_bytes()).hexdigest(), lock_sha256=hashlib.sha256((ROOT / 'packaging/requirements-macos-arm64.txt').read_bytes()).hexdigest(), python=output([python, '--version']), pyinstaller=output([python, '-m', 'PyInstaller', '--version']), rust=output([cargo, '--version']))
+    evidence.update(mode=args.mode, notarization_skipped=args.local_sign_only,
+                    provisioning_profile_embedded=bool(profile_source),
+                    gatekeeper_accepted=release and not args.local_sign_only,
+                    version=version, artifact=str(artifact), sha256=hashlib.sha256(artifact.read_bytes()).hexdigest(), lock_sha256=hashlib.sha256((ROOT / 'packaging/requirements-macos-arm64.txt').read_bytes()).hexdigest(), python=output([python, '--version']), pyinstaller=output([python, '-m', 'PyInstaller', '--version']), rust=output([cargo, '--version']))
     report = BUILD / 'build-report.json'
     report.write_text(json.dumps(evidence, indent=2))
     (BUILD / (artifact.name + '.sha256')).write_text(f'{evidence["sha256"]}  {artifact.name}\n')
