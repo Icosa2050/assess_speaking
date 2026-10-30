@@ -23,6 +23,8 @@ import type {
   RuntimeConnectionTestResponse,
   RuntimeResponse,
   RuntimeSettingsSaveRequest,
+  RuntimePreferencesPatchRequest,
+  RuntimePreferencesResponse,
   RuntimeSettingsResponse,
   SamplesResponse,
   SupportBundleCreateRequest,
@@ -211,6 +213,13 @@ export const createApiClient = (baseUrl?: string) => ({
           "Content-Type": "application/json",
         },
       },
+    ),
+
+  patchRuntimePreferences: (request: RuntimePreferencesPatchRequest, options?: ClientOptions) =>
+    requestJson<RuntimePreferencesResponse>(
+      "/v1/runtime/preferences",
+      { method: "PATCH", body: JSON.stringify(request) },
+      { ...options, baseUrl, headers: { "Content-Type": "application/json" } },
     ),
 
   postRuntimeSettingsTestConnection: (

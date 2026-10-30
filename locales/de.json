@@ -1020,7 +1020,6 @@
     "cancel": "Abbrechen",
     "connection_missing": "Diese gespeicherte Verbindung ist nicht mehr verfügbar. Kehre zu Einstellungen zurück und wähle eine andere.",
     "save_preferences": "Einstellungen speichern",
-    "preferences_need_connection": "Richte einen Anbieter ein, bevor du diese Einstellungen speicherst.",
     "session_only_saved_notice": "Verbindung gespeichert. Die Zugangsdaten gelten nur für diese Sitzung; verbinde dich nach einem Neustart erneut.",
     "secret_session_only_state": "Zugangsdaten nur für diese Sitzung verfügbar; nach einem Neustart erneut verbinden.",
     "active_restore_failed_notice": "Verbindung gespeichert, aber die zuvor aktive Verbindung konnte nicht wiederhergestellt werden. Wähle sie in den Einstellungen erneut aus.",

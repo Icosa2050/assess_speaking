@@ -28,6 +28,7 @@ vi.mock("@/lib/api/client", async (importOriginal) => ({
     postRuntimeSettingsSetDefault: vi.fn(),
     postRuntimeSettingsTestConnection: vi.fn(),
     postWhisperModelDownload: vi.fn(),
+    patchRuntimePreferences: vi.fn(),
     putRuntimeSettings: vi.fn(),
   },
 }));
@@ -60,6 +61,7 @@ const mockedGetWhisperModelStatus = vi.mocked(apiClient.getWhisperModelStatus);
 const mockedPostRuntimeSettingsSetDefault = vi.mocked(apiClient.postRuntimeSettingsSetDefault);
 const mockedPostRuntimeSettingsTestConnection = vi.mocked(apiClient.postRuntimeSettingsTestConnection);
 const mockedPutRuntimeSettings = vi.mocked(apiClient.putRuntimeSettings);
+const mockedPatchRuntimePreferences = vi.mocked(apiClient.patchRuntimePreferences);
 const mockedDeleteRuntimeSettingsConnection = vi.mocked(apiClient.deleteRuntimeSettingsConnection);
 
 const alphaConnection: RuntimeSettingsConnection = {
@@ -412,21 +414,26 @@ describe("Settings route", () => {
     expect(screen.getAllByText("Bravo runtime")).toHaveLength(2);
   });
 
-  it("explains why preferences cannot be saved before a provider is configured", async () => {
+  it("saves preferences before a provider is configured", async () => {
     mockedGetRuntimeSettings.mockResolvedValue(runtimeSettings({ connections: [], active_connection_id: "" }));
+    mockedPatchRuntimePreferences.mockResolvedValue({ ui_locale: "fr", whisper_model: "large-v3" });
     renderWithProviders(<AppFrame />, { initialEntries: ["/settings"], locale: "en" });
-    expect(await screen.findByText("Set up a provider before saving these preferences.")).toBeVisible();
-    expect(screen.getByTestId("settings.save_preferences")).toBeDisabled();
+    const save = await screen.findByTestId("settings.save_preferences");
+    await waitFor(() => expect(save).toBeEnabled());
+    fireEvent.change(screen.getByTestId("settings.ui_locale"), { target: { value: "fr" } });
+    fireEvent.click(save);
+    await waitFor(() => expect(mockedPatchRuntimePreferences).toHaveBeenCalledWith({ ui_locale: "fr", whisper_model: "large-v3" }));
+    expect(mockedPutRuntimeSettings).not.toHaveBeenCalled();
   });
 
   it("keeps UI language and appearance in Settings", async () => {
-    mockedPutRuntimeSettings.mockResolvedValue(runtimeSettings({ui_locale: "de"}));
+    mockedPatchRuntimePreferences.mockResolvedValue({ui_locale: "de", whisper_model: "large-v3"});
     const { store } = renderWithProviders(<AppFrame />, {initialEntries: ["/settings"], locale: "en"});
     await screen.findAllByText("Bravo runtime");
     const localeField = screen.getByTestId("settings.ui_locale");
     fireEvent.change(localeField, {target: {value: "de"}});
     fireEvent.click(screen.getByRole("button", {name: "Save preferences"}));
-    await waitFor(() => expect(mockedPutRuntimeSettings).toHaveBeenCalledWith(expect.objectContaining({ui_locale: "de"})));
+    await waitFor(() => expect(mockedPatchRuntimePreferences).toHaveBeenCalledWith({ui_locale: "de", whisper_model: "large-v3"}));
     await waitFor(() => expect(store.getState().preferences.uiLocale).toBe("de"));
     fireEvent.change(screen.getByTestId("settings.appearance"), {target: {value: "dark"}});
     await waitFor(() => expect(document.documentElement.dataset.theme).toBe("dark"));

@@ -15,6 +15,7 @@ from starlette.formparsers import MultiPartException
 from starlette.requests import ClientDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from assessment_runtime.asr import KNOWN_WHISPER_MODELS
 from app_core.chatgpt_auth import ChatGPTAuthError, cached_access_token, access_token
 from app_backend.chatgpt_routes import install_chatgpt_routes
 from app_core.preference_lock import synchronized_preferences, PREFERENCES_LOCK
@@ -47,6 +48,8 @@ from app_backend.contracts import (
     RuntimeSettingsConnection,
     RuntimeSettingsResponse,
     RuntimeSettingsSaveRequest,
+    RuntimePreferencesPatchRequest,
+    RuntimePreferencesResponse,
     SamplesResponse,
     SampleItem,
     SupportBundleCreateRequest,
@@ -84,6 +87,8 @@ from app_core.services import (
     provider_choice_for_connection,
     save_provider_connection,
     save_state_preferences,
+    load_workspace_prefs,
+    save_workspace_prefs,
     sanitize_setup_base_url,
     set_default_provider_connection,
     test_runtime_connection,
@@ -92,6 +97,9 @@ from app_core.services import (
 from app_core.secret_store import delete_secret, get_secret, SessionSecretStore, SERVICE_NAME
 from app_core.state import (
     build_default_state,
+    DEFAULT_UI_LOCALE,
+    DEFAULT_WHISPER_MODEL,
+    SUPPORTED_UI_LOCALES,
     normalize_openrouter_app_title,
     normalize_openrouter_http_referer,
 )
@@ -536,6 +544,24 @@ def create_app(config: BackendRuntimeConfig | None = None) -> FastAPI:
         except ValueError as exc:
             raise _http_error(400, ErrorCode.VALIDATION, str(exc)) from exc
         return _build_runtime_settings_response(state)
+
+    @app.patch("/v1/runtime/preferences", response_model=RuntimePreferencesResponse, tags=[LOCAL_RUNTIME_TAG])
+    @synchronized_preferences
+    def save_runtime_preferences(request: RuntimePreferencesPatchRequest) -> RuntimePreferencesResponse:
+        changes = request.model_dump(exclude_none=True)
+        if not changes:
+            raise _http_error(400, ErrorCode.VALIDATION, "Choose a preference to save.")
+        if "ui_locale" in changes and changes["ui_locale"] not in SUPPORTED_UI_LOCALES:
+            raise _http_error(400, ErrorCode.VALIDATION, "Choose a supported UI language.")
+        if "whisper_model" in changes and changes["whisper_model"] not in KNOWN_WHISPER_MODELS:
+            raise _http_error(400, ErrorCode.VALIDATION, "Choose a supported Whisper model.")
+        prefs = load_workspace_prefs(runtime_config.app_data.reports_dir)
+        prefs.update(changes)
+        save_workspace_prefs(runtime_config.app_data.reports_dir, prefs)
+        return RuntimePreferencesResponse(
+            ui_locale=str(prefs.get("ui_locale") or DEFAULT_UI_LOCALE),
+            whisper_model=str(prefs.get("whisper_model") or DEFAULT_WHISPER_MODEL),
+        )
 
     @app.post("/v1/runtime/settings/test-connection", response_model=RuntimeConnectionTestResponse, tags=[LOCAL_RUNTIME_TAG])
     def runtime_settings_test_connection(request: RuntimeConnectionTestRequest) -> RuntimeConnectionTestResponse:

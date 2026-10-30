@@ -1020,7 +1020,6 @@
     "cancel": "Annulla",
     "connection_missing": "Questa connessione salvata non è più disponibile. Torna alle impostazioni e scegline un’altra.",
     "save_preferences": "Salva preferenze",
-    "preferences_need_connection": "Configura un provider prima di salvare queste preferenze.",
     "session_only_saved_notice": "Connessione salvata. La credenziale è disponibile solo per questa sessione; riconnettiti dopo il riavvio dell’app.",
     "secret_session_only_state": "Credenziale disponibile solo per questa sessione; riconnettiti dopo il riavvio dell’app.",
     "active_restore_failed_notice": "Connessione salvata, ma non è stato possibile ripristinare la connessione attiva precedente. Selezionala di nuovo nelle impostazioni.",
