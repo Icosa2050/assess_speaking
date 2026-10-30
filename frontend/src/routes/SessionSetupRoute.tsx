@@ -374,7 +374,7 @@ const SessionSetupContent = () => {
       setLibrary(nextLibrary);
     }
 
-    const nextSetup = buildSessionDraft({
+    let nextSetup = buildSessionDraft({
       sessionId: draft.sessionId,
       speakerId: speakerId.trim(),
       learningLanguage: selectedLanguage,
@@ -393,6 +393,12 @@ const SessionSetupContent = () => {
       coachingGoal: draft.coachingGoal,
       retryGoalEligible: draft.retryGoalEligible,
     });
+    const taskChanged = normalizedLearner(nextSetup.speakerId) !== normalizedLearner(draft.speakerId) ||
+      (["learningLanguage", "cefrLevel", "themeId", "promptId", "promptText", "taskFamily", "durationSec"] as const)
+        .some(key => nextSetup[key] !== draft[key]);
+    if (taskChanged) {
+      nextSetup = buildSessionDraft({ ...nextSetup, retryOfSessionId: "", coachingGoal: "", retryGoalEligible: false });
+    }
     const existing = draftRecovery.findLearner(nextSetup.speakerId);
     const replacement = existing && (!sameDraftAttempt(existing, nextSetup) ||
       existing.setup.themeLabel !== nextSetup.themeLabel ||

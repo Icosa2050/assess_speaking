@@ -38,6 +38,17 @@ const mockedGetRuntime = vi.mocked(apiClient.getRuntime);
 const mockedGetSamples = vi.mocked(apiClient.getSamples);
 
 describe("Library and Guide routes", () => {
+  it("opens Session Setup from a Library sample before a learner name exists on desktop", async () => {
+    const adapter = draftAdapterFixture();
+    renderWithProviders(<AppFrame />, { initialEntries: ["/library"], locale: "en", draftAdapter: adapter,
+      appState: { draft: { speakerId: "" }, preferences: { activeConnectionId: "conn-local", setupComplete: true } } });
+    fireEvent.click(await screen.findByTestId("library.sample_prepare"));
+    expect(await screen.findByLabelText("Learner name or nickname")).toBeVisible();
+    expect(adapter.saveSetup).not.toHaveBeenCalled();
+    expect(adapter.replaceSetup).not.toHaveBeenCalled();
+    expect(screen.queryByText("Could not use local draft storage. Keep this window open or try again.")).not.toBeInTheDocument();
+  });
+
   it("replaces a saved task before preparing a different Library sample", async () => {
     const saved = savedDraftFixture("Alex");
     saved.setup = buildSessionDraft({ ...saved.setup, learningLanguage: "en", learningLanguageLabel: "English" });

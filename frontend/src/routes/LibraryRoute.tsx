@@ -165,10 +165,15 @@ export const LibraryRoute = () => {
     });
     void (async () => {
       setDraftError("");
+      if (!hasSetupDraft(nextDraft)) {
+        applySetup(nextDraft);
+        navigate("/session-setup");
+        return;
+      }
       if (!await draftRecovery.prepareNewAttempt(nextDraft.speakerId)) return;
       try { await draftRecovery.saveSetup(nextDraft); } catch { setDraftError(translate("draft.storage_error")); return; }
       applySetup(nextDraft);
-      navigate(hasSetupDraft(nextDraft) ? "/speak" : "/session-setup");
+      navigate("/speak");
     })();
   };
 

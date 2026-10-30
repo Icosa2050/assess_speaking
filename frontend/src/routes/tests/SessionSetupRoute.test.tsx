@@ -115,6 +115,28 @@ describe("Session Setup route", () => {
     });
     confirm.mockRestore();
   });
+
+  it("clears retry goal and parent when a resumed retry changes task", async () => {
+    const setup = buildSessionDraft({ ...savedDraftFixture("Alex").setup,
+      retryOfSessionId: "parent-attempt", coachingGoal: "Add a clear ending", retryGoalEligible: true });
+    const saved: SavedDraft = { ...savedDraftFixture("Alex", setup.sessionId), setup };
+    const adapter = draftAdapterFixture([saved]);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { store } = renderWithProviders(<AppFrame />, { initialEntries: ["/session-setup"], locale: "en", draftAdapter: adapter,
+      appState: { draft: setup, preferences: { activeConnectionId: "conn-primary", setupComplete: true } } });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    fireEvent.click(await screen.findByRole("link", { name: "Session Setup" }));
+    fireEvent.click(await screen.findByTestId("setup.change_details"));
+    fireEvent.click(screen.getByTestId("setup.recommended_start"));
+    fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
+    await waitFor(() => expect(adapter.replaceSetup).toHaveBeenCalledOnce());
+    expect(adapter.replaceSetup.mock.calls[0][0]).toMatchObject({
+      retryOfSessionId: "", coachingGoal: "", retryGoalEligible: false,
+    });
+    expect(store.getState().draft.retryOfSessionId).toBe("");
+    expect(adapter.discard).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mockedGetReadiness.mockResolvedValue(readyReadiness);
