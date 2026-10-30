@@ -66,9 +66,9 @@ jobs:
             browser: webkit
             filter: '--grep WebKit'
           - lane: visual-webkit
-            config: playwright.config.ts
+            config: playwright.visual-webkit.config.ts
             browser: webkit
-            filter: 'visualRefreshSmoke.spec.ts --browser=webkit'
+            filter: ''
           - lane: contracts
             config: playwright.contract.config.ts
             browser: chromium
