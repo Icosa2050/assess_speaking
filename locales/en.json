@@ -730,8 +730,6 @@
     "brief_context": "Same task: {task}",
     "brief_hint": "Saved on this device for up to seven days. Clear or edit it before recording.",
     "resume_title": "Resume this retry?",
-    "recorded_at": "Recorded {date}.",
-    "edited_at": "Setup edited {date}.",
     "resume_context": "Saved for {speaker} · {task}. Confirm this is your practice before viewing the goal.",
     "resume_action": "Resume this retry",
     "discard_action": "Discard and choose a task",
@@ -1343,8 +1341,7 @@
     "keychain_error": "Mac Keychain is unavailable. Local saving is disabled; keep this window open and try again.",
     "storage_error": "Could not use local draft storage. Keep this window open or try again.",
     "continue_without_resume": "Continue without resuming",
-    "saved_on_mac": "Saved on this Mac for up to seven days from recording. A take may remain here after Submit for review until assessment completes; discard it sooner with Manage saved drafts. Nothing uploads until you choose Submit for review.",
-    "saving": "Saving this take on this Mac…",
+    "saved_on_mac": "Saved on this Mac for up to seven days. A take may remain here after Submit for review until assessment completes; discard it sooner with Manage saved drafts. Nothing uploads until you choose Submit for review.",
     "save_progress": "Saving this take on this Mac: {percent}%.",
     "submit_uncertain": "Could not confirm submission: {detail}. The audio remains in this window. No request will repeat until you choose Submit for review again.",
     "save_failed": "Could not save locally; keep this window open or try again. This take is only in memory.",
@@ -1361,9 +1358,7 @@
     "retry_save_action": "Try saving this recording again",
     "discard_saved_confirm": "Delete the saved take for {learner} · {task} ({size}) from this Mac?",
     "start_new_confirm": "Start a new attempt? The previous local draft remains saved until a new setup replaces it.",
-    "recording_finalized": "Recording ready in this window.",
     "save_upload_action": "Keep this selected file as the local take",
-    "save_upload_note": "A selected file stays only in this window until you choose to save it locally.",
-    "load_failed": "The saved take could not be verified. You can discard its local files."
+    "save_upload_note": "A selected file stays only in this window until you choose to save it locally."
   }
 }

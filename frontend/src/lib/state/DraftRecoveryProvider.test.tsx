@@ -124,6 +124,29 @@ describe("desktop draft recovery gate", () => {
     } finally { desktopStore.mockRestore(); }
   });
 
+  it("retries failed completion cleanup within the same provider mount", async () => {
+    const desktopStore = vi.spyOn(desktopBridge, "hasDraftStore").mockReturnValue(true);
+    try {
+      const ready = draft();
+      ready.setup = { ...ready.setup, retryOfSessionId: "prior", coachingGoal: "Finish clearly", retryGoalEligible: true };
+      const bridge = fake([ready]);
+      vi.mocked(bridge.discard).mockRejectedValueOnce(new Error("Mac storage is temporarily unavailable"));
+      show(bridge);
+      fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+      await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("Alex|take.webm"));
+      persistRetryDraft(ready.setup);
+      fireEvent.click(screen.getByRole("button", { name: "Complete off Speak probe" }));
+      await waitFor(() => expect(screen.getByTestId("draft-error-kind")).toHaveTextContent("storage"));
+      expect(bridge.discard).toHaveBeenCalledTimes(1);
+      expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).not.toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Manage drafts probe" }));
+      fireEvent.click(screen.getByRole("button", { name: "Try loading local drafts again" }));
+      await waitFor(() => expect(bridge.discard).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(window.localStorage.getItem(RETRY_DRAFT_STORAGE_KEY)).toBeNull());
+      expect(screen.getByTestId("draft-error-kind")).toBeEmptyDOMElement();
+    } finally { desktopStore.mockRestore(); }
+  });
+
   it("keeps the only saved take while its assessment is queued", async () => {
     const bridge = fake();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);

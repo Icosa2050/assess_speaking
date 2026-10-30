@@ -15,6 +15,7 @@ const bridge = (): DesktopDraftStoreBridge => ({
   list: vi.fn().mockResolvedValue({ drafts: [], unreadableIds: [] }),
   recoveryIds: vi.fn().mockResolvedValue([]),
   saveSetup: vi.fn().mockResolvedValue(base()),
+  replaceSetup: vi.fn().mockResolvedValue(base()),
   importLegacyBrief: vi.fn().mockResolvedValue(base()),
   beginTake: vi.fn().mockResolvedValue("c".repeat(32)),
   writeTakeChunk: vi.fn().mockResolvedValue(0),
@@ -134,6 +135,48 @@ describe("desktop draft adapter", () => {
     vi.mocked(fake.beginTake).mockRejectedValue(new Error("Invalid take metadata"));
     await expect(createDraftStoreAdapter(fake).saveTake(base(), new File(["a"], "take.mp3", { type: "audio/mp3" }), 8, "upload"))
       .rejects.toMatchObject({ kind: "format" });
+  });
+
+  it("rejects filenames over the native UTF-8 byte limit before starting a transfer", async () => {
+    const fake = bridge();
+    const name = `${"é".repeat(130)}.wav`;
+    expect(name.length).toBeLessThan(256);
+    await expect(createDraftStoreAdapter(fake).saveTake(base(), new File(["audio"], name, { type: "audio/wav" }), 8, "upload"))
+      .rejects.toMatchObject({ kind: "format" });
+    expect(fake.beginTake).not.toHaveBeenCalled();
+    const malformed: SavedDraft = { ...base(), revision: 2, status: "take_ready",
+      take: { mediaId: MEDIA, originalFilename: name, mime: "audio/wav", size: 5,
+        sha256: "a".repeat(64), durationSec: 8, captureEndedAt: Date.now(), inputMethod: "upload" } };
+    vi.mocked(fake.list).mockResolvedValue({ drafts: [malformed], unreadableIds: [] });
+    expect((await createDraftStoreAdapter(fake).list()).unreadableIds).toContain(ID);
+  });
+
+  it("stores the file capture time even when local saving happens later", async () => {
+    const fake = bridge();
+    const capturedAt = Date.now() - 60_000;
+    const file = new File(["audio"], "take.webm", { type: "audio/webm", lastModified: capturedAt });
+    const digest = createHash("sha256").update("audio").digest("hex");
+    vi.mocked(fake.writeTakeChunk).mockResolvedValue(file.size);
+    vi.mocked(fake.finishTake).mockResolvedValue({ ...base(), revision: 2, status: "take_ready",
+      take: { mediaId: MEDIA, originalFilename: file.name, mime: file.type, size: file.size,
+        sha256: digest, durationSec: 8, captureEndedAt: capturedAt, inputMethod: "record" } });
+    await createDraftStoreAdapter(fake).saveTake(base(), file, 8, "record");
+    expect(vi.mocked(fake.beginTake).mock.calls[0][2].captureEndedAt).toBe(capturedAt);
+  });
+
+  it("timestamps an imported file when it is saved so an older source file remains valid", async () => {
+    const fake = bridge();
+    const file = new File(["audio"], "take.wav", { type: "audio/wav", lastModified: base().createdAt - 60_000 });
+    const digest = createHash("sha256").update("audio").digest("hex");
+    vi.mocked(fake.writeTakeChunk).mockResolvedValue(file.size);
+    vi.mocked(fake.finishTake).mockResolvedValue({ ...base(), revision: 2, status: "take_ready",
+      take: { mediaId: MEDIA, originalFilename: file.name, mime: file.type, size: file.size,
+        sha256: digest, durationSec: 8, captureEndedAt: Date.now(), inputMethod: "upload" } });
+    const startedSaving = Date.now();
+    await createDraftStoreAdapter(fake).saveTake(base(), file, 8, "upload");
+    const savedAt = vi.mocked(fake.beginTake).mock.calls[0][2].captureEndedAt;
+    expect(savedAt).toBeGreaterThanOrEqual(startedSaving);
+    expect(savedAt).not.toBe(file.lastModified);
   });
 
   it("classifies draft caps and refuses malformed take metadata before loading", async () => {

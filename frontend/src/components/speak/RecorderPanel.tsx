@@ -139,6 +139,7 @@ export const RecorderPanel = ({
   const requestIdRef = useRef(0);
   const confirmationPendingRef = useRef(false);
   const startedAtRef = useRef(0);
+  const stoppedAtRef = useRef(0);
   const stopFallbackRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<number | null>(null);
@@ -176,6 +177,7 @@ export const RecorderPanel = ({
     stopStream();
     recorderRef.current = null;
     startedAtRef.current = 0;
+    stoppedAtRef.current = 0;
   }, [clearStopFallback, clearTimer, stopStream]);
 
   const finalizeRecording = useCallback(
@@ -187,6 +189,7 @@ export const RecorderPanel = ({
       const finalizationId = requestIdRef.current;
       const chunks = [...chunksRef.current];
       const shouldDiscard = discardStopRef.current;
+      const captureEndedAt = stoppedAtRef.current || Date.now();
       const recordedSeconds = startedAtRef.current
         ? Math.floor((Date.now() - startedAtRef.current) / 1000)
         : elapsedSecondsRef.current;
@@ -220,6 +223,7 @@ export const RecorderPanel = ({
       const timestamp = new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 14);
       const file = new File(chunks, `recording-${timestamp}.${extension}`, {
         type: selectedMimeType,
+        lastModified: captureEndedAt,
       });
       // Saving a file cannot grant setup calibration. Preserve the take even if
       // the input needs attention, and require a new setup sample next time.
@@ -248,6 +252,7 @@ export const RecorderPanel = ({
         } catch {
           // Some browsers throw if data is not ready yet; stopping still finalizes below.
         }
+        stoppedAtRef.current = Date.now();
         recorder.stop();
         stopFallbackRef.current = window.setTimeout(() => {
           if (recorderRef.current === recorder) {
@@ -436,6 +441,7 @@ export const RecorderPanel = ({
         elapsedSecondsRef.current = nextElapsed;
         setElapsedSeconds(nextElapsed);
         if (nextElapsed >= maxSeconds && recorderRef.current?.state === "recording") {
+          stoppedAtRef.current = Date.now();
           recorderRef.current.stop();
         }
       }, 1000);

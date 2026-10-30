@@ -174,7 +174,7 @@ describe("Session Setup route", () => {
         size: 5, sha256: "c".repeat(64), durationSec: 8, captureEndedAt: Date.now(), inputMethod: "record" }, submission: null };
     const bridge: DesktopDraftStoreBridge = {
       list: vi.fn().mockResolvedValue({ drafts: [], unreadableIds: [] }), recoveryIds: vi.fn().mockResolvedValue([]),
-      saveSetup: vi.fn().mockResolvedValue(saved), importLegacyBrief: vi.fn(), beginTake: vi.fn(), writeTakeChunk: vi.fn(),
+      saveSetup: vi.fn().mockResolvedValue(saved), replaceSetup: vi.fn(), importLegacyBrief: vi.fn(), beginTake: vi.fn(), writeTakeChunk: vi.fn(),
       abortTake: vi.fn(), abortTakeForDraft: vi.fn(), finishTake: vi.fn(), loadTakeChunk: vi.fn(),
       markSubmission: vi.fn(), discard: vi.fn(), expire: vi.fn(),
     };

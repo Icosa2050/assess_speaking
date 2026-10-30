@@ -730,8 +730,6 @@
     "brief_context": "Même tâche : {task}",
     "brief_hint": "Enregistré sur cet appareil jusqu’à sept jours. Modifiez-le ou effacez-le avant d’enregistrer.",
     "resume_title": "Reprendre cet essai ?",
-    "recorded_at": "Enregistré le {date}.",
-    "edited_at": "Préparation modifiée le {date}.",
     "resume_context": "Enregistré pour {speaker} · {task}. Confirmez qu’il s’agit de votre exercice avant de voir l’objectif.",
     "resume_action": "Reprendre cet essai",
     "discard_action": "Effacer et choisir une tâche",
@@ -1343,8 +1341,7 @@
     "keychain_error": "Le trousseau Mac est indisponible. L’enregistrement local est désactivé ; gardez cette fenêtre ouverte et réessayez.",
     "storage_error": "Le stockage local est indisponible. Gardez cette fenêtre ouverte ou réessayez.",
     "continue_without_resume": "Continuer sans reprendre",
-    "saved_on_mac": "Enregistré sur ce Mac pendant sept jours au maximum après la prise. Elle peut rester ici après Envoyer pour obtenir le bilan jusqu’à la fin du bilan ; supprimez-la plus tôt dans Gérer les brouillons enregistrés. Rien n’est envoyé avant votre choix Envoyer pour obtenir le bilan.",
-    "saving": "Enregistrement de la prise sur ce Mac…",
+    "saved_on_mac": "Enregistré sur ce Mac pendant sept jours au maximum. Elle peut rester ici après Envoyer pour obtenir le bilan jusqu’à la fin du bilan ; supprimez-la plus tôt dans Gérer les brouillons enregistrés. Rien n’est envoyé avant votre choix Envoyer pour obtenir le bilan.",
     "save_progress": "Enregistrement de la prise : {percent} %.",
     "submit_uncertain": "Impossible de confirmer l’envoi : {detail}. La prise reste dans cette fenêtre. Aucune demande ne sera répétée avant un nouveau choix Envoyer pour obtenir le bilan.",
     "save_failed": "Impossible d’enregistrer localement ; gardez cette fenêtre ouverte ou réessayez. La prise est seulement en mémoire.",
@@ -1361,9 +1358,7 @@
     "retry_save_action": "Réessayer d’enregistrer cette prise",
     "discard_saved_confirm": "Supprimer de ce Mac la prise enregistrée de {learner} · {task} ({size}) ?",
     "start_new_confirm": "Commencer une nouvelle tentative ? Le brouillon local précédent reste enregistré jusqu’à son remplacement par une nouvelle préparation.",
-    "recording_finalized": "Prise prête dans cette fenêtre.",
     "save_upload_action": "Conserver ce fichier comme prise locale",
-    "save_upload_note": "Le fichier choisi reste seulement dans cette fenêtre jusqu’à votre choix de l’enregistrer localement.",
-    "load_failed": "La prise enregistrée n’a pas pu être vérifiée. Vous pouvez supprimer ses fichiers locaux."
+    "save_upload_note": "Le fichier choisi reste seulement dans cette fenêtre jusqu’à votre choix de l’enregistrer localement."
   }
 }

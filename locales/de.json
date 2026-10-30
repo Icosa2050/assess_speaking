@@ -730,8 +730,6 @@
     "brief_context": "Gleiche Aufgabe: {task}",
     "brief_hint": "Bis zu sieben Tage auf diesem Gerät gespeichert. Vor der Aufnahme ändern oder entfernen.",
     "resume_title": "Diesen Versuch fortsetzen?",
-    "recorded_at": "Aufgenommen am {date}.",
-    "edited_at": "Einstellungen bearbeitet am {date}.",
     "resume_context": "Gespeichert für {speaker} · {task}. Bestätige, dass dies deine Übung ist, bevor das Ziel angezeigt wird.",
     "resume_action": "Versuch fortsetzen",
     "discard_action": "Verwerfen und Aufgabe wählen",
@@ -1343,8 +1341,7 @@
     "keychain_error": "Der Mac-Schlüsselbund ist nicht verfügbar. Lokales Speichern ist deaktiviert; lass dieses Fenster offen und versuche es erneut.",
     "storage_error": "Der lokale Entwurfsspeicher ist nicht verfügbar. Lass dieses Fenster offen oder versuche es erneut.",
     "continue_without_resume": "Ohne Fortsetzen weiter",
-    "saved_on_mac": "Auf diesem Mac bis zu sieben Tage ab Aufnahme gespeichert. Nach „Zur Auswertung senden“ kann die Aufnahme hier bleiben, bis die Auswertung abgeschlossen ist; über „Gespeicherte Entwürfe verwalten“ kannst du sie früher löschen. Erst mit „Zur Auswertung senden“ wird etwas hochgeladen.",
-    "saving": "Aufnahme wird auf diesem Mac gespeichert…",
+    "saved_on_mac": "Auf diesem Mac bis zu sieben Tage gespeichert. Nach „Zur Auswertung senden“ kann die Aufnahme hier bleiben, bis die Auswertung abgeschlossen ist; über „Gespeicherte Entwürfe verwalten“ kannst du sie früher löschen. Erst mit „Zur Auswertung senden“ wird etwas hochgeladen.",
     "save_progress": "Aufnahme wird gespeichert: {percent} %.",
     "submit_uncertain": "Einreichung konnte nicht bestätigt werden: {detail}. Die Aufnahme bleibt in diesem Fenster. Erst wenn du erneut „Zur Auswertung senden“ wählst, wird eine Anfrage wiederholt.",
     "save_failed": "Lokales Speichern fehlgeschlagen; lass dieses Fenster offen oder versuche es erneut. Die Aufnahme liegt nur im Arbeitsspeicher.",
@@ -1361,9 +1358,7 @@
     "retry_save_action": "Speichern dieser Aufnahme erneut versuchen",
     "discard_saved_confirm": "Gespeicherte Aufnahme für {learner} · {task} ({size}) von diesem Mac löschen?",
     "start_new_confirm": "Neuen Versuch starten? Der bisherige lokale Entwurf bleibt gespeichert, bis neue Einstellungen ihn ersetzen.",
-    "recording_finalized": "Aufnahme in diesem Fenster bereit.",
     "save_upload_action": "Diese Datei als lokale Aufnahme behalten",
-    "save_upload_note": "Eine ausgewählte Datei bleibt nur in diesem Fenster, bis du sie lokal speicherst.",
-    "load_failed": "Die gespeicherte Aufnahme konnte nicht geprüft werden. Du kannst die lokalen Dateien löschen."
+    "save_upload_note": "Eine ausgewählte Datei bleibt nur in diesem Fenster, bis du sie lokal speicherst."
   }
 }

@@ -86,6 +86,7 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
   const [error, setError] = useState<DraftStoreError | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [completionCleanupRetry, setCompletionCleanupRetry] = useState(0);
   const heading = useRef<HTMLHeadingElement>(null);
   const serial = useRef<Promise<unknown>>(Promise.resolve());
   const bootRun = useRef<Promise<BootResult> | null>(null);
@@ -155,7 +156,12 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
     if (busy) return;
     setBusy(true);
     bootRun.current = loadBoot();
-    void bootRun.current.then(result => { applyBoot(result); setBusy(false); });
+    void bootRun.current.then(result => {
+      applyBoot(result);
+      completionCleanupId.current = null;
+      setCompletionCleanupRetry(value => value + 1);
+      setBusy(false);
+    });
   };
 
   useEffect(() => { if (booted && choosing) heading.current?.focus(); }, [booted, choosing, drafts.length, unreadableIds.length]);
@@ -226,9 +232,12 @@ export const DraftRecoveryProvider = ({ children, adapter = createDraftStoreAdap
         const brief = readRetryDraft();
         if (brief && sameDraftAttempt(completed, brief)) clearRetryDraft();
         setError(null);
-      } catch (cleanupError) { setError(cleanupError as DraftStoreError); }
+      } catch (cleanupError) {
+        completionCleanupId.current = null;
+        setError(cleanupError as DraftStoreError);
+      }
     });
-  }, [adapter, active, assessmentState, completedReportId, currentSetup]);
+  }, [adapter, active, assessmentState, completedReportId, currentSetup, completionCleanupRetry]);
   const discard = async (id: string): Promise<boolean> => {
     setBusy(true);
     return enqueue(async () => { try {

@@ -44,6 +44,18 @@ const injectDraftBridge = async (page: Page) => page.addInitScript(() => {
       if (index >= 0) entries[index].manifest = manifest; else entries.push({ manifest, chunks: [] });
       write(entries); return manifest;
     },
+    replaceSetup: async (setup: Record<string, any>, draftId: string, expectedRevision: number) => {
+      const entries = read();
+      const entry = entries.find(item => item.manifest.draftId === draftId);
+      if (!entry || entry.manifest.revision !== expectedRevision) throw Error("Draft changed or expired");
+      if (entry.manifest.speakerId !== setup.speakerId.trim().toLowerCase()) throw Error("Another learner owns this draft");
+      const now = Date.now();
+      entry.manifest = { ...entry.manifest, setup, revision: expectedRevision + 1, updatedAt: now,
+        expiresAt: now + 7 * 86400000, status: "setup", take: null, submission: null };
+      entry.chunks = [];
+      write(entries);
+      return entry.manifest;
+    },
     importLegacyBrief: async (setup: Record<string, any>, createdAt: number) => {
       const manifest = await store.saveSetup(setup);
       const entries = read(); const entry = entries.find(item => item.manifest.draftId === manifest.draftId)!;

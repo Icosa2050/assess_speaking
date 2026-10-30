@@ -22,7 +22,6 @@ import { capturedAudioSeconds } from "@/lib/setup/audioCapture";
 import { useDraftRecovery } from "@/lib/state/DraftRecoveryProvider";
 import { confirmLocalDraft } from "@/lib/runtime/confirmLocalDraft";
 import { sameDraftAttempt } from "@/lib/state/draftStore";
-import { clearRetryDraft, readRetryDraft } from "@/lib/state/retryBriefStorage";
 import { hasFirstTakeMilestone, recordFirstTakeMilestone } from "@/lib/history/firstTakeMilestone";
 import { StatusBanner } from "@/components/ui/StatusBanner";
 import { pollingIntervals, queryKeys } from "@/lib/query/queryClient";
@@ -468,17 +467,7 @@ export const SpeakRoute = () => {
 
   useEffect(() => {
     if (lifecycleState === "completed" && review.reportId) {
-      void (async () => {
-        const completedDraft = draftRecovery.active;
-        if (sameDraftAttempt(completedDraft, draft)) {
-          try {
-            await draftRecovery.discardActive();
-            const retryBrief = readRetryDraft();
-            if (retryBrief && sameDraftAttempt(completedDraft, retryBrief)) clearRetryDraft();
-          } catch { /* Review remains available if local cleanup fails. */ }
-        }
-        navigate("/review");
-      })();
+      navigate("/review");
     }
   }, [lifecycleState, navigate, review.reportId]);
 

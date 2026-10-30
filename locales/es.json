@@ -730,8 +730,6 @@
     "brief_context": "Misma tarea: {task}",
     "brief_hint": "Guardado en este dispositivo hasta siete días. Puedes editarlo o borrarlo antes de grabar.",
     "resume_title": "¿Reanudar este intento?",
-    "recorded_at": "Grabado el {date}.",
-    "edited_at": "Configuración modificada el {date}.",
     "resume_context": "Guardado para {speaker} · {task}. Confirma que es tu práctica antes de ver el objetivo.",
     "resume_action": "Reanudar este intento",
     "discard_action": "Descartar y elegir tarea",
@@ -1343,8 +1341,7 @@
     "keychain_error": "El llavero de Mac no está disponible. No se puede guardar localmente; mantén abierta esta ventana e inténtalo de nuevo.",
     "storage_error": "No se pudo usar el almacenamiento local. Mantén abierta esta ventana o inténtalo de nuevo.",
     "continue_without_resume": "Continuar sin reanudar",
-    "saved_on_mac": "Guardado en este Mac hasta siete días desde la grabación. Puede seguir aquí después de Enviar para evaluar hasta que termine la evaluación; puedes borrarlo antes en Gestionar borradores guardados. Nada se sube hasta que eliges Enviar para evaluar.",
-    "saving": "Guardando la grabación en este Mac…",
+    "saved_on_mac": "Guardado en este Mac hasta siete días. Puede seguir aquí después de Enviar para evaluar hasta que termine la evaluación; puedes borrarlo antes en Gestionar borradores guardados. Nada se sube hasta que eliges Enviar para evaluar.",
     "save_progress": "Guardando la grabación: {percent} %.",
     "submit_uncertain": "No se pudo confirmar el envío: {detail}. El audio permanece en esta ventana. No se repetirá la solicitud hasta que vuelvas a elegir Enviar para evaluar.",
     "save_failed": "No se pudo guardar localmente; mantén abierta esta ventana o inténtalo de nuevo. La grabación solo está en memoria.",
@@ -1361,9 +1358,7 @@
     "retry_save_action": "Intentar guardar esta grabación de nuevo",
     "discard_saved_confirm": "¿Eliminar de este Mac la grabación guardada de {learner} · {task} ({size})?",
     "start_new_confirm": "¿Iniciar otro intento? El borrador local anterior se conserva hasta que una configuración nueva lo reemplace.",
-    "recording_finalized": "Grabación lista en esta ventana.",
     "save_upload_action": "Guardar este archivo seleccionado como grabación local",
-    "save_upload_note": "El archivo seleccionado solo permanece en esta ventana hasta que decidas guardarlo localmente.",
-    "load_failed": "No se pudo verificar la grabación guardada. Puedes eliminar sus archivos locales."
+    "save_upload_note": "El archivo seleccionado solo permanece en esta ventana hasta que decidas guardarlo localmente."
   }
 }

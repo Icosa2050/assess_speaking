@@ -14,7 +14,7 @@ const MIME_BY_EXTENSION: Record<string, string> = {
 const MIME_ALIASES: Record<string, string> = {
   "audio/mp3": "audio/mpeg", "audio/wave": "audio/wav", "application/ogg": "audio/ogg", "video/webm": "audio/webm",
 };
-const safeTakeName = (name: string) => Boolean(name && name.length <= 256 && !/[\\/\\\\\x00-\x1f\x7f]/.test(name));
+const safeTakeName = (name: string) => Boolean(name && new TextEncoder().encode(name).length <= 256 && !/[\\/\\\\\x00-\x1f\x7f]/.test(name));
 const takeMime = (file: File): string => MIME_ALIASES[file.type] || file.type || MIME_BY_EXTENSION[file.name.split(".").pop()?.toLowerCase() || ""] || "";
 
 export type DraftStoreFailure = "unsupported" | "keychain" | "lost_key" | "storage" | "conflict" | "unreadable" | "uncertain" | "limit" | "format";
@@ -106,7 +106,7 @@ export const createDraftStoreAdapter = (bridge: DesktopDraftStoreBridge | undefi
       }
     },
     async replaceSetup(setup: SessionDraft, previous: SavedDraft): Promise<SavedDraft> {
-      if (!bridge?.replaceSetup) return unsupported();
+      if (!bridge) return unsupported();
       try { return await bridge.replaceSetup(setup, previous.draftId, previous.revision); }
       catch (error) {
         if (failure(error).kind === "uncertain") {
@@ -139,7 +139,7 @@ export const createDraftStoreAdapter = (bridge: DesktopDraftStoreBridge | undefi
         digest = await sha256(await file.arrayBuffer());
         transfer = await bridge.beginTake(draft.draftId, draft.revision, {
           originalFilename: file.name, mime, size: file.size, sha256: digest,
-          durationSec, captureEndedAt: Date.now(), inputMethod,
+          durationSec, captureEndedAt: inputMethod === "record" ? file.lastModified : Date.now(), inputMethod,
         });
         let written = 0;
         for (let offset = 0; offset < file.size; offset += CHUNK_BYTES) {

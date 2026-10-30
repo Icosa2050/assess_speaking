@@ -730,8 +730,6 @@
     "brief_context": "Stesso compito: {task}",
     "brief_hint": "Salvato su questo dispositivo fino a sette giorni. Puoi modificarlo o cancellarlo prima di registrare.",
     "resume_title": "Riprendere questo tentativo?",
-    "recorded_at": "Registrato il {date}.",
-    "edited_at": "Impostazioni modificate il {date}.",
     "resume_context": "Salvato per {speaker} · {task}. Conferma che sia il tuo esercizio prima di vedere l’obiettivo.",
     "resume_action": "Riprendi questo tentativo",
     "discard_action": "Elimina e scegli un compito",
@@ -1343,8 +1341,7 @@
     "keychain_error": "Il Portachiavi Mac non è disponibile. Il salvataggio locale è disattivato; tieni aperta questa finestra e riprova.",
     "storage_error": "Impossibile usare l’archivio locale. Tieni aperta questa finestra o riprova.",
     "continue_without_resume": "Continua senza riprendere",
-    "saved_on_mac": "Salvato su questo Mac per un massimo di sette giorni dalla registrazione. Può restare qui dopo Invia alla revisione fino al completamento della valutazione; puoi eliminarlo prima in Gestisci bozze salvate. Nulla viene caricato finché non scegli Invia alla revisione.",
-    "saving": "Salvataggio della registrazione su questo Mac…",
+    "saved_on_mac": "Salvato su questo Mac per un massimo di sette giorni. Può restare qui dopo Invia alla revisione fino al completamento della valutazione; puoi eliminarlo prima in Gestisci bozze salvate. Nulla viene caricato finché non scegli Invia alla revisione.",
     "save_progress": "Salvataggio della registrazione: {percent}%.",
     "submit_uncertain": "Impossibile confermare l’invio: {detail}. L’audio resta in questa finestra. Nessuna richiesta verrà ripetuta finché non scegli di nuovo Invia alla revisione.",
     "save_failed": "Impossibile salvare localmente; tieni aperta questa finestra o riprova. La registrazione è solo in memoria.",
@@ -1361,9 +1358,7 @@
     "retry_save_action": "Riprova a salvare questa registrazione",
     "discard_saved_confirm": "Eliminare da questo Mac la registrazione salvata di {learner} · {task} ({size})?",
     "start_new_confirm": "Iniziare un nuovo tentativo? La bozza locale precedente resta salvata finché nuove impostazioni non la sostituiscono.",
-    "recording_finalized": "Registrazione pronta in questa finestra.",
     "save_upload_action": "Conserva questo file come registrazione locale",
-    "save_upload_note": "Il file selezionato resta solo in questa finestra finché non scegli di salvarlo localmente.",
-    "load_failed": "Impossibile verificare la registrazione salvata. Puoi eliminare i file locali."
+    "save_upload_note": "Il file selezionato resta solo in questa finestra finché non scegli di salvarlo localmente."
   }
 }

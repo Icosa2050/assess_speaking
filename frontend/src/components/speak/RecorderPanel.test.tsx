@@ -170,6 +170,34 @@ it("waits for the durable save callback before showing a saved status", async ()
   expect(recorder.state).toBe("inactive");
 });
 
+it("keeps the Stop time when MediaRecorder finalizes later", async () => {
+  const now = vi.spyOn(Date, "now").mockReturnValue(100_000);
+  try {
+    microphone();
+    const selected = vi.fn();
+    let recorder!: FakeRecorder;
+    class FakeRecorder {
+      static isTypeSupported() { return true; }
+      state = "inactive"; mimeType = "audio/webm";
+      onstop?: () => void; ondataavailable?: (event: { data: Blob }) => void;
+      constructor() { recorder = this; }
+      start() { this.state = "recording"; }
+      requestData() { this.ondataavailable?.({ data: new Blob(["finalized audio"]) }); }
+      stop() { this.state = "inactive"; }
+    }
+    vi.stubGlobal("MediaRecorder", FakeRecorder);
+    render(<RecorderPanel {...props} onFileSelected={selected} />);
+    fireEvent.click(screen.getByTestId("speak.record_start"));
+    await screen.findByTestId("speak.record_stop");
+    now.mockReturnValue(135_000);
+    fireEvent.click(screen.getByTestId("speak.record_stop"));
+    now.mockReturnValue(150_000);
+    act(() => recorder.onstop?.());
+    await waitFor(() => expect(selected).toHaveBeenCalledOnce());
+    expect((selected.mock.calls[0][0] as File).lastModified).toBe(135_000);
+  } finally { now.mockRestore(); }
+});
+
 it("requires setup confirmation before asking for recording permission", () => {
   microphone(); const setup = vi.fn();
   render(<RecorderPanel {...props} microphoneSetupPassed={false} onFileSelected={vi.fn()} onSetupMicrophone={setup} />);
