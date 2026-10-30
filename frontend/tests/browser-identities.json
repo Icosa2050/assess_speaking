@@ -579,5 +579,23 @@
       "",
       "Rehearsal preserves completed work when sharing changes and reload resumes only remaining parts"
     ]
+  ],
+  "visual-webkit": [
+    ["e2e/visualRefreshSmoke.spec.ts", "webkit", "report finalization marks Coach complete and Finalizing current"],
+    ["e2e/visualRefreshSmoke.spec.ts", "webkit", "assessment wait explains a stall and recovers without a second upload"],
+    ["e2e/visualRefreshSmoke.spec.ts", "webkit", "cancelled upload keeps local media without claiming a lost confirmation"],
+    ["e2e/visualRefreshSmoke.spec.ts", "webkit", "renders primary visual-refresh artifacts without serif typography"],
+    ["e2e/visualRefreshSmoke.spec.ts", "webkit", "stored appearance is applied before loading and main DOM content is ready"],
+    ["e2e/visualRefreshSmoke.spec.ts", "webkit", "system default and explicit themes keep the journal card usable at desktop sizes"],
+    ["e2e/visualRefreshSmoke.spec.ts", "webkit", "start-fresh actions stay reachable at 200% (de)"],
+    ["e2e/visualRefreshSmoke.spec.ts", "webkit", "semantic light and dark surfaces keep primary routes readable at both desktop sizes (de)"],
+    ["e2e/visualRefreshSmoke.spec.ts", "webkit", "start-fresh actions stay reachable at 200% (en)"],
+    ["e2e/visualRefreshSmoke.spec.ts", "webkit", "semantic light and dark surfaces keep primary routes readable at both desktop sizes (en)"],
+    ["e2e/visualRefreshSmoke.spec.ts", "webkit", "start-fresh actions stay reachable at 200% (es)"],
+    ["e2e/visualRefreshSmoke.spec.ts", "webkit", "semantic light and dark surfaces keep primary routes readable at both desktop sizes (es)"],
+    ["e2e/visualRefreshSmoke.spec.ts", "webkit", "start-fresh actions stay reachable at 200% (fr)"],
+    ["e2e/visualRefreshSmoke.spec.ts", "webkit", "semantic light and dark surfaces keep primary routes readable at both desktop sizes (fr)"],
+    ["e2e/visualRefreshSmoke.spec.ts", "webkit", "start-fresh actions stay reachable at 200% (it)"],
+    ["e2e/visualRefreshSmoke.spec.ts", "webkit", "semantic light and dark surfaces keep primary routes readable at both desktop sizes (it)"]
   ]
 }
