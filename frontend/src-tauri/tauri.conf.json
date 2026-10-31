@@ -28,6 +28,8 @@
   },
   "bundle": {
     "active": false,
+    "copyright": "Copyright © 2026 Vostavo",
+    "macOS": { "minimumSystemVersion": "14.0" },
     "icon": [
       "icons/icon.png"
     ]

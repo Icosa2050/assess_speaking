@@ -988,6 +988,16 @@
     "saved_success": "Le thème « {theme} » a été enregistré."
   },
   "settings": {
+    "privacy_title": "Confidentialité",
+    "privacy_local": "La transcription Whisper locale et l’évaluation avec Ollama ou LM Studio locaux gardent le contenu de pratique sur cet appareil. Le téléchargement d’un modèle Whisper contacte son hébergeur.",
+    "privacy_cloud": "OpenRouter, Groq, xAI et ChatGPT reçoivent la transcription et la consigne d’évaluation. OpenRouter peut aussi les transmettre au fournisseur du modèle choisi. Une connexion compatible OpenAI les envoie à l’URL configurée ; Ollama Cloud les envoie à son service.",
+    "privacy_audio": "Pour le traitement par un fournisseur, l’audio ne quitte l’appareil que si vous choisissez une transcription dans le cloud, par exemple avec Groq. Whisper local garde l’audio sur l’appareil. Vous pouvez aussi partager séparément des enregistrements ou des fichiers audio importés dans un dossier d’assistance.",
+    "about_title": "À propos de Vostavo",
+    "about_version": "Version {version}",
+    "about_commit": "Commit de build {commit}",
+    "about_licenses": "Licences tierces",
+    "about_licenses_loading": "Chargement des mentions tierces…",
+    "about_licenses_failed": "Impossible de charger les mentions tierces. Réessayez.",
     "appearance": "Apparence",
     "appearance_system": "Système",
     "appearance_light": "Clair",

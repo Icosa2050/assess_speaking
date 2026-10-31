@@ -50,6 +50,17 @@ test.describe("settings support flow", () => {
     await page.getByTestId("home.open_settings").click();
 
     await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "About Vostavo" })).toBeVisible();
+    await expect(page.getByText("Version 0.1.0")).toBeVisible();
+    await expect(page.getByText(/For provider processing, audio leaves the device only when you choose cloud transcription/)).toBeVisible();
+    const licenses = page.getByRole("link", { name: "Third-party licenses" });
+    await expect(licenses).toHaveAttribute("href", "/THIRD_PARTY_NOTICES.txt");
+    const noticeResponse = await page.request.get("/THIRD_PARTY_NOTICES.txt");
+    expect(noticeResponse.ok()).toBeTruthy();
+    expect(await noticeResponse.text()).toContain("THIRD-PARTY NOTICES");
+    await licenses.click();
+    await expect(licenses).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator("#settings-license-text pre")).toContainText("VOSTAVO THIRD-PARTY NOTICES");
     await expect
       .poll(() => page.evaluate(() => window.history.state?.usr?.from ?? null))
       .toBe("home");
