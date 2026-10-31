@@ -2,6 +2,10 @@
 # Place exact corresponding source and build recipe alongside the signed app.
 set -euo pipefail
 export COPYFILE_DISABLE=1
+if [[ $(tar --version) != bsdtar* ]]; then
+  echo 'LGPL source packaging requires macOS bsdtar' >&2
+  exit 1
+fi
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORK=${1:-"$ROOT/.build-macos/lgpl-pyav"}
 DEST=${2:-"$ROOT/.build-macos/LGPL-corresponding-source.tar.gz"}
@@ -22,6 +26,7 @@ printf '%s\n' 'FFmpeg 7.1.1 and PyAV 14.2.0 are unmodified upstream source relea
   'configure-flags.txt records the flags used for the distributed FFmpeg libraries.' \
   > "$STAGE/README.txt"
 # Stable bytes matter: the notice embeds this archive's SHA-256, including on retries.
+chmod -R u=rwX,go=rX "$STAGE"
 find "$STAGE" -type f -exec touch -t 202001010000.00 {} +
 FILELIST="$WORK/source-offer-files.txt"
 (cd "$STAGE" && find . -type f | LC_ALL=C sort) > "$FILELIST"
