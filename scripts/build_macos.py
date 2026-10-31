@@ -66,7 +66,8 @@ def assert_lgpl_ffmpeg(report: dict) -> dict:
     if report.get('pyav_version') != '14.2.0':
         raise RuntimeError('Frozen PyAV version differs from the pinned LGPL build')
     libraries = report.get('libraries')
-    required = {'libavcodec', 'libavformat', 'libavutil', 'libswresample'}
+    required = {'libavcodec', 'libavdevice', 'libavfilter', 'libavformat',
+                'libavutil', 'libswresample', 'libswscale'}
     if not isinstance(libraries, dict) or not required.issubset(libraries):
         raise RuntimeError('FFmpeg license metadata is missing')
     for name, meta in libraries.items():

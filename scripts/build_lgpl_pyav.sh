@@ -8,6 +8,7 @@ PYTHON=${2:-"$ROOT/.build-macos/venv/bin/python"}
 mkdir -p "$WORK"
 WORK=$(cd "$WORK" && pwd)
 PYTHON=$(cd "$(dirname "$PYTHON")" && pwd)/$(basename "$PYTHON")
+[[ "$WORK" == "$ROOT/.build-macos/"* ]] || { echo 'Build output must be under .build-macos' >&2; exit 1; }
 FFMPEG_VERSION=7.1.1
 PYAV_VERSION=14.2.0
 FFMPEG_SHA256=733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1
@@ -25,6 +26,8 @@ fetch() {
 }
 fetch "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz" "$WORK/sources/ffmpeg-$FFMPEG_VERSION.tar.xz" "$FFMPEG_SHA256"
 fetch "https://files.pythonhosted.org/packages/source/a/av/av-$PYAV_VERSION.tar.gz" "$WORK/sources/av-$PYAV_VERSION.tar.gz" "$PYAV_SHA256"
+rm -rf -- "$WORK/ffmpeg-$FFMPEG_VERSION" "$WORK/av-$PYAV_VERSION" "$WORK/ffmpeg-install" "$WORK/wheels"
+mkdir -p "$WORK/wheels"
 tar -xf "$WORK/sources/ffmpeg-$FFMPEG_VERSION.tar.xz" -C "$WORK"
 tar -xf "$WORK/sources/av-$PYAV_VERSION.tar.gz" -C "$WORK"
 

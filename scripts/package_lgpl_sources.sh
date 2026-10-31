@@ -5,6 +5,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORK=${1:-"$ROOT/.build-macos/lgpl-pyav"}
 DEST=${2:-"$ROOT/.build-macos/LGPL-corresponding-source.tar.gz"}
 STAGE="$WORK/source-offer"
+rm -rf -- "$STAGE"
 mkdir -p "$STAGE"
 cp "$WORK/sources/ffmpeg-7.1.1.tar.xz" "$WORK/sources/av-14.2.0.tar.gz" \
   "$WORK/configure-flags.txt" "$ROOT/scripts/build_lgpl_pyav.sh" "$STAGE/"

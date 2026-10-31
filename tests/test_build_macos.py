@@ -11,7 +11,8 @@ from scripts import build_macos
 
 def test_lgpl_gate_rejects_gpl_configurations_and_links() -> None:
     libraries = {name: {"configuration": "--disable-everything --enable-shared", "license": "LGPL version 2.1 or later"}
-                 for name in ("libavcodec", "libavformat", "libavutil", "libswresample")}
+                 for name in ("libavcodec", "libavdevice", "libavfilter", "libavformat",
+                              "libavutil", "libswresample", "libswscale")}
     assert build_macos.assert_lgpl_ffmpeg({"pyav_version": "14.2.0", "libraries": libraries})
     for forbidden in ("--enable-gpl", "--enable-nonfree", "--enable-version3", "--enable-libx264", "--enable-libx265"):
         changed = {**libraries, "libavcodec": {**libraries["libavcodec"], "configuration": forbidden}}
