@@ -239,7 +239,11 @@ def main(argv=None):
     parser.add_argument('--ffmpeg-source-version', default='',
                         help='FFmpeg version for the corresponding-source reference.')
     parser.add_argument('--ffmpeg-source-archive', default='',
-                        help='FFmpeg corresponding-source archive path or URL for the notice.')
+                        help='Local FFmpeg/PyAV corresponding-source archive used to verify its SHA-256.')
+    parser.add_argument('--ffmpeg-source-url', default='',
+                        help='Hosted URL of the exact FFmpeg/PyAV corresponding-source archive.')
+    parser.add_argument('--ffmpeg-source-sha256', default='',
+                        help='SHA-256 of the hosted corresponding-source archive; derived from the local archive if omitted.')
     parser.add_argument('--allow-gpl-ffmpeg-distribution', action='store_true',
                         help='Explicit owner acknowledgment for a GPL/nonfree FFmpeg or x264/x265 release.')
     parser.add_argument('--reuse-helper', action='store_true', help='Local iteration only; forbidden for releases.')
@@ -297,10 +301,19 @@ def main(argv=None):
         raise RuntimeError('Packaging requires pinned CPython 3.12.11 arm64')
     if plistlib.loads((helper / 'Contents/Info.plist').read_bytes())['CFBundleShortVersionString'] != version:
         raise RuntimeError('Helper version differs')
+    source_sha256 = args.ffmpeg_source_sha256
+    if args.ffmpeg_source_archive:
+        with Path(args.ffmpeg_source_archive).open('rb') as stream:
+            actual_source_sha256 = hashlib.file_digest(stream, 'sha256').hexdigest()
+        if source_sha256 and source_sha256.lower() != actual_source_sha256:
+            raise RuntimeError('FFmpeg corresponding-source archive SHA-256 mismatch')
+        source_sha256 = actual_source_sha256
     notices = BUILD / 'THIRD_PARTY_NOTICES.txt'
     notice_command = [python, ROOT / 'scripts/generate_third_party_notices.py', '--output', notices, '--helper', helper,
          '--ffmpeg-source-version', args.ffmpeg_source_version,
-         '--ffmpeg-source-archive', args.ffmpeg_source_archive]
+         '--ffmpeg-source-archive', args.ffmpeg_source_archive,
+         '--ffmpeg-source-url', args.ffmpeg_source_url,
+         '--ffmpeg-source-sha256', source_sha256]
     if release:
         notice_command.append('--require-ffmpeg-source-reference')
     if args.allow_gpl_ffmpeg_distribution:
@@ -372,6 +385,7 @@ def main(argv=None):
     run(['codesign', '--verify', '--deep', '--strict', bundle])
     evidence.update(mode=args.mode, notarization_skipped=not (release and not args.local_sign_only),
                     allow_gpl_ffmpeg_distribution=args.allow_gpl_ffmpeg_distribution,
+                    ffmpeg_source_url=args.ffmpeg_source_url, ffmpeg_source_sha256=source_sha256,
                     provisioning_profile_embedded=bool(profile_source),
                     draft_storage='device-only' if release and profile_source else 'unavailable' if release else 'development-fallback',
                     gatekeeper_accepted=release and not args.local_sign_only,

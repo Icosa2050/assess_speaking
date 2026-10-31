@@ -105,13 +105,17 @@ against that actual release DMG too. The release path requires testing with a re
 certificate; internal acceptance cannot establish release library-validation
 compatibility.
 
-For a replacement LGPL FFmpeg build, also pass `--ffmpeg-source-version` and
-`--ffmpeg-source-archive` with the exact corresponding-source release and a
-durable archive path or URL. The generator records those fields alongside PyAV's
-reported version, license and configure flags. A release build fails if either
-source field is missing. Verify the archive is available to
-recipients and matches the FFmpeg libraries in the frozen helper. The generated
-notice includes the full LGPL 2.1 text, or LGPL 3 plus its incorporated GPL 3
+For a replacement LGPL FFmpeg build, pass `--ffmpeg-source-version` with the
+exact FFmpeg release, `--ffmpeg-source-archive` with the local
+`.build-macos/LGPL-corresponding-source.tar.gz`, and `--ffmpeg-source-url` with
+the hosted URL of those exact archive bytes. The generator derives the SHA-256
+from the local archive; if `--ffmpeg-source-sha256` is also supplied, it must
+match. A release build requires the source version, hosted URL and SHA-256,
+and records the URL and hash in the notices and build report. The archive stays
+outside the DMG. Hosting it is an owner release action; verify recipients can
+retrieve it before publishing the DMG. The notice also records PyAV's reported
+version, license and configure flags. It includes the full LGPL 2.1 text, or
+LGPL 3 plus its incorporated GPL 3
 text, according to PyAV's reported library license. This source reference and
 license text do not replace the owner's review of LGPL relinking obligations.
 Release builds also fail if PyAV reports GPL/nonfree FFmpeg or the helper bundles

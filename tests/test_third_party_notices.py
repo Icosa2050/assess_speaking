@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 
@@ -68,7 +69,8 @@ def test_ffmpeg_notice_uses_frozen_helper_and_pyav_report(tmp_path: Path, monkey
     assert 'PUBLIC DISTRIBUTION HOLD' in result
     with pytest.raises(RuntimeError, match='not allowed in a release build'):
         notices.ffmpeg_notice(helper, require_source_reference=True)
-    allowed = notices.ffmpeg_notice(helper, source_version='7.0.2', source_archive='https://example.test/ffmpeg.tar.xz',
+    allowed = notices.ffmpeg_notice(helper, source_version='7.0.2',
+                                    source_url='https://example.test/ffmpeg.tar.xz', source_sha256='a' * 64,
                                     require_source_reference=True, allow_gpl_distribution=True)
     assert 'FFmpeg source version: 7.0.2' in allowed
     assert (notices.ROOT / 'packaging/licenses/GPL-3.0.txt').read_text().strip() in allowed
@@ -124,21 +126,38 @@ def test_lgpl_notice_includes_full_text_and_source_reference(
     monkeypatch.setattr(notices.subprocess, 'check_output', lambda *args, **kwargs: (
         'PyAV v14.2.0\nlibrary configuration: --disable-gpl --enable-shared\n'
         f'library license: {license_name}\nlibavcodec 61.19.100\n'))
-    result = notices.ffmpeg_notice(helper, source_version='7.0.2', source_archive='sources/ffmpeg-7.0.2.tar.xz')
+    archive = tmp_path / 'LGPL-corresponding-source.tar.gz'
+    archive.write_bytes(b'pinned source archive fixture')
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    result = notices.ffmpeg_notice(helper, source_version='7.0.2', source_archive=str(archive),
+                                   source_url='https://example.test/LGPL-corresponding-source.tar.gz')
     assert 'PyAV version: 14.2.0' in result
     assert 'FFmpeg source version: 7.0.2' in result
-    assert 'FFmpeg source archive path or URL: sources/ffmpeg-7.0.2.tar.xz' in result
+    assert 'Corresponding-source hosted URL: https://example.test/LGPL-corresponding-source.tar.gz' in result
+    assert f'Corresponding-source SHA-256: {digest}' in result
     assert 'FFmpeg configure flags: --disable-gpl --enable-shared' in result
     assert 'FFmpeg source version: 7.0.2' in notices.ffmpeg_notice(
-        helper, source_version='7.0.2', source_archive='sources/ffmpeg-7.0.2.tar.xz',
+        helper, source_version='7.0.2', source_archive=str(archive),
+        source_url='https://example.test/LGPL-corresponding-source.tar.gz', source_sha256=digest,
         require_source_reference=True)
     for filename in expected_files:
         assert (notices.ROOT / 'packaging/licenses' / filename).read_text().strip() in result
     placeholder = notices.ffmpeg_notice(helper)
     assert 'SOURCE_VERSION_REQUIRED' in placeholder
-    assert 'SOURCE_ARCHIVE_REQUIRED' in placeholder
-    with pytest.raises(RuntimeError, match='requires its source version and archive reference'):
+    assert 'SOURCE_URL_REQUIRED' in placeholder
+    assert 'SOURCE_SHA256_REQUIRED' in placeholder
+    with pytest.raises(RuntimeError, match='requires a source version, hosted URL and SHA-256'):
         notices.ffmpeg_notice(helper, require_source_reference=True)
+    with pytest.raises(RuntimeError, match='requires a source version, hosted URL and SHA-256'):
+        notices.ffmpeg_notice(helper, source_version='7.0.2', source_archive=str(archive),
+                              require_source_reference=True)
+    with pytest.raises(RuntimeError, match='requires a source version, hosted URL and SHA-256'):
+        notices.ffmpeg_notice(helper, source_version='7.0.2',
+                              source_url='https://example.test/source.tar.gz', require_source_reference=True)
+    with pytest.raises(RuntimeError, match='SHA-256 mismatch'):
+        notices.ffmpeg_notice(helper, source_version='7.0.2', source_archive=str(archive),
+                              source_url='https://example.test/source.tar.gz', source_sha256='0' * 64,
+                              require_source_reference=True)
 
 
 def test_frozen_inventory_requires_native_code_and_metadata(tmp_path: Path) -> None:

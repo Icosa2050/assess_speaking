@@ -7,6 +7,7 @@ available. The resulting file is embedded in both the webview and app Resources.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.metadata as metadata
 import json
 from pathlib import Path
@@ -14,6 +15,7 @@ import re
 import shutil
 import subprocess
 import sys
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -64,6 +66,7 @@ def read_python_license_file(dist: metadata.Distribution, filename: str) -> str:
 
 
 def ffmpeg_notice(helper: Path, *, source_version: str = '', source_archive: str = '',
+                  source_url: str = '', source_sha256: str = '',
                   require_source_reference: bool = False, allow_gpl_distribution: bool = False) -> str:
     """Record build-interpreter PyAV metadata and frozen-helper libraries."""
     version_output = subprocess.check_output([sys.executable, '-m', 'av', '--version'], text=True).strip()
@@ -90,12 +93,26 @@ def ffmpeg_notice(helper: Path, *, source_version: str = '', source_archive: str
     if require_source_reference and restricted and not allow_gpl_distribution:
         raise RuntimeError('GPL/nonfree FFmpeg or x264/x265 is not allowed in a release build; '
                            'replace it with an LGPL-only build or use --allow-gpl-ffmpeg-distribution after owner review')
-    if require_source_reference and (not source_version or not source_archive):
-        raise RuntimeError('FFmpeg release requires its source version and archive reference')
+    if source_archive:
+        archive = Path(source_archive)
+        if not archive.is_file():
+            raise RuntimeError(f'FFmpeg corresponding-source archive is missing: {archive}')
+        with archive.open('rb') as stream:
+            actual_sha256 = hashlib.file_digest(stream, 'sha256').hexdigest()
+        if source_sha256 and source_sha256.lower() != actual_sha256:
+            raise RuntimeError('FFmpeg corresponding-source archive SHA-256 mismatch')
+        source_sha256 = actual_sha256
+    if source_sha256 and not re.fullmatch(r'[0-9a-fA-F]{64}', source_sha256):
+        raise RuntimeError('FFmpeg corresponding-source SHA-256 must be 64 hex characters')
+    if source_url and (urlsplit(source_url).scheme not in {'http', 'https'} or not urlsplit(source_url).hostname):
+        raise RuntimeError('FFmpeg corresponding-source URL must be an absolute hosted HTTP(S) URL')
+    if require_source_reference and (not source_version or not source_url or not source_sha256):
+        raise RuntimeError('FFmpeg release requires a source version, hosted URL and SHA-256')
     section += ('\n\nFFmpeg/PyAV corresponding-source reference (complete before distribution):\n'
                 + f'PyAV version: {pyav.group(1)}\n'
                 + f'FFmpeg source version: {source_version or "SOURCE_VERSION_REQUIRED"}\n'
-                + f'FFmpeg source archive path or URL: {source_archive or "SOURCE_ARCHIVE_REQUIRED"}\n'
+                + f'Corresponding-source hosted URL: {source_url or "SOURCE_URL_REQUIRED"}\n'
+                + f'Corresponding-source SHA-256: {source_sha256 or "SOURCE_SHA256_REQUIRED"}\n'
                 + f'FFmpeg configure flags: {configure_flags}')
     if restricted:
         section += ('\n\nPUBLIC DISTRIBUTION HOLD: This frozen build contains GPL/nonfree FFmpeg or x264/x265. '
@@ -187,6 +204,7 @@ def rust_notices(manifest: Path) -> list[str]:
 
 def generate(lock: Path, npm_lock: Path, node_modules: Path, cargo_manifest: Path, helper: Path,
              *, ffmpeg_source_version: str = '', ffmpeg_source_archive: str = '',
+             ffmpeg_source_url: str = '', ffmpeg_source_sha256: str = '',
              require_ffmpeg_source_reference: bool = False,
              allow_gpl_ffmpeg_distribution: bool = False) -> str:
     sections = [
@@ -197,6 +215,7 @@ def generate(lock: Path, npm_lock: Path, node_modules: Path, cargo_manifest: Pat
         "The application's own code has no repository LICENSE; its license is an owner decision.\n",
         cpython_notice(),
         ffmpeg_notice(helper, source_version=ffmpeg_source_version, source_archive=ffmpeg_source_archive,
+                      source_url=ffmpeg_source_url, source_sha256=ffmpeg_source_sha256,
                       require_source_reference=require_ffmpeg_source_reference,
                       allow_gpl_distribution=allow_gpl_ffmpeg_distribution),
         frozen_inventory(helper),
@@ -213,6 +232,8 @@ def main() -> None:
     parser.add_argument("--helper", type=Path, required=True)
     parser.add_argument("--ffmpeg-source-version", default='')
     parser.add_argument("--ffmpeg-source-archive", default='')
+    parser.add_argument("--ffmpeg-source-url", default='')
+    parser.add_argument("--ffmpeg-source-sha256", default='')
     parser.add_argument("--require-ffmpeg-source-reference", action='store_true')
     parser.add_argument("--allow-gpl-ffmpeg-distribution", action='store_true')
     args = parser.parse_args()
@@ -220,6 +241,8 @@ def main() -> None:
                       ROOT / "frontend/node_modules", ROOT / "frontend/src-tauri/Cargo.toml", args.helper,
                       ffmpeg_source_version=args.ffmpeg_source_version,
                       ffmpeg_source_archive=args.ffmpeg_source_archive,
+                      ffmpeg_source_url=args.ffmpeg_source_url,
+                      ffmpeg_source_sha256=args.ffmpeg_source_sha256,
                       require_ffmpeg_source_reference=args.require_ffmpeg_source_reference,
                       allow_gpl_ffmpeg_distribution=args.allow_gpl_ffmpeg_distribution)
     args.output.parent.mkdir(parents=True, exist_ok=True)
