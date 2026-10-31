@@ -220,7 +220,7 @@ describe("Settings route", () => {
     fireEvent.click(licenses);
     expect(await screen.findByText(/FFmpeg license/)).toBeVisible();
     expect(licenses).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText(/Audio leaves the device only when you choose cloud transcription/)).toBeVisible();
+    expect(screen.getByText(/For provider processing, audio leaves the device only when you choose cloud transcription/)).toBeVisible();
   });
 
   it("shows load failure without exposing a Settings editor", async () => {

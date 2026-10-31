@@ -106,25 +106,36 @@ def frozen_inventory(helper: Path) -> str:
 
 def npm_notices(lock: Path, node_modules: Path) -> list[str]:
     packages = json.loads(lock.read_text())["packages"]
-    pending = list(packages[""]["dependencies"])
+    pending = [("", name) for name in packages[""]["dependencies"]]
     seen = set()
     result = []
     while pending:
-        name = pending.pop()
-        if name in seen:
+        parent, name = pending.pop()
+        key = resolve_npm_dependency(packages, parent, name)
+        if key in seen:
             continue
-        seen.add(name)
-        key = "node_modules/" + name
-        package = packages.get(key)
-        if package is None:
-            raise RuntimeError(f"npm runtime package missing from lock: {name}")
-        installed = node_modules / name
+        seen.add(key)
+        package = packages[key]
+        installed = node_modules / key.removeprefix("node_modules/")
         manifest = json.loads((installed / "package.json").read_text())
         if manifest.get("version") != package["version"]:
             raise RuntimeError(f"npm lock mismatch: {name}")
-        pending.extend(package.get("dependencies", {}))
+        pending.extend((key, dependency) for dependency in package.get("dependencies", {}))
         result.append(_section("npm runtime", name, package["version"], str(manifest.get("license", "")), _license_files(installed)))
     return sorted(result)
+
+
+def resolve_npm_dependency(packages: dict, parent: str, name: str) -> str:
+    """Follow Node's installed-package ancestor lookup recorded in package-lock."""
+    current = parent
+    while True:
+        candidate = f"{current}/node_modules/{name}" if current else f"node_modules/{name}"
+        if candidate in packages:
+            return candidate
+        if not current:
+            break
+        current = current.rsplit("/node_modules/", 1)[0] if "/node_modules/" in current else ""
+    raise RuntimeError(f"npm runtime package missing from lock: {name} (required by {parent or 'root'})")
 
 
 def rust_notices(manifest: Path) -> list[str]:

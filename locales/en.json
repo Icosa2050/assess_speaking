@@ -990,8 +990,8 @@
   "settings": {
     "privacy_title": "Privacy",
     "privacy_local": "Local Whisper transcription and local Ollama or LM Studio assessment keep practice content on this device. Downloading a Whisper model contacts its model host.",
-    "privacy_cloud": "OpenRouter, Groq, xAI and ChatGPT send the transcript and assessment prompt to their service. An OpenAI-compatible connection sends them to the URL you configure; an Ollama cloud connection also sends them to its cloud service.",
-    "privacy_audio": "Audio leaves the device only when you choose cloud transcription, such as Groq speech recognition. Local Whisper keeps audio on the device.",
+    "privacy_cloud": "OpenRouter, Groq, xAI and ChatGPT send the transcript and assessment prompt to their service. OpenRouter may also pass them to the provider serving the selected model. An OpenAI-compatible connection sends them to the URL you configure; an Ollama cloud connection also sends them to its cloud service.",
+    "privacy_audio": "For provider processing, audio leaves the device only when you choose cloud transcription, such as Groq. Local Whisper keeps audio on the device. You can separately choose to share recordings or uploaded audio in a support bundle.",
     "about_title": "About Vostavo",
     "about_version": "Version {version}",
     "about_commit": "Build commit {commit}",

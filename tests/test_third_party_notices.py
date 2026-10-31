@@ -32,6 +32,26 @@ def test_npm_notices_follow_only_locked_runtime_graph(tmp_path: Path) -> None:
         notices.npm_notices(lock, root)
 
 
+def test_npm_notices_include_nested_installed_versions(tmp_path: Path) -> None:
+    root = tmp_path / 'node_modules'
+    for relative, version in [('shared', '2.0.0'), ('widget', '1.0.0'),
+                              ('widget/node_modules/shared', '1.0.0')]:
+        directory = root / relative
+        directory.mkdir(parents=True)
+        (directory / 'package.json').write_text(json.dumps({'version': version, 'license': 'MIT'}))
+    lock = tmp_path / 'package-lock.json'
+    lock.write_text(json.dumps({'packages': {
+        '': {'dependencies': {'shared': '2.0.0', 'widget': '1.0.0'}},
+        'node_modules/shared': {'version': '2.0.0'},
+        'node_modules/widget': {'version': '1.0.0', 'dependencies': {'shared': '1.0.0'}},
+        'node_modules/widget/node_modules/shared': {'version': '1.0.0'},
+    }}))
+    result = notices.npm_notices(lock, root)
+    assert len(result) == 3
+    assert any('npm runtime: shared 1.0.0' in row for row in result)
+    assert any('npm runtime: shared 2.0.0' in row for row in result)
+
+
 def test_ffmpeg_notice_records_linkage_and_license(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     wheel = tmp_path / 'av'
     (wheel / '.dylibs').mkdir(parents=True)

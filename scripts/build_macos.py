@@ -282,7 +282,9 @@ def main(argv=None):
     notices = BUILD / 'THIRD_PARTY_NOTICES.txt'
     run([python, ROOT / 'scripts/generate_third_party_notices.py', '--output', notices, '--helper', helper])
     public_dir = BUILD / 'frontend-public'
-    shutil.copytree(ROOT / 'frontend/public', public_dir, dirs_exist_ok=True)
+    if public_dir.exists():
+        shutil.rmtree(public_dir)
+    shutil.copytree(ROOT / 'frontend/public', public_dir)
     public_notices = public_dir / 'THIRD_PARTY_NOTICES.txt'
     shutil.copy2(notices, public_notices)
     build_commit = output(['git', 'rev-parse', '--short=12', 'HEAD'])

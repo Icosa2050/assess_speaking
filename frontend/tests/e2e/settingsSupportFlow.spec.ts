@@ -52,7 +52,7 @@ test.describe("settings support flow", () => {
     await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "About Vostavo" })).toBeVisible();
     await expect(page.getByText("Version 0.1.0")).toBeVisible();
-    await expect(page.getByText(/Audio leaves the device only when you choose cloud transcription/)).toBeVisible();
+    await expect(page.getByText(/For provider processing, audio leaves the device only when you choose cloud transcription/)).toBeVisible();
     const licenses = page.getByRole("link", { name: "Third-party licenses" });
     await expect(licenses).toHaveAttribute("href", "/THIRD_PARTY_NOTICES.txt");
     const noticeResponse = await page.request.get("/THIRD_PARTY_NOTICES.txt");

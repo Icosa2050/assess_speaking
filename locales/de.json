@@ -990,8 +990,8 @@
   "settings": {
     "privacy_title": "Datenschutz",
     "privacy_local": "Lokale Whisper-Transkription und lokale Bewertung mit Ollama oder LM Studio behalten Übungsinhalte auf diesem Gerät. Beim Herunterladen eines Whisper-Modells wird dessen Anbieter kontaktiert.",
-    "privacy_cloud": "OpenRouter, Groq, xAI und ChatGPT erhalten das Transkript und den Bewertungs-Prompt. Eine OpenAI-kompatible Verbindung sendet beides an die konfigurierte URL; Ollama Cloud sendet es an seinen Cloud-Dienst.",
-    "privacy_audio": "Audio verlässt das Gerät nur bei Cloud-Transkription, etwa mit Groq. Lokales Whisper behält Audio auf dem Gerät.",
+    "privacy_cloud": "OpenRouter, Groq, xAI und ChatGPT erhalten das Transkript und den Bewertungs-Prompt. OpenRouter kann beides auch an den Anbieter des gewählten Modells weitergeben. Eine OpenAI-kompatible Verbindung sendet beides an die konfigurierte URL; Ollama Cloud sendet es an seinen Cloud-Dienst.",
+    "privacy_audio": "Bei der Verarbeitung durch Anbieter verlässt Audio das Gerät nur bei Cloud-Transkription, etwa mit Groq. Lokales Whisper behält Audio auf dem Gerät. Auf Wunsch kannst du Aufnahmen oder hochgeladenes Audio separat in einem Support-Paket teilen.",
     "about_title": "Über Vostavo",
     "about_version": "Version {version}",
     "about_commit": "Build-Commit {commit}",
