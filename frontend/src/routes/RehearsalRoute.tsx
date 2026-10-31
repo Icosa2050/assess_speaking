@@ -248,6 +248,7 @@ export const RehearsalRoute = () => {
         {session.parts.some(part => !part.reportId) && <button data-testid="rehearsal-analyse" disabled={busy || (!sharingQuery.data?.available && session.parts.some(part => !part.reportId && !part.jobId))} onClick={analyse}>{t("analyse")}</button>}
       </div>
       {session.parts.map((part, i) => {
+        const loadedReport = Boolean(reports[part.reportId || ""]?.report);
         const report = record(reports[part.reportId || ""]?.report);
         const metrics = record(report.metrics); const coaching = record(report.coaching);
         const scores = record(report.scores); const warnings = Array.isArray(report.warnings) ? report.warnings : [];
@@ -271,7 +272,8 @@ export const RehearsalRoute = () => {
           <RehearsalAudio session={session} index={i} label={t("playback")} unavailable={t("audio_missing")} downloadLabel={translate("speak.download_recording")} />
           {part.reportId ? <>
             <dl className={styles.metrics}>{[["duration", metrics.duration_sec], ["wpm", metrics.wpm], ["score", assessable ? scores.final : null]].map(([label, value]) => <div key={String(label)}><dt>{t(String(label))}</dt><dd>{typeof value === "number" && Number.isFinite(value) ? value.toFixed(1) : "—"}</dd></div>)}</dl>
-            {!assessable && <p role="status" data-testid={`rehearsal-ineligible-${i}`}>{translate(eligibilityMessage)}</p>}
+            {!loadedReport && <p role="status" data-testid={`rehearsal-report-missing-${i}`}>{t("report_missing")}</p>}
+            {loadedReport && !assessable && <p role="status" data-testid={`rehearsal-ineligible-${i}`}>{translate(eligibilityMessage)}</p>}
             {assessable && (!report.rubric || warnings.includes("coaching_unavailable")) && <p>{translate("review.general_practice_tips")}</p>}
             {warnings.includes("transcript_uncertain") && <p>{translate("review.transcript_uncertain")}</p>}
             {assessable && <p lang={compactFeedback && coachingSummary.preview ? feedbackLanguage : undefined} data-testid={`rehearsal-coaching-summary-${i}`}>{coachingSummary.preview || t("report_missing")}</p>}

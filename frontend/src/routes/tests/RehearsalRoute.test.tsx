@@ -131,6 +131,25 @@ it("withholds retained compact corrections when a rehearsal part is ineligible",
   expect(result.querySelectorAll("dd")[2]).toHaveTextContent("—");
 });
 
+it("distinguishes an unloaded part report from an ineligible assessment", async () => {
+  const session = createRehearsal("en", "B1", "Alex", {
+    provider: "ollama_local", model: "test", baseUrl: "http://localhost:11434", whisper: "small", feedbackLanguage: "en",
+  });
+  session.phase = "review";
+  session.parts[0] = { ...session.parts[0], recorded: true, reportId: "missing-part" };
+  vi.mocked(listRehearsals).mockResolvedValue([session]);
+  vi.mocked(getRehearsal).mockResolvedValue(session);
+  vi.mocked(apiClient.getHistoryDetail).mockRejectedValue(new Error("History detail unavailable"));
+  renderWithProviders(<RehearsalRoute />, { initialEntries: ["/rehearsal"], locale: "en",
+    appState: { draft: { speakerId: "Alex" }, microphoneSetupPassed: true } });
+  fireEvent.click(await screen.findByRole("button", { name: /EN.*Alex/ }));
+  const result = await screen.findByTestId("rehearsal-result-0");
+  expect(screen.getByTestId("rehearsal-report-missing-0")).toBeVisible();
+  expect(result).toHaveTextContent("Saved feedback is unavailable");
+  expect(screen.queryByTestId("rehearsal-ineligible-0")).not.toBeInTheDocument();
+  expect(result).not.toHaveTextContent("could not be verified");
+});
+
 it("bounds legacy rehearsal feedback at word boundaries and offers its full text", async () => {
   const summary = "This legacy summary repeats one useful point for the learner. ".repeat(6).trim();
   const focus = "Connect every example to the main idea before you close. ".repeat(6).trim();
