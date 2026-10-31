@@ -346,7 +346,7 @@ def main(argv=None):
     evidence.update(package_dmg(stage, bundle, artifact, release=release, local_sign_only=args.local_sign_only,
                                 profile=args.notary_profile, signing_identity=signing_cert_sha1 if release else '-'))
     run(['codesign', '--verify', '--deep', '--strict', bundle])
-    evidence.update(mode=args.mode, notarization_skipped=args.local_sign_only,
+    evidence.update(mode=args.mode, notarization_skipped=not (release and not args.local_sign_only),
                     provisioning_profile_embedded=bool(profile_source),
                     draft_storage='device-only' if release and profile_source else 'unavailable' if release else 'development-fallback',
                     gatekeeper_accepted=release and not args.local_sign_only,

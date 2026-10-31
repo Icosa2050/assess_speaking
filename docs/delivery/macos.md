@@ -129,8 +129,8 @@ publishing a DMG. The repository's own source license is also an owner decision.
    `spctl -a -t open --context context:primary-signature -vvv` on the DMG.
    Verify `Info.plist` version `0.1.0`, identifier `com.vostavo.desktop`,
    copyright and minimum macOS `14.0` against the build report.
-5. Verify the adjacent SHA-256 checksum with `shasum -a 256 -c
-   .build-macos/Vostavo-0.1.0-arm64.dmg.sha256`. Archive the DMG, checksum,
+5. Verify the adjacent SHA-256 checksum with `(cd .build-macos && shasum -a
+   256 -c Vostavo-0.1.0-arm64.dmg.sha256)`. Archive the DMG, checksum,
    build report, notices and the human acceptance record together.
 6. On a clean Mac or user, download the DMG with quarantine preserved. Launch
    from Applications, save and reopen a draft in the **real UI**, and confirm
