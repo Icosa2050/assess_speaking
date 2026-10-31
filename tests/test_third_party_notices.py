@@ -66,6 +66,48 @@ def test_ffmpeg_notice_uses_frozen_helper_and_pyav_report(tmp_path: Path, monkey
     assert 'Contents/Frameworks/av/__dot__dylibs/libnewcodec.1.dylib' in result
     assert 'library configuration: --enable-gpl --enable-version3' in result
     assert 'PUBLIC DISTRIBUTION HOLD' in result
+    with pytest.raises(RuntimeError, match='not allowed in a release build'):
+        notices.ffmpeg_notice(helper, require_source_reference=True)
+    allowed = notices.ffmpeg_notice(helper, source_version='7.0.2', source_archive='https://example.test/ffmpeg.tar.xz',
+                                    require_source_reference=True, allow_gpl_distribution=True)
+    assert 'FFmpeg source version: 7.0.2' in allowed
+    assert (notices.ROOT / 'packaging/licenses/GPL-3.0.txt').read_text().strip() in allowed
+
+
+@pytest.mark.parametrize('extra_report', [
+    'library license: GPL version 3 or later',
+    'library license: nonfree',
+])
+def test_ffmpeg_notice_checks_every_license_line_and_nonfree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extra_report: str
+) -> None:
+    helper = tmp_path / 'VostavoBackend.app'
+    dylib = helper / 'Contents/Resources/libavcodec.61.dylib'
+    dylib.parent.mkdir(parents=True)
+    dylib.write_bytes(b'fixture')
+    monkeypatch.setattr(notices.subprocess, 'check_output', lambda *args, **kwargs: (
+        'PyAV v14.2.0\nlibrary configuration: --enable-shared\n'
+        f'library license: LGPL version 2.1 or later\n{extra_report}\n'))
+    with pytest.raises(RuntimeError, match='not allowed in a release build'):
+        notices.ffmpeg_notice(helper, source_version='7.0.2', source_archive='archive.tar.xz',
+                              require_source_reference=True)
+
+
+@pytest.mark.parametrize('restricted_name', ['libx264.164.dylib', 'libx265.199.dylib'])
+def test_ffmpeg_notice_checks_bundled_codec_libraries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, restricted_name: str
+) -> None:
+    helper = tmp_path / 'VostavoBackend.app'
+    for name in ('libavcodec.61.dylib', restricted_name):
+        dylib = helper / 'Contents/Resources' / name
+        dylib.parent.mkdir(parents=True, exist_ok=True)
+        dylib.write_bytes(b'fixture')
+    monkeypatch.setattr(notices.subprocess, 'check_output', lambda *args, **kwargs: (
+        'PyAV v14.2.0\nlibrary configuration: --enable-shared\n'
+        'library license: LGPL version 2.1 or later\n'))
+    with pytest.raises(RuntimeError, match='not allowed in a release build'):
+        notices.ffmpeg_notice(helper, source_version='7.0.2', source_archive='archive.tar.xz',
+                              require_source_reference=True)
 
 
 @pytest.mark.parametrize('license_name,expected_files', [
@@ -87,6 +129,9 @@ def test_lgpl_notice_includes_full_text_and_source_reference(
     assert 'FFmpeg source version: 7.0.2' in result
     assert 'FFmpeg source archive path or URL: sources/ffmpeg-7.0.2.tar.xz' in result
     assert 'FFmpeg configure flags: --disable-gpl --enable-shared' in result
+    assert 'FFmpeg source version: 7.0.2' in notices.ffmpeg_notice(
+        helper, source_version='7.0.2', source_archive='sources/ffmpeg-7.0.2.tar.xz',
+        require_source_reference=True)
     for filename in expected_files:
         assert (notices.ROOT / 'packaging/licenses' / filename).read_text().strip() in result
     placeholder = notices.ffmpeg_notice(helper)

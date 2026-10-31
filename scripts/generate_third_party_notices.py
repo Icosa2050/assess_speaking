@@ -64,15 +64,14 @@ def read_python_license_file(dist: metadata.Distribution, filename: str) -> str:
 
 
 def ffmpeg_notice(helper: Path, *, source_version: str = '', source_archive: str = '',
-                  require_source_reference: bool = False) -> str:
-    """Record the installed PyAV build and the libraries in the frozen app."""
+                  require_source_reference: bool = False, allow_gpl_distribution: bool = False) -> str:
+    """Record build-interpreter PyAV metadata and frozen-helper libraries."""
     version_output = subprocess.check_output([sys.executable, '-m', 'av', '--version'], text=True).strip()
     pyav = re.search(r'(?m)^PyAV v([^\s]+)$', version_output)
     configuration = re.search(r'(?m)^library configuration: (.+)$', version_output)
-    license_match = re.search(r'(?m)^library license: (.+)$', version_output)
-    if not pyav or not configuration or not license_match:
+    licenses = re.findall(r'(?m)^library license: (.+)$', version_output)
+    if not pyav or not configuration or not licenses:
         raise RuntimeError('PyAV did not report its version, FFmpeg configuration and license')
-    license_name = license_match.group(1)
     libraries = sorted(path.relative_to(helper).as_posix() for path in helper.rglob('*.dylib') if path.is_file())
     if not libraries or not any(Path(path).name.startswith('libav') for path in libraries):
         raise RuntimeError('Frozen helper has no FFmpeg shared libraries to inventory')
@@ -80,24 +79,37 @@ def ffmpeg_notice(helper: Path, *, source_version: str = '', source_archive: str
                + version_output + '\n'
                + f'Frozen helper shared libraries ({len(libraries)}; includes FFmpeg, PyAV and codec dependencies):\n'
                + '\n'.join(libraries))
-    if license_name.startswith('LGPL'):
-        if require_source_reference and (not source_version or not source_archive):
-            raise RuntimeError('LGPL FFmpeg release requires its source version and archive reference')
-        version = re.search(r'\b(2\.1|3(?:\.0)?)\b', license_name)
-        if not version:
-            raise RuntimeError(f'Unsupported FFmpeg LGPL license: {license_name}')
-        license_files = ['LGPL-2.1.txt'] if version.group(1) == '2.1' else ['GPL-3.0.txt', 'LGPL-3.0.txt']
-        section += ('\n\nFFmpeg/PyAV corresponding-source reference (complete before distribution):\n'
-                    + f'PyAV version: {pyav.group(1)}\n'
-                    + f'FFmpeg source version: {source_version or "SOURCE_VERSION_REQUIRED"}\n'
-                    + f'FFmpeg source archive path or URL: {source_archive or "SOURCE_ARCHIVE_REQUIRED"}\n'
-                    + f'FFmpeg configure flags: {configuration.group(1)}')
-        for filename in license_files:
-            section += f'\n\n--- {filename} ---\n' + (ROOT / 'packaging/licenses' / filename).read_text().strip()
-    elif license_name.startswith('GPL'):
-        section += '\n\nPUBLIC DISTRIBUTION HOLD: This FFmpeg build reports GPL; license compatibility and corresponding source remain unresolved.'
-    else:
-        raise RuntimeError(f'Unsupported FFmpeg license: {license_name}')
+    normalized = [license_name.upper() for license_name in licenses]
+    if any(not name.startswith(('GPL', 'LGPL', 'NONFREE')) for name in normalized):
+        raise RuntimeError(f'Unsupported FFmpeg license report: {licenses}')
+    configure_flags = configuration.group(1)
+    restricted = (any(not name.startswith('LGPL') for name in normalized)
+                  or '--enable-nonfree' in configure_flags
+                  or any(flag in configure_flags for flag in ('--enable-libx264', '--enable-libx265'))
+                  or any(Path(path).name.startswith(('libx264', 'libx265')) for path in libraries))
+    if require_source_reference and restricted and not allow_gpl_distribution:
+        raise RuntimeError('GPL/nonfree FFmpeg or x264/x265 is not allowed in a release build; '
+                           'replace it with an LGPL-only build or use --allow-gpl-ffmpeg-distribution after owner review')
+    if require_source_reference and (not source_version or not source_archive):
+        raise RuntimeError('FFmpeg release requires its source version and archive reference')
+    section += ('\n\nFFmpeg/PyAV corresponding-source reference (complete before distribution):\n'
+                + f'PyAV version: {pyav.group(1)}\n'
+                + f'FFmpeg source version: {source_version or "SOURCE_VERSION_REQUIRED"}\n'
+                + f'FFmpeg source archive path or URL: {source_archive or "SOURCE_ARCHIVE_REQUIRED"}\n'
+                + f'FFmpeg configure flags: {configure_flags}')
+    if restricted:
+        section += ('\n\nPUBLIC DISTRIBUTION HOLD: This frozen build contains GPL/nonfree FFmpeg or x264/x265. '
+                    'Owner review of compatibility and complete corresponding source is required.')
+    license_files = ['GPL-3.0.txt'] if any(name.startswith('GPL') for name in normalized) else []
+    lgpl_licenses = [name for name in licenses if name.upper().startswith('LGPL')]
+    if lgpl_licenses:
+        versions = [re.search(r'\b(2\.1|3(?:\.0)?)\b', license_name) for license_name in lgpl_licenses]
+        if any(version is None for version in versions):
+            raise RuntimeError(f'Unsupported FFmpeg LGPL license report: {licenses}')
+        license_files.extend(['GPL-3.0.txt', 'LGPL-3.0.txt'] if any(version.group(1) != '2.1' for version in versions)
+                             else ['LGPL-2.1.txt'])
+    for filename in dict.fromkeys(license_files):
+        section += f'\n\n--- {filename} ---\n' + (ROOT / 'packaging/licenses' / filename).read_text().strip()
     return section
 
 
@@ -175,7 +187,8 @@ def rust_notices(manifest: Path) -> list[str]:
 
 def generate(lock: Path, npm_lock: Path, node_modules: Path, cargo_manifest: Path, helper: Path,
              *, ffmpeg_source_version: str = '', ffmpeg_source_archive: str = '',
-             require_ffmpeg_source_reference: bool = False) -> str:
+             require_ffmpeg_source_reference: bool = False,
+             allow_gpl_ffmpeg_distribution: bool = False) -> str:
     sections = [
         "VOSTAVO THIRD-PARTY NOTICES\nGenerated from the pinned macOS production Python lock, npm runtime graph, and Cargo.lock resolution.\n"
         "The Rust graph includes crates for other target platforms as a conservative superset.\n"
@@ -184,7 +197,8 @@ def generate(lock: Path, npm_lock: Path, node_modules: Path, cargo_manifest: Pat
         "The application's own code has no repository LICENSE; its license is an owner decision.\n",
         cpython_notice(),
         ffmpeg_notice(helper, source_version=ffmpeg_source_version, source_archive=ffmpeg_source_archive,
-                      require_source_reference=require_ffmpeg_source_reference),
+                      require_source_reference=require_ffmpeg_source_reference,
+                      allow_gpl_distribution=allow_gpl_ffmpeg_distribution),
         frozen_inventory(helper),
         *python_notices(lock),
         *npm_notices(npm_lock, node_modules),
@@ -200,12 +214,14 @@ def main() -> None:
     parser.add_argument("--ffmpeg-source-version", default='')
     parser.add_argument("--ffmpeg-source-archive", default='')
     parser.add_argument("--require-ffmpeg-source-reference", action='store_true')
+    parser.add_argument("--allow-gpl-ffmpeg-distribution", action='store_true')
     args = parser.parse_args()
     result = generate(ROOT / "packaging/requirements-macos-arm64.txt", ROOT / "frontend/package-lock.json",
                       ROOT / "frontend/node_modules", ROOT / "frontend/src-tauri/Cargo.toml", args.helper,
                       ffmpeg_source_version=args.ffmpeg_source_version,
                       ffmpeg_source_archive=args.ffmpeg_source_archive,
-                      require_ffmpeg_source_reference=args.require_ffmpeg_source_reference)
+                      require_ffmpeg_source_reference=args.require_ffmpeg_source_reference,
+                      allow_gpl_ffmpeg_distribution=args.allow_gpl_ffmpeg_distribution)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(result)
 

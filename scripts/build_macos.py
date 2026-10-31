@@ -237,9 +237,11 @@ def main(argv=None):
                         help='Acknowledge that a local signed build without a provisioning profile cannot save drafts.')
     parser.add_argument('--python', default=PYTHON_VERSION)
     parser.add_argument('--ffmpeg-source-version', default='',
-                        help='FFmpeg source version for the LGPL corresponding-source reference.')
+                        help='FFmpeg version for the corresponding-source reference.')
     parser.add_argument('--ffmpeg-source-archive', default='',
-                        help='FFmpeg corresponding-source archive path or URL for the LGPL notice.')
+                        help='FFmpeg corresponding-source archive path or URL for the notice.')
+    parser.add_argument('--allow-gpl-ffmpeg-distribution', action='store_true',
+                        help='Explicit owner acknowledgment for a GPL/nonfree FFmpeg or x264/x265 release.')
     parser.add_argument('--reuse-helper', action='store_true', help='Local iteration only; forbidden for releases.')
     args = parser.parse_args(argv)
     if sys.platform != 'darwin' or platform.machine() != 'arm64':
@@ -249,6 +251,8 @@ def main(argv=None):
         parser.error('--local-sign-only requires --mode release')
     if args.allow_drafts_disabled and not (release and args.local_sign_only):
         parser.error('--allow-drafts-disabled requires a local-sign-only release')
+    if args.allow_gpl_ffmpeg_distribution and not release:
+        parser.error('--allow-gpl-ffmpeg-distribution requires --mode release')
     signing_cert_sha1 = None
     if release:
         if args.reuse_helper or not args.identity.startswith('Developer ID Application:') or (not args.local_sign_only and not args.notary_profile):
@@ -299,6 +303,8 @@ def main(argv=None):
          '--ffmpeg-source-archive', args.ffmpeg_source_archive]
     if release:
         notice_command.append('--require-ffmpeg-source-reference')
+    if args.allow_gpl_ffmpeg_distribution:
+        notice_command.append('--allow-gpl-ffmpeg-distribution')
     run(notice_command)
     public_dir = BUILD / 'frontend-public'
     if public_dir.exists():
@@ -365,6 +371,7 @@ def main(argv=None):
                                 profile=args.notary_profile, signing_identity=signing_cert_sha1 if release else '-'))
     run(['codesign', '--verify', '--deep', '--strict', bundle])
     evidence.update(mode=args.mode, notarization_skipped=not (release and not args.local_sign_only),
+                    allow_gpl_ffmpeg_distribution=args.allow_gpl_ffmpeg_distribution,
                     provisioning_profile_embedded=bool(profile_source),
                     draft_storage='device-only' if release and profile_source else 'unavailable' if release else 'development-fallback',
                     gatekeeper_accepted=release and not args.local_sign_only,
