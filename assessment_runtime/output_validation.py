@@ -234,7 +234,14 @@ def validate_compact_generation(report: CompactFeedback, *, transcript: str | No
         quote = normalize_evidence(fix.you_said)
         if not transcript or not contains_example(transcript, fix.you_said):
             raise SchemaValidationError(f"fixes[{index}].you_said: must quote the transcript exactly")
-        if rubric is not None and not any(contains_example(fix.you_said, example) for example in supported_examples):
+        # The rubric may quote a whole sentence while the compact report quotes
+        # just the relevant phrase. A subquote needs at least two words, so a
+        # generic one-word overlap cannot justify a correction on its own.
+        if rubric is not None and not any(
+            contains_example(fix.you_said, example) or
+            (len(quote.split()) >= 2 and contains_example(example, fix.you_said))
+            for example in supported_examples
+        ):
             raise SchemaValidationError(f"fixes[{index}].you_said: no supported rubric finding for this fix")
         if quote in seen:
             raise SchemaValidationError(f"fixes[{index}].you_said: duplicate fix")

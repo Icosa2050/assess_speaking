@@ -277,6 +277,26 @@ describe("Review route", () => {
     expect(saved?.draft).toMatchObject({ retryOfSessionId: "first", coachingGoal: "Finish with one concrete example" });
   });
 
+  it.each([
+    [false, "review-retry-incompatible", "A score change is unavailable"],
+    [true, "review-retry-no-numeric-change", "no overall score change was reported"],
+  ])("keeps retry comparison status inside the Coach note when comparable is %s", async (comparable, testId, message) => {
+    const payload = { ...reviewPayload,
+      meta: { ...reviewPayload.meta, practice: { retry_of_session_id: "first" } },
+      report: { ...reviewPayload.report, session_id: "second", warnings: [],
+        progress_delta: { comparison_verified: comparable, previous_session_id: "first", score_delta: {} },
+      },
+    };
+    renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
+      ...validDraftState,
+      draft: { ...validDraftState.draft, retryOfSessionId: "first", coachingGoal: "Add one concrete detail", retryGoalEligible: true },
+      review: { reportId: "second", transcript: "A complete synthetic answer", scoreOverall: 3.5, payload },
+    } });
+    const coachCard = await screen.findByTestId("review-next-step-card");
+    expect(within(coachCard).getByTestId("review-retry-follow-up")).toHaveTextContent("Add one concrete detail");
+    expect(within(coachCard).getByTestId(testId)).toHaveTextContent(message);
+  });
+
   it("allows a learner-written goal on Review when an assessable report has no suggestions", async () => {
     const payload = { ...reviewPayload, report: { ...reviewPayload.report, coaching: {
       ...reviewPayload.report.coaching, next_focus: "", top_3_priorities: [],

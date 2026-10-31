@@ -14,8 +14,15 @@ import { type JournalAccess, withJournalLock, deleteRehearsal, getRehearsal, lis
 import styles from "./RehearsalRoute.module.css";
 
 const record = (value: unknown): JsonRecord => value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
-const shortFeedback = (value: unknown, limit: number) => typeof value === "string"
-  ? Array.from(value.trim()).slice(0, limit).join("") : "";
+const shortFeedback = (value: unknown, limit: number) => {
+  const full = typeof value === "string" ? value.trim() : "";
+  const normalized = full.replace(/\s+/g, " ");
+  const characters = Array.from(normalized);
+  if (characters.length <= limit) return { preview: normalized, full: "" };
+  const prefix = characters.slice(0, limit - 1).join("");
+  const boundary = prefix.lastIndexOf(" ");
+  return { preview: `${(boundary > 0 ? prefix.slice(0, boundary) : "").trimEnd()}…`, full };
+};
 const waitForPoll = (signal: AbortSignal) => new Promise<void>((resolve, reject) => {
   const abort = () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); };
   const timer = window.setTimeout(() => { signal.removeEventListener("abort", abort); resolve(); }, 1000);
@@ -251,7 +258,13 @@ export const RehearsalRoute = () => {
             <dl className={styles.metrics}>{[["duration", metrics.duration_sec], ["wpm", metrics.wpm], ["score", record(report.eligibility).state && record(report.eligibility).state !== "assessable" ? null : scores.final]].map(([label, value]) => <div key={String(label)}><dt>{t(String(label))}</dt><dd>{typeof value === "number" && Number.isFinite(value) ? value.toFixed(1) : "—"}</dd></div>)}</dl>
             {(!report.rubric || warnings.includes("coaching_unavailable")) && <p>{translate("review.general_practice_tips")}</p>}
             {warnings.includes("transcript_uncertain") && <p>{translate("review.transcript_uncertain")}</p>}
-            <p>{coachingSummary || t("report_missing")}</p>{nextStep && <strong>{nextStep}</strong>}
+            <p data-testid={`rehearsal-coaching-summary-${i}`}>{coachingSummary.preview || t("report_missing")}</p>
+            {nextStep.preview && <strong data-testid={`rehearsal-next-step-${i}`}>{nextStep.preview}</strong>}
+            {(coachingSummary.full || nextStep.full) && <details className={styles.fullFeedback} data-testid={`rehearsal-full-feedback-${i}`}>
+              <summary>{translate("review.legacy_full_text")}</summary>
+              {coachingSummary.full && <p><strong>{translate("review.legacy_full_summary")}</strong> {coachingSummary.full}</p>}
+              {nextStep.full && <p><strong>{translate("review.legacy_full_focus")}</strong> {nextStep.full}</p>}
+            </details>}
             <button data-testid={`rehearsal-retry-${i}`} disabled={busy} onClick={() => operate(async () => { const next = retryPart(session, i); await persist(next); setReports({}); setFile(null); })}>{t("retry")}</button>
           </> : <p>{part.jobId ? t("in_progress") : t("awaiting_analysis")}</p>}
         </article>;

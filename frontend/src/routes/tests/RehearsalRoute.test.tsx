@@ -85,3 +85,31 @@ it("shows a saved compact coaching summary and next step for a rehearsal part", 
   expect(result).toHaveTextContent("Record a 180 seconds retry with one clear ending.");
   expect(result).not.toHaveTextContent("Report unavailable");
 });
+
+it("bounds legacy rehearsal feedback at word boundaries and offers its full text", async () => {
+  const summary = "This legacy summary repeats one useful point for the learner. ".repeat(6).trim();
+  const focus = "Connect every example to the main idea before you close. ".repeat(6).trim();
+  const session = createRehearsal("en", "B1", "Alex", {
+    provider: "ollama_local", model: "test", baseUrl: "http://localhost:11434", whisper: "small", feedbackLanguage: "en",
+  });
+  session.phase = "review";
+  session.parts[0] = { ...session.parts[0], recorded: true, reportId: "legacy-part" };
+  vi.mocked(listRehearsals).mockResolvedValue([session]);
+  vi.mocked(getRehearsal).mockResolvedValue(session);
+  vi.mocked(apiClient.getHistoryDetail).mockResolvedValue({ payload: { report: {
+    session_id: "legacy-part", metrics: {}, scores: {}, rubric: {}, warnings: [],
+    coaching: { coach_summary: summary, next_focus: focus },
+  } } } as Awaited<ReturnType<typeof apiClient.getHistoryDetail>>);
+  renderWithProviders(<RehearsalRoute />, { initialEntries: ["/rehearsal"], locale: "en",
+    appState: { draft: { speakerId: "Alex" }, microphoneSetupPassed: true } });
+  fireEvent.click(await screen.findByRole("button", { name: /EN.*Alex/ }));
+  const preview = (await screen.findByTestId("rehearsal-coaching-summary-0")).textContent || "";
+  expect(preview.length).toBeLessThanOrEqual(160);
+  expect(preview.endsWith("…")).toBe(true);
+  expect(summary.startsWith(`${preview.slice(0, -1)} `)).toBe(true);
+  const disclosure = screen.getByTestId("rehearsal-full-feedback-0");
+  expect(disclosure).not.toHaveAttribute("open");
+  fireEvent.click(screen.getByText("Show full original feedback"));
+  expect(disclosure).toHaveTextContent(summary);
+  expect(disclosure).toHaveTextContent(focus);
+});

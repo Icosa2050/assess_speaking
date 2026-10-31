@@ -151,6 +151,20 @@ def test_quote_and_duration_are_grounded():
         validate(data)
 
 
+def test_compact_fix_may_quote_a_grounded_phrase_from_a_long_rubric_example():
+    data = payload()
+    transcript = "Every summer I goes to Rome with my family, and we always visit the same small museum near the station before dinner."
+    rubric = {"recurring_grammar_errors": [{"examples": [transcript]}]}
+    validate_compact_generation(CompactFeedback.from_dict(data), transcript=transcript,
+                                feedback_language="en", practice_language="en",
+                                target_duration_sec=90, rubric=rubric)
+    data["fixes"][0]["you_said"] = "I"
+    with pytest.raises(SchemaValidationError, match="no supported rubric finding"):
+        validate_compact_generation(CompactFeedback.from_dict(data), transcript=transcript,
+                                    feedback_language="en", practice_language="en",
+                                    target_duration_sec=90, rubric=rubric)
+
+
 def test_unsupported_fix_and_nonspoken_step_are_rejected():
     data = payload()
     with pytest.raises(SchemaValidationError, match="no supported rubric finding"):

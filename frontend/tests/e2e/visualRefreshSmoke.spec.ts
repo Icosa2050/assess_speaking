@@ -1025,6 +1025,12 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
     }
     for (const viewport of [{ width: 1360, height: 900 }, { width: 1100, height: 760 }]) {
       await page.setViewportSize(viewport);
+      if (route === "review") {
+        const calculation = page.getByTestId("review-result-estimate").locator("details").first();
+        if (!await calculation.evaluate(element => (element as HTMLDetailsElement).open)) {
+          await calculation.locator("summary").click();
+        }
+      }
       await expect(page.locator("main").getByRole("heading").first()).toBeVisible();
       await expect(page.locator("html")).toHaveAttribute("lang", locale);
       await expectNoPageHorizontalOverflow(page);
@@ -1145,7 +1151,8 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
       }
       if (route === "review") {
         expect(computed.text.some(item => item.tag === "li" && item.label === "1"), "score-scale tick coverage").toBe(true);
-        await expect(page.getByTestId("review-next-step-card")).toBeVisible();
+        await expect(page.getByTestId("review-provisional-cefr")).toBeVisible();
+        expect(computed.text.some(item => item.label.includes("B2")), "CEFR badge coverage").toBe(true);
       }
       if (route === "guide") expect(computed.text.some(item => item.tag === "a"), "guide link contrast coverage").toBe(true);
       if (route === "history") {

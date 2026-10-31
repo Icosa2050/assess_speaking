@@ -388,6 +388,10 @@ export const ReviewRoute = () => {
               <span>{followUp.goal}</span>
               {summary.eligibilityState !== "assessable" &&
                 <span data-testid="review-retry-incompatible">{translate("retry.not_assessable")}</span>}
+              {summary.eligibilityState === "assessable" && !followUp.comparable &&
+                <span data-testid="review-retry-incompatible">{translate("retry.incompatible")}</span>}
+              {summary.eligibilityState === "assessable" && followUp.comparable && followUp.overallChange === null &&
+                <span data-testid="review-retry-no-numeric-change">{translate("retry.no_numeric_change")}</span>}
             </p>}
             {!summary.compactReport && <p className={styles.coachHelper}>
               {translate("review.coach_takeaway_body")}

@@ -746,13 +746,8 @@
     "discard_action": "Effacer et choisir une tâche",
     "runtime_check": "Vérification de la configuration avant l’enregistrement…",
     "follow_up_eyebrow": "Votre objectif",
-    "follow_up_title": "Examinez cet essai selon votre objectif",
     "goal_value": "Votre objectif : {goal}",
     "no_goal": "Aucun objectif défini pour cet essai.",
-    "observation": "Observation liée dans ce rapport : {value}",
-    "transcript_check": "Pour cet objectif, examinez vos paroles enregistrées : « {value} ». Le rapport ne donne pas d’avis propre à cet objectif.",
-    "no_direct_observation": "Ce rapport ne contient pas d’observation propre à votre objectif. Consultez la transcription et les conseils avant de décider si vous l’avez atteint.",
-    "overall_change": "Variation de l’estimation globale : {value}/5. Elle concerne l’ensemble de l’essai, pas seulement cet objectif.",
     "no_numeric_change": "Les essais sont comparables, mais aucune variation du score global n’a été indiquée.",
     "incompatible": "Aucune variation de score n’est affichée : la comparabilité du contexte ou de la méthode d’évaluation avec l’essai précédent n’a pas été vérifiée.",
     "not_assessable": "Cet essai n’a pas pu être évalué. Consultez les notes de qualité ; aucune comparaison de l’objectif n’est disponible."
