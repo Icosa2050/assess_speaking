@@ -660,6 +660,9 @@ test("renders primary visual-refresh artifacts without serif typography", async 
   await expect(estimate.getByTestId("review-estimate-text")).toHaveText("4.1/5");
   await expect(estimate).toContainText("Position on a 1–5 practice scale");
   await expect(estimate).toContainText("Provisional · not an exam result");
+  await expect(estimate.getByText("How this estimate was calculated").locator("..")).not.toHaveAttribute("open", "");
+  await expect(estimate.getByTestId("review-provisional-cefr")).not.toBeVisible();
+  await estimate.getByText("How this estimate was calculated").click();
   await expect(estimate.getByTestId("review-provisional-cefr")).toContainText("Provisional CEFR B2");
   await expect(estimate).toContainText("3.6/5 · limited proxy");
   await expect(estimate).toContainText("does not assess individual sounds or accent quality");
@@ -1022,6 +1025,12 @@ test(`semantic light and dark surfaces keep primary routes readable at both desk
     }
     for (const viewport of [{ width: 1360, height: 900 }, { width: 1100, height: 760 }]) {
       await page.setViewportSize(viewport);
+      if (route === "review") {
+        const calculation = page.getByTestId("review-result-estimate").locator("details").first();
+        if (!await calculation.evaluate(element => (element as HTMLDetailsElement).open)) {
+          await calculation.locator("summary").click();
+        }
+      }
       await expect(page.locator("main").getByRole("heading").first()).toBeVisible();
       await expect(page.locator("html")).toHaveAttribute("lang", locale);
       await expectNoPageHorizontalOverflow(page);

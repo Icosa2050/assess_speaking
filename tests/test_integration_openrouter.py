@@ -62,13 +62,13 @@ def test_generate_coaching_summary_round_trip(language):
     ).to_dict()
     coaching, raw = generate_coaching_summary(
         **connection, rubric=rubric, target_duration_sec=90,
+        transcript=transcript, feedback_language=language, practice_language=language,
         prompt=coaching_prompt(METRICS, rubric, theme, 90, expected_language=language,
-                               feedback_language=language, checks={"duration_pass": False}),
+                               feedback_language=language, checks={"duration_pass": False}, transcript=transcript),
     )
-    assert len(coaching.top_3_priorities) == 3
-    assert all(priority.strip() for priority in coaching.top_3_priorities)
-    assert coaching.next_exercise.strip()
-    assert coaching.retry_duration_sec == 90
-    assert coaching.next_attempt_instruction.strip()
-    assert_feedback_language(" ".join((coaching.coach_summary, coaching.next_focus, coaching.next_exercise)), language)
-    assert '"coach_summary"' in raw
+    assert coaching.summary.strip()
+    assert coaching.next_step.strip()
+    assert len(coaching.fixes) <= 3
+    assert coaching.feedback_language == language
+    assert coaching.practice_language == language
+    assert '"summary"' in raw

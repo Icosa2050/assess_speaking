@@ -30,22 +30,15 @@
   gap: 0.75rem;
 }
 
-.followUp,
 .goalPicker {
   display: grid;
   gap: var(--space-3);
 }
 
-.followUp h2,
-.followUp p {
-  margin: 0;
-}
-
-.eyebrow {
-  color: var(--color-brand);
-  font-size: var(--font-size-compact);
-  font-weight: var(--weight-bold);
-}
+.retryGoalLine { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); margin: 0; padding-top: var(--space-3); border-top: 1px solid var(--color-border-decorative); color: var(--color-text); line-height: var(--line-height-body); overflow-wrap: anywhere; }
+.retryGoalLine strong { color: var(--color-brand); }
+.legacyFullText > summary { cursor: pointer; color: var(--color-text); font-weight: var(--weight-semibold); }
+.legacyFullText p { margin: var(--space-3) 0 0; color: var(--color-text); line-height: var(--line-height-body); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .goalPicker {
   padding: var(--space-4);
@@ -69,3 +62,8 @@
 .goalPicker > button {
   justify-self: start;
 }
+.goalDisclosure > summary { cursor: pointer; color: var(--color-text); font-weight: var(--weight-semibold); }
+.goalDisclosure > .goalPicker { margin-top: var(--space-3); }
+.compactNext { display: grid; gap: var(--space-2); border-top: 1px solid var(--color-border-decorative); padding-top: var(--space-4); }
+.compactNext h3 { margin: 0; color: var(--color-text); font-size: var(--font-size-title); }
+.compactNext p { margin: 0; color: var(--color-text); line-height: var(--line-height-body); }

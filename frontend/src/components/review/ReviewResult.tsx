@@ -40,49 +40,50 @@ export function ReviewResult({ summary, translate }: { summary: ReviewDisplaySum
         <p>{translate("review.result.score_meaning")}</p>
       </div>
     </div> : <p className={styles.noEstimate}>{translate("review.result.no_estimate")}</p>}
-    <p className={styles.context}>
-      {hasEstimate
-        ? translate("review.result.estimate_context", { score })
-        : translate("review.result.no_estimate_context")}
-    </p>
-    {summary.cefrLevel && <p className={`${styles.cefr} ${styles[`cefr${summary.cefrLevel}`]}`} data-testid="review-provisional-cefr">
-      {translate("review.result.cefr", { level: summary.cefrLevel })}
-    </p>}
-    <div className={styles.evidence}>
-      <div>
-        <strong>{translate("review.result.method_title")}</strong>
-        <p>{translate(`review.result.${methodKey}`)}</p>
-      </div>
-      <div>
-        <strong>{translate("review.result.uncertainty_title")}</strong>
-        <p>{translate("review.result.uncertainty_body")}</p>
-      </div>
-      <div>
-        <strong>{translate("review.result.clarity_title")}</strong>
-        <p>{speechClarity && hasEstimate
-          ? translate("review.result.clarity_score", { score: speechClarity.score.toFixed(1) })
-          : translate("review.result.clarity_unavailable")}</p>
-        <p>{translate("review.result.clarity_limit")}</p>
-      </div>
-    </div>
-    {summary.dimensions.length > 0 && hasEstimate && <Disclosure title={translate("review.result.dimensions_title")}>
-      <ul className={styles.dimensions}>
-        {summary.dimensions.map((item) => <li key={item.key}>
-          <span>{item.key === "pronunciation_intelligibility"
-            ? translate("review.result.clarity_title")
-            : translate(`guide.dimension_${item.key}`)}</span>
-          <strong>{item.score.toFixed(1)}/5</strong>
-          <span>{translate(`review.result.${dimensionMethods[item.method] || "dimension_method_unknown"}`)}</span>
-          <span>{translate("review.result.confidence", {
-            value: translate(["low", "medium", "high"].includes(item.confidence)
-              ? `review.result.confidence_${item.confidence}` : "review.result.confidence_unavailable"),
-          })}</span>
-        </li>)}
-      </ul>
-    </Disclosure>}
     <Disclosure title={translate("review.result.how_calculated")}>
+      <p className={styles.context}>
+        {hasEstimate
+          ? translate("review.result.estimate_context", { score })
+          : translate("review.result.no_estimate_context")}
+      </p>
+      {summary.cefrLevel && <p className={`${styles.cefr} ${styles[`cefr${summary.cefrLevel}`]}`} data-testid="review-provisional-cefr">
+        {translate("review.result.cefr", { level: summary.cefrLevel })}
+      </p>}
+      <div className={styles.evidence}>
+        <div>
+          <strong>{translate("review.result.method_title")}</strong>
+          <p>{translate(`review.result.${methodKey}`)}</p>
+        </div>
+        <div>
+          <strong>{translate("review.result.uncertainty_title")}</strong>
+          <p>{translate("review.result.uncertainty_body")}</p>
+        </div>
+        <div>
+          <strong>{translate("review.result.clarity_title")}</strong>
+          <p>{speechClarity && hasEstimate
+            ? translate("review.result.clarity_score", { score: speechClarity.score.toFixed(1) })
+            : translate("review.result.clarity_unavailable")}</p>
+          <p>{translate("review.result.clarity_limit")}</p>
+        </div>
+      </div>
       <p>{translate("review.result.method_detail")}</p>
+      {summary.dimensions.length > 0 && hasEstimate && <>
+        <h3>{translate("review.result.dimensions_title")}</h3>
+        <ul className={styles.dimensions}>
+          {summary.dimensions.map((item) => <li key={item.key}>
+            <span>{item.key === "pronunciation_intelligibility"
+              ? translate("review.result.clarity_title")
+              : translate(`guide.dimension_${item.key}`)}</span>
+            <strong>{item.score.toFixed(1)}/5</strong>
+            <span>{translate(`review.result.${dimensionMethods[item.method] || "dimension_method_unknown"}`)}</span>
+            <span>{translate("review.result.confidence", {
+              value: translate(["low", "medium", "high"].includes(item.confidence)
+                ? `review.result.confidence_${item.confidence}` : "review.result.confidence_unavailable"),
+            })}</span>
+          </li>)}
+        </ul>
+      </>}
+      <Link to="/guide">{translate("review.result.guide_link")}</Link>
     </Disclosure>
-    <Link to="/guide">{translate("review.result.guide_link")}</Link>
   </Card>;
 }

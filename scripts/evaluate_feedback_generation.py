@@ -140,7 +140,9 @@ def main() -> None:
                         prompts.coaching_prompt(metrics, row['rubric'], case['theme'], 90,
                             expected_language=case['language_code'], feedback_language=case['language_code'],
                             checks={'duration_pass':None}, **extra)+note,
-                        timeout_sec=90, target_duration_sec=90, rubric=row['rubric'])
+                        timeout_sec=90, target_duration_sec=90, rubric=row['rubric'],
+                        transcript=case['transcript'], feedback_language=case['language_code'],
+                        practice_language=case['language_code'])
                     row.update(coaching=coaching.to_dict(), coaching_contract='accepted')
                 except llm_client.LLMClientError as exc:
                     row.update(coaching_contract='failed', coaching_error=str(exc))

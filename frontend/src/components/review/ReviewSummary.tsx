@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import type { ReviewState } from "@/lib/state/sessionDraft";
+import { CompactFixList } from "./CompactFixList";
 import { TranscriptFeedback } from "./TranscriptFeedback";
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
@@ -19,10 +20,13 @@ export type ReviewDisplaySummary = {
   eligibilityState?: string;
   baseline: Record<string, unknown> | null;
   coachSummary: string;
+  legacyFullText: { coachSummary: string; nextFocus: string } | null;
+  compactReport: { summary: string; fixes: { youSaid: string; better: string; why: string }[]; nextStep: string; practiceLanguage: string; feedbackLanguage: string } | null;
   deterministicScore: number | null;
   failedGates: string[];
   generalPracticeTips: boolean;
   transcriptUncertain: boolean;
+  targetDurationSec: number | null;
   gates: Record<GateKey, boolean | null>;
   label: string;
   learningLanguage: string;
@@ -98,6 +102,13 @@ const readOnlyInputStyle = {
 
 const toRecord = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+
+const trimReportText = (value: unknown, limit: number): string => {
+  const text = typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+  if (Array.from(text).length <= limit) return text;
+  const slice = Array.from(text).slice(0, limit - 1).join("");
+  return `${slice.replace(/\s+\S*$/, "").trimEnd()}…`;
+};
 
 const asTextList = (value: unknown): string[] => {
   if (typeof value === "string") {
@@ -213,6 +224,10 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
   const scores = toRecord(report.scores);
   const checks = toRecord(report.checks);
   const coaching = toRecord(report.coaching);
+  const compactFixes = Array.isArray(coaching.fixes) ? coaching.fixes.slice(0, 3).map(toRecord).map(item => ({
+    youSaid: trimReportText(item.you_said, 100), better: trimReportText(item.better, 100),
+    why: trimReportText(item.why, 140),
+  })).filter(item => item.youSaid && item.better && item.why) : [];
   const rubric = toRecord(report.rubric);
   const progressDelta = toRecord(report.progress_delta);
   const baseline = toRecord(payload.baseline_comparison);
@@ -238,6 +253,25 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
   const scoreOverall = review.scoreOverall ?? asNumberOrNull(scores.final);
   const eligibilityState = reviewEligibilityState(payload);
   const notAssessable = eligibilityState !== "assessable";
+  const generatedCompact = !notAssessable && typeof coaching.summary === "string" &&
+    typeof coaching.next_step === "string" && String(coaching.summary).trim() && String(coaching.next_step).trim() &&
+    ["en", "it"].includes(String(coaching.practice_language)) &&
+    ["en", "de", "it", "fr", "es"].includes(String(coaching.feedback_language))
+    ? { summary: trimReportText(coaching.summary, 160), fixes: compactFixes,
+        nextStep: trimReportText(coaching.next_step, 160), practiceLanguage: String(coaching.practice_language),
+        feedbackLanguage: String(coaching.feedback_language) }
+    : null;
+  const fallbackLanguage = String(reportInput.feedback_language || "");
+  const compactReport = generatedCompact || (!notAssessable &&
+    ["en", "de", "it", "fr", "es"].includes(fallbackLanguage) &&
+    asTextList(report.warnings).some(warning => ["coaching_unavailable", "llm_unavailable", "llm_invalid_schema"].includes(warning))
+    ? { summary: "", fixes: [], nextStep: "", practiceLanguage: String(reportInput.expected_language || "it"),
+        feedbackLanguage: fallbackLanguage }
+    : null);
+  const legacyCoachSummary = typeof coaching.coach_summary === "string" ? coaching.coach_summary : review.summary;
+  const legacyNextFocus = typeof coaching.next_focus === "string" ? coaching.next_focus : "";
+  const fullCoachSummary = !compactReport && !notAssessable && Array.from(legacyCoachSummary.trim()).length > 160 ? legacyCoachSummary : "";
+  const fullNextFocus = !compactReport && !notAssessable && Array.from(legacyNextFocus.trim()).length > 160 ? legacyNextFocus : "";
   const cefrEstimate = toRecord(scores.cefr_estimate);
   const dimensions = toRecord(scores.dimensions);
   const cefrLevel = String(cefrEstimate.level || "").toUpperCase();
@@ -256,12 +290,15 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
         : [];
     }),
     baseline: Object.keys(baseline).length > 0 ? baseline : null,
-    coachSummary: notAssessable ? "" : String(coaching.coach_summary || review.summary || ""),
+    coachSummary: notAssessable ? "" : trimReportText(coaching.summary || coaching.coach_summary || review.summary, 160),
+    legacyFullText: fullCoachSummary || fullNextFocus ? { coachSummary: fullCoachSummary, nextFocus: fullNextFocus } : null,
+    compactReport,
     deterministicScore: notAssessable ? null : asNumberOrNull(scores.deterministic),
     failedGates,
     generalPracticeTips: !notAssessable && asTextList(report.warnings).some((warning) =>
       ["coaching_unavailable", "llm_unavailable", "llm_invalid_schema", "llm_skipped_low_word_count", "llm_skipped_transcript_uncertain", "llm_skipped_language_mismatch"].includes(warning)),
     transcriptUncertain: asTextList(report.warnings).includes("transcript_uncertain"),
+    targetDurationSec: asNumberOrNull(reportInput.target_duration_sec),
     gates: {
       language_pass: gateValue(checks.language_pass),
       topic_pass: gateValue(checks.topic_pass),
@@ -281,23 +318,23 @@ export const selectReviewSummary = (review: Pick<ReviewState, "band" | "payload"
       .toLowerCase(),
     llmScore: notAssessable ? null : asNumberOrNull(scores.llm),
     mode: String(scores.mode || ""),
-    nextExercise: notAssessable ? "" : String(coaching.next_exercise || ""),
-    nextAttemptInstruction: notAssessable ? "" : String(coaching.next_attempt_instruction || ""),
-    nextFocus: notAssessable ? "" : String(coaching.next_focus || ""),
+    nextExercise: notAssessable ? "" : trimReportText(coaching.next_exercise, 160),
+    nextAttemptInstruction: notAssessable ? "" : trimReportText(coaching.next_attempt_instruction, 160),
+    nextFocus: notAssessable ? "" : trimReportText(coaching.next_step || coaching.next_focus, 160),
     notes: String(payload.notes || ""),
     payload,
-    priorities: notAssessable ? [] : asTextList(coaching.top_3_priorities),
+    priorities: notAssessable ? [] : asTextList(coaching.top_3_priorities).slice(0, 3).map(item => trimReportText(item, 140)),
     progressItems: !notAssessable && progressDelta.comparison_verified === true ? buildProgressItems(progressDelta) : [],
     recurringCoherence: notAssessable ? [] : recurringCoherence,
     recurringGrammar: notAssessable ? [] : recurringGrammar,
     reportId: String(report.session_id || review.reportId || payload.report_path || ""),
     requiresHumanReview: Boolean(report.requires_human_review),
     scoreOverall: notAssessable ? null : scoreOverall,
-    strengths: notAssessable ? [] : asTextList(coaching.strengths),
-    styleSuggestions: !notAssessable && Array.isArray(rubric.style_suggestions) ? rubric.style_suggestions
+    strengths: notAssessable ? [] : asTextList(coaching.strengths).slice(0, 3).map(item => trimReportText(item, 140)),
+    styleSuggestions: !notAssessable && Array.isArray(rubric.style_suggestions) ? rubric.style_suggestions.slice(0, 3)
       .map(toRecord)
-      .map((item) => ({ original: String(item.original || ""), suggestion: String(item.suggestion || ""), explanation: String(item.explanation || "") }))
-      .filter((item) => item.original && item.suggestion && item.explanation) : [],
+      .map((item) => ({ original: String(item.original || ""), suggestion: trimReportText(item.suggestion, 100), explanation: trimReportText(item.explanation, 140) }))
+      .filter((item) => item.original && Array.from(item.original).length <= 100 && item.suggestion && item.explanation) : [],
     transcript: String(
       review.transcript ||
         payload.transcript_full ||
@@ -588,7 +625,9 @@ export const ReviewSummary = ({
       >
         {translate("review.coaching_tab")}
       </p>
-      <h2 style={{ margin: 0, fontSize: "1.35rem", color: "var(--color-text)" }}>{translate("review.summary_title")}</h2>
+      <h2 style={{ margin: 0, fontSize: "1.35rem", color: "var(--color-text)" }}>
+        {translate(summary.compactReport ? "review.compact_details_title" : "review.summary_title")}
+      </h2>
       {summary.generalPracticeTips && (
         <p role="status" data-testid="review-general-practice-tips" style={{ margin: 0, color: "var(--color-warning)", fontWeight: 700 }}>
           {translate("review.general_practice_tips")}
@@ -599,7 +638,22 @@ export const ReviewSummary = ({
           {translate("review.transcript_uncertain")}
         </p>
       )}
-      {hideCoachSummary ? null : (
+      {summary.compactReport && !hideCoachSummary && <>
+        <p lang={summary.compactReport.summary ? summary.compactReport.feedbackLanguage : undefined} style={{ margin: 0, color: "var(--color-text)", lineHeight: 1.6 }}>
+          {summary.compactReport.summary || translate("review.compact_unavailable_summary")}
+        </p>
+        <CompactFixList fixes={summary.compactReport.fixes}
+          practiceLanguage={summary.compactReport.practiceLanguage}
+          feedbackLanguage={summary.compactReport.feedbackLanguage}
+          translate={translate} testId="history-compact-fixes" />
+        {!hideNextStep && <div style={{ display: "grid", gap: "var(--space-2)" }}>
+          <h3 style={{ margin: 0, color: "var(--color-text)" }}>{translate("review.compact_next_step")}</h3>
+          <p lang={summary.compactReport.nextStep ? summary.compactReport.feedbackLanguage : undefined} style={{ margin: 0, color: "var(--color-text)" }}>
+            {summary.compactReport.nextStep || translate("review.compact_unavailable_step", { duration: summary.targetDurationSec || 90 })}
+          </p>
+        </div>}
+      </>}
+      {!summary.compactReport && <>{hideCoachSummary ? null : (
         <p
           style={{ margin: 0, color: "var(--color-text)", lineHeight: 1.6 }}
           data-testid="review-coach-summary"
@@ -608,6 +662,15 @@ export const ReviewSummary = ({
           {summary.coachSummary || translate("review.summary_placeholder")}
         </p>
       )}
+      {!hideCoachSummary && summary.legacyFullText && <details data-testid="review-legacy-full-text">
+        <summary style={disclosureSummaryStyle}>{translate("review.legacy_full_text")}</summary>
+        {summary.legacyFullText.coachSummary && <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+          <strong>{translate("review.legacy_full_summary")}</strong> {summary.legacyFullText.coachSummary}
+        </p>}
+        {summary.legacyFullText.nextFocus && <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+          <strong>{translate("review.legacy_full_focus")}</strong> {summary.legacyFullText.nextFocus}
+        </p>}
+      </details>}
       <div style={detailGridStyle}>
         <div data-testid="review-strengths" data-semantic-id="review-strengths">
           <strong style={{ color: "var(--color-text-muted)" }}>{translate("review.strengths_title")}</strong>
@@ -681,6 +744,10 @@ export const ReviewSummary = ({
           {translate("review.next_attempt_instruction", { value: summary.nextAttemptInstruction })}
         </p>
       )}
+      </>}
+      <details open={!summary.compactReport} data-testid="review-supporting-details">
+        <summary style={disclosureSummaryStyle}>{translate("review.compact_supporting_details")}</summary>
+        <div style={disclosureContentStyle}>
       <div data-testid="review-progress" data-semantic-id="review-progress">
         <strong style={{ color: "var(--color-text-muted)" }}>{translate("review.progress_title")}</strong>
         {summary.progressItems.length > 0 ? (
@@ -738,6 +805,8 @@ export const ReviewSummary = ({
           ) : null}
         </div>
       ) : null}
+        </div>
+      </details>
     </section>
 
     <section style={cardStyle} data-testid="review-quality-checks" data-semantic-id="review-quality-checks">

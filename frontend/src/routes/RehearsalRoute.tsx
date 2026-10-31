@@ -4,6 +4,8 @@ import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { RecorderPanel } from "@/components/speak/RecorderPanel";
 import { RehearsalAudio } from "@/components/speak/RehearsalAudio";
+import { CompactFixList } from "@/components/review/CompactFixList";
+import { reviewEligibilityState } from "@/components/review/ReviewSummary";
 import { apiClient, ApiClientError } from "@/lib/api/client";
 import type { AssessmentStatusResponse, JsonRecord } from "@/lib/api/types";
 import { createTranslator } from "@/lib/i18n";
@@ -14,6 +16,15 @@ import { type JournalAccess, withJournalLock, deleteRehearsal, getRehearsal, lis
 import styles from "./RehearsalRoute.module.css";
 
 const record = (value: unknown): JsonRecord => value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
+const shortFeedback = (value: unknown, limit: number) => {
+  const full = typeof value === "string" ? value.trim() : "";
+  const normalized = full.replace(/\s+/g, " ");
+  const characters = Array.from(normalized);
+  if (characters.length <= limit) return { preview: normalized, full: "" };
+  const prefix = characters.slice(0, limit - 1).join("");
+  const boundary = prefix.lastIndexOf(" ");
+  return { preview: `${(boundary > 0 ? prefix.slice(0, boundary) : "").trimEnd()}…`, full };
+};
 const waitForPoll = (signal: AbortSignal) => new Promise<void>((resolve, reject) => {
   const abort = () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); };
   const timer = window.setTimeout(() => { signal.removeEventListener("abort", abort); resolve(); }, 1000);
@@ -237,17 +248,43 @@ export const RehearsalRoute = () => {
         {session.parts.some(part => !part.reportId) && <button data-testid="rehearsal-analyse" disabled={busy || (!sharingQuery.data?.available && session.parts.some(part => !part.reportId && !part.jobId))} onClick={analyse}>{t("analyse")}</button>}
       </div>
       {session.parts.map((part, i) => {
+        const loadedReport = Boolean(reports[part.reportId || ""]?.report);
         const report = record(reports[part.reportId || ""]?.report);
         const metrics = record(report.metrics); const coaching = record(report.coaching);
         const scores = record(report.scores); const warnings = Array.isArray(report.warnings) ? report.warnings : [];
+        const eligibility = reviewEligibilityState({ report });
+        const assessable = eligibility === "assessable";
+        const eligibilityMessage = eligibility === "insufficient_speech" ? "review.insufficient_speech"
+          : eligibility === "invalid_content" ? "review.eligibility_invalid" : "review.eligibility_unverified";
+        const coachingSummary = shortFeedback(coaching.summary || coaching.coach_summary, 160);
+        const nextStep = shortFeedback(coaching.next_step || coaching.next_focus, 160);
+        const feedbackLanguage = String(coaching.feedback_language || "");
+        const practiceLanguage = String(coaching.practice_language || "");
+        const compactFeedback = assessable && typeof coaching.summary === "string" && typeof coaching.next_step === "string" &&
+          ["en", "de", "it", "fr", "es"].includes(feedbackLanguage) && ["en", "it"].includes(practiceLanguage);
+        const compactFixes = compactFeedback && Array.isArray(coaching.fixes) ? coaching.fixes.slice(0, 3).map(record).map(fix => ({
+          youSaid: shortFeedback(fix.you_said, 100).preview,
+          better: shortFeedback(fix.better, 100).preview,
+          why: shortFeedback(fix.why, 140).preview,
+        })).filter(fix => fix.youSaid && fix.better && fix.why) : [];
         return <article className={styles.card} data-testid={`rehearsal-result-${i}`} key={part.id}>
           <h3>{t("part", { number: i + 1, total: session.parts.length })} · {clockText(part.durationSec)}</h3><p>{part.prompt}</p>
           <RehearsalAudio session={session} index={i} label={t("playback")} unavailable={t("audio_missing")} downloadLabel={translate("speak.download_recording")} />
           {part.reportId ? <>
-            <dl className={styles.metrics}>{[["duration", metrics.duration_sec], ["wpm", metrics.wpm], ["score", record(report.eligibility).state && record(report.eligibility).state !== "assessable" ? null : scores.final]].map(([label, value]) => <div key={String(label)}><dt>{t(String(label))}</dt><dd>{typeof value === "number" && Number.isFinite(value) ? value.toFixed(1) : "—"}</dd></div>)}</dl>
-            {(!report.rubric || warnings.includes("coaching_unavailable")) && <p>{translate("review.general_practice_tips")}</p>}
+            <dl className={styles.metrics}>{[["duration", metrics.duration_sec], ["wpm", metrics.wpm], ["score", assessable ? scores.final : null]].map(([label, value]) => <div key={String(label)}><dt>{t(String(label))}</dt><dd>{typeof value === "number" && Number.isFinite(value) ? value.toFixed(1) : "—"}</dd></div>)}</dl>
+            {!loadedReport && <p role="status" data-testid={`rehearsal-report-missing-${i}`}>{t("report_missing")}</p>}
+            {loadedReport && !assessable && <p role="status" data-testid={`rehearsal-ineligible-${i}`}>{translate(eligibilityMessage)}</p>}
+            {assessable && (!report.rubric || warnings.includes("coaching_unavailable")) && <p>{translate("review.general_practice_tips")}</p>}
             {warnings.includes("transcript_uncertain") && <p>{translate("review.transcript_uncertain")}</p>}
-            <p>{String(coaching.coach_summary || t("report_missing"))}</p><strong>{String(coaching.next_focus || "")}</strong>
+            {assessable && <p lang={compactFeedback && coachingSummary.preview ? feedbackLanguage : undefined} data-testid={`rehearsal-coaching-summary-${i}`}>{coachingSummary.preview || t("report_missing")}</p>}
+            {compactFeedback && <CompactFixList fixes={compactFixes} practiceLanguage={practiceLanguage}
+              feedbackLanguage={feedbackLanguage} translate={translate} testId={`rehearsal-compact-fixes-${i}`} headingLevel={4} />}
+            {assessable && nextStep.preview && <strong lang={compactFeedback ? feedbackLanguage : undefined} data-testid={`rehearsal-next-step-${i}`}>{nextStep.preview}</strong>}
+            {assessable && (coachingSummary.full || nextStep.full) && <details className={styles.fullFeedback} data-testid={`rehearsal-full-feedback-${i}`}>
+              <summary>{translate("review.legacy_full_text")}</summary>
+              {coachingSummary.full && <p><strong>{translate("review.legacy_full_summary")}</strong> {coachingSummary.full}</p>}
+              {nextStep.full && <p><strong>{translate("review.legacy_full_focus")}</strong> {nextStep.full}</p>}
+            </details>}
             <button data-testid={`rehearsal-retry-${i}`} disabled={busy} onClick={() => operate(async () => { const next = retryPart(session, i); await persist(next); setReports({}); setFile(null); })}>{t("retry")}</button>
           </> : <p>{part.jobId ? t("in_progress") : t("awaiting_analysis")}</p>}
         </article>;

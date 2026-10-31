@@ -98,8 +98,17 @@ def install_transport(root):
                 raise httpx.ReadTimeout('Fixture ambiguous outcome')
             if mode == 'resume' and phase == 'coaching':
                 return httpx.Response(503, json={'error': 'fixture interruption'})
-            from tests.test_generation_validation import rubric_payload, coaching_payload
-            value = coaching_payload() if phase == 'coaching' else rubric_payload()
+            from tests.test_generation_validation import rubric_payload
+            value = rubric_payload()
+            if phase == 'coaching':
+                language = scenario.get('language', 'en')
+                value = {
+                    'summary': 'Your response stays on topic.' if language == 'en' else 'La risposta resta in tema.',
+                    'fixes': [],
+                    'next_step': ('Record a 90 seconds retry with one clear example.' if language == 'en'
+                                  else 'Registra una nuova risposta di 90 secondi con un esempio chiaro.'),
+                    'feedback_language': language, 'practice_language': language,
+                }
             if mode == 'schema':
                 value = {'invalid': True}
             text = json.dumps(value)

@@ -15,7 +15,8 @@ from assess_core.coaching_taxonomy import (
     COACHING_CONFIDENCE_LEVELS, COHERENCE_ISSUE_CATEGORIES,
     GRAMMAR_ERROR_CATEGORIES, LEXICAL_GAP_CATEGORIES,
 )
-from assess_core.schemas import CoachingSummary, RubricResult, SchemaValidationError
+from assess_core.schemas import (COMPACT_LIMITS, UI_LANGUAGES, PRACTICE_LANGUAGES,
+                                 CoachingSummary, CompactFeedback, RubricResult, SchemaValidationError)
 from assessment_runtime.transcript_quality import finite_number
 from assessment_runtime.feedback_claims import contains_example, validate_claim_text
 from assessment_runtime.style_validation import validate_optional_explanation, validate_style_coaching
@@ -109,7 +110,9 @@ def _instruction_durations(instruction: str) -> list[float]:
     return durations
 
 
-def generation_json_schema(kind: str, *, target_duration_sec: float | None = None) -> dict:
+def generation_json_schema(kind: str, *, target_duration_sec: float | None = None,
+                           feedback_language: str | None = None,
+                           practice_language: str | None = None) -> dict:
     """Provider-side shape constraints complement authoritative local validation."""
     text = {"type": "string", "minLength": 1}
     texts = {"type": "array", "items": text}
@@ -136,11 +139,16 @@ def generation_json_schema(kind: str, *, target_duration_sec: float | None = Non
                 "explanation": text, "examples": texts,
             })}
     elif kind == "coaching":
-        properties = {field: text for field in ("next_focus", "next_exercise", "coach_summary")}
-        properties.update(strengths=texts, top_3_priorities={**texts, "minItems": 3, "maxItems": 3})
-        if target_duration_sec is not None:
-            properties.update(next_attempt_instruction=text,
-                              retry_duration_sec={"type": "number", "enum": [float(target_duration_sec)]})
+        def bounded(field: str) -> dict:
+            return {"type": "string", "minLength": 1, "maxLength": COMPACT_LIMITS[field]}
+        properties = {
+            "summary": bounded("summary"),
+            "fixes": {"type": "array", "minItems": 0, "maxItems": 3,
+                      "items": object_schema({key: bounded(key) for key in ("you_said", "better", "why")})},
+            "next_step": bounded("next_step"),
+            "feedback_language": {"type": "string", "enum": [feedback_language] if feedback_language else list(UI_LANGUAGES)},
+            "practice_language": {"type": "string", "enum": [practice_language] if practice_language else list(PRACTICE_LANGUAGES)},
+        }
     else:
         raise ValueError(f"Unknown generation schema '{kind}'")
     return object_schema(properties)
@@ -153,6 +161,122 @@ def _nonblank(text: str, field: str) -> None:
 
 def normalize_evidence(text: str) -> str:
     return " ".join(unicodedata.normalize("NFC", text).replace("’", "'").casefold().split())
+
+
+_LANGUAGE_MARKERS = {
+    # Shared articles/prepositions are deliberately absent. A short explanation
+    # cannot be identified reliably from words such as Spanish/Italian la/con.
+    "en": {"you", "your", "the", "this", "that", "with", "because", "speak", "record"},
+    "de": {"du", "dein", "deine", "der", "die", "das", "dem", "ist", "und", "nach", "mit", "weil", "sprich", "nimm"},
+    "it": {"tuo", "tua", "perché", "parla", "registra", "ripeti", "aggiungi", "questo", "questa"},
+    "fr": {"ton", "avec", "parce", "parle", "enregistre", "répète", "utilise", "ajoute"},
+    "es": {"tú", "los", "las", "porque", "habla", "graba", "repite", "añade", "respuesta", "ejemplos"},
+}
+_SPEECH_ACTIONS = {
+    "en": {"record", "speak", "say", "repeat", "tell", "retell", "describe", "narrate"},
+    "de": {"nimm", "sprich", "sage", "wiederhole", "erzähle", "beschreibe", "schildere"},
+    "it": {"registra", "parla", "ripeti", "racconta", "descrivi", "narra"},
+    "fr": {"enregistre", "parle", "dis", "répète", "raconte", "décris"},
+    "es": {"graba", "habla", "repite", "cuenta", "describe", "narra"},
+}
+
+
+_QUOTED_WORDING = re.compile(
+    r'''(?<!\w)['‘]([^'’\n]+)['’](?!\w)|["“«„]([^"”»“\n]+)["”»“]'''
+)
+
+
+def _check_language(text: str, expected: str, field: str,
+                    quote_sources: tuple[str, ...] = ()) -> None:
+    """Catch clear language swaps; ambiguous short text is not guessed at."""
+    if quote_sources:
+        def remove_grounded_quote(match: re.Match) -> str:
+            quoted = match.group(1) or match.group(2)
+            return " " if any(contains_example(source, quoted) for source in quote_sources) else match.group()
+
+        text = _QUOTED_WORDING.sub(remove_grounded_quote, text)
+    words = set(re.findall(r"[^\W\d_]+", text.casefold(), flags=re.UNICODE))
+    own = len(words & _LANGUAGE_MARKERS[expected])
+    foreign = max((len(words & markers) for code, markers in _LANGUAGE_MARKERS.items() if code != expected), default=0)
+    if foreign >= 2 and foreign > own:
+        raise SchemaValidationError(f"{field}: appears to be in the wrong language; expected {expected}")
+
+
+_ABBREVIATION = re.compile(
+    r"\b(?:z\.\s*B\.|p\.\s*(?:es|ej|ex)\.|Sig\.|e\.g\.|i\.e\.|ad\s+es\.|bzw\.|d\.\s*h\.)",
+    re.IGNORECASE,
+)
+
+
+def _one_sentence(text: str) -> bool:
+    if "\n" in text or text[-1] not in ".!?":
+        return False
+    checked = _ABBREVIATION.sub("abbrev", text)
+    checked = re.sub(r"(?<=\d)\.(?=\d)", "", checked)
+    return re.search(r"[.!?][\"'”’]?\s*\S", checked[:-1]) is None
+
+
+def validate_compact_generation(report: CompactFeedback, *, transcript: str | None,
+                                feedback_language: str, practice_language: str,
+                                target_duration_sec: float | None,
+                                rubric: dict | None = None) -> None:
+    if report.feedback_language != feedback_language:
+        raise SchemaValidationError(f"feedback_language: expected {feedback_language}")
+    if report.practice_language != practice_language:
+        raise SchemaValidationError(f"practice_language: expected {practice_language}")
+    if not _one_sentence(report.summary):
+        raise SchemaValidationError("summary: must be one sentence ending with punctuation")
+    _check_language(report.summary, feedback_language, "summary")
+    _check_language(report.next_step, feedback_language, "next_step")
+    if "\n" in report.next_step:
+        raise SchemaValidationError("next_step: must be one line")
+    action_words = set(re.findall(r"[^\W\d_]+", report.next_step.casefold(), flags=re.UNICODE))
+    if not action_words & _SPEECH_ACTIONS[feedback_language]:
+        raise SchemaValidationError("next_step: ask for one spoken action")
+    seen: set[str] = set()
+    issues = (rubric or {}).get("recurring_grammar_errors") or []
+    grammar_examples = [q for issue in issues for q in issue.get("examples", [])]
+    supported_examples = [example for name in ("recurring_grammar_errors", "coherence_issues", "lexical_gaps")
+                          for issue in (rubric or {}).get(name, []) for example in issue.get("examples", [])]
+    known_quotes = (rubric or {}).get("evidence_quotes", []) + supported_examples
+    styles = (rubric or {}).get("style_suggestions") or []
+    for field in ("summary", "next_step"):
+        value = getattr(report, field)
+        validate_claim_text(value, field, grammar_errors=bool(issues),
+                            known_quotes=known_quotes, grammar_examples=grammar_examples)
+        validate_style_coaching(value, field, styles)
+    for index, fix in enumerate(report.fixes):
+        quote = normalize_evidence(fix.you_said)
+        if not transcript or not contains_example(transcript, fix.you_said):
+            raise SchemaValidationError(f"fixes[{index}].you_said: must quote the transcript exactly")
+        # The rubric may quote a whole sentence while the compact report quotes
+        # just the relevant phrase. A subquote needs at least two words, so a
+        # generic one-word overlap cannot justify a correction on its own.
+        if rubric is not None and not any(
+            contains_example(fix.you_said, example) or
+            (len(quote.split()) >= 2 and contains_example(example, fix.you_said))
+            for example in supported_examples
+        ):
+            raise SchemaValidationError(f"fixes[{index}].you_said: no supported rubric finding for this fix")
+        if quote in seen:
+            raise SchemaValidationError(f"fixes[{index}].you_said: duplicate fix")
+        seen.add(quote)
+        if normalize_evidence(fix.better) == quote:
+            raise SchemaValidationError(f"fixes[{index}].better: must change the quoted wording")
+        if "\n" in fix.better or fix.better[-1] not in ".!?":
+            raise SchemaValidationError(f"fixes[{index}].better: must be one complete sentence")
+        _check_language(fix.better, practice_language, f"fixes[{index}].better")
+        _check_language(fix.why, feedback_language, f"fixes[{index}].why",
+                        quote_sources=(fix.you_said, fix.better))
+        if "\n" in fix.why:
+            raise SchemaValidationError(f"fixes[{index}].why: must be one line")
+        validate_claim_text(fix.why, f"fixes[{index}].why", grammar_errors=bool(issues),
+                            known_quotes=known_quotes, grammar_examples=grammar_examples)
+        validate_style_coaching(fix.why, f"fixes[{index}].why", styles, priority=True)
+    if target_duration_sec is not None:
+        durations = _instruction_durations(report.next_step)
+        if len(durations) != 1 or not math.isclose(durations[0], target_duration_sec, abs_tol=0.01):
+            raise SchemaValidationError("next_step: state the configured full spoken retry duration once")
 
 
 def validate_rubric_generation(rubric: RubricResult, transcript: str | None, asr_words: list[dict] | None = None) -> None:

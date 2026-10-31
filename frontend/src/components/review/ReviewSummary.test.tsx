@@ -170,6 +170,7 @@ describe("Review quality safeguards", () => {
   ])("describes scoring mode %s without guessing", (mode, expected) => {
     const summary = summarize({ scores: { final: 4.1, mode } });
     render(<MemoryRouter><ReviewResult summary={summary} translate={createTranslator("en")} /></MemoryRouter>);
+    fireEvent.click(screen.getByText("How this estimate was calculated"));
     expect(screen.getByText(new RegExp(expected, "i"))).toBeVisible();
   });
 
@@ -194,13 +195,14 @@ describe("Review quality safeguards", () => {
       [key]: { score: 3.7, confidence: "low", method },
     } } });
     render(<MemoryRouter><ReviewResult summary={summary} translate={createTranslator("en")} /></MemoryRouter>);
-    fireEvent.click(screen.getByText("Show dimension signals"));
+    fireEvent.click(screen.getByText("How this estimate was calculated"));
     expect(screen.getByText(expected)).toBeVisible();
   });
 
   it("does not infer a rules-only method from an unrecognized mode with a rubric score", () => {
     const summary = summarize({ scores: { final: 4.1, llm: 4.2, mode: "legacy_v0" } });
     render(<MemoryRouter><ReviewResult summary={summary} translate={createTranslator("en")} /></MemoryRouter>);
+    fireEvent.click(screen.getByText("How this estimate was calculated"));
     expect(screen.getByText("The scoring method was not reported for this result.")).toBeVisible();
     expect(screen.queryByText(/Only rule-based speech signals contributed/)).not.toBeInTheDocument();
   });
@@ -236,6 +238,14 @@ describe("Review quality safeguards", () => {
     expect(screen.getByTestId("review-transcript-uncertain")).toHaveTextContent("Listen to the recording");
     expect(screen.getByTestId("review-next-attempt-instruction")).toHaveTextContent("90 seconds");
     expect(screen.getByTestId("review-next-exercise")).toHaveTextContent("30-second drill");
+  });
+
+  it("leaves translated compact fallback in the current UI language", () => {
+    const summary = summarize({ input: { feedback_language: "en", expected_language: "it" },
+      warnings: ["coaching_unavailable"], coaching: {} });
+    render(<ReviewSummary summary={summary} translate={createTranslator("fr")} />);
+    expect(screen.getByText(createTranslator("fr")("review.compact_unavailable_summary"))).not.toHaveAttribute("lang");
+    expect(screen.getByText(createTranslator("fr")("review.compact_unavailable_step", { duration: 90 }))).not.toHaveAttribute("lang");
   });
 
   it("preserves historical coaching without new optional instruction fields", () => {

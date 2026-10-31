@@ -5,10 +5,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ReviewSummary, reviewEligibilityState, selectReviewSummary } from "@/components/review/ReviewSummary";
 import { ReviewResult } from "@/components/review/ReviewResult";
+import { CompactFixList } from "@/components/review/CompactFixList";
 import { WarningsPanel } from "@/components/review/WarningsPanel";
 import { Icon } from "@/components/ui/Icon";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { ApiClientError, apiClient } from "@/lib/api/client";
 import { createTranslator } from "@/lib/i18n";
@@ -237,10 +237,14 @@ export const ReviewRoute = () => {
 
   const summary = useMemo(() => selectReviewSummary(review), [review]);
   const [chosenGoal, setChosenGoal] = useState("");
-  useEffect(() => setChosenGoal(summary.nextFocus.slice(0, 12000)), [summary.reportId, summary.nextFocus]);
-  const goalOptions = [...new Set([summary.nextFocus, ...summary.priorities].map(value => value.trim()).filter(Boolean))];
+  useEffect(() => setChosenGoal(summary.legacyFullText?.nextFocus ? "" : summary.nextFocus.slice(0, 12000)),
+    [summary.reportId, summary.nextFocus, summary.legacyFullText?.nextFocus]);
+  const goalOptions = [...new Set([...(summary.legacyFullText?.nextFocus ? [] : [summary.nextFocus]), ...summary.priorities]
+    .map(value => value.trim()).filter(Boolean))];
   const followUp = followUpBrief(summary, draft);
-  const coachTakeaway = summary.coachSummary || translate("review.coach_takeaway_placeholder");
+  const coachTakeaway = summary.compactReport
+    ? summary.compactReport.summary || translate("review.compact_unavailable_summary")
+    : summary.coachSummary || translate("review.coach_takeaway_placeholder");
 
   const handleTryAgain = async () => {
     setResumeError("");
@@ -343,31 +347,6 @@ export const ReviewRoute = () => {
       </section>}
 
       <ReviewResult summary={summary} translate={translate} />
-      {followUp && (
-        <Card as="section" className={styles.followUp} data-testid="review-retry-follow-up">
-          <p className={styles.eyebrow}>{translate("retry.follow_up_eyebrow")}</p>
-          <h2>{translate("retry.follow_up_title")}</h2>
-          <p>{translate("retry.goal_value", { goal: followUp.goal })}</p>
-          {summary.eligibilityState !== "assessable" ? (
-            <p data-testid="review-retry-incompatible">{translate("retry.not_assessable")}</p>
-          ) : (
-            <>
-              <p data-testid="review-retry-observation">
-                {followUp.observation
-                  ? translate("retry.observation", { value: followUp.observation })
-                  : summary.transcript
-                    ? translate("retry.transcript_check", { value: summary.transcript.slice(0, 220) })
-                    : translate("retry.no_direct_observation")}
-              </p>
-              {followUp.comparable ? (
-                followUp.overallChange !== null ? <p data-testid="review-retry-change">
-                  {translate("retry.overall_change", { value: `${followUp.overallChange >= 0 ? "+" : ""}${followUp.overallChange.toFixed(2)}` })}
-                </p> : <p>{translate("retry.no_numeric_change")}</p>
-              ) : <p data-testid="review-retry-incompatible">{translate("retry.incompatible")}</p>}
-            </>
-          )}
-        </Card>
-      )}
       <section
         style={nextStepCardStyle}
         data-testid="review-next-step-card"
@@ -386,19 +365,43 @@ export const ReviewRoute = () => {
               {translate("review.coach_note_eyebrow")}
             </p>
             <h2 style={{ margin: 0, fontSize: "1.5rem", color: "var(--color-text)" }}>
-              {translate("review.next_step_title")}
+              {translate(summary.compactReport ? "review.summary_title" : "review.next_step_title")}
             </h2>
             <p
               className={styles.coachTakeaway}
+              lang={summary.compactReport?.summary ? summary.compactReport.feedbackLanguage : undefined}
               data-testid="review-coach-takeaway"
               data-semantic-id="review-coach-takeaway"
             >
               {coachTakeaway}
             </p>
-            <p className={styles.coachHelper}>
+            {summary.compactReport && <CompactFixList fixes={summary.compactReport.fixes}
+              practiceLanguage={summary.compactReport.practiceLanguage}
+              feedbackLanguage={summary.compactReport.feedbackLanguage} translate={translate} />}
+            {summary.compactReport && <div className={styles.compactNext} data-testid="review-compact-next-step">
+              <h3>{translate("review.compact_next_step")}</h3><p lang={summary.compactReport.nextStep ? summary.compactReport.feedbackLanguage : undefined}>
+                {summary.compactReport.nextStep || translate("review.compact_unavailable_step", { duration: summary.targetDurationSec || 90 })}
+              </p>
+            </div>}
+            {followUp && <p className={styles.retryGoalLine} data-testid="review-retry-follow-up">
+              <strong>{translate("retry.follow_up_eyebrow")}</strong>
+              <span>{followUp.goal}</span>
+              {summary.eligibilityState !== "assessable" &&
+                <span data-testid="review-retry-incompatible">{translate("retry.not_assessable")}</span>}
+              {summary.eligibilityState === "assessable" && !followUp.comparable &&
+                <span data-testid="review-retry-incompatible">{translate("retry.incompatible")}</span>}
+              {summary.eligibilityState === "assessable" && followUp.comparable && followUp.overallChange === null &&
+                <span data-testid="review-retry-no-numeric-change">{translate("retry.no_numeric_change")}</span>}
+            </p>}
+            {!summary.compactReport && <p className={styles.coachHelper}>
               {translate("review.coach_takeaway_body")}
-            </p>
-            <div style={focusChipGroupStyle}>
+            </p>}
+            {summary.legacyFullText && <details className={styles.legacyFullText} data-testid="review-legacy-full-text">
+              <summary>{translate("review.legacy_full_text")}</summary>
+              {summary.legacyFullText.coachSummary && <p><strong>{translate("review.legacy_full_summary")}</strong> {summary.legacyFullText.coachSummary}</p>}
+              {summary.legacyFullText.nextFocus && <p><strong>{translate("review.legacy_full_focus")}</strong> {summary.legacyFullText.nextFocus}</p>}
+            </details>}
+            {!summary.compactReport && <div style={focusChipGroupStyle}>
               <div
                 style={focusChipStyle}
                 data-testid="review-next-step-focus"
@@ -423,8 +426,10 @@ export const ReviewRoute = () => {
                   {translate("review.next_exercise", { value: summary.nextExercise })}
                 </div>
               ) : null}
-            </div>
+            </div>}
             {summary.eligibilityState === "assessable" ? (
+              <details open={!summary.compactReport} className={styles.goalDisclosure} data-testid="review-goal-disclosure">
+                <summary>{translate("retry.choose_goal")}</summary>
               <div className={styles.goalPicker} data-testid="review-goal-picker">
                 <strong>{translate("retry.choose_goal")}</strong>
                 <div className={styles.goalOptions} role="group" aria-label={translate("retry.choose_goal")}>
@@ -440,6 +445,7 @@ export const ReviewRoute = () => {
                   data-testid="review-goal-input" />
                 <Button variant="quiet" onClick={() => setChosenGoal("")}>{translate("retry.clear_goal")}</Button>
               </div>
+              </details>
             ) : null}
             {summary.requiresHumanReview ? (
               <p

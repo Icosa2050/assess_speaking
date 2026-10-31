@@ -214,6 +214,9 @@ def _execute_assessment_run(
     if rubric_obj is None and isinstance(assessment["llm_rubric"], str):
         rubric_obj = assess_cli.extract_rubric_json(assessment["llm_rubric"])
     priorities = [str(item) for item in (coaching_obj.get("top_3_priorities") or []) if str(item).strip()]
+    if not priorities:
+        priorities = [str(item.get("why") or "") for item in coaching_obj.get("fixes", [])
+                      if isinstance(item, dict) and str(item.get("why") or "").strip()]
     padded_priorities = priorities[:3] + [""] * max(0, 3 - len(priorities[:3]))
     # CSV consumers cannot distinguish provisional numeric observations from
     # grades. Keep them in the annotated JSON, but never publish them as grades.

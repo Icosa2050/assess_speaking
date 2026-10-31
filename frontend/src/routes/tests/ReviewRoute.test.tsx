@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppFrame } from "@/App";
 import { createQueryClient, queryKeys } from "@/lib/query/queryClient";
 import { renderWithProviders } from "@/test/renderWithProviders";
+import { createTranslator } from "@/lib/i18n";
 import { draftAdapterFixture, savedDraftFixture } from "@/test/draftAdapterFixture";
 
 vi.mock("@/lib/api/client", () => ({
@@ -158,6 +159,55 @@ describe("Review route", () => {
     });
   });
 
+  it.each(["en", "de", "it", "fr", "es"] as const)("shows compact bilingual feedback in %s", async (locale) => {
+    const payload = { ...reviewPayload, report: { ...reviewPayload.report, warnings: [],
+      coaching: { summary: "Your answer has a clear topic.",
+        fixes: [{ you_said: "I goes to Rome", better: "I go to Rome", why: "Use the base verb with I." }],
+        next_step: "Record a 120 seconds retry with one clear opening.",
+        feedback_language: locale, practice_language: "en" },
+    } };
+    renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale, appState: {
+      ...validDraftState, review: { reportId: "compact", transcript: "I goes to Rome", scoreOverall: 3.5,
+        band: "4", summary: "", payload },
+    } });
+    expect(await screen.findByTestId("review-compact-fixes")).toBeVisible();
+    expect(screen.getByTestId("review-coach-takeaway")).toHaveTextContent("Your answer has a clear topic.");
+    expect(screen.getByTestId("review-coach-takeaway")).toHaveAttribute("lang", locale);
+    const fixes = screen.getByTestId("review-compact-fixes");
+    const translate = createTranslator(locale);
+    expect(within(fixes).getByText(translate("review.compact_fixes_title"))).toBeVisible();
+    expect(within(fixes).getByText(translate("review.compact_you_said"))).toBeVisible();
+    expect(within(fixes).getByText(translate("review.compact_better"))).toBeVisible();
+    expect(within(fixes).getByText("I goes to Rome")).toHaveAttribute("lang", "en");
+    expect(within(fixes).getByText("I go to Rome")).toHaveAttribute("lang", "en");
+    expect(screen.getByTestId("review-compact-next-step")).toHaveTextContent("120 seconds");
+    const scoreHeader = screen.getByTestId("review-result-estimate");
+    const coachCard = screen.getByTestId("review-next-step-card");
+    expect(scoreHeader.compareDocumentPosition(coachCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(scoreHeader).getByText(translate("review.result.how_calculated")).closest("details")).not.toHaveAttribute("open");
+    expect(screen.queryByTestId("review-strengths")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("review-next-step-exercise")).not.toBeInTheDocument();
+  });
+
+  it.each(["en", "de", "it", "fr", "es"] as const)("uses a concise localized fallback in %s", async (locale) => {
+    const payload = { ...reviewPayload, report: { ...reviewPayload.report,
+      input: { ...reviewPayload.report.input, feedback_language: "en", target_duration_sec: 120 },
+      coaching: { ...reviewPayload.report.coaching, coach_summary: "Long legacy text. ".repeat(100) },
+      warnings: ["coaching_unavailable"],
+    } };
+    renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale, appState: {
+      ...validDraftState, review: { reportId: "fallback", transcript: "Synthetic words", scoreOverall: 3.5,
+        band: "4", summary: "", payload },
+    } });
+    const translate = createTranslator(locale);
+    expect(await screen.findByTestId("review-coach-takeaway")).toHaveTextContent(translate("review.compact_unavailable_summary"));
+    expect(screen.getByTestId("review-coach-takeaway")).not.toHaveAttribute("lang");
+    expect(screen.getByTestId("review-compact-next-step")).toHaveTextContent(translate("review.compact_unavailable_step", { duration: 120 }));
+    expect(screen.getByTestId("review-compact-next-step").querySelector("p")).not.toHaveAttribute("lang");
+    expect(within(screen.getByTestId("review-next-step-card")).queryByText(/Long legacy text/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("review-strengths")).not.toBeInTheDocument();
+  });
+
   it("does not turn a three-word attempt into a scored result", async () => {
     const payload = { ...reviewPayload, report: { ...reviewPayload.report,
       rubric: undefined,
@@ -172,6 +222,7 @@ describe("Review route", () => {
     expect(await screen.findByText(/Not enough speech to assess/)).toBeVisible();
     const result = screen.getByTestId("review-result-estimate");
     expect(within(result).getByText("No estimate")).toBeVisible();
+    fireEvent.click(within(result).getByText("How this estimate was calculated"));
     expect(within(result).getByText("No scoring method result is available for this recording.")).toBeVisible();
     expect(screen.queryByTestId("review-estimate-text")).not.toBeInTheDocument();
     expect(screen.queryByTestId("review-provisional-cefr")).not.toBeInTheDocument();
@@ -209,6 +260,7 @@ describe("Review route", () => {
       review: { reportId: "second", transcript: "Too short", payload },
     } });
     expect(await screen.findByTestId("review-retry-follow-up")).toHaveTextContent("Finish with one concrete example");
+    expect(within(screen.getByTestId("review-next-step-card")).getByTestId("review-retry-follow-up")).toBeVisible();
     expect(screen.queryByTestId("review-goal-picker")).not.toBeInTheDocument();
     expect(screen.queryByTestId("review-retry-change")).not.toBeInTheDocument();
     expect(screen.queryByTestId("review-next-focus")).not.toBeInTheDocument();
@@ -227,6 +279,26 @@ describe("Review route", () => {
     expect(saved?.draft).toMatchObject({ retryOfSessionId: "first", coachingGoal: "Finish with one concrete example" });
   });
 
+  it.each([
+    [false, "review-retry-incompatible", "A score change is unavailable"],
+    [true, "review-retry-no-numeric-change", "no overall score change was reported"],
+  ])("keeps retry comparison status inside the Coach note when comparable is %s", async (comparable, testId, message) => {
+    const payload = { ...reviewPayload,
+      meta: { ...reviewPayload.meta, practice: { retry_of_session_id: "first" } },
+      report: { ...reviewPayload.report, session_id: "second", warnings: [],
+        progress_delta: { comparison_verified: comparable, previous_session_id: "first", score_delta: {} },
+      },
+    };
+    renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
+      ...validDraftState,
+      draft: { ...validDraftState.draft, retryOfSessionId: "first", coachingGoal: "Add one concrete detail", retryGoalEligible: true },
+      review: { reportId: "second", transcript: "A complete synthetic answer", scoreOverall: 3.5, payload },
+    } });
+    const coachCard = await screen.findByTestId("review-next-step-card");
+    expect(within(coachCard).getByTestId("review-retry-follow-up")).toHaveTextContent("Add one concrete detail");
+    expect(within(coachCard).getByTestId(testId)).toHaveTextContent(message);
+  });
+
   it("allows a learner-written goal on Review when an assessable report has no suggestions", async () => {
     const payload = { ...reviewPayload, report: { ...reviewPayload.report, coaching: {
       ...reviewPayload.report.coaching, next_focus: "", top_3_priorities: [],
@@ -236,6 +308,25 @@ describe("Review route", () => {
     } });
     expect(await screen.findByTestId("review-goal-picker")).toBeVisible();
     expect(screen.getByTestId("review-goal-input")).toHaveValue("");
+  });
+
+  it("shows full legacy text on request without seeding a cut-off retry goal", async () => {
+    const longSummary = "Clear opening. ".repeat(30);
+    const longFocus = "Connect every example to your main point. ".repeat(12);
+    const payload = { ...reviewPayload, report: { ...reviewPayload.report, coaching: {
+      ...reviewPayload.report.coaching, coach_summary: longSummary, next_focus: longFocus,
+    } } };
+    renderWithProviders(<AppFrame />, { initialEntries: ["/review"], locale: "en", appState: {
+      ...validDraftState, review: { reportId: "legacy-long", payload },
+    } });
+    const coachCard = await screen.findByTestId("review-next-step-card");
+    expect(within(coachCard).getByTestId("review-coach-takeaway").textContent?.length).toBeLessThanOrEqual(160);
+    expect(screen.getByTestId("review-goal-input")).toHaveValue("");
+    const disclosure = within(coachCard).getByTestId("review-legacy-full-text");
+    expect(disclosure).not.toHaveAttribute("open");
+    fireEvent.click(within(disclosure).getByText("Show full original feedback"));
+    expect(disclosure).toHaveTextContent(longSummary.trim());
+    expect(disclosure).toHaveTextContent(longFocus.trim());
   });
 
   it("carries one edited coaching goal into Speak and stores it with the retry draft", async () => {
@@ -262,6 +353,7 @@ describe("Review route", () => {
     await screen.findByTestId("review-next-step-card");
     const result = screen.getByTestId("review-result-estimate");
     expect(within(result).getByText("No estimate")).toBeVisible();
+    fireEvent.click(within(result).getByText("How this estimate was calculated"));
     expect(within(result).getByText("No scoring method result is available for this recording.")).toBeVisible();
     expect(screen.queryByTestId("review-estimate-text")).not.toBeInTheDocument();
     expect(screen.queryByTestId("review-provisional-cefr")).not.toBeInTheDocument();
@@ -349,7 +441,7 @@ describe("Review route", () => {
     expect(screen.getByTestId("review-metric-band")).not.toHaveTextContent("B2");
     expect(scoreVisual).toHaveTextContent("3.6/5 · limited proxy");
     expect(scoreVisual).toHaveTextContent("does not assess individual sounds or accent quality");
-    fireEvent.click(within(scoreVisual).getByText("Show dimension signals"));
+    fireEvent.click(within(scoreVisual).getByText("How this estimate was calculated"));
     expect(scoreVisual).toHaveTextContent("Reported confidence: low");
     expect(scoreVisual).toHaveTextContent("Source: ASR confidence and pausing proxy; not acoustic pronunciation scoring.");
     expect(within(scoreVisual).getByRole("link", { name: "Read the scoring Guide" })).toHaveAttribute("href", "/guide");

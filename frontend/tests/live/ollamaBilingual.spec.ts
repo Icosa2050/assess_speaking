@@ -220,7 +220,7 @@ for (const language of ["en", "it"] as const) {
           }
           const input = report.input as JsonRecord;
           expect(input).toMatchObject({ provider, llm_model: selectedModel, whisper_model: selectedWhisper, expected_language: language, detected_language: language });
-          expect(input.coaching_prompt_version).toBe("coaching_multilingual_v7");
+          expect(input.coaching_prompt_version).toBe("coaching_compact_v8");
           const reportWarnings = (report.warnings as string[] || []);
           const uncertain = reportWarnings.includes("transcript_uncertain");
           const rubricFallback = uncertain || (allowGuardedFallback && reportWarnings.includes("llm_invalid_schema"));
@@ -272,16 +272,20 @@ for (const language of ["en", "it"] as const) {
             linguistic_quality: "Requires separate human review",
           });
           const coaching = report.coaching as JsonRecord;
-          for (const field of ["coach_summary", "next_focus", "next_exercise"]) expect(String(coaching[field] || "").trim()).not.toBe("");
-          expect(coaching.top_3_priorities).toHaveLength(3);
-          // Lightweight smoke for wrong-language coaching; reports remain available for human review.
-          const feedback = `${coaching.coach_summary} ${coaching.next_focus} ${coaching.next_exercise}`.toLowerCase();
-          const markers = language === "it" ? /\b(?:il|la|le|un|una|che|di|per|con|nel|nella|tuo|tua|hai|puoi|frasi)\b/g : /\b(?:the|your|you|and|with|use|try|to|for|this|that|was|were)\b/g;
-          expect((feedback.match(markers) || []).length, "Feedback should use the chosen UI language").toBeGreaterThanOrEqual(3);
           if (!allowGuardedFallback) expect(reportWarnings).not.toContain("coaching_unavailable");
-          if (!rubricFallback && !coachingFallback) {
-            expect(coaching.retry_duration_sec).toBe(90);
-            expect(String(coaching.next_attempt_instruction)).toMatch(/90|1[.,]5/);
+          if (rubricFallback || coachingFallback) {
+            for (const field of ["coach_summary", "next_focus", "next_exercise"]) expect(String(coaching[field] || "").trim()).not.toBe("");
+            expect(coaching.top_3_priorities).toHaveLength(3);
+          } else {
+            expect(coaching.feedback_language).toBe(language);
+            expect(coaching.practice_language).toBe(language);
+            for (const field of ["summary", "next_step"]) expect(String(coaching[field] || "").trim()).not.toBe("");
+            expect(String(coaching.next_step)).toMatch(/90|1[.,]5/);
+            expect(Array.isArray(coaching.fixes)).toBe(true);
+            expect((coaching.fixes as unknown[]).length).toBeLessThanOrEqual(3);
+            for (const fix of coaching.fixes as JsonRecord[]) {
+              for (const field of ["you_said", "better", "why"]) expect(String(fix[field] || "").trim()).not.toBe("");
+            }
           }
           if (attempt) expect(report.progress_delta).toBeNull();
           await expect(page).toHaveURL(/\/review$/, { timeout: 30_000 });

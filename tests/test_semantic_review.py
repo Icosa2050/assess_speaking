@@ -151,8 +151,11 @@ def coaching_prompt(metrics, rubric, theme, duration, *, expected_language, feed
             extra_payload={'response_format':{'type':'json_schema'}})
         return SimpleNamespace(to_dict=lambda: {'evidence_quotes':[]}), '{}'
     monkeypatch.setattr(runner.llm_client,'generate_rubric',rubric)
-    monkeypatch.setattr(runner.llm_client,'generate_coaching_summary',
-                        lambda *a,**k: (SimpleNamespace(to_dict=lambda: {'next_focus':'Practice'}),'{}'))
+    coaching_calls=[]
+    def coaching(*args, **kwargs):
+        coaching_calls.append(kwargs)
+        return SimpleNamespace(to_dict=lambda: {'next_step':'Record another answer.'}), '{}'
+    monkeypatch.setattr(runner.llm_client,'generate_coaching_summary',coaching)
     runner.main()
     assert runner.llm_client._chat_completion is original
     manifest=json.loads((output/'manifest.json').read_text())
@@ -163,6 +166,12 @@ def coaching_prompt(metrics, rubric, theme, duration, *, expected_language, feed
     assert sum(row['rubric_contract']=='failed' for row in rows)==1
     assert all(row['semantic_verdict']=='requires output inspection' for row in rows)
     assert len(observed)==19
+    cases=json.loads(runner.CORPUS.read_text())['cases']
+    assert len(coaching_calls)==19
+    for call, case in zip(coaching_calls, cases[1:]):
+        assert call['transcript']==case['transcript']
+        assert call['feedback_language']==case['language_code']
+        assert call['practice_language']==case['language_code']
     assert all(p['response_format']['type']=='json_schema' for p in observed)
     if not historical:
         assert all(p['reasoning_effort']=='low' and p['max_tokens']==8192 for p in observed)

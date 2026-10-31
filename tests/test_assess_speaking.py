@@ -252,18 +252,18 @@ class MetricsAndPromptTests(unittest.TestCase):
             expected_language="it",
             feedback_language="en",
         )
-        self.assertIn("learners of Italian", prompt)
-        self.assertIn("Write every natural-language string value in English", prompt)
-        self.assertIn("Do NOT translate `category` values", prompt)
+        self.assertIn("practice task in Italian", prompt)
+        self.assertIn("must be in English (UI language)", prompt)
+        self.assertIn("`better` must be a meaning-preserving sentence in Italian", prompt)
         self.assertNotIn('"confidence": "high"', prompt)
-        self.assertIn("concrete spoken retry", prompt)
-        self.assertIn("Write all generated text fields", prompt)
-        self.assertIn("do NOT translate the quote", prompt)
+        self.assertIn("spoken retry lasting 180 seconds", prompt)
+        self.assertIn("Give zero to three fixes", prompt)
+        self.assertIn("Never translate either example", prompt)
 
     def test_language_name_falls_back_to_explicit_code_description(self):
         self.assertEqual(
-            assessment_prompts.language_name("fr"),
-            "the language identified by code 'fr'",
+            assessment_prompts.language_name("nl"),
+            "the language identified by code 'nl'",
         )
 
 
@@ -642,6 +642,30 @@ class RunAssessmentTests(unittest.TestCase):
             assess_speaking._resolve_model("openrouter", None, settings),
             "anthropic/claude-sonnet-4.5",
         )
+
+    def test_german_backend_run_skips_compact_coaching_before_provider_call(self):
+        asr = {
+            "text": "Ich spreche über meine Stadt und den öffentlichen Verkehr.",
+            "detected_language": "de", "language_probability": 0.99,
+            "compute_type_used": "default", "compute_fallback_used": False,
+            "words": [{"t0": 0.0, "t1": 1.0, "text": word} for word in
+                      ("Ich", "spreche", "über", "meine", "Stadt", "und", "den", "Verkehr")],
+        }
+        rubric = RubricResult(
+            fluency=4, cohesion=4, accuracy=4, range=4, overall=4,
+            comments_fluency="ok", comments_cohesion="ok", comments_accuracy="ok",
+            comments_range="ok", overall_comment="ok", on_topic=True,
+        )
+        with mock.patch.object(assess_speaking, "transcribe", return_value=asr), \
+             mock.patch.object(assess_speaking, "load_audio_features", return_value={"duration_sec": 70.0, "pauses": []}), \
+             mock.patch.object(assess_speaking, "generate_rubric", return_value=(rubric, "{}")), \
+             mock.patch.object(assess_speaking, "generate_coaching_summary") as coaching_call:
+            result = assess_speaking.run_assessment(
+                Path("synthetic.wav"), provider="ollama", llm_model="fixture",
+                expected_language="de", feedback_language="de", target_duration_sec=60.0,
+            )
+        coaching_call.assert_not_called()
+        self.assertIn("coaching_unavailable", result["report"]["warnings"])
 
     @mock.patch.object(assess_speaking, "generate_rubric")
     @mock.patch.object(assess_speaking, "load_audio_features", return_value={"duration_sec": 30.0, "pauses": []})

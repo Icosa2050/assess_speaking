@@ -166,6 +166,71 @@ class CoachingSummary:
         return result
 
 
+# The provider-facing coaching contract. CoachingSummary remains readable for
+# reports written before the compact format was introduced.
+COMPACT_LIMITS = {"summary": 160, "you_said": 100, "better": 100,
+                  "why": 140, "next_step": 160}
+UI_LANGUAGES = ("de", "en", "es", "fr", "it")
+PRACTICE_LANGUAGES = ("en", "it")
+
+
+@dataclass(frozen=True)
+class CompactFix:
+    you_said: str
+    better: str
+    why: str
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], index: int) -> "CompactFix":
+        if not isinstance(data, dict):
+            raise SchemaValidationError(f"fixes[{index}]: must be object")
+        _exact_keys(data, {"you_said", "better", "why"}, f"fixes[{index}]")
+        return cls(**{key: _compact_text(data[key], f"fixes[{index}].{key}", COMPACT_LIMITS[key])
+                     for key in ("you_said", "better", "why")})
+
+
+def _exact_keys(data: dict[str, Any], expected: set[str], scope: str) -> None:
+    _require_keys(data, expected, scope)
+    extra = sorted(set(data) - expected)
+    if extra:
+        raise SchemaValidationError(f"{scope}: extra keys: {', '.join(extra)}")
+
+
+def _compact_text(raw: Any, key: str, limit: int) -> str:
+    value = _str_value(raw, key).strip()
+    if not value:
+        raise SchemaValidationError(f"{key}: must contain nonblank text")
+    if len(value) > limit:
+        raise SchemaValidationError(f"{key}: exceeds {limit} characters")
+    return value
+
+
+@dataclass(frozen=True)
+class CompactFeedback:
+    summary: str
+    fixes: list[CompactFix]
+    next_step: str
+    feedback_language: str
+    practice_language: str
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CompactFeedback":
+        if not isinstance(data, dict):
+            raise SchemaValidationError("CompactFeedback: must be object")
+        _exact_keys(data, {"summary", "fixes", "next_step", "feedback_language", "practice_language"}, "CompactFeedback")
+        if not isinstance(data["fixes"], list) or len(data["fixes"]) > 3:
+            raise SchemaValidationError("fixes: must contain at most 3 items")
+        feedback_language = _enum_str(data["feedback_language"], "feedback_language", UI_LANGUAGES)
+        practice_language = _enum_str(data["practice_language"], "practice_language", PRACTICE_LANGUAGES)
+        return cls(summary=_compact_text(data["summary"], "summary", COMPACT_LIMITS["summary"]),
+                   fixes=[CompactFix.from_dict(item, index) for index, item in enumerate(data["fixes"])],
+                   next_step=_compact_text(data["next_step"], "next_step", COMPACT_LIMITS["next_step"]),
+                   feedback_language=feedback_language, practice_language=practice_language)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 @dataclass(frozen=True)
 class StyleSuggestion:
     original: str
@@ -365,7 +430,10 @@ class AssessmentReport:
         if coaching is not None:
             if not isinstance(coaching, dict):
                 raise SchemaValidationError("coaching: must be object when present")
-            CoachingSummary.from_dict(coaching)
+            if "fixes" in coaching:
+                CompactFeedback.from_dict(coaching)
+            else:
+                CoachingSummary.from_dict(coaching)
         progress_delta = data.get("progress_delta")
         if progress_delta is not None and not isinstance(progress_delta, dict):
             raise SchemaValidationError("progress_delta: must be object when present")
