@@ -202,7 +202,10 @@ def _check_language(text: str, expected: str, field: str,
         raise SchemaValidationError(f"{field}: appears to be in the wrong language; expected {expected}")
 
 
-_ABBREVIATION = re.compile(r"\b(?:z\.\s*B\.|p\.\s*es\.|Sig\.)", re.IGNORECASE)
+_ABBREVIATION = re.compile(
+    r"\b(?:z\.\s*B\.|p\.\s*(?:es|ej|ex)\.|Sig\.|e\.g\.|i\.e\.|ad\s+es\.|bzw\.|d\.\s*h\.)",
+    re.IGNORECASE,
+)
 
 
 def _one_sentence(text: str) -> bool:

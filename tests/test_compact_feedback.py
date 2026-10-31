@@ -106,6 +106,20 @@ def test_valid_localized_feedback_and_sentence_abbreviations(locale, summary, ne
                                 target_duration_sec=90, rubric=RUBRIC)
 
 
+@pytest.mark.parametrize("locale, summary, next_step", [
+    ("en", "Your answer uses e.g. a clear opening.", "Record a 90 seconds retry with a clear opening."),
+    ("fr", "La réponse ajoute p. ex. un détail.", "Enregistre un nouvel essai de 90 secondes avec un détail."),
+    ("es", "La respuesta añade p. ej. un ejemplo.", "Graba otro intento de 90 segundos con un ejemplo."),
+    ("it", "La risposta aggiunge ad es. un dettaglio.", "Registra un nuovo tentativo di 90 secondi con un dettaglio."),
+])
+def test_common_summary_abbreviations_are_not_sentence_breaks(locale, summary, next_step):
+    data = payload()
+    data.update(summary=summary, next_step=next_step, fixes=[], feedback_language=locale)
+    validate_compact_generation(CompactFeedback.from_dict(data), transcript=TRANSCRIPT,
+                                feedback_language=locale, practice_language="en",
+                                target_duration_sec=90, rubric=RUBRIC)
+
+
 def test_practice_words_quoted_in_localized_explanation_are_not_language_evidence():
     data = payload()
     data.update(summary="La risposta è chiara.",
@@ -132,6 +146,9 @@ def test_practice_words_quoted_in_localized_explanation_are_not_language_evidenc
 def test_second_sentence_is_rejected():
     data = payload()
     data["summary"] = "Your answer has a clear topic. Add detail next."
+    with pytest.raises(SchemaValidationError, match="one sentence"):
+        validate(data)
+    data["summary"] = "Your answer has a clear topic. add detail next."
     with pytest.raises(SchemaValidationError, match="one sentence"):
         validate(data)
 
