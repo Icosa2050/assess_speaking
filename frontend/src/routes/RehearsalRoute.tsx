@@ -53,9 +53,11 @@ export const RehearsalRoute = () => {
   const [preview, setPreview] = useState("");
   const [recordingActive, setRecordingActive] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [openingReports, setOpeningReports] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [reports, setReports] = useState<Record<string, JsonRecord>>({});
+  const [reportLoadStates, setReportLoadStates] = useState<Record<string, "loading" | "failed">>({});
   const [deleteId, setDeleteId] = useState("");
   const mounted = useRef(true);
   const controller = useRef<AbortController | null>(null);
@@ -99,23 +101,38 @@ export const RehearsalRoute = () => {
     finally { if (mounted.current) { setBusy(false); setStatus(""); } }
   };
   const open = async (savedSession: Rehearsal) => {
-    const next = await getRehearsal(savedSession.id);
-    if (!next) throw new Error(t("recording_missing"));
-    setSaved(items => [next, ...items.filter(item => item.id !== next.id)]);
-    setFile(null); setReports({}); setSession(next); setError(""); setDeleteId("");
-    const results = await Promise.allSettled(next.parts.filter(part => part.reportId).map(async part => {
-      const detail = await apiClient.getHistoryDetail(part.reportId!);
-      return [part.reportId!, detail.payload] as const;
-    }));
-    if (!mounted.current) return;
-    setReports(Object.fromEntries(results.flatMap(result => result.status === "fulfilled" ? [result.value] : [])));
-    if (results.some(result => result.status === "rejected")) setError(t("report_missing"));
+    setOpeningReports(true);
+    try {
+      const next = await getRehearsal(savedSession.id);
+      if (!next) throw new Error(t("recording_missing"));
+      setSaved(items => [next, ...items.filter(item => item.id !== next.id)]);
+      const reportIds = next.parts.flatMap(part => part.reportId ? [part.reportId] : []);
+      setFile(null); setReports({}); setReportLoadStates(Object.fromEntries(reportIds.map(id => [id, "loading" as const])));
+      setSession(next); setError(""); setDeleteId("");
+      await Promise.allSettled(reportIds.map(async reportId => {
+        try {
+          const detail = await apiClient.getHistoryDetail(reportId);
+          if (!detail.payload?.report) throw new Error(t("report_missing"));
+          if (!mounted.current) return;
+          setReports(items => ({ ...items, [reportId]: detail.payload }));
+          setReportLoadStates(items => {
+            const updated = { ...items };
+            delete updated[reportId];
+            return updated;
+          });
+        } catch {
+          if (mounted.current) setReportLoadStates(items => ({ ...items, [reportId]: "failed" }));
+        }
+      }));
+    } finally {
+      if (mounted.current) setOpeningReports(false);
+    }
   };
   const start = () => operate(async () => {
     if (!runtime.data?.configured || !speaker.trim()) return;
     const next = createRehearsal(language, goal, speaker, { provider: runtime.data.provider || "", model: runtime.data.model || "",
       baseUrl: runtime.data.base_url || "", whisper: settings.data?.whisper_model || "large-v3", feedbackLanguage: locale });
-    await persist(next); setReports({}); setFile(null);
+    await persist(next); setReports({}); setReportLoadStates({}); setFile(null);
   });
   const remaining = session?.preparationEndsAt ? secondsRemaining(session.preparationEndsAt) : 0;
   const index = session?.parts.findIndex(part => !part.recorded) ?? -1;
@@ -191,8 +208,17 @@ export const RehearsalRoute = () => {
         part.jobId = undefined; part.audioId = undefined; await persist(current, access);
         throw new Error(t("analysis_failed"));
       }
-      part.reportId = report.session_id; await persist(current, access);
-      if (mounted.current) setReports(items => ({ ...items, [part.reportId!]: result.payload! }));
+      part.reportId = report.session_id;
+      if (mounted.current) setReportLoadStates(items => ({ ...items, [part.reportId!]: "loading" }));
+      await persist(current, access);
+      if (mounted.current) {
+        setReports(items => ({ ...items, [part.reportId!]: result.payload! }));
+        setReportLoadStates(items => {
+          const updated = { ...items };
+          delete updated[part.reportId!];
+          return updated;
+        });
+      }
       current = structuredClone(current);
     }
     }));
@@ -225,7 +251,7 @@ export const RehearsalRoute = () => {
       <p>{t("saved_notice")}</p><progress value={recorded} max={session.parts.length} aria-label={t("parts_saved")} /> <span>{recorded}/{session.parts.length} {t("parts_saved")}</span>
     </header>
     {error && <p role="alert">{error}</p>}
-    {busy && <p role="status">{status || t("saving")}</p>}
+    {busy && !openingReports && <p role="status">{status || t("saving")}</p>}
     {busy && status && <button data-testid="rehearsal-pause-analysis" onClick={() => controller.current?.abort()}>{t("pause_analysis")}</button>}
     {(session.phase === "ready" || session.phase === "preparation") && <div className={styles.card}>
       <h2>{t("prepare")}</h2><ol>{session.parts.map(part => <li key={part.id}>{part.prompt} <strong>{clockText(part.durationSec)}</strong></li>)}</ol>
@@ -272,7 +298,8 @@ export const RehearsalRoute = () => {
           <RehearsalAudio session={session} index={i} label={t("playback")} unavailable={t("audio_missing")} downloadLabel={translate("speak.download_recording")} />
           {part.reportId ? <>
             <dl className={styles.metrics}>{[["duration", metrics.duration_sec], ["wpm", metrics.wpm], ["score", assessable ? scores.final : null]].map(([label, value]) => <div key={String(label)}><dt>{t(String(label))}</dt><dd>{typeof value === "number" && Number.isFinite(value) ? value.toFixed(1) : "—"}</dd></div>)}</dl>
-            {!loadedReport && <p role="status" data-testid={`rehearsal-report-missing-${i}`}>{t("report_missing")}</p>}
+            {!loadedReport && reportLoadStates[part.reportId] === "failed" && <p role="status" data-testid={`rehearsal-report-missing-${i}`}>{t("report_missing")}</p>}
+            {!loadedReport && reportLoadStates[part.reportId] !== "failed" && <p data-testid={`rehearsal-report-loading-${i}`}>{t("report_loading")}</p>}
             {loadedReport && !assessable && <p role="status" data-testid={`rehearsal-ineligible-${i}`}>{translate(eligibilityMessage)}</p>}
             {assessable && (!report.rubric || warnings.includes("coaching_unavailable")) && <p>{translate("review.general_practice_tips")}</p>}
             {warnings.includes("transcript_uncertain") && <p>{translate("review.transcript_uncertain")}</p>}
@@ -285,7 +312,7 @@ export const RehearsalRoute = () => {
               {coachingSummary.full && <p><strong>{translate("review.legacy_full_summary")}</strong> {coachingSummary.full}</p>}
               {nextStep.full && <p><strong>{translate("review.legacy_full_focus")}</strong> {nextStep.full}</p>}
             </details>}
-            <button data-testid={`rehearsal-retry-${i}`} disabled={busy} onClick={() => operate(async () => { const next = retryPart(session, i); await persist(next); setReports({}); setFile(null); })}>{t("retry")}</button>
+            <button data-testid={`rehearsal-retry-${i}`} disabled={busy} onClick={() => operate(async () => { const next = retryPart(session, i); await persist(next); setReports({}); setReportLoadStates({}); setFile(null); })}>{t("retry")}</button>
           </> : <p>{part.jobId ? t("in_progress") : t("awaiting_analysis")}</p>}
         </article>;
       })}
