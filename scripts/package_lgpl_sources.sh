@@ -8,7 +8,8 @@ STAGE="$WORK/source-offer"
 rm -rf -- "$STAGE"
 mkdir -p "$STAGE"
 cp "$WORK/sources/ffmpeg-7.1.1.tar.xz" "$WORK/sources/av-14.2.0.tar.gz" \
-  "$WORK/configure-flags.txt" "$ROOT/scripts/build_lgpl_pyav.sh" "$STAGE/"
+  "$WORK/configure-flags.txt" "$ROOT/scripts/build_lgpl_pyav.sh" \
+  "$ROOT/packaging/requirements-lgpl-build.txt" "$STAGE/"
 cp "$WORK/ffmpeg-7.1.1/COPYING.LGPLv2.1" "$STAGE/LGPL-2.1.txt"
 cp "$WORK/av-14.2.0/LICENSE.txt" "$STAGE/PyAV-BSD-LICENSE.txt"
 : > "$STAGE/changes.diff"
