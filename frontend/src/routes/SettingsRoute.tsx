@@ -14,6 +14,7 @@ import { buildSetupReadinessRows, canEnterSpeak } from "@/lib/setup/readiness";
 import { useReadiness } from "@/lib/setup/useReadiness";
 import { useAppStore } from "@/lib/state/appStore";
 import { SUPPORTED_UI_LOCALES, type UiLocale } from "@/lib/state/sessionDraft";
+import tauriConfig from "../../src-tauri/tauri.conf.json";
 
 type SettingsOrigin = "home" | "runtime-setup" | "session-setup" | "speak" | "review" | "library" | "guide" | "history";
 type SettingsLocationState = { from?: SettingsOrigin; focusConnectionId?: string; fromSetup?: boolean; saveNotice?: "session-only"; connectionNotice?: string };
@@ -93,6 +94,10 @@ export const SettingsRoute = () => {
   const [connectionMessage, setConnectionMessage] = useState("");
   const [preferencesMessage, setPreferencesMessage] = useState("");
   const [whisperMessage, setWhisperMessage] = useState("");
+  const [licensesOpen, setLicensesOpen] = useState(false);
+  const [licensesText, setLicensesText] = useState("");
+  const [licensesLoading, setLicensesLoading] = useState(false);
+  const [licensesError, setLicensesError] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
   const focusedNavigationKey = useRef<string | null>(null);
 
@@ -230,6 +235,22 @@ export const SettingsRoute = () => {
   const whisperStatusMessage = whisperStatusQuery.data?.cached
     ? translate("settings.whisper_cached", { path: whisperStatusQuery.data.cached_path })
     : whisperMessage || translate("settings.whisper_not_cached");
+  const openLicenses = async () => {
+    if (licensesOpen) { setLicensesOpen(false); return; }
+    setLicensesOpen(true);
+    if (licensesText) return;
+    setLicensesLoading(true);
+    setLicensesError(false);
+    try {
+      const response = await fetch("/THIRD_PARTY_NOTICES.txt");
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setLicensesText(await response.text());
+    } catch {
+      setLicensesError(true);
+    } finally {
+      setLicensesLoading(false);
+    }
+  };
 
   return (
     <div style={{ display: "grid", gap: "1rem" }} {...semanticAttributes(SEMANTIC_IDS.settings.screen)}>
@@ -376,6 +397,28 @@ export const SettingsRoute = () => {
         activeConnectionId={runtimeSettingsQuery.data?.active_connection_id || preferences.activeConnectionId}
         locale={locale}
       />
+
+      <section style={cardStyle} aria-labelledby="settings-privacy-heading">
+        <h2 id="settings-privacy-heading" style={{ margin: 0, fontSize: "1.2rem" }}>{translate("settings.privacy_title")}</h2>
+        <p style={{ margin: 0, lineHeight: 1.6 }}>{translate("settings.privacy_local")}</p>
+        <p style={{ margin: 0, lineHeight: 1.6 }}>{translate("settings.privacy_cloud")}</p>
+        <p style={{ margin: 0, lineHeight: 1.6 }}>{translate("settings.privacy_audio")}</p>
+      </section>
+
+      <section style={cardStyle} aria-labelledby="settings-about-heading">
+        <h2 id="settings-about-heading" style={{ margin: 0, fontSize: "1.2rem" }}>{translate("settings.about_title")}</h2>
+        <p style={{ margin: 0 }}>{translate("settings.about_version", { version: tauriConfig.version })}</p>
+        <p style={{ margin: 0 }}>{translate("settings.about_commit", { commit: import.meta.env.VITE_VOSTAVO_BUILD_COMMIT || "development" })}</p>
+        <a href="/THIRD_PARTY_NOTICES.txt" aria-controls="settings-license-text" aria-expanded={licensesOpen}
+          onClick={(event) => { event.preventDefault(); void openLicenses(); }}>
+          {translate("settings.about_licenses")}
+        </a>
+        {licensesOpen ? <div id="settings-license-text">
+          {licensesLoading ? <p role="status">{translate("settings.about_licenses_loading")}</p> : null}
+          {licensesError ? <p role="alert">{translate("settings.about_licenses_failed")}</p> : null}
+          {licensesText ? <pre style={{ maxHeight: "24rem", overflow: "auto", whiteSpace: "pre-wrap", fontSize: "0.8rem" }}>{licensesText}</pre> : null}
+        </div> : null}
+      </section>
 
       <section style={cardStyle}>
         <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>

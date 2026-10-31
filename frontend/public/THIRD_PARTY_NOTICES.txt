@@ -1,0 +1,3 @@
+VOSTAVO THIRD-PARTY NOTICES
+
+This development preview does not contain a frozen macOS runtime. The macOS DMG build replaces this file with notices generated from the locked Python, npm and Rust inputs and the frozen helper inventory. The same generated file is placed in Vostavo.app/Contents/Resources.

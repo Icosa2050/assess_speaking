@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / '.build-macos'
 PYTHON_VERSION = '3.12.11'
 MINIMUM_MACOS = '14.0'  # The native audit of the built app requires this floor.
+COPYRIGHT = 'Copyright © 2026 Vostavo'
 PROFILE_ENV = 'VOSTAVO_PROVISIONING_PROFILE'
 
 
@@ -177,10 +178,51 @@ def sign(bundle, identity, release, entitlements):
     run(['codesign', '--verify', '--deep', '--strict', '--verbose=2', bundle])
 
 
+def sign_app_with_notices(bundle: Path, notices: Path, identity: str, release: bool, entitlements: Path) -> None:
+    """Put the generated notices in the signed app, preserving their bytes."""
+    destination = bundle / 'Contents/Resources/THIRD_PARTY_NOTICES.txt'
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(notices, destination)
+    if destination.read_bytes() != notices.read_bytes():
+        raise RuntimeError('Bundled third-party notices differ from the generated file')
+    sign(bundle, identity, release, entitlements)
+
+
 def notarize(artifact, profile):
     result = json.loads(output(['xcrun', 'notarytool', 'submit', artifact, '--keychain-profile', profile, '--wait', '--output-format', 'json']))
     if result.get('status') != 'Accepted':
         raise RuntimeError(f'Notarization was not accepted: {result.get("id")} {result.get("status")}')
+    return result
+
+
+def notarize_and_staple_app(bundle: Path, profile: str, archive: Path) -> dict:
+    run(['ditto', '-c', '-k', '--keepParent', bundle, archive])
+    result = notarize(archive, profile)
+    run(['xcrun', 'stapler', 'staple', bundle])
+    run(['xcrun', 'stapler', 'validate', bundle])
+    run(['spctl', '-a', '-t', 'exec', '-vvv', bundle])
+    return result
+
+
+def notarize_and_staple_dmg(artifact: Path, profile: str) -> dict:
+    result = notarize(artifact, profile)
+    run(['xcrun', 'stapler', 'staple', artifact])
+    run(['xcrun', 'stapler', 'validate', artifact])
+    run(['spctl', '-a', '-t', 'open', '--context', 'context:primary-signature', '-vvv', artifact])
+    return result
+
+
+def package_dmg(stage: Path, bundle: Path, artifact: Path, *, release: bool,
+                local_sign_only: bool, profile: str, signing_identity: str) -> dict:
+    """Package in the release order; mock run/output for a no-Apple dry run."""
+    result = {}
+    if release and not local_sign_only:
+        result['app_notarization'] = notarize_and_staple_app(bundle, profile, BUILD / 'Vostavo.zip')
+    (stage / 'Applications').symlink_to('/Applications')
+    run(['hdiutil', 'create', '-ov', '-volname', 'Vostavo', '-srcfolder', stage, '-format', 'UDZO', artifact])
+    run(['codesign', '--force', '--sign', signing_identity, '--timestamp' if release else '--timestamp=none', artifact])
+    if release and not local_sign_only:
+        result['dmg_notarization'] = notarize_and_staple_dmg(artifact, profile)
     return result
 
 
@@ -194,6 +236,16 @@ def main(argv=None):
     parser.add_argument('--allow-drafts-disabled', action='store_true',
                         help='Acknowledge that a local signed build without a provisioning profile cannot save drafts.')
     parser.add_argument('--python', default=PYTHON_VERSION)
+    parser.add_argument('--ffmpeg-source-version', default='',
+                        help='FFmpeg version for the corresponding-source reference.')
+    parser.add_argument('--ffmpeg-source-archive', default='',
+                        help='Local FFmpeg/PyAV corresponding-source archive used to verify its SHA-256.')
+    parser.add_argument('--ffmpeg-source-url', default='',
+                        help='Hosted URL of the exact FFmpeg/PyAV corresponding-source archive.')
+    parser.add_argument('--ffmpeg-source-sha256', default='',
+                        help='SHA-256 of the hosted corresponding-source archive; derived from the local archive if omitted.')
+    parser.add_argument('--allow-gpl-ffmpeg-distribution', action='store_true',
+                        help='Explicit owner acknowledgment for a GPL/nonfree FFmpeg or x264/x265 release.')
     parser.add_argument('--reuse-helper', action='store_true', help='Local iteration only; forbidden for releases.')
     args = parser.parse_args(argv)
     if sys.platform != 'darwin' or platform.machine() != 'arm64':
@@ -203,6 +255,8 @@ def main(argv=None):
         parser.error('--local-sign-only requires --mode release')
     if args.allow_drafts_disabled and not (release and args.local_sign_only):
         parser.error('--allow-drafts-disabled requires a local-sign-only release')
+    if args.allow_gpl_ffmpeg_distribution and not release:
+        parser.error('--allow-gpl-ffmpeg-distribution requires --mode release')
     signing_cert_sha1 = None
     if release:
         if args.reuse_helper or not args.identity.startswith('Developer ID Application:') or (not args.local_sign_only and not args.notary_profile):
@@ -218,6 +272,8 @@ def main(argv=None):
             parser.error(str(exc))
     config = json.loads((ROOT / 'frontend/src-tauri/tauri.conf.json').read_text())
     version = config['version']
+    if config['identifier'] != 'com.vostavo.desktop' or config['bundle']['copyright'] != COPYRIGHT or config['bundle']['macOS']['minimumSystemVersion'] != MINIMUM_MACOS:
+        raise RuntimeError('Tauri release identity differs from macOS build identity')
     if tomllib.loads((ROOT / 'frontend/src-tauri/Cargo.toml').read_text())['package']['version'] != version:
         raise RuntimeError('Rust and Tauri versions differ')
     profile_source = Path(os.environ[PROFILE_ENV]).expanduser() if release and os.environ.get(PROFILE_ENV) else None
@@ -236,7 +292,6 @@ def main(argv=None):
         raise RuntimeError('Packaging requires pinned CPython 3.12.11 arm64')
     npm_env = {key: os.environ[key] for key in ('PATH', 'HOME', 'TMPDIR', 'LANG') if key in os.environ}
     run(['npm', '--prefix', ROOT / 'frontend', 'ci', '--ignore-scripts'], env=npm_env)
-    run(['npm', '--prefix', ROOT / 'frontend', 'run', 'build'])
     helper = BUILD / 'dist/VostavoBackend.app'
     if not args.reuse_helper:
         run([python, '-m', 'PyInstaller', '--clean', '--noconfirm', '--distpath', BUILD / 'dist', '--workpath', BUILD / 'pyinstaller', ROOT / 'packaging/vostavo-backend.spec'], cwd=ROOT)
@@ -246,6 +301,34 @@ def main(argv=None):
         raise RuntimeError('Packaging requires pinned CPython 3.12.11 arm64')
     if plistlib.loads((helper / 'Contents/Info.plist').read_bytes())['CFBundleShortVersionString'] != version:
         raise RuntimeError('Helper version differs')
+    source_sha256 = args.ffmpeg_source_sha256
+    if args.ffmpeg_source_archive:
+        with Path(args.ffmpeg_source_archive).open('rb') as stream:
+            actual_source_sha256 = hashlib.file_digest(stream, 'sha256').hexdigest()
+        if source_sha256 and source_sha256.lower() != actual_source_sha256:
+            raise RuntimeError('FFmpeg corresponding-source archive SHA-256 mismatch')
+        source_sha256 = actual_source_sha256
+    notices = BUILD / 'THIRD_PARTY_NOTICES.txt'
+    notice_command = [python, ROOT / 'scripts/generate_third_party_notices.py', '--output', notices, '--helper', helper,
+         '--ffmpeg-source-version', args.ffmpeg_source_version,
+         '--ffmpeg-source-archive', args.ffmpeg_source_archive,
+         '--ffmpeg-source-url', args.ffmpeg_source_url,
+         '--ffmpeg-source-sha256', source_sha256]
+    if release:
+        notice_command.append('--require-ffmpeg-source-reference')
+    if args.allow_gpl_ffmpeg_distribution:
+        notice_command.append('--allow-gpl-ffmpeg-distribution')
+    run(notice_command)
+    public_dir = BUILD / 'frontend-public'
+    if public_dir.exists():
+        shutil.rmtree(public_dir)
+    shutil.copytree(ROOT / 'frontend/public', public_dir)
+    public_notices = public_dir / 'THIRD_PARTY_NOTICES.txt'
+    shutil.copy2(notices, public_notices)
+    build_commit = output(['git', 'rev-parse', '--short=12', 'HEAD'])
+    npm_env['VITE_VOSTAVO_BUILD_COMMIT'] = build_commit
+    npm_env['VOSTAVO_PUBLIC_DIR'] = str(public_dir)
+    run(['npm', '--prefix', ROOT / 'frontend', 'run', 'build'], env=npm_env)
     env = cargo_environment()
     cargo = shutil.which('cargo') or str(Path.home() / '.cargo/bin/cargo')
     features = 'custom-protocol,internal-dmg-acceptance' if not release else 'custom-protocol,device-only-drafts'
@@ -274,7 +357,9 @@ def main(argv=None):
         folder.mkdir()
         (folder / 'InfoPlist.strings').write_text(f'"NSMicrophoneUsageDescription" = {json.dumps(copy, ensure_ascii=False)};\n')
     evidence = audit(bundle)
-    info = {'CFBundleExecutable': 'vostavo-desktop', 'CFBundleIdentifier': config['identifier'], 'CFBundleName': 'Vostavo', 'CFBundleDisplayName': 'Vostavo', 'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': version, 'CFBundleVersion': version, 'CFBundleIconFile': 'Vostavo.icns', 'LSMinimumSystemVersion': evidence['minimum_macos'], 'NSMicrophoneUsageDescription': microphone['en'], 'NSAppleEventsUsageDescription': 'Vostavo can prepare a support email in Mail with your selected package attached. You review and send the draft.', 'CFBundleLocalizations': list(microphone), 'NSHighResolutionCapable': True}
+    if evidence['minimum_macos'] != MINIMUM_MACOS:
+        raise RuntimeError(f'Native minimum macOS {evidence["minimum_macos"]} exceeds declared {MINIMUM_MACOS}')
+    info = {'CFBundleExecutable': 'vostavo-desktop', 'CFBundleIdentifier': config['identifier'], 'CFBundleName': 'Vostavo', 'CFBundleDisplayName': 'Vostavo', 'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': version, 'CFBundleVersion': version, 'NSHumanReadableCopyright': COPYRIGHT, 'CFBundleIconFile': 'Vostavo.icns', 'LSMinimumSystemVersion': MINIMUM_MACOS, 'NSMicrophoneUsageDescription': microphone['en'], 'NSAppleEventsUsageDescription': 'Vostavo can prepare a support email in Mail with your selected package attached. You review and send the draft.', 'CFBundleLocalizations': list(microphone), 'NSHighResolutionCapable': True}
     (bundle / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
     # Keep nested bundle's declared minimum consistent with its actual native code.
     helper_info = bundle / 'Contents/Helpers/VostavoBackend.app/Contents/Info.plist'
@@ -284,7 +369,7 @@ def main(argv=None):
     entitlements = ROOT / 'packaging/entitlements.plist'
     if profile_source and profile_claims:
         entitlements = embed_profile(bundle, profile_source, profile_claims, BUILD / 'release-entitlements.plist')
-    sign(bundle, signing_cert_sha1 if release else '-', release, entitlements)
+    sign_app_with_notices(bundle, notices, signing_cert_sha1 if release else '-', release, entitlements)
     if profile_claims:
         verify_signed_profile_claims(bundle, profile_claims)
     smoke_env = {key: os.environ[key] for key in ('HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG') if key in os.environ}
@@ -293,29 +378,21 @@ def main(argv=None):
     evidence['frozen_self_test'] = json.loads(smoke.stdout)
     if not evidence['frozen_self_test'].get('ok'):
         raise RuntimeError('Signed frozen helper self-test failed')
-    if release and not args.local_sign_only:
-        archive = BUILD / 'Vostavo.zip'
-        run(['ditto', '-c', '-k', '--keepParent', bundle, archive])
-        evidence['app_notarization'] = notarize(archive, args.notary_profile)
-        run(['xcrun', 'stapler', 'staple', bundle])
-        run(['xcrun', 'stapler', 'validate', bundle])
-        run(['spctl', '-a', '-t', 'exec', '-vvv', bundle])
-    (stage / 'Applications').symlink_to('/Applications')
     suffix = 'arm64-signed-unnotarized' if args.local_sign_only else 'arm64' if release else 'arm64-internal-adhoc'
     artifact = BUILD / f'Vostavo-{version}-{suffix}.dmg'
-    run(['hdiutil', 'create', '-ov', '-volname', 'Vostavo', '-srcfolder', stage, '-format', 'UDZO', artifact])
-    run(['codesign', '--force', '--sign', signing_cert_sha1 if release else '-', '--timestamp' if release else '--timestamp=none', artifact])
-    if release and not args.local_sign_only:
-        evidence['dmg_notarization'] = notarize(artifact, args.notary_profile)
-        run(['xcrun', 'stapler', 'staple', artifact])
-        run(['xcrun', 'stapler', 'validate', artifact])
-        run(['spctl', '-a', '-t', 'open', '--context', 'context:primary-signature', '-vvv', artifact])
+    evidence.update(package_dmg(stage, bundle, artifact, release=release, local_sign_only=args.local_sign_only,
+                                profile=args.notary_profile, signing_identity=signing_cert_sha1 if release else '-'))
     run(['codesign', '--verify', '--deep', '--strict', bundle])
-    evidence.update(mode=args.mode, notarization_skipped=args.local_sign_only,
+    evidence.update(mode=args.mode, notarization_skipped=not (release and not args.local_sign_only),
+                    allow_gpl_ffmpeg_distribution=args.allow_gpl_ffmpeg_distribution,
+                    ffmpeg_source_url=args.ffmpeg_source_url, ffmpeg_source_sha256=source_sha256,
                     provisioning_profile_embedded=bool(profile_source),
                     draft_storage='device-only' if release and profile_source else 'unavailable' if release else 'development-fallback',
                     gatekeeper_accepted=release and not args.local_sign_only,
-                    version=version, artifact=str(artifact), sha256=hashlib.sha256(artifact.read_bytes()).hexdigest(), lock_sha256=hashlib.sha256((ROOT / 'packaging/requirements-macos-arm64.txt').read_bytes()).hexdigest(), python=output([python, '--version']), pyinstaller=output([python, '-m', 'PyInstaller', '--version']), rust=output([cargo, '--version']))
+                    version=version, bundle_short_version=version, bundle_version=version, bundle_id=config['identifier'],
+                    copyright=COPYRIGHT, minimum_macos=MINIMUM_MACOS, build_commit=build_commit,
+                    third_party_notices_sha256=hashlib.sha256(notices.read_bytes()).hexdigest(),
+                    artifact=str(artifact), sha256=hashlib.sha256(artifact.read_bytes()).hexdigest(), lock_sha256=hashlib.sha256((ROOT / 'packaging/requirements-macos-arm64.txt').read_bytes()).hexdigest(), python=output([python, '--version']), pyinstaller=output([python, '-m', 'PyInstaller', '--version']), rust=output([cargo, '--version']))
     report = BUILD / 'build-report.json'
     report.write_text(json.dumps(evidence, indent=2))
     (BUILD / (artifact.name + '.sha256')).write_text(f'{evidence["sha256"]}  {artifact.name}\n')

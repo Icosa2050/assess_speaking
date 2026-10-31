@@ -25,6 +25,8 @@ Output is under `.build-macos/`:
 - `Vostavo-0.1.0-arm64-internal-adhoc.dmg`
 - adjacent SHA-256 checksum
 - `build-report.json` with native linkage and build evidence
+- `THIRD_PARTY_NOTICES.txt`, also embedded in `Vostavo.app/Contents/Resources`
+  and available from Settings → About → Third-party licenses
 
 `--reuse-helper` is an internal iteration option, never a release option. Use the
 full build after Python changes. Internal signing enables Hardened Runtime; the
@@ -102,6 +104,59 @@ staples the DMG and verifies codesign, stapler and spctl. Run the artifact suite
 against that actual release DMG too. The release path requires testing with a real
 certificate; internal acceptance cannot establish release library-validation
 compatibility.
+
+For a replacement LGPL FFmpeg build, pass `--ffmpeg-source-version` with the
+exact FFmpeg release, `--ffmpeg-source-archive` with the local
+`.build-macos/LGPL-corresponding-source.tar.gz`, and `--ffmpeg-source-url` with
+the hosted URL of those exact archive bytes. The generator derives the SHA-256
+from the local archive; if `--ffmpeg-source-sha256` is also supplied, it must
+match. A release build requires the source version, hosted URL and SHA-256,
+and records the URL and hash in the notices and build report. The archive stays
+outside the DMG. Hosting it is an owner release action; verify recipients can
+retrieve it before publishing the DMG. The notice also records PyAV's reported
+version, license and configure flags. It includes the full LGPL 2.1 text, or
+LGPL 3 plus its incorporated GPL 3
+text, according to PyAV's reported library license. This source reference and
+license text do not replace the owner's review of LGPL relinking obligations.
+Release builds also fail if PyAV reports GPL/nonfree FFmpeg or the helper bundles
+x264/x265. An owner may explicitly pass `--allow-gpl-ffmpeg-distribution` after
+resolving the relevant license and corresponding-source obligations; the build
+report records the opt-in. The opt-in does not establish legal permission to
+distribute a nonfree build.
+
+## Release checklist
+
+Before distribution, the owner must review the license audit attached to the
+AO release-readiness session and the generated notices. The currently pinned PyAV arm64 wheel reports
+GPLv3-or-later FFmpeg libraries; resolve that distribution blocker before
+publishing a DMG. The repository's own source license is also an owner decision.
+
+1. Confirm the Developer ID Application identity, explicit
+   `com.vostavo.desktop` App ID and Developer ID provisioning profile. Verify
+   its team, certificate, expiry and device-only Keychain entitlement. Keep the
+   profile and notary Keychain credential outside the repository.
+2. Run the local `tests/test_build_macos.py` dry-run. It mocks `notarytool` and
+   `stapler` and checks that the app archive is submitted and stapled before
+   DMG creation, then the signed DMG is submitted and stapled. It contacts no
+   Apple service.
+3. Once owner credentials are available, run the release build command above.
+   It signs the app, submits `Vostavo.zip`, staples and validates `Vostavo.app`,
+   then creates/signs/submits/staples and validates the DMG. Record both Apple
+   acceptance IDs from `build-report.json`.
+4. Verify `codesign --verify --deep --strict` on the app; run `xcrun stapler
+   validate` on both app and DMG; run `spctl -a -t exec -vvv` on the app and
+   `spctl -a -t open --context context:primary-signature -vvv` on the DMG.
+   Verify `Info.plist` version `0.1.0`, identifier `com.vostavo.desktop`,
+   copyright and minimum macOS `14.0` against the build report.
+5. Verify the adjacent SHA-256 checksum with `(cd .build-macos && shasum -a
+   256 -c Vostavo-0.1.0-arm64.dmg.sha256)`. Archive the DMG, checksum,
+   build report, notices and the human acceptance record together.
+6. On a clean Mac or user, download the DMG with quarantine preserved. Launch
+   from Applications, save and reopen a draft in the **real UI**, and confirm
+   the microphone permission prompt appears on first recording. After stapling,
+   disconnect the network and confirm first launch succeeds offline. Check
+   playback, a completed review, history persistence and no orphan helper on
+   quit. Record OS version and outcomes.
 
 ## Interactive release acceptance
 
