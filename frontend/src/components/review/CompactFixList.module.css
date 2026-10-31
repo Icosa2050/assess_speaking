@@ -1,5 +1,5 @@
 .fixes { display: grid; gap: var(--space-3); border-top: 1px solid var(--color-border-decorative); padding-top: var(--space-4); }
-.fixes h3 { margin: 0; color: var(--color-text); font-size: var(--font-size-title); }
+.fixes h3, .fixes h4 { margin: 0; color: var(--color-text); font-size: var(--font-size-title); }
 .fixes ol { display: grid; gap: var(--space-3); margin: 0; padding-inline-start: 1.5rem; }
 .fixes li { padding: var(--space-3); border: 1px solid var(--color-border-decorative); border-radius: var(--radius-card); background: var(--color-surface); }
 .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }

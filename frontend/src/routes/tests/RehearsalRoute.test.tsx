@@ -72,17 +72,26 @@ it("shows a saved compact coaching summary and next step for a rehearsal part", 
   vi.mocked(apiClient.getHistoryDetail).mockResolvedValue({ payload: { report: {
     session_id: "compact-part", metrics: { duration_sec: 180, wpm: 110 }, scores: { final: 4 },
     rubric: {}, warnings: [], coaching: {
-      summary: "Your story has a clear sequence.", fixes: [],
+      summary: "Your story has a clear sequence.",
+      fixes: [{ you_said: "I goes to Rome", better: "I go to Rome.", why: "Use the base verb with I." }],
       next_step: "Record a 180 seconds retry with one clear ending.",
       feedback_language: "en", practice_language: "en",
     },
   } } } as Awaited<ReturnType<typeof apiClient.getHistoryDetail>>);
-  renderWithProviders(<RehearsalRoute />, { initialEntries: ["/rehearsal"], locale: "en",
+  renderWithProviders(<RehearsalRoute />, { initialEntries: ["/rehearsal"], locale: "it",
     appState: { draft: { speakerId: "Alex" }, microphoneSetupPassed: true } });
   fireEvent.click(await screen.findByRole("button", { name: /EN.*Alex/ }));
   const result = await screen.findByTestId("rehearsal-result-0");
   expect(result).toHaveTextContent("Your story has a clear sequence.");
   expect(result).toHaveTextContent("Record a 180 seconds retry with one clear ending.");
+  expect(screen.getByTestId("rehearsal-coaching-summary-0")).toHaveAttribute("lang", "en");
+  expect(screen.getByTestId("rehearsal-next-step-0")).toHaveAttribute("lang", "en");
+  const fixes = screen.getByTestId("rehearsal-compact-fixes-0");
+  expect(fixes.querySelector("h4")).toBeInTheDocument();
+  expect(fixes).toHaveTextContent("I goes to Rome");
+  expect(fixes).toHaveTextContent("I go to Rome.");
+  expect(fixes).toHaveTextContent("Use the base verb with I.");
+  expect(screen.getByText("I goes to Rome")).toHaveAttribute("lang", "en");
   expect(result).not.toHaveTextContent("Report unavailable");
 });
 

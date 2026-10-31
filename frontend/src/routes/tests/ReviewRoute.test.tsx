@@ -191,7 +191,7 @@ describe("Review route", () => {
 
   it.each(["en", "de", "it", "fr", "es"] as const)("uses a concise localized fallback in %s", async (locale) => {
     const payload = { ...reviewPayload, report: { ...reviewPayload.report,
-      input: { ...reviewPayload.report.input, feedback_language: locale, target_duration_sec: 120 },
+      input: { ...reviewPayload.report.input, feedback_language: "en", target_duration_sec: 120 },
       coaching: { ...reviewPayload.report.coaching, coach_summary: "Long legacy text. ".repeat(100) },
       warnings: ["coaching_unavailable"],
     } };
@@ -201,7 +201,9 @@ describe("Review route", () => {
     } });
     const translate = createTranslator(locale);
     expect(await screen.findByTestId("review-coach-takeaway")).toHaveTextContent(translate("review.compact_unavailable_summary"));
+    expect(screen.getByTestId("review-coach-takeaway")).not.toHaveAttribute("lang");
     expect(screen.getByTestId("review-compact-next-step")).toHaveTextContent(translate("review.compact_unavailable_step", { duration: 120 }));
+    expect(screen.getByTestId("review-compact-next-step").querySelector("p")).not.toHaveAttribute("lang");
     expect(within(screen.getByTestId("review-next-step-card")).queryByText(/Long legacy text/)).not.toBeInTheDocument();
     expect(screen.queryByTestId("review-strengths")).not.toBeInTheDocument();
   });

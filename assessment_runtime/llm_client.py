@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from typing import Any, Callable
 from urllib import error, request
 
-from assess_core.schemas import CompactFeedback, PRACTICE_LANGUAGES, RubricResult, SchemaValidationError
+from assess_core.schemas import CompactFeedback, PRACTICE_LANGUAGES, UI_LANGUAGES, RubricResult, SchemaValidationError
 from app_core.runtime_providers import normalize_provider, runtime_base_url, service_base_url
 from assessment_runtime.output_validation import (
     UncertainTranscriptEvidenceError,
@@ -385,6 +385,8 @@ def generate_coaching_summary(
 ) -> tuple[CompactFeedback, str]:
     if practice_language not in PRACTICE_LANGUAGES:
         raise LLMSchemaError(f"compact coaching is unavailable for practice language {practice_language}")
+    if feedback_language not in UI_LANGUAGES:
+        raise LLMSchemaError(f"compact coaching is unavailable for feedback language {feedback_language}")
     attempt_prompt = prompt
     last_error: Exception | None = None
     for attempt in range(max_validation_retries + 1):

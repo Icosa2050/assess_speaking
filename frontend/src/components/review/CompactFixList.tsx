@@ -3,16 +3,18 @@ import styles from "./CompactFixList.module.css";
 type Fix = { youSaid: string; better: string; why: string };
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
 
-export function CompactFixList({ fixes, practiceLanguage, feedbackLanguage, translate, testId = "review-compact-fixes" }: {
+export function CompactFixList({ fixes, practiceLanguage, feedbackLanguage, translate, testId = "review-compact-fixes", headingLevel = 3 }: {
   fixes: Fix[];
   practiceLanguage: string;
   feedbackLanguage: string;
   translate: Translate;
   testId?: string;
+  headingLevel?: 3 | 4;
 }) {
   if (fixes.length === 0) return null;
+  const Heading = headingLevel === 4 ? "h4" : "h3";
   return <section className={styles.fixes} aria-label={translate("review.compact_fixes_title")} data-testid={testId}>
-    <h3>{translate("review.compact_fixes_title")}</h3>
+    <Heading>{translate("review.compact_fixes_title")}</Heading>
     <ol>
       {fixes.slice(0, 3).map((fix, index) => <li key={`${fix.youSaid}-${index}`}>
         <div className={styles.pair}>

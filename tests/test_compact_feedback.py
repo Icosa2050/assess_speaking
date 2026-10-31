@@ -174,6 +174,30 @@ def test_unsupported_practice_language_skips_provider_before_call():
     completion.assert_not_called()
 
 
+def test_unsupported_feedback_language_skips_provider_before_call():
+    with mock.patch("assessment_runtime.llm_client._chat_completion") as completion:
+        with pytest.raises(LLMSchemaError, match="unavailable for feedback language nl"):
+            generate_coaching_summary("ollama", "fixture", "prompt", rubric=RUBRIC,
+                                      transcript=TRANSCRIPT, target_duration_sec=90,
+                                      feedback_language="nl", practice_language="en")
+    completion.assert_not_called()
+
+
+@pytest.mark.parametrize("locale, summary, next_step", [
+    ("en", "Your answer stays on topic.", "Tell the story again aloud for 90 seconds, adding one concrete example."),
+    ("de", "Die Antwort bleibt beim Thema.", "Erzähle die Geschichte 90 Sekunden lang mit einem Beispiel."),
+    ("it", "La risposta resta sul tema.", "Racconta la storia per 90 secondi con un esempio."),
+    ("fr", "La réponse reste sur le sujet.", "Raconte l'histoire pendant 90 secondes avec un exemple."),
+    ("es", "La respuesta sigue el tema.", "Cuenta la historia durante 90 segundos con un ejemplo."),
+])
+def test_other_spoken_retry_verbs_are_valid(locale, summary, next_step):
+    data = payload()
+    data.update(summary=summary, fixes=[], next_step=next_step, feedback_language=locale)
+    validate_compact_generation(CompactFeedback.from_dict(data), transcript=TRANSCRIPT,
+                                feedback_language=locale, practice_language="en",
+                                target_duration_sec=90, rubric=RUBRIC)
+
+
 def test_quote_and_duration_are_grounded():
     data = payload()
     data["fixes"][0]["you_said"] = "I went to Rome"

@@ -173,11 +173,11 @@ _LANGUAGE_MARKERS = {
     "es": {"tú", "los", "las", "porque", "habla", "graba", "repite", "añade", "respuesta", "ejemplos"},
 }
 _SPEECH_ACTIONS = {
-    "en": {"record", "speak", "say", "repeat"},
-    "de": {"nimm", "sprich", "sage", "wiederhole"},
-    "it": {"registra", "parla", "ripeti"},
-    "fr": {"enregistre", "parle", "dis", "répète"},
-    "es": {"graba", "habla", "repite"},
+    "en": {"record", "speak", "say", "repeat", "tell", "retell", "describe", "narrate"},
+    "de": {"nimm", "sprich", "sage", "wiederhole", "erzähle", "beschreibe", "schildere"},
+    "it": {"registra", "parla", "ripeti", "racconta", "descrivi", "narra"},
+    "fr": {"enregistre", "parle", "dis", "répète", "raconte", "décris"},
+    "es": {"graba", "habla", "repite", "cuenta", "describe", "narra"},
 }
 
 

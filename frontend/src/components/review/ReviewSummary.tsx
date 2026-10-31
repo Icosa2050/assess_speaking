@@ -639,7 +639,7 @@ export const ReviewSummary = ({
         </p>
       )}
       {summary.compactReport && !hideCoachSummary && <>
-        <p lang={summary.compactReport.feedbackLanguage} style={{ margin: 0, color: "var(--color-text)", lineHeight: 1.6 }}>
+        <p lang={summary.compactReport.summary ? summary.compactReport.feedbackLanguage : undefined} style={{ margin: 0, color: "var(--color-text)", lineHeight: 1.6 }}>
           {summary.compactReport.summary || translate("review.compact_unavailable_summary")}
         </p>
         <CompactFixList fixes={summary.compactReport.fixes}
@@ -648,7 +648,7 @@ export const ReviewSummary = ({
           translate={translate} testId="history-compact-fixes" />
         {!hideNextStep && <div style={{ display: "grid", gap: "var(--space-2)" }}>
           <h3 style={{ margin: 0, color: "var(--color-text)" }}>{translate("review.compact_next_step")}</h3>
-          <p lang={summary.compactReport.feedbackLanguage} style={{ margin: 0, color: "var(--color-text)" }}>
+          <p lang={summary.compactReport.nextStep ? summary.compactReport.feedbackLanguage : undefined} style={{ margin: 0, color: "var(--color-text)" }}>
             {summary.compactReport.nextStep || translate("review.compact_unavailable_step", { duration: summary.targetDurationSec || 90 })}
           </p>
         </div>}

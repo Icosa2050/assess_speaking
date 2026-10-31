@@ -369,7 +369,7 @@ export const ReviewRoute = () => {
             </h2>
             <p
               className={styles.coachTakeaway}
-              lang={summary.compactReport?.feedbackLanguage}
+              lang={summary.compactReport?.summary ? summary.compactReport.feedbackLanguage : undefined}
               data-testid="review-coach-takeaway"
               data-semantic-id="review-coach-takeaway"
             >
@@ -379,7 +379,7 @@ export const ReviewRoute = () => {
               practiceLanguage={summary.compactReport.practiceLanguage}
               feedbackLanguage={summary.compactReport.feedbackLanguage} translate={translate} />}
             {summary.compactReport && <div className={styles.compactNext} data-testid="review-compact-next-step">
-              <h3>{translate("review.compact_next_step")}</h3><p lang={summary.compactReport.feedbackLanguage}>
+              <h3>{translate("review.compact_next_step")}</h3><p lang={summary.compactReport.nextStep ? summary.compactReport.feedbackLanguage : undefined}>
                 {summary.compactReport.nextStep || translate("review.compact_unavailable_step", { duration: summary.targetDurationSec || 90 })}
               </p>
             </div>}

@@ -240,6 +240,14 @@ describe("Review quality safeguards", () => {
     expect(screen.getByTestId("review-next-exercise")).toHaveTextContent("30-second drill");
   });
 
+  it("leaves translated compact fallback in the current UI language", () => {
+    const summary = summarize({ input: { feedback_language: "en", expected_language: "it" },
+      warnings: ["coaching_unavailable"], coaching: {} });
+    render(<ReviewSummary summary={summary} translate={createTranslator("fr")} />);
+    expect(screen.getByText(createTranslator("fr")("review.compact_unavailable_summary"))).not.toHaveAttribute("lang");
+    expect(screen.getByText(createTranslator("fr")("review.compact_unavailable_step", { duration: 90 }))).not.toHaveAttribute("lang");
+  });
+
   it("preserves historical coaching without new optional instruction fields", () => {
     render(<ReviewSummary summary={summarize({ coaching: { coach_summary: "Saved feedback" } })}
       translate={createTranslator("en")} />);
