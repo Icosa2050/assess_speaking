@@ -210,6 +210,14 @@ describe("Settings route", () => {
     expect(screen.getByRole("heading", { name: "Set up a provider" })).toHaveFocus();
   });
 
+  it("shows release identity, licenses and provider privacy in Settings", async () => {
+    renderWithProviders(<AppFrame />, { initialEntries: ["/settings"], locale: "en" });
+    expect(await screen.findByRole("heading", { name: "About Vostavo" })).toBeVisible();
+    expect(screen.getByText("Version 0.1.0")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Third-party licenses" })).toHaveAttribute("href", "/THIRD_PARTY_NOTICES.txt");
+    expect(screen.getByText(/Audio leaves the device only when you choose cloud transcription/)).toBeVisible();
+  });
+
   it("shows load failure without exposing a Settings editor", async () => {
     mockedGetRuntimeSettings.mockRejectedValue(new Error("backend offline"));
     renderWithProviders(<AppFrame />, {

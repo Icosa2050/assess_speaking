@@ -171,3 +171,53 @@ def test_local_signed_release_requires_explicit_disabled_drafts_acknowledgment(
     with pytest.raises(SystemExit) as exc_info:
         build_macos.main(['--mode', 'internal', '--local-sign-only'])
     assert exc_info.value.code == 2
+
+
+def test_notarization_pipeline_dry_run_orders_app_before_dmg(tmp_path: Path) -> None:
+    """No Apple tool is invoked: every command is intercepted and inspected."""
+    stage = tmp_path / 'stage'
+    stage.mkdir()
+    bundle = stage / 'Vostavo.app'
+    archive = tmp_path / 'Vostavo.zip'
+    dmg = tmp_path / 'Vostavo.dmg'
+    commands: list[list[str]] = []
+
+    def fake_run(args, **_kwargs):
+        commands.append([str(value) for value in args])
+        return None
+
+    def fake_output(args):
+        commands.append([str(value) for value in args])
+        return '{"status":"Accepted","id":"dry-run"}'
+
+    with patch.object(build_macos, 'BUILD', tmp_path), patch.object(build_macos, 'run', side_effect=fake_run), patch.object(build_macos, 'output', side_effect=fake_output):
+        result = build_macos.package_dmg(stage, bundle, dmg, release=True, local_sign_only=False,
+                                         profile='mock-profile', signing_identity='mock-identity')
+    assert result['app_notarization']['status'] == 'Accepted'
+    assert result['dmg_notarization']['status'] == 'Accepted'
+    assert (stage / 'Applications').readlink() == Path('/Applications')
+
+    assert commands == [
+        ['ditto', '-c', '-k', '--keepParent', str(bundle), str(archive)],
+        ['xcrun', 'notarytool', 'submit', str(archive), '--keychain-profile', 'mock-profile', '--wait', '--output-format', 'json'],
+        ['xcrun', 'stapler', 'staple', str(bundle)],
+        ['xcrun', 'stapler', 'validate', str(bundle)],
+        ['spctl', '-a', '-t', 'exec', '-vvv', str(bundle)],
+        ['hdiutil', 'create', '-ov', '-volname', 'Vostavo', '-srcfolder', str(stage), '-format', 'UDZO', str(dmg)],
+        ['codesign', '--force', '--sign', 'mock-identity', '--timestamp', str(dmg)],
+        ['xcrun', 'notarytool', 'submit', str(dmg), '--keychain-profile', 'mock-profile', '--wait', '--output-format', 'json'],
+        ['xcrun', 'stapler', 'staple', str(dmg)],
+        ['xcrun', 'stapler', 'validate', str(dmg)],
+        ['spctl', '-a', '-t', 'open', '--context', 'context:primary-signature', '-vvv', str(dmg)],
+    ]
+
+
+def test_local_signed_dmg_skips_notarization(tmp_path: Path) -> None:
+    stage = tmp_path / 'stage'
+    stage.mkdir()
+    with patch.object(build_macos, 'run') as run_mock, patch.object(build_macos, 'output') as output_mock:
+        result = build_macos.package_dmg(stage, stage / 'Vostavo.app', tmp_path / 'Vostavo.dmg',
+                                         release=True, local_sign_only=True, profile='', signing_identity='mock-identity')
+    assert result == {}
+    assert not output_mock.called
+    assert [call.args[0][0] for call in run_mock.call_args_list] == ['hdiutil', 'codesign']

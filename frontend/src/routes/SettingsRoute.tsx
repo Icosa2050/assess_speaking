@@ -14,6 +14,7 @@ import { buildSetupReadinessRows, canEnterSpeak } from "@/lib/setup/readiness";
 import { useReadiness } from "@/lib/setup/useReadiness";
 import { useAppStore } from "@/lib/state/appStore";
 import { SUPPORTED_UI_LOCALES, type UiLocale } from "@/lib/state/sessionDraft";
+import tauriConfig from "../../src-tauri/tauri.conf.json";
 
 type SettingsOrigin = "home" | "runtime-setup" | "session-setup" | "speak" | "review" | "library" | "guide" | "history";
 type SettingsLocationState = { from?: SettingsOrigin; focusConnectionId?: string; fromSetup?: boolean; saveNotice?: "session-only"; connectionNotice?: string };
@@ -376,6 +377,20 @@ export const SettingsRoute = () => {
         activeConnectionId={runtimeSettingsQuery.data?.active_connection_id || preferences.activeConnectionId}
         locale={locale}
       />
+
+      <section style={cardStyle} aria-labelledby="settings-privacy-heading">
+        <h2 id="settings-privacy-heading" style={{ margin: 0, fontSize: "1.2rem" }}>{translate("settings.privacy_title")}</h2>
+        <p style={{ margin: 0, lineHeight: 1.6 }}>{translate("settings.privacy_local")}</p>
+        <p style={{ margin: 0, lineHeight: 1.6 }}>{translate("settings.privacy_cloud")}</p>
+        <p style={{ margin: 0, lineHeight: 1.6 }}>{translate("settings.privacy_audio")}</p>
+      </section>
+
+      <section style={cardStyle} aria-labelledby="settings-about-heading">
+        <h2 id="settings-about-heading" style={{ margin: 0, fontSize: "1.2rem" }}>{translate("settings.about_title")}</h2>
+        <p style={{ margin: 0 }}>{translate("settings.about_version", { version: tauriConfig.version })}</p>
+        <p style={{ margin: 0 }}>{translate("settings.about_commit", { commit: import.meta.env.VITE_VOSTAVO_BUILD_COMMIT || "development" })}</p>
+        <a href="/THIRD_PARTY_NOTICES.txt" target="_blank" rel="noopener noreferrer">{translate("settings.about_licenses")}</a>
+      </section>
 
       <section style={cardStyle}>
         <h2 style={{ margin: 0, fontSize: "1.2rem", color: "var(--color-text)" }}>
