@@ -1,5 +1,7 @@
 import json
 from pathlib import Path
+import sys
+from types import ModuleType
 
 import pytest
 
@@ -30,11 +32,24 @@ def test_npm_notices_follow_only_locked_runtime_graph(tmp_path: Path) -> None:
         notices.npm_notices(lock, root)
 
 
-def test_ffmpeg_notice_records_linkage_and_license() -> None:
+def test_ffmpeg_notice_records_linkage_and_license(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    wheel = tmp_path / 'av'
+    (wheel / '.dylibs').mkdir(parents=True)
+    (wheel / '.dylibs/libavcodec.61.dylib').write_bytes(b'fixture')
+    av = ModuleType('av')
+    av.__file__ = str(wheel / '__init__.py')
+    av.__path__ = [str(wheel)]
+    av.__version__ = '14.2.0'
+    core = ModuleType('av._core')
+    core.library_meta = {'libavcodec': {'version': (61, 19, 100), 'license': 'GPL version 3 or later',
+                                        'configuration': '--enable-gpl --enable-version3'}}
+    av._core = core
+    monkeypatch.setitem(sys.modules, 'av', av)
+    monkeypatch.setitem(sys.modules, 'av._core', core)
     result = notices.ffmpeg_notice()
     assert 'libavcodec' in result
     assert 'configuration:' in result
-    assert 'GPL' in result or 'LGPL' in result
+    assert 'GPL version 3 or later' in result
 
 
 def test_frozen_inventory_requires_native_code_and_metadata(tmp_path: Path) -> None:
