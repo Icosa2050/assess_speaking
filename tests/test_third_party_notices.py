@@ -64,3 +64,16 @@ def test_frozen_inventory_requires_native_code_and_metadata(tmp_path: Path) -> N
     (resources / 'libavcodec.61.dylib').unlink()
     with pytest.raises(RuntimeError, match='incomplete'):
         notices.frozen_inventory(helper)
+
+
+@pytest.mark.parametrize('installed_path', ['LICENSE.md', 'licenses/LICENSE.md'])
+def test_declared_python_license_paths(installed_path: str) -> None:
+    class FakeDistribution:
+        metadata = {'Name': 'example'}
+
+        def read_text(self, path: str) -> str | None:
+            return 'license body' if path == installed_path else None
+
+    assert notices.read_python_license_file(FakeDistribution(), 'LICENSE.md') == 'license body'
+    with pytest.raises(RuntimeError, match='Declared Python license file missing'):
+        notices.read_python_license_file(FakeDistribution(), 'NOTICE.txt')

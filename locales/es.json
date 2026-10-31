@@ -996,6 +996,8 @@
     "about_version": "Versión {version}",
     "about_commit": "Commit de compilación {commit}",
     "about_licenses": "Licencias de terceros",
+    "about_licenses_loading": "Cargando avisos de terceros…",
+    "about_licenses_failed": "No se pudieron cargar los avisos de terceros. Inténtalo de nuevo.",
     "appearance": "Apariencia",
     "appearance_system": "Sistema",
     "appearance_light": "Claro",

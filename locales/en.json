@@ -996,6 +996,8 @@
     "about_version": "Version {version}",
     "about_commit": "Build commit {commit}",
     "about_licenses": "Third-party licenses",
+    "about_licenses_loading": "Loading third-party notices…",
+    "about_licenses_failed": "Third-party notices could not be loaded. Try again.",
     "appearance": "Appearance",
     "appearance_system": "System",
     "appearance_light": "Light",

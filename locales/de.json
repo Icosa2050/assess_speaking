@@ -996,6 +996,8 @@
     "about_version": "Version {version}",
     "about_commit": "Build-Commit {commit}",
     "about_licenses": "Lizenzen von Drittanbietern",
+    "about_licenses_loading": "Lizenzen von Drittanbietern werden geladen…",
+    "about_licenses_failed": "Die Lizenzen konnten nicht geladen werden. Versuche es erneut.",
     "appearance": "Erscheinungsbild",
     "appearance_system": "System",
     "appearance_light": "Hell",

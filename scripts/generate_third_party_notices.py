@@ -45,14 +45,22 @@ def python_notices(lock: Path) -> list[str]:
         )
         files = []
         for filename in sorted(set(dist.metadata.get_all("License-File", []) or [])):
-            try:
-                content = dist.read_text(filename)
-            except (FileNotFoundError, ValueError):
-                content = None
-            if content:
-                files.append((filename, content.strip()))
+            content = read_python_license_file(dist, filename)
+            files.append((filename, content.strip()))
         result.append(_section("Python", name, version, license_name, files))
     return result
+
+
+def read_python_license_file(dist: metadata.Distribution, filename: str) -> str:
+    """Wheels may place declared license files at either dist-info root or licenses/."""
+    for candidate in (filename, f"licenses/{filename}"):
+        try:
+            content = dist.read_text(candidate)
+        except (FileNotFoundError, ValueError):
+            content = None
+        if content:
+            return content
+    raise RuntimeError(f"Declared Python license file missing: {dist.metadata['Name']} {filename}")
 
 
 def ffmpeg_notice() -> str:

@@ -996,6 +996,8 @@
     "about_version": "Versione {version}",
     "about_commit": "Commit della build {commit}",
     "about_licenses": "Licenze di terze parti",
+    "about_licenses_loading": "Caricamento delle licenze di terze parti…",
+    "about_licenses_failed": "Impossibile caricare le licenze di terze parti. Riprova.",
     "appearance": "Aspetto",
     "appearance_system": "Sistema",
     "appearance_light": "Chiaro",

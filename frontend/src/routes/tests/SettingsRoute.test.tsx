@@ -211,10 +211,15 @@ describe("Settings route", () => {
   });
 
   it("shows release identity, licenses and provider privacy in Settings", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: async () => "VOSTAVO THIRD-PARTY NOTICES\nFFmpeg license" }));
     renderWithProviders(<AppFrame />, { initialEntries: ["/settings"], locale: "en" });
     expect(await screen.findByRole("heading", { name: "About Vostavo" })).toBeVisible();
     expect(screen.getByText("Version 0.1.0")).toBeVisible();
-    expect(screen.getByRole("link", { name: "Third-party licenses" })).toHaveAttribute("href", "/THIRD_PARTY_NOTICES.txt");
+    const licenses = screen.getByRole("link", { name: "Third-party licenses" });
+    expect(licenses).toHaveAttribute("href", "/THIRD_PARTY_NOTICES.txt");
+    fireEvent.click(licenses);
+    expect(await screen.findByText(/FFmpeg license/)).toBeVisible();
+    expect(licenses).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText(/Audio leaves the device only when you choose cloud transcription/)).toBeVisible();
   });
 

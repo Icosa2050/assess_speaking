@@ -996,6 +996,8 @@
     "about_version": "Version {version}",
     "about_commit": "Commit de build {commit}",
     "about_licenses": "Licences tierces",
+    "about_licenses_loading": "Chargement des mentions tierces…",
+    "about_licenses_failed": "Impossible de charger les mentions tierces. Réessayez.",
     "appearance": "Apparence",
     "appearance_system": "Système",
     "appearance_light": "Clair",

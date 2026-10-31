@@ -58,6 +58,9 @@ test.describe("settings support flow", () => {
     const noticeResponse = await page.request.get("/THIRD_PARTY_NOTICES.txt");
     expect(noticeResponse.ok()).toBeTruthy();
     expect(await noticeResponse.text()).toContain("THIRD-PARTY NOTICES");
+    await licenses.click();
+    await expect(licenses).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator("#settings-license-text pre")).toContainText("VOSTAVO THIRD-PARTY NOTICES");
     await expect
       .poll(() => page.evaluate(() => window.history.state?.usr?.from ?? null))
       .toBe("home");
