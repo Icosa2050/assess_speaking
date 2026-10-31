@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 import assess_speaking
+from assess_core.schemas import CompactFeedback
 from assessment_runtime.asr import describe_model_availability
 from assessment_runtime.llm_client import list_models
 
@@ -56,8 +57,13 @@ def _assert_feedback_contract(report: dict, *, allow_guarded: bool) -> None:
         assert report["rubric"] and scores["llm"] is not None
     # Coaching transport and validation errors share a warning: require usable coaching.
     assert "coaching_unavailable" not in warnings
-    assert len(report["coaching"]["top_3_priorities"]) == 3
-    assert report["coaching"]["next_exercise"].strip()
+    coaching = report["coaching"]
+    if scores["mode"] == "deterministic_only":
+        assert len(coaching["top_3_priorities"]) == 3
+        assert coaching["next_exercise"].strip()
+    else:
+        compact = CompactFeedback.from_dict(coaching)
+        assert compact.summary.strip() and compact.next_step.strip()
 
 
 @pytest.mark.parametrize("recording", [None] if os.getenv("ASSESS_SPEAKING_REAL_AUDIO_PATH") else [None, SECOND_REAL_AUDIO_PATH],

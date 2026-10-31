@@ -118,6 +118,10 @@ def test_practice_words_quoted_in_localized_explanation_are_not_language_evidenc
     validate_compact_generation(CompactFeedback.from_dict(data), transcript=transcript,
                                 feedback_language="it", practice_language="en",
                                 target_duration_sec=90, rubric=rubric)
+    data["fixes"][0]["why"] = "Non usare l'articolo 'the' dopo 'your'."
+    validate_compact_generation(CompactFeedback.from_dict(data), transcript=transcript,
+                                feedback_language="it", practice_language="en",
+                                target_duration_sec=90, rubric=rubric)
     data["fixes"][0]["why"] = "Use 'the' with 'your' because the phrase is clear."
     with pytest.raises(SchemaValidationError, match="wrong language"):
         validate_compact_generation(CompactFeedback.from_dict(data), transcript=transcript,

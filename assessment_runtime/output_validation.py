@@ -181,7 +181,9 @@ _SPEECH_ACTIONS = {
 }
 
 
-_QUOTED_WORDING = re.compile(r'''\'([^'\n]+)\'|"([^"\n]+)"|“([^”\n]+)”|‘([^’\n]+)’|«([^»\n]+)»''')
+_QUOTED_WORDING = re.compile(
+    r'''(?<!\w)['‘]([^'’\n]+)['’](?!\w)|["“«„]([^"”»“\n]+)["”»“]'''
+)
 
 
 def _check_language(text: str, expected: str, field: str,
@@ -189,7 +191,7 @@ def _check_language(text: str, expected: str, field: str,
     """Catch clear language swaps; ambiguous short text is not guessed at."""
     if quote_sources:
         def remove_grounded_quote(match: re.Match) -> str:
-            quoted = next(group for group in match.groups() if group is not None)
+            quoted = match.group(1) or match.group(2)
             return " " if any(contains_example(source, quoted) for source in quote_sources) else match.group()
 
         text = _QUOTED_WORDING.sub(remove_grounded_quote, text)

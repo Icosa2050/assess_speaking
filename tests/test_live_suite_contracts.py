@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
+from assess_core.schemas import SchemaValidationError
 from test_integration_openrouter import require_openrouter
 from test_real_audio_assessment import _require_real_audio_env, _assert_feedback_contract
 from scripts.run_live_journeys import main
@@ -60,6 +61,18 @@ def test_guarded_result_cannot_pass_as_ai_feedback_or_hide_transport_failure():
     report["warnings"].append("llm_unavailable")
     with pytest.raises(AssertionError, match="Provider failure"):
         _assert_feedback_contract(report, allow_guarded=True)
+
+
+def test_successful_live_feedback_requires_compact_contract():
+    report = {"warnings": [], "requires_human_review": False,
+              "rubric": {"overall": 3}, "scores": {"mode": "hybrid", "final": 3, "llm": 3},
+              "coaching": {"summary": "Your answer stays on topic.", "fixes": [],
+                           "next_step": "Record a 60-second retry with one example.",
+                           "feedback_language": "en", "practice_language": "en"}}
+    _assert_feedback_contract(report, allow_guarded=False)
+    report["coaching"] = {"top_3_priorities": ["a", "b", "c"], "next_exercise": "Speak again"}
+    with pytest.raises(SchemaValidationError, match="missing keys"):
+        _assert_feedback_contract(report, allow_guarded=False)
 
 
 @pytest.mark.parametrize("selection", ["lmstudio", "openrouter", "ollama,lmstudio"])
