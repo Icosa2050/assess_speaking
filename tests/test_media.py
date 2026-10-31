@@ -5,6 +5,20 @@ import pytest
 from assessment_runtime.media import write_chunks, write_wav, validate_duration, MediaDecodeError
 
 ROOT = Path(__file__).resolve().parents[1]
+SYNTHETIC = ROOT / 'tests/fixtures/audio_synthetic'
+
+
+@pytest.mark.parametrize('extension', ['wav', 'm4a', 'mp4', 'aac', 'mp3', 'webm', 'ogg', 'opus', 'flac', 'aiff', 'aif'])
+def test_synthetic_accepted_audio_decodes_without_external_ffmpeg(tmp_path, extension):
+    source = SYNTHETIC / f'tone.{extension}'
+    output = tmp_path / 'decoded.wav'
+    with patch.dict('os.environ', {'PATH': ''}):
+        write_wav(source, output)
+    with wave.open(str(output)) as audio:
+        assert audio.getnchannels() == 1
+        assert audio.getsampwidth() == 2
+        assert audio.getframerate() == 16000
+        assert 10000 <= audio.getnframes() <= 14000
 
 
 def test_packaged_decoder_chunks_exact_samples_without_ffmpeg(tmp_path):

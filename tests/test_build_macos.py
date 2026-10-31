@@ -9,6 +9,30 @@ import pytest
 from scripts import build_macos
 
 
+def test_lgpl_gate_rejects_gpl_configurations_and_links() -> None:
+    libraries = {name: {"configuration": "--disable-everything --enable-shared", "license": "LGPL version 2.1 or later"}
+                 for name in ("libavcodec", "libavformat", "libavutil", "libswresample")}
+    assert build_macos.assert_lgpl_ffmpeg({"pyav_version": "14.2.0", "libraries": libraries})
+    for forbidden in ("--enable-gpl", "--enable-nonfree", "--enable-version3", "--enable-libx264", "--enable-libx265"):
+        changed = {**libraries, "libavcodec": {**libraries["libavcodec"], "configuration": forbidden}}
+        with pytest.raises(RuntimeError, match="Forbidden FFmpeg"):
+            build_macos.assert_lgpl_ffmpeg({"pyav_version": "14.2.0", "libraries": changed})
+    with pytest.raises(RuntimeError, match="Forbidden FFmpeg"):
+        build_macos.assert_lgpl_ffmpeg({"pyav_version": "14.2.0", "libraries": {
+            **libraries, "libavcodec": {**libraries["libavcodec"], "license": "GPL version 3 or later"}}})
+    assert build_macos.FORBIDDEN_CODEC_LIBRARIES.search("@loader_path/libx264.164.dylib")
+    assert build_macos.FORBIDDEN_CODEC_LIBRARIES.search("/bundle/libx265.199.dylib")
+
+
+def test_packaging_lock_never_installs_upstream_av() -> None:
+    original = (build_macos.ROOT / 'packaging/requirements-macos-arm64.txt').read_text()
+    filtered = build_macos.packaging_lock_without_upstream_av(original)
+    assert 'av==14.2.0' not in filtered
+    assert 'faster-whisper==1.2.0' in filtered
+    with pytest.raises(RuntimeError, match='Cannot isolate'):
+        build_macos.packaging_lock_without_upstream_av('faster-whisper==1.2.0\n')
+
+
 def test_internal_acceptance_command_is_required_only_in_internal_binary(tmp_path: Path) -> None:
     binary = tmp_path / 'vostavo-desktop'
     binary.write_bytes(b'ordinary release shell VOSTAVO_DEVICE_ONLY_DRAFTS_REQUIRED')
@@ -35,6 +59,15 @@ def test_native_audit_preserves_mac_os_14_floor(tmp_path: Path) -> None:
 
     assert build_macos.MINIMUM_MACOS == "14.0"
     assert result["minimum_macos"] == "14.0"
+
+
+def test_native_audit_rejects_x264_link(tmp_path: Path) -> None:
+    binary = tmp_path / 'Vostavo.app' / 'Contents/MacOS/vostavo-desktop'
+    with patch.object(build_macos, 'macho_files', return_value=[binary]), patch.object(
+        build_macos, 'output', side_effect=['arm64', 'binary:\n\t@rpath/libx264.164.dylib']
+    ):
+        with pytest.raises(RuntimeError, match='Forbidden GPL codec library linked'):
+            build_macos.audit(tmp_path / 'Vostavo.app')
 
 
 def test_release_cargo_environment_blocks_ambient_debug_assertions(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -134,6 +167,26 @@ def test_profile_is_embedded_and_its_claims_are_signed(tmp_path: Path) -> None:
     with patch.object(build_macos, 'run', return_value=type('Result', (), {'stdout': plistlib.dumps({})})()):
         with pytest.raises(RuntimeError, match='missing the authorized'):
             build_macos.verify_signed_profile_claims(bundle, claims)
+
+
+def test_signed_helper_keeps_lgpl_dylibs_replaceable(tmp_path: Path) -> None:
+    helper = tmp_path / 'VostavoBackend.app'
+    approved = {'com.apple.security.cs.disable-library-validation': True}
+    with patch.object(build_macos, 'run', return_value=type('Result', (), {'stdout': plistlib.dumps(approved)})()):
+        build_macos.verify_helper_relink_entitlement(helper)
+    with patch.object(build_macos, 'run', return_value=type('Result', (), {'stdout': plistlib.dumps({})})()):
+        with pytest.raises(RuntimeError, match='blocks replacement'):
+            build_macos.verify_helper_relink_entitlement(helper)
+
+
+def test_local_sign_only_never_requests_apple_timestamp(tmp_path: Path) -> None:
+    with patch.object(build_macos, 'macho_files', return_value=[]), patch.object(build_macos, 'run') as signed:
+        build_macos.sign(tmp_path, 'certificate-sha1', True, tmp_path / 'entitlements.plist', local_sign_only=True)
+    for call in signed.call_args_list:
+        args = call.args[0]
+        if args[0] == 'codesign' and '--sign' in args:
+            assert '--timestamp=none' in args
+            assert '--timestamp' not in args
 
 
 def test_notarized_release_refuses_missing_profile(

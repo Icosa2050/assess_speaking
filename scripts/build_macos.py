@@ -20,6 +20,8 @@ BUILD = ROOT / '.build-macos'
 PYTHON_VERSION = '3.12.11'
 MINIMUM_MACOS = '14.0'  # The native audit of the built app requires this floor.
 PROFILE_ENV = 'VOSTAVO_PROVISIONING_PROFILE'
+FORBIDDEN_FFMPEG_FLAGS = re.compile(r'--enable-(?:gpl|nonfree|version3|libx264|libx265)(?:\s|$)')
+FORBIDDEN_CODEC_LIBRARIES = re.compile(r'(?i)(?:^|/)lib(?:x264|x265)(?:\.|$)')
 
 
 def run(args, **kwargs):
@@ -60,16 +62,70 @@ def macho_files(bundle):
         yield path.resolve()
 
 
+def assert_lgpl_ffmpeg(report: dict) -> dict:
+    if report.get('pyav_version') != '14.2.0':
+        raise RuntimeError('Frozen PyAV version differs from the pinned LGPL build')
+    libraries = report.get('libraries')
+    required = {'libavcodec', 'libavformat', 'libavutil', 'libswresample'}
+    if not isinstance(libraries, dict) or not required.issubset(libraries):
+        raise RuntimeError('FFmpeg license metadata is missing')
+    for name, meta in libraries.items():
+        if not isinstance(meta, dict):
+            raise RuntimeError(f'FFmpeg license metadata is malformed: {name}')
+        flags = meta.get('configuration', '')
+        license_name = meta.get('license', '')
+        if not isinstance(flags, str) or not isinstance(license_name, str):
+            raise RuntimeError(f'FFmpeg license metadata is malformed: {name}')
+        if FORBIDDEN_FFMPEG_FLAGS.search(flags) or not license_name.startswith('LGPL'):
+            raise RuntimeError(f'Forbidden FFmpeg license/configuration in {name}: {license_name} {flags}')
+    return {'pyav_version': report['pyav_version'], 'ffmpeg_libraries': libraries}
+
+
+def ffmpeg_license_report(command: list) -> dict:
+    return assert_lgpl_ffmpeg(json.loads(output(command)))
+
+
+def packaging_lock_without_upstream_av(lock: str) -> str:
+    pattern = r'(?ms)^av==14\.2\.0 \\\n.*?(?=^[A-Za-z][A-Za-z0-9_.-]*==|\Z)'
+    filtered, count = re.subn(pattern, '', lock)
+    if count != 1 or 'av==14.2.0' in filtered:
+        raise RuntimeError('Cannot isolate upstream PyAV wheel from the production lock')
+    return filtered
+
+
+def relocate_lgpl_ffmpeg(python: Path, library_dir: Path) -> None:
+    """Put replaceable dylibs beside PyAV with relative runtime search paths."""
+    site_packages = Path(output([python, '-c', 'import site; print(site.getsitepackages()[0])']))
+    av_dir = site_packages / 'av'
+    bundled = av_dir / '.dylibs'
+    if bundled.exists():
+        shutil.rmtree(bundled)
+    bundled.mkdir(exist_ok=True)
+    for source in library_dir.glob('lib*.dylib'):
+        if not source.is_symlink():
+            shutil.copy2(source, bundled / source.name)
+    for source in library_dir.glob('lib*.dylib'):
+        if source.is_symlink():
+            (bundled / source.name).symlink_to(source.readlink())
+    for path in av_dir.rglob('*.so'):
+        relative_libdir = os.path.relpath(bundled, path.parent)
+        run(['install_name_tool', '-add_rpath', '@loader_path/' + relative_libdir, path])
+
+
 def audit(bundle):
     entries = []
     minimum = tuple(map(int, MINIMUM_MACOS.split('.')))
     for path in macho_files(bundle):
+        if FORBIDDEN_CODEC_LIBRARIES.search(path.name):
+            raise RuntimeError(f'Forbidden GPL codec library bundled: {path}')
         architectures = output(['lipo', '-archs', path]).split()
         if architectures != ['arm64']:
             raise RuntimeError(f'Non-arm64 code: {path}: {architectures}')
         links = output(['otool', '-L', path])
         for line in links.splitlines()[1:]:
             library = line.strip().split(' (')[0]
+            if FORBIDDEN_CODEC_LIBRARIES.search(library):
+                raise RuntimeError(f'Forbidden GPL codec library linked: {path}: {library}')
             if not library.startswith(('@rpath/', '@loader_path/', '@executable_path/', '/usr/lib/', '/System/')):
                 raise RuntimeError(f'External library dependency: {path}: {library}')
         targets = output(['xcrun', 'vtool', '-show-build', path])
@@ -161,17 +217,26 @@ def verify_signed_profile_claims(bundle: Path, claims: dict) -> None:
         raise RuntimeError('Signed release app is missing the authorized Keychain entitlements')
 
 
-def sign(bundle, identity, release, entitlements):
-    options = ['--force', '--sign', identity, '--options', 'runtime', '--timestamp' if release else '--timestamp=none']
+def verify_helper_relink_entitlement(helper: Path) -> None:
+    try:
+        signed = plistlib.loads(run(['codesign', '-d', '--entitlements', ':-', helper],
+                                   capture_output=True).stdout)
+    except (subprocess.CalledProcessError, plistlib.InvalidFileException, ValueError, TypeError) as exc:
+        raise RuntimeError('Signed helper entitlements cannot be read') from exc
+    if not isinstance(signed, dict) or signed.get('com.apple.security.cs.disable-library-validation') is not True:
+        raise RuntimeError('Signed helper blocks replacement of LGPL FFmpeg dylibs')
+
+
+def sign(bundle, identity, release, entitlements, *, local_sign_only=False):
+    options = ['--force', '--sign', identity, '--options', 'runtime', '--timestamp' if release and not local_sign_only else '--timestamp=none']
     for path in sorted(macho_files(bundle), key=lambda value: len(value.parts), reverse=True):
         run(['codesign', *options, path])
     for framework in sorted(bundle.rglob('*.framework'), key=lambda value: len(value.parts), reverse=True):
         if not framework.is_symlink():
             run(['codesign', *options, framework])
     helper = bundle / 'Contents/Helpers/VostavoBackend.app'
-    # Ad-hoc identities have no Team ID, so library validation cannot match
-    # their embedded Python libraries. Developer ID releases keep validation.
-    helper_entitlements = [] if release else ['--entitlements', ROOT / 'packaging/internal-helper-entitlements.plist']
+    # LGPL relinking requires a replaceable helper library even in Developer ID builds.
+    helper_entitlements = ['--entitlements', ROOT / 'packaging/internal-helper-entitlements.plist']
     run(['codesign', *options, *helper_entitlements, helper])
     run(['codesign', *options, '--entitlements', entitlements, bundle])
     run(['codesign', '--verify', '--deep', '--strict', '--verbose=2', bundle])
@@ -231,7 +296,15 @@ def main(argv=None):
     python = BUILD / 'venv/bin/python'
     if not python.exists():
         run(['uv', 'venv', '--python', args.python, BUILD / 'venv'])
-    run(['uv', 'pip', 'sync', '--python', python, '--require-hashes', ROOT / 'packaging/requirements-macos-arm64.txt'])
+    filtered_lock = BUILD / 'requirements-without-upstream-av.txt'
+    filtered_lock.write_text(packaging_lock_without_upstream_av(
+        (ROOT / 'packaging/requirements-macos-arm64.txt').read_text()))
+    run(['uv', 'pip', 'sync', '--python', python, '--require-hashes', filtered_lock])
+    run([ROOT / 'scripts/build_lgpl_pyav.sh', BUILD / 'lgpl-pyav', python])
+    wheel = next((BUILD / 'lgpl-pyav/wheels').glob('av-14.2.0-*.whl'))
+    run(['uv', 'pip', 'install', '--python', python, '--no-deps', '--reinstall', wheel])
+    relocate_lgpl_ffmpeg(python, BUILD / 'lgpl-pyav/ffmpeg-install/lib')
+    ffmpeg_license_report([python, '-c', 'import json, av, av._core; print(json.dumps({"pyav_version": av.__version__, "libraries": av._core.library_meta}))'])
     if output([python, '-c', 'import platform; print(platform.python_version(), platform.machine())']) != PYTHON_VERSION + ' arm64':
         raise RuntimeError('Packaging requires pinned CPython 3.12.11 arm64')
     npm_env = {key: os.environ[key] for key in ('PATH', 'HOME', 'TMPDIR', 'LANG') if key in os.environ}
@@ -239,9 +312,11 @@ def main(argv=None):
     run(['npm', '--prefix', ROOT / 'frontend', 'run', 'build'])
     helper = BUILD / 'dist/VostavoBackend.app'
     if not args.reuse_helper:
-        run([python, '-m', 'PyInstaller', '--clean', '--noconfirm', '--distpath', BUILD / 'dist', '--workpath', BUILD / 'pyinstaller', ROOT / 'packaging/vostavo-backend.spec'], cwd=ROOT)
+        run([python, '-m', 'PyInstaller', '--clean', '--noconfirm', '--distpath', BUILD / 'dist', '--workpath', BUILD / 'pyinstaller', ROOT / 'packaging/vostavo-backend.spec'], cwd=ROOT,
+            env={**os.environ, 'VOSTAVO_LGPL_FFMPEG_LIBDIR': str(BUILD / 'lgpl-pyav/ffmpeg-install/lib')})
     if not helper.is_dir():
         raise RuntimeError('Frozen helper app was not produced')
+    frozen_license = ffmpeg_license_report([helper / 'Contents/MacOS/vostavo-backend', '--ffmpeg-license-report'])
     if output([python, '-c', 'import platform; print(platform.python_version(), platform.machine())']) != PYTHON_VERSION + ' arm64':
         raise RuntimeError('Packaging requires pinned CPython 3.12.11 arm64')
     if plistlib.loads((helper / 'Contents/Info.plist').read_bytes())['CFBundleShortVersionString'] != version:
@@ -259,6 +334,8 @@ def main(argv=None):
     resources = bundle / 'Contents/Resources'
     macos.mkdir(parents=True)
     resources.mkdir()
+    source_archive = BUILD / 'LGPL-corresponding-source.tar.gz'
+    run([ROOT / 'scripts/package_lgpl_sources.sh', BUILD / 'lgpl-pyav', source_archive])
     shutil.copy2(ROOT / 'frontend/src-tauri/target/release/vostavo-desktop', macos / 'vostavo-desktop')
     run(['ditto', helper, bundle / 'Contents/Helpers/VostavoBackend.app'])
     iconset = BUILD / 'Vostavo.iconset'
@@ -274,6 +351,8 @@ def main(argv=None):
         folder.mkdir()
         (folder / 'InfoPlist.strings').write_text(f'"NSMicrophoneUsageDescription" = {json.dumps(copy, ensure_ascii=False)};\n')
     evidence = audit(bundle)
+    evidence['ffmpeg_license'] = frozen_license
+    evidence['lgpl_source_sha256'] = hashlib.sha256(source_archive.read_bytes()).hexdigest()
     info = {'CFBundleExecutable': 'vostavo-desktop', 'CFBundleIdentifier': config['identifier'], 'CFBundleName': 'Vostavo', 'CFBundleDisplayName': 'Vostavo', 'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': version, 'CFBundleVersion': version, 'CFBundleIconFile': 'Vostavo.icns', 'LSMinimumSystemVersion': evidence['minimum_macos'], 'NSMicrophoneUsageDescription': microphone['en'], 'NSAppleEventsUsageDescription': 'Vostavo can prepare a support email in Mail with your selected package attached. You review and send the draft.', 'CFBundleLocalizations': list(microphone), 'NSHighResolutionCapable': True}
     (bundle / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
     # Keep nested bundle's declared minimum consistent with its actual native code.
@@ -284,7 +363,8 @@ def main(argv=None):
     entitlements = ROOT / 'packaging/entitlements.plist'
     if profile_source and profile_claims:
         entitlements = embed_profile(bundle, profile_source, profile_claims, BUILD / 'release-entitlements.plist')
-    sign(bundle, signing_cert_sha1 if release else '-', release, entitlements)
+    sign(bundle, signing_cert_sha1 if release else '-', release, entitlements, local_sign_only=args.local_sign_only)
+    verify_helper_relink_entitlement(bundle / 'Contents/Helpers/VostavoBackend.app')
     if profile_claims:
         verify_signed_profile_claims(bundle, profile_claims)
     smoke_env = {key: os.environ[key] for key in ('HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG') if key in os.environ}
@@ -304,7 +384,8 @@ def main(argv=None):
     suffix = 'arm64-signed-unnotarized' if args.local_sign_only else 'arm64' if release else 'arm64-internal-adhoc'
     artifact = BUILD / f'Vostavo-{version}-{suffix}.dmg'
     run(['hdiutil', 'create', '-ov', '-volname', 'Vostavo', '-srcfolder', stage, '-format', 'UDZO', artifact])
-    run(['codesign', '--force', '--sign', signing_cert_sha1 if release else '-', '--timestamp' if release else '--timestamp=none', artifact])
+    run(['codesign', '--force', '--sign', signing_cert_sha1 if release else '-',
+         '--timestamp' if release and not args.local_sign_only else '--timestamp=none', artifact])
     if release and not args.local_sign_only:
         evidence['dmg_notarization'] = notarize(artifact, args.notary_profile)
         run(['xcrun', 'stapler', 'staple', artifact])
