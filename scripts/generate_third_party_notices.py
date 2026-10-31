@@ -63,23 +63,42 @@ def read_python_license_file(dist: metadata.Distribution, filename: str) -> str:
     raise RuntimeError(f"Declared Python license file missing: {dist.metadata['Name']} {filename}")
 
 
-def ffmpeg_notice() -> str:
-    import av
-    import av._core
-    rows = sorted((name, value) for name, value in av._core.library_meta.items() if value["version"][0] >= 0)
-    if not rows:
-        raise RuntimeError("PyAV has no FFmpeg library metadata")
-    lines = []
-    for name, value in rows:
-        license_name = value["license"]
-        if not license_name or not any(word in license_name.upper() for word in ("GPL", "LGPL")):
-            raise RuntimeError(f"FFmpeg license unknown for {name}: {license_name!r}")
-        lines.append(f"{name} {'.'.join(map(str, value['version']))}: {license_name}\n  configuration: {value['configuration']}")
-    libraries = sorted(path.name for path in (Path(av.__file__).parent / '.dylibs').glob('*.dylib'))
-    if not libraries:
-        raise RuntimeError('PyAV wheel has no bundled shared libraries to inventory')
-    return ("FFmpeg libraries dynamically linked by PyAV " + av.__version__ + "\n" + "\n".join(lines)
-            + "\nBundled PyAV shared libraries (including codec dependencies):\n" + "\n".join(libraries))
+def ffmpeg_notice(helper: Path, *, source_version: str = '', source_archive: str = '',
+                  require_source_reference: bool = False) -> str:
+    """Record the installed PyAV build and the libraries in the frozen app."""
+    version_output = subprocess.check_output([sys.executable, '-m', 'av', '--version'], text=True).strip()
+    pyav = re.search(r'(?m)^PyAV v([^\s]+)$', version_output)
+    configuration = re.search(r'(?m)^library configuration: (.+)$', version_output)
+    license_match = re.search(r'(?m)^library license: (.+)$', version_output)
+    if not pyav or not configuration or not license_match:
+        raise RuntimeError('PyAV did not report its version, FFmpeg configuration and license')
+    license_name = license_match.group(1)
+    libraries = sorted(path.relative_to(helper).as_posix() for path in helper.rglob('*.dylib') if path.is_file())
+    if not libraries or not any(Path(path).name.startswith('libav') for path in libraries):
+        raise RuntimeError('Frozen helper has no FFmpeg shared libraries to inventory')
+    section = ('FFMPEG / PYAV IN THE FROZEN HELPER\n'
+               + version_output + '\n'
+               + f'Frozen helper shared libraries ({len(libraries)}; includes FFmpeg, PyAV and codec dependencies):\n'
+               + '\n'.join(libraries))
+    if license_name.startswith('LGPL'):
+        if require_source_reference and (not source_version or not source_archive):
+            raise RuntimeError('LGPL FFmpeg release requires its source version and archive reference')
+        version = re.search(r'\b(2\.1|3(?:\.0)?)\b', license_name)
+        if not version:
+            raise RuntimeError(f'Unsupported FFmpeg LGPL license: {license_name}')
+        license_files = ['LGPL-2.1.txt'] if version.group(1) == '2.1' else ['GPL-3.0.txt', 'LGPL-3.0.txt']
+        section += ('\n\nFFmpeg/PyAV corresponding-source reference (complete before distribution):\n'
+                    + f'PyAV version: {pyav.group(1)}\n'
+                    + f'FFmpeg source version: {source_version or "SOURCE_VERSION_REQUIRED"}\n'
+                    + f'FFmpeg source archive path or URL: {source_archive or "SOURCE_ARCHIVE_REQUIRED"}\n'
+                    + f'FFmpeg configure flags: {configuration.group(1)}')
+        for filename in license_files:
+            section += f'\n\n--- {filename} ---\n' + (ROOT / 'packaging/licenses' / filename).read_text().strip()
+    elif license_name.startswith('GPL'):
+        section += '\n\nPUBLIC DISTRIBUTION HOLD: This FFmpeg build reports GPL; license compatibility and corresponding source remain unresolved.'
+    else:
+        raise RuntimeError(f'Unsupported FFmpeg license: {license_name}')
+    return section
 
 
 def cpython_notice() -> str:
@@ -154,7 +173,9 @@ def rust_notices(manifest: Path) -> list[str]:
     return sorted(result)
 
 
-def generate(lock: Path, npm_lock: Path, node_modules: Path, cargo_manifest: Path, helper: Path) -> str:
+def generate(lock: Path, npm_lock: Path, node_modules: Path, cargo_manifest: Path, helper: Path,
+             *, ffmpeg_source_version: str = '', ffmpeg_source_archive: str = '',
+             require_ffmpeg_source_reference: bool = False) -> str:
     sections = [
         "VOSTAVO THIRD-PARTY NOTICES\nGenerated from the pinned macOS production Python lock, npm runtime graph, and Cargo.lock resolution.\n"
         "The Rust graph includes crates for other target platforms as a conservative superset.\n"
@@ -162,7 +183,8 @@ def generate(lock: Path, npm_lock: Path, node_modules: Path, cargo_manifest: Pat
         "Check the model repository license before redistribution.\n"
         "The application's own code has no repository LICENSE; its license is an owner decision.\n",
         cpython_notice(),
-        ffmpeg_notice(),
+        ffmpeg_notice(helper, source_version=ffmpeg_source_version, source_archive=ffmpeg_source_archive,
+                      require_source_reference=require_ffmpeg_source_reference),
         frozen_inventory(helper),
         *python_notices(lock),
         *npm_notices(npm_lock, node_modules),
@@ -175,9 +197,15 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--helper", type=Path, required=True)
+    parser.add_argument("--ffmpeg-source-version", default='')
+    parser.add_argument("--ffmpeg-source-archive", default='')
+    parser.add_argument("--require-ffmpeg-source-reference", action='store_true')
     args = parser.parse_args()
     result = generate(ROOT / "packaging/requirements-macos-arm64.txt", ROOT / "frontend/package-lock.json",
-                      ROOT / "frontend/node_modules", ROOT / "frontend/src-tauri/Cargo.toml", args.helper)
+                      ROOT / "frontend/node_modules", ROOT / "frontend/src-tauri/Cargo.toml", args.helper,
+                      ffmpeg_source_version=args.ffmpeg_source_version,
+                      ffmpeg_source_archive=args.ffmpeg_source_archive,
+                      require_ffmpeg_source_reference=args.require_ffmpeg_source_reference)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(result)
 

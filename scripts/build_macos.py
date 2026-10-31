@@ -178,6 +178,16 @@ def sign(bundle, identity, release, entitlements):
     run(['codesign', '--verify', '--deep', '--strict', '--verbose=2', bundle])
 
 
+def sign_app_with_notices(bundle: Path, notices: Path, identity: str, release: bool, entitlements: Path) -> None:
+    """Put the generated notices in the signed app, preserving their bytes."""
+    destination = bundle / 'Contents/Resources/THIRD_PARTY_NOTICES.txt'
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(notices, destination)
+    if destination.read_bytes() != notices.read_bytes():
+        raise RuntimeError('Bundled third-party notices differ from the generated file')
+    sign(bundle, identity, release, entitlements)
+
+
 def notarize(artifact, profile):
     result = json.loads(output(['xcrun', 'notarytool', 'submit', artifact, '--keychain-profile', profile, '--wait', '--output-format', 'json']))
     if result.get('status') != 'Accepted':
@@ -226,6 +236,10 @@ def main(argv=None):
     parser.add_argument('--allow-drafts-disabled', action='store_true',
                         help='Acknowledge that a local signed build without a provisioning profile cannot save drafts.')
     parser.add_argument('--python', default=PYTHON_VERSION)
+    parser.add_argument('--ffmpeg-source-version', default='',
+                        help='FFmpeg source version for the LGPL corresponding-source reference.')
+    parser.add_argument('--ffmpeg-source-archive', default='',
+                        help='FFmpeg corresponding-source archive path or URL for the LGPL notice.')
     parser.add_argument('--reuse-helper', action='store_true', help='Local iteration only; forbidden for releases.')
     args = parser.parse_args(argv)
     if sys.platform != 'darwin' or platform.machine() != 'arm64':
@@ -280,7 +294,12 @@ def main(argv=None):
     if plistlib.loads((helper / 'Contents/Info.plist').read_bytes())['CFBundleShortVersionString'] != version:
         raise RuntimeError('Helper version differs')
     notices = BUILD / 'THIRD_PARTY_NOTICES.txt'
-    run([python, ROOT / 'scripts/generate_third_party_notices.py', '--output', notices, '--helper', helper])
+    notice_command = [python, ROOT / 'scripts/generate_third_party_notices.py', '--output', notices, '--helper', helper,
+         '--ffmpeg-source-version', args.ffmpeg_source_version,
+         '--ffmpeg-source-archive', args.ffmpeg_source_archive]
+    if release:
+        notice_command.append('--require-ffmpeg-source-reference')
+    run(notice_command)
     public_dir = BUILD / 'frontend-public'
     if public_dir.exists():
         shutil.rmtree(public_dir)
@@ -304,7 +323,6 @@ def main(argv=None):
     resources = bundle / 'Contents/Resources'
     macos.mkdir(parents=True)
     resources.mkdir()
-    shutil.copy2(notices, resources / notices.name)
     shutil.copy2(ROOT / 'frontend/src-tauri/target/release/vostavo-desktop', macos / 'vostavo-desktop')
     run(['ditto', helper, bundle / 'Contents/Helpers/VostavoBackend.app'])
     iconset = BUILD / 'Vostavo.iconset'
@@ -332,7 +350,7 @@ def main(argv=None):
     entitlements = ROOT / 'packaging/entitlements.plist'
     if profile_source and profile_claims:
         entitlements = embed_profile(bundle, profile_source, profile_claims, BUILD / 'release-entitlements.plist')
-    sign(bundle, signing_cert_sha1 if release else '-', release, entitlements)
+    sign_app_with_notices(bundle, notices, signing_cert_sha1 if release else '-', release, entitlements)
     if profile_claims:
         verify_signed_profile_claims(bundle, profile_claims)
     smoke_env = {key: os.environ[key] for key in ('HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG') if key in os.environ}

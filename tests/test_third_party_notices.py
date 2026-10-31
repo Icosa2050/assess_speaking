@@ -1,7 +1,5 @@
 import json
 from pathlib import Path
-import sys
-from types import ModuleType
 
 import pytest
 
@@ -52,24 +50,50 @@ def test_npm_notices_include_nested_installed_versions(tmp_path: Path) -> None:
     assert any('npm runtime: shared 2.0.0' in row for row in result)
 
 
-def test_ffmpeg_notice_records_linkage_and_license(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    wheel = tmp_path / 'av'
-    (wheel / '.dylibs').mkdir(parents=True)
-    (wheel / '.dylibs/libavcodec.61.dylib').write_bytes(b'fixture')
-    av = ModuleType('av')
-    av.__file__ = str(wheel / '__init__.py')
-    av.__path__ = [str(wheel)]
-    av.__version__ = '14.2.0'
-    core = ModuleType('av._core')
-    core.library_meta = {'libavcodec': {'version': (61, 19, 100), 'license': 'GPL version 3 or later',
-                                        'configuration': '--enable-gpl --enable-version3'}}
-    av._core = core
-    monkeypatch.setitem(sys.modules, 'av', av)
-    monkeypatch.setitem(sys.modules, 'av._core', core)
-    result = notices.ffmpeg_notice()
-    assert 'libavcodec' in result
-    assert 'configuration:' in result
-    assert 'GPL version 3 or later' in result
+def test_ffmpeg_notice_uses_frozen_helper_and_pyav_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    helper = tmp_path / 'VostavoBackend.app'
+    for relative in ('Contents/Resources/libavcodec.61.dylib',
+                     'Contents/Frameworks/av/__dot__dylibs/libavcodec.61.dylib',
+                     'Contents/Frameworks/av/__dot__dylibs/libnewcodec.1.dylib'):
+        path = helper / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b'fixture')
+    monkeypatch.setattr(notices.subprocess, 'check_output', lambda *args, **kwargs: (
+        'PyAV v14.2.0\nlibrary configuration: --enable-gpl --enable-version3\n'
+        'library license: GPL version 3 or later\nlibavcodec 61.19.100\n'))
+    result = notices.ffmpeg_notice(helper)
+    assert 'Contents/Resources/libavcodec.61.dylib' in result
+    assert 'Contents/Frameworks/av/__dot__dylibs/libnewcodec.1.dylib' in result
+    assert 'library configuration: --enable-gpl --enable-version3' in result
+    assert 'PUBLIC DISTRIBUTION HOLD' in result
+
+
+@pytest.mark.parametrize('license_name,expected_files', [
+    ('LGPL version 2.1 or later', ('LGPL-2.1.txt',)),
+    ('LGPL version 3 or later', ('GPL-3.0.txt', 'LGPL-3.0.txt')),
+])
+def test_lgpl_notice_includes_full_text_and_source_reference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, license_name: str, expected_files: tuple[str, ...]
+) -> None:
+    helper = tmp_path / 'VostavoBackend.app'
+    dylib = helper / 'Contents/Frameworks/av/__dot__dylibs/libavcodec.61.dylib'
+    dylib.parent.mkdir(parents=True)
+    dylib.write_bytes(b'fixture')
+    monkeypatch.setattr(notices.subprocess, 'check_output', lambda *args, **kwargs: (
+        'PyAV v14.2.0\nlibrary configuration: --disable-gpl --enable-shared\n'
+        f'library license: {license_name}\nlibavcodec 61.19.100\n'))
+    result = notices.ffmpeg_notice(helper, source_version='7.0.2', source_archive='sources/ffmpeg-7.0.2.tar.xz')
+    assert 'PyAV version: 14.2.0' in result
+    assert 'FFmpeg source version: 7.0.2' in result
+    assert 'FFmpeg source archive path or URL: sources/ffmpeg-7.0.2.tar.xz' in result
+    assert 'FFmpeg configure flags: --disable-gpl --enable-shared' in result
+    for filename in expected_files:
+        assert (notices.ROOT / 'packaging/licenses' / filename).read_text().strip() in result
+    placeholder = notices.ffmpeg_notice(helper)
+    assert 'SOURCE_VERSION_REQUIRED' in placeholder
+    assert 'SOURCE_ARCHIVE_REQUIRED' in placeholder
+    with pytest.raises(RuntimeError, match='requires its source version and archive reference'):
+        notices.ffmpeg_notice(helper, require_source_reference=True)
 
 
 def test_frozen_inventory_requires_native_code_and_metadata(tmp_path: Path) -> None:

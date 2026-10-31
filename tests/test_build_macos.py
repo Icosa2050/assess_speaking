@@ -9,6 +9,20 @@ import pytest
 from scripts import build_macos
 
 
+def test_generated_notices_are_in_app_before_signing(tmp_path: Path) -> None:
+    bundle = tmp_path / 'stage/Vostavo.app'
+    notices = tmp_path / 'THIRD_PARTY_NOTICES.txt'
+    notices.write_bytes(b'generated notice for this build\n')
+    destination = bundle / 'Contents/Resources/THIRD_PARTY_NOTICES.txt'
+
+    def check_before_sign(*_args):
+        assert destination.read_bytes() == notices.read_bytes()
+
+    with patch.object(build_macos, 'sign', side_effect=check_before_sign) as signed:
+        build_macos.sign_app_with_notices(bundle, notices, '-', False, tmp_path / 'entitlements.plist')
+    signed.assert_called_once()
+
+
 def test_internal_acceptance_command_is_required_only_in_internal_binary(tmp_path: Path) -> None:
     binary = tmp_path / 'vostavo-desktop'
     binary.write_bytes(b'ordinary release shell VOSTAVO_DEVICE_ONLY_DRAFTS_REQUIRED')
@@ -178,11 +192,16 @@ def test_notarization_pipeline_dry_run_orders_app_before_dmg(tmp_path: Path) -> 
     stage = tmp_path / 'stage'
     stage.mkdir()
     bundle = stage / 'Vostavo.app'
+    bundled_notices = bundle / 'Contents/Resources/THIRD_PARTY_NOTICES.txt'
+    bundled_notices.parent.mkdir(parents=True)
+    bundled_notices.write_text('notice from the signed app')
     archive = tmp_path / 'Vostavo.zip'
     dmg = tmp_path / 'Vostavo.dmg'
     commands: list[list[str]] = []
 
     def fake_run(args, **_kwargs):
+        if args[0] == 'hdiutil':
+            assert bundled_notices.read_text() == 'notice from the signed app'
         commands.append([str(value) for value in args])
         return None
 
