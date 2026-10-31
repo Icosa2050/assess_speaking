@@ -91,6 +91,7 @@ LOCAL_RUNTIME_MANAGEMENT_ROUTES: tuple[str, ...] = (
     "/v1/runtime/chatgpt/connections/{connection_id}/model",
     "/v1/runtime/chatgpt/connections/{connection_id}",
     "/v1/runtime/settings",
+    "/v1/runtime/preferences",
     "/v1/runtime/settings/test-connection",
     "/v1/runtime/settings/connections/{connection_id}/default",
     "/v1/runtime/settings/connections/{connection_id}",
@@ -192,6 +193,18 @@ class RuntimeSettingsSaveRequest(BaseModel):
     whisper_model: str = ""
     clear_saved_secret: bool = False
     connection: RuntimeConnectionDraft
+
+
+class RuntimePreferencesPatchRequest(BaseModel):
+    ui_locale: str | None = None
+    whisper_model: str | None = None
+
+    model_config = {"extra": "forbid"}
+
+
+class RuntimePreferencesResponse(BaseModel):
+    ui_locale: str
+    whisper_model: str
 
 
 class RuntimeConnectionTestRequest(BaseModel):

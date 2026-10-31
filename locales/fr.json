@@ -1020,7 +1020,6 @@
     "cancel": "Annuler",
     "connection_missing": "Cette connexion enregistrée n’est plus disponible. Revenez aux paramètres et choisissez-en une autre.",
     "save_preferences": "Enregistrer les préférences",
-    "preferences_need_connection": "Configurez un fournisseur avant d’enregistrer ces préférences.",
     "session_only_saved_notice": "Connexion enregistrée. L’identifiant est disponible uniquement pour cette session ; reconnectez-vous après le redémarrage de l’application.",
     "secret_session_only_state": "Identifiant disponible uniquement pour cette session ; reconnectez-vous après le redémarrage de l’application.",
     "active_restore_failed_notice": "Connexion enregistrée, mais la connexion active précédente n’a pas pu être rétablie. Sélectionnez-la à nouveau dans les paramètres.",

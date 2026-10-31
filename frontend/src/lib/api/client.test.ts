@@ -65,6 +65,15 @@ describe("api client", () => {
     );
   });
 
+  it("sends only preference fields to the preferences endpoint", async () => {
+    const request = { ui_locale: "fr", whisper_model: "tiny" };
+    await createApiClient("http://localhost:8771").patchRuntimePreferences(request);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8771/v1/runtime/preferences",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify(request) }),
+    );
+  });
+
   it("encodes dynamic assessment path segments", async () => {
     const client = createApiClient("http://localhost:8771");
 

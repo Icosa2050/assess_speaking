@@ -140,7 +140,6 @@ export const SettingsRoute = () => {
     return data?.connections.find((connection) => connection.connection_id === data.active_connection_id) ??
       data?.connections.find((connection) => connection.is_default) ?? null;
   }, [runtimeSettingsQuery.data]);
-
   useEffect(() => {
     if (runtimeSettingsQuery.data?.active_connection_id) setActiveConnectionId(runtimeSettingsQuery.data.active_connection_id);
     setSetupComplete(Boolean(runtimeQuery.data?.configured) || (runtimeSettingsQuery.data?.connections.length ?? 0) > 0);
@@ -172,23 +171,12 @@ export const SettingsRoute = () => {
     ]);
   };
   const handleSavePreferences = async () => {
-    if (!activeConnection) return;
     setIsBusy(true);
     setPreferencesMessage("");
     try {
-      const response = await apiClient.putRuntimeSettings({
+      const response = await apiClient.patchRuntimePreferences({
         ui_locale: selectedUiLocale,
         whisper_model: selectedWhisperModel,
-        connection: {
-          connection_id: activeConnection.connection_id,
-          provider_choice: activeConnection.provider_choice,
-          label: activeConnection.label,
-          model: activeConnection.model,
-          base_url: activeConnection.base_url,
-          api_key: "",
-          openrouter_http_referer: activeConnection.openrouter_http_referer,
-          openrouter_app_title: activeConnection.openrouter_app_title,
-        },
       });
       setUiLocale(response.ui_locale as UiLocale);
       setPreferencesMessage(translate("settings.saved"));
@@ -340,10 +328,9 @@ export const SettingsRoute = () => {
           </select>
         </label>
 
-        <Button disabled={isBusy || !activeConnection} onClick={() => void handleSavePreferences()} style={{ width: "fit-content" }} {...semanticAttributes(SEMANTIC_IDS.settings.savePreferences)}>
+        <Button disabled={isBusy || !runtimeSettingsQuery.data} onClick={() => void handleSavePreferences()} style={{ width: "fit-content" }} {...semanticAttributes(SEMANTIC_IDS.settings.savePreferences)}>
           {translate("settings.save_preferences")}
         </Button>
-        {!activeConnection ? <p role="status">{translate("settings.preferences_need_connection")}</p> : null}
         {preferencesMessage ? <p role="status">{preferencesMessage}</p> : null}
 
         <p style={{ margin: 0, lineHeight: 1.55, color: whisperStatusQuery.data?.cached ? "var(--color-success)" : "var(--color-warning)" }}>

@@ -28,6 +28,7 @@ export type FrozenApiRoute =
   | "/v1/readiness"
   | "/v1/runtime"
   | "/v1/runtime/settings"
+  | "/v1/runtime/preferences"
   | "/v1/runtime/settings/test-connection"
   | `/v1/runtime/settings/connections/${string}`
   | `/v1/runtime/settings/connections/${string}/default`
@@ -144,6 +145,16 @@ export interface RuntimeSettingsSaveRequest {
   whisper_model: string;
   clear_saved_secret?: boolean;
   connection: RuntimeConnectionDraft;
+}
+
+export interface RuntimePreferencesPatchRequest {
+  ui_locale?: string;
+  whisper_model?: string;
+}
+
+export interface RuntimePreferencesResponse {
+  ui_locale: string;
+  whisper_model: string;
 }
 
 export interface RuntimeConnectionTestRequest {
