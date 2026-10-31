@@ -106,6 +106,25 @@ def test_valid_localized_feedback_and_sentence_abbreviations(locale, summary, ne
                                 target_duration_sec=90, rubric=RUBRIC)
 
 
+def test_practice_words_quoted_in_localized_explanation_are_not_language_evidence():
+    data = payload()
+    data.update(summary="La risposta è chiara.",
+                next_step="Registra un nuovo tentativo di 90 secondi.",
+                feedback_language="it")
+    data["fixes"] = [{"you_said": "your the story", "better": "I like your story.",
+                      "why": "Non usare 'the' dopo 'your'."}]
+    transcript = "I like your the story."
+    rubric = {"recurring_grammar_errors": [{"examples": ["your the story"]}]}
+    validate_compact_generation(CompactFeedback.from_dict(data), transcript=transcript,
+                                feedback_language="it", practice_language="en",
+                                target_duration_sec=90, rubric=rubric)
+    data["fixes"][0]["why"] = "Use 'the' with 'your' because the phrase is clear."
+    with pytest.raises(SchemaValidationError, match="wrong language"):
+        validate_compact_generation(CompactFeedback.from_dict(data), transcript=transcript,
+                                    feedback_language="it", practice_language="en",
+                                    target_duration_sec=90, rubric=rubric)
+
+
 def test_second_sentence_is_rejected():
     data = payload()
     data["summary"] = "Your answer has a clear topic. Add detail next."

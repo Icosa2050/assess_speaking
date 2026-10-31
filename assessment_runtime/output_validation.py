@@ -181,8 +181,18 @@ _SPEECH_ACTIONS = {
 }
 
 
-def _check_language(text: str, expected: str, field: str) -> None:
+_QUOTED_WORDING = re.compile(r'''\'([^'\n]+)\'|"([^"\n]+)"|“([^”\n]+)”|‘([^’\n]+)’|«([^»\n]+)»''')
+
+
+def _check_language(text: str, expected: str, field: str,
+                    quote_sources: tuple[str, ...] = ()) -> None:
     """Catch clear language swaps; ambiguous short text is not guessed at."""
+    if quote_sources:
+        def remove_grounded_quote(match: re.Match) -> str:
+            quoted = next(group for group in match.groups() if group is not None)
+            return " " if any(contains_example(source, quoted) for source in quote_sources) else match.group()
+
+        text = _QUOTED_WORDING.sub(remove_grounded_quote, text)
     words = set(re.findall(r"[^\W\d_]+", text.casefold(), flags=re.UNICODE))
     own = len(words & _LANGUAGE_MARKERS[expected])
     foreign = max((len(words & markers) for code, markers in _LANGUAGE_MARKERS.items() if code != expected), default=0)
@@ -251,7 +261,8 @@ def validate_compact_generation(report: CompactFeedback, *, transcript: str | No
         if "\n" in fix.better or fix.better[-1] not in ".!?":
             raise SchemaValidationError(f"fixes[{index}].better: must be one complete sentence")
         _check_language(fix.better, practice_language, f"fixes[{index}].better")
-        _check_language(fix.why, feedback_language, f"fixes[{index}].why")
+        _check_language(fix.why, feedback_language, f"fixes[{index}].why",
+                        quote_sources=(fix.you_said, fix.better))
         if "\n" in fix.why or re.search(r"[.!?].+\S", fix.why):
             raise SchemaValidationError(f"fixes[{index}].why: must be one line")
         validate_claim_text(fix.why, f"fixes[{index}].why", grammar_errors=bool(issues),
