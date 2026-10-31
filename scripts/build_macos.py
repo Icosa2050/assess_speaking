@@ -110,8 +110,10 @@ def validate_frozen_audio(helper: Path, *, env: dict[str, str]) -> dict[str, boo
                      '--validation-result', result_path], cwd='/', env=env,
                     capture_output=True, text=True, timeout=30)
                 result = json.loads(result_path.read_text())
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError,
-                    json.JSONDecodeError) as exc:
+            except subprocess.CalledProcessError as exc:
+                detail = result_path.read_text() if result_path.is_file() else exc.stderr or str(exc)
+                raise RuntimeError(f'Frozen helper failed to decode {filename}: {detail}') from exc
+            except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError) as exc:
                 raise RuntimeError(f'Frozen helper failed to decode {filename}: {exc}') from exc
             if result.get('ok') is not True:
                 raise RuntimeError(f'Frozen helper failed to decode {filename}: {result}')

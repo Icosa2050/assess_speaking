@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import plistlib
+import subprocess
 from unittest.mock import patch
 import pytest
 
@@ -32,10 +33,13 @@ def test_frozen_audio_gate_checks_every_fixture_and_rejects_failed_decode(tmp_pa
     def validate(command, **kwargs):
         filename = Path(command[2]).name
         seen.append(filename)
-        Path(command[6]).write_text(json.dumps({'ok': filename != 'tone-alac.m4a'}))
+        Path(command[6]).write_text(json.dumps({'ok': filename != 'tone-alac.m4a',
+                                                'detail': 'synthetic decoder rejected'}))
+        if filename == 'tone-alac.m4a':
+            raise subprocess.CalledProcessError(2, command)
 
     with patch.object(build_macos, 'run', side_effect=validate):
-        with pytest.raises(RuntimeError, match='tone-alac.m4a'):
+        with pytest.raises(RuntimeError, match='tone-alac.m4a.*synthetic decoder rejected'):
             build_macos.validate_frozen_audio(tmp_path / 'helper', env={'PATH': '/usr/bin'})
     assert seen == list(build_macos.SYNTHETIC_AUDIO)
 
@@ -49,6 +53,26 @@ def test_frozen_audio_gate_checks_every_fixture_and_rejects_failed_decode(tmp_pa
         results = build_macos.validate_frozen_audio(tmp_path / 'helper', env={'PATH': '/usr/bin'})
     assert list(results) == list(build_macos.SYNTHETIC_AUDIO)
     assert all(results.values())
+
+
+def test_corresponding_source_archive_is_byte_reproducible(tmp_path: Path) -> None:
+    work = tmp_path / 'work'
+    for relative, content in {
+        'sources/ffmpeg-7.1.1.tar.xz': b'ffmpeg source fixture',
+        'sources/av-14.2.0.tar.gz': b'pyav source fixture',
+        'configure-flags.txt': b'--disable-everything\n',
+        'ffmpeg-7.1.1/COPYING.LGPLv2.1': b'LGPL fixture',
+        'av-14.2.0/LICENSE.txt': b'PyAV fixture',
+    }.items():
+        path = work / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    archive = tmp_path / 'source.tar.gz'
+    command = [build_macos.ROOT / 'scripts/package_lgpl_sources.sh', work, archive]
+    subprocess.run(command, check=True, capture_output=True)
+    first = hashlib.sha256(archive.read_bytes()).hexdigest()
+    subprocess.run(command, check=True, capture_output=True)
+    assert hashlib.sha256(archive.read_bytes()).hexdigest() == first
 
 
 def test_packaging_lock_never_installs_upstream_av() -> None:
