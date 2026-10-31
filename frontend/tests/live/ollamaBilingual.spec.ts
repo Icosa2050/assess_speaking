@@ -48,7 +48,7 @@ async function saveSettings(page: Page, language: string, selectedModel: string,
   await expect(page.getByTestId("settings.connection_id")).not.toHaveValue("");
   await page.getByTestId("settings.ui_locale").selectOption(language);
   await page.getByTestId("settings.whisper_model").selectOption(selectedWhisper);
-  const preferencesSaved = page.waitForResponse(r => new URL(r.url()).pathname === "/v1/runtime/settings" && r.request().method() === "PUT");
+  const preferencesSaved = page.waitForResponse(r => new URL(r.url()).pathname === "/v1/runtime/preferences" && r.request().method() === "PATCH");
   await page.getByTestId("settings.save_preferences").click();
   expect((await preferencesSaved).ok()).toBeTruthy();
   await page.getByTestId("settings.connection_row_edit").click();

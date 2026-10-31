@@ -1026,7 +1026,6 @@
     "cancel": "Cancelar",
     "connection_missing": "Esta conexión guardada ya no está disponible. Vuelve a Configuración y elige otra.",
     "save_preferences": "Guardar preferencias",
-    "preferences_need_connection": "Configura un proveedor antes de guardar estas preferencias.",
     "session_only_saved_notice": "Conexión guardada. La credencial solo está disponible durante esta sesión; vuelve a conectarte tras reiniciar la aplicación.",
     "secret_session_only_state": "Credencial disponible solo durante esta sesión; vuelve a conectarte tras reiniciar la aplicación.",
     "active_restore_failed_notice": "Conexión guardada, pero no se pudo restaurar la conexión activa anterior. Vuelve a elegirla en Configuración.",

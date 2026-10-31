@@ -1026,7 +1026,6 @@
     "cancel": "Cancel",
     "connection_missing": "This saved connection is no longer available. Return to Settings and choose another.",
     "save_preferences": "Save preferences",
-    "preferences_need_connection": "Set up a provider before saving these preferences.",
     "session_only_saved_notice": "Connection saved. Its credential is available for this session only; reconnect after restarting the app.",
     "secret_session_only_state": "Credential available for this session only; reconnect after restarting the app.",
     "active_restore_failed_notice": "Connection saved, but the previous active connection could not be restored. Choose it again in Settings.",

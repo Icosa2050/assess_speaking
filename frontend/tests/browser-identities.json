@@ -152,6 +152,12 @@
       "e2e/settingsSupportFlow.spec.ts",
       "",
       "settings support flow",
+      "preferences save without a provider connection"
+    ],
+    [
+      "e2e/settingsSupportFlow.spec.ts",
+      "",
+      "settings support flow",
       "settings runs support actions against the local guest backend"
     ],
     [
