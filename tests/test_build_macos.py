@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import plistlib
 import subprocess
+import time
 from unittest.mock import patch
 import pytest
 
@@ -71,6 +72,7 @@ def test_corresponding_source_archive_is_byte_reproducible(tmp_path: Path) -> No
     command = [build_macos.ROOT / 'scripts/package_lgpl_sources.sh', work, archive]
     subprocess.run(command, check=True, capture_output=True)
     first = hashlib.sha256(archive.read_bytes()).hexdigest()
+    time.sleep(1.1)  # Cross the tar timestamp boundary; the old archive changed here.
     subprocess.run(command, check=True, capture_output=True)
     assert hashlib.sha256(archive.read_bytes()).hexdigest() == first
 
