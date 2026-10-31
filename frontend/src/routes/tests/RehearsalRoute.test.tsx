@@ -7,6 +7,9 @@ import { createRehearsal } from "@/lib/rehearsal/session";
 import { getRehearsal, listRehearsals } from "@/lib/rehearsal/storage";
 import { apiClient } from "@/lib/api/client";
 
+const assessableChecks = { language_pass: true, topic_pass: true, content_validity_pass: true,
+  duration_pass: true, min_words_pass: true };
+
 vi.mock("@/lib/rehearsal/storage", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/rehearsal/storage")>(),
   listRehearsals: vi.fn(),
@@ -71,6 +74,7 @@ it("shows a saved compact coaching summary and next step for a rehearsal part", 
   vi.mocked(getRehearsal).mockResolvedValue(session);
   vi.mocked(apiClient.getHistoryDetail).mockResolvedValue({ payload: { report: {
     session_id: "compact-part", metrics: { duration_sec: 180, wpm: 110 }, scores: { final: 4 },
+    checks: assessableChecks, eligibility: { state: "assessable" },
     rubric: {}, warnings: [], coaching: {
       summary: "Your story has a clear sequence.",
       fixes: [{ you_said: "I goes to Rome", better: "I go to Rome.", why: "Use the base verb with I." }],
@@ -95,6 +99,38 @@ it("shows a saved compact coaching summary and next step for a rehearsal part", 
   expect(result).not.toHaveTextContent("Report unavailable");
 });
 
+it("withholds retained compact corrections when a rehearsal part is ineligible", async () => {
+  const session = createRehearsal("en", "B1", "Alex", {
+    provider: "ollama_local", model: "test", baseUrl: "http://localhost:11434", whisper: "small", feedbackLanguage: "en",
+  });
+  session.phase = "review";
+  session.parts[0] = { ...session.parts[0], recorded: true, reportId: "short-part" };
+  vi.mocked(listRehearsals).mockResolvedValue([session]);
+  vi.mocked(getRehearsal).mockResolvedValue(session);
+  vi.mocked(apiClient.getHistoryDetail).mockResolvedValue({ payload: { report: {
+    session_id: "short-part", metrics: { duration_sec: 20, wpm: 110 }, scores: { final: 4 },
+    checks: assessableChecks, eligibility: { state: "insufficient_speech" },
+    rubric: {}, warnings: [], coaching: {
+      summary: "Your story has a clear sequence.",
+      fixes: [{ you_said: "I goes to Rome", better: "I go to Rome.", why: "Use the base verb with I." }],
+      next_step: "Record a 180 seconds retry with one clear ending.",
+      feedback_language: "en", practice_language: "en",
+    },
+  } } } as Awaited<ReturnType<typeof apiClient.getHistoryDetail>>);
+  renderWithProviders(<RehearsalRoute />, { initialEntries: ["/rehearsal"], locale: "en",
+    appState: { draft: { speakerId: "Alex" }, microphoneSetupPassed: true } });
+  fireEvent.click(await screen.findByRole("button", { name: /EN.*Alex/ }));
+  const result = await screen.findByTestId("rehearsal-result-0");
+  expect(screen.getByTestId("rehearsal-ineligible-0")).toBeVisible();
+  expect(result).toHaveTextContent("Not enough speech");
+  expect(result).not.toHaveTextContent("Your story has a clear sequence.");
+  expect(result).not.toHaveTextContent("I goes to Rome");
+  expect(result).not.toHaveTextContent("Record a 180 seconds retry");
+  expect(screen.queryByTestId("rehearsal-compact-fixes-0")).not.toBeInTheDocument();
+  expect(screen.queryByTestId("rehearsal-coaching-summary-0")).not.toBeInTheDocument();
+  expect(result.querySelectorAll("dd")[2]).toHaveTextContent("—");
+});
+
 it("bounds legacy rehearsal feedback at word boundaries and offers its full text", async () => {
   const summary = "This legacy summary repeats one useful point for the learner. ".repeat(6).trim();
   const focus = "Connect every example to the main idea before you close. ".repeat(6).trim();
@@ -106,7 +142,8 @@ it("bounds legacy rehearsal feedback at word boundaries and offers its full text
   vi.mocked(listRehearsals).mockResolvedValue([session]);
   vi.mocked(getRehearsal).mockResolvedValue(session);
   vi.mocked(apiClient.getHistoryDetail).mockResolvedValue({ payload: { report: {
-    session_id: "legacy-part", metrics: {}, scores: {}, rubric: {}, warnings: [],
+    session_id: "legacy-part", metrics: { duration_sec: 180 }, scores: {},
+    checks: assessableChecks, eligibility: { state: "assessable" }, rubric: {}, warnings: [],
     coaching: { coach_summary: summary, next_focus: focus },
   } } } as Awaited<ReturnType<typeof apiClient.getHistoryDetail>>);
   renderWithProviders(<RehearsalRoute />, { initialEntries: ["/rehearsal"], locale: "en",

@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { RecorderPanel } from "@/components/speak/RecorderPanel";
 import { RehearsalAudio } from "@/components/speak/RehearsalAudio";
 import { CompactFixList } from "@/components/review/CompactFixList";
+import { reviewEligibilityState } from "@/components/review/ReviewSummary";
 import { apiClient, ApiClientError } from "@/lib/api/client";
 import type { AssessmentStatusResponse, JsonRecord } from "@/lib/api/types";
 import { createTranslator } from "@/lib/i18n";
@@ -250,11 +251,15 @@ export const RehearsalRoute = () => {
         const report = record(reports[part.reportId || ""]?.report);
         const metrics = record(report.metrics); const coaching = record(report.coaching);
         const scores = record(report.scores); const warnings = Array.isArray(report.warnings) ? report.warnings : [];
+        const eligibility = reviewEligibilityState({ report });
+        const assessable = eligibility === "assessable";
+        const eligibilityMessage = eligibility === "insufficient_speech" ? "review.insufficient_speech"
+          : eligibility === "invalid_content" ? "review.eligibility_invalid" : "review.eligibility_unverified";
         const coachingSummary = shortFeedback(coaching.summary || coaching.coach_summary, 160);
         const nextStep = shortFeedback(coaching.next_step || coaching.next_focus, 160);
         const feedbackLanguage = String(coaching.feedback_language || "");
         const practiceLanguage = String(coaching.practice_language || "");
-        const compactFeedback = typeof coaching.summary === "string" && typeof coaching.next_step === "string" &&
+        const compactFeedback = assessable && typeof coaching.summary === "string" && typeof coaching.next_step === "string" &&
           ["en", "de", "it", "fr", "es"].includes(feedbackLanguage) && ["en", "it"].includes(practiceLanguage);
         const compactFixes = compactFeedback && Array.isArray(coaching.fixes) ? coaching.fixes.slice(0, 3).map(record).map(fix => ({
           youSaid: shortFeedback(fix.you_said, 100).preview,
@@ -265,14 +270,15 @@ export const RehearsalRoute = () => {
           <h3>{t("part", { number: i + 1, total: session.parts.length })} · {clockText(part.durationSec)}</h3><p>{part.prompt}</p>
           <RehearsalAudio session={session} index={i} label={t("playback")} unavailable={t("audio_missing")} downloadLabel={translate("speak.download_recording")} />
           {part.reportId ? <>
-            <dl className={styles.metrics}>{[["duration", metrics.duration_sec], ["wpm", metrics.wpm], ["score", record(report.eligibility).state && record(report.eligibility).state !== "assessable" ? null : scores.final]].map(([label, value]) => <div key={String(label)}><dt>{t(String(label))}</dt><dd>{typeof value === "number" && Number.isFinite(value) ? value.toFixed(1) : "—"}</dd></div>)}</dl>
-            {(!report.rubric || warnings.includes("coaching_unavailable")) && <p>{translate("review.general_practice_tips")}</p>}
+            <dl className={styles.metrics}>{[["duration", metrics.duration_sec], ["wpm", metrics.wpm], ["score", assessable ? scores.final : null]].map(([label, value]) => <div key={String(label)}><dt>{t(String(label))}</dt><dd>{typeof value === "number" && Number.isFinite(value) ? value.toFixed(1) : "—"}</dd></div>)}</dl>
+            {!assessable && <p role="status" data-testid={`rehearsal-ineligible-${i}`}>{translate(eligibilityMessage)}</p>}
+            {assessable && (!report.rubric || warnings.includes("coaching_unavailable")) && <p>{translate("review.general_practice_tips")}</p>}
             {warnings.includes("transcript_uncertain") && <p>{translate("review.transcript_uncertain")}</p>}
-            <p lang={compactFeedback && coachingSummary.preview ? feedbackLanguage : undefined} data-testid={`rehearsal-coaching-summary-${i}`}>{coachingSummary.preview || t("report_missing")}</p>
+            {assessable && <p lang={compactFeedback && coachingSummary.preview ? feedbackLanguage : undefined} data-testid={`rehearsal-coaching-summary-${i}`}>{coachingSummary.preview || t("report_missing")}</p>}
             {compactFeedback && <CompactFixList fixes={compactFixes} practiceLanguage={practiceLanguage}
               feedbackLanguage={feedbackLanguage} translate={translate} testId={`rehearsal-compact-fixes-${i}`} headingLevel={4} />}
-            {nextStep.preview && <strong lang={compactFeedback ? feedbackLanguage : undefined} data-testid={`rehearsal-next-step-${i}`}>{nextStep.preview}</strong>}
-            {(coachingSummary.full || nextStep.full) && <details className={styles.fullFeedback} data-testid={`rehearsal-full-feedback-${i}`}>
+            {assessable && nextStep.preview && <strong lang={compactFeedback ? feedbackLanguage : undefined} data-testid={`rehearsal-next-step-${i}`}>{nextStep.preview}</strong>}
+            {assessable && (coachingSummary.full || nextStep.full) && <details className={styles.fullFeedback} data-testid={`rehearsal-full-feedback-${i}`}>
               <summary>{translate("review.legacy_full_text")}</summary>
               {coachingSummary.full && <p><strong>{translate("review.legacy_full_summary")}</strong> {coachingSummary.full}</p>}
               {nextStep.full && <p><strong>{translate("review.legacy_full_focus")}</strong> {nextStep.full}</p>}
