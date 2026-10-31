@@ -1,21 +1,98 @@
 import ast
 from datetime import datetime, timedelta, timezone
 import hashlib
+import json
 from pathlib import Path
 import plistlib
+import subprocess
+import sys
+import time
 from unittest.mock import patch
 import pytest
 
 from scripts import build_macos
 
 
+def test_lgpl_gate_rejects_gpl_configurations_and_links() -> None:
+    libraries = {name: {"configuration": "--disable-everything --enable-shared", "license": "LGPL version 2.1 or later"}
+                 for name in ("libavcodec", "libavdevice", "libavfilter", "libavformat",
+                              "libavutil", "libswresample", "libswscale")}
+    assert build_macos.assert_lgpl_ffmpeg({"pyav_version": "14.2.0", "libraries": libraries})
+    for forbidden in ("--enable-gpl", "--enable-nonfree", "--enable-version3", "--enable-libx264", "--enable-libx265"):
+        changed = {**libraries, "libavcodec": {**libraries["libavcodec"], "configuration": forbidden}}
+        with pytest.raises(RuntimeError, match="Forbidden FFmpeg"):
+            build_macos.assert_lgpl_ffmpeg({"pyav_version": "14.2.0", "libraries": changed})
+    with pytest.raises(RuntimeError, match="Forbidden FFmpeg"):
+        build_macos.assert_lgpl_ffmpeg({"pyav_version": "14.2.0", "libraries": {
+            **libraries, "libavcodec": {**libraries["libavcodec"], "license": "GPL version 3 or later"}}})
+    assert build_macos.FORBIDDEN_CODEC_LIBRARIES.search("@loader_path/libx264.164.dylib")
+    assert build_macos.FORBIDDEN_CODEC_LIBRARIES.search("/bundle/libx265.199.dylib")
+
+
+def test_frozen_audio_gate_checks_every_fixture_and_rejects_failed_decode(tmp_path: Path) -> None:
+    seen = []
+
+    def validate(command, **kwargs):
+        filename = Path(command[2]).name
+        seen.append(filename)
+        Path(command[6]).write_text(json.dumps({'ok': filename != 'tone-alac.m4a',
+                                                'detail': 'synthetic decoder rejected'}))
+        if filename == 'tone-alac.m4a':
+            raise subprocess.CalledProcessError(2, command)
+
+    with patch.object(build_macos, 'run', side_effect=validate):
+        with pytest.raises(RuntimeError, match='tone-alac.m4a.*synthetic decoder rejected'):
+            build_macos.validate_frozen_audio(tmp_path / 'helper', env={'PATH': '/usr/bin'})
+    assert seen == list(build_macos.SYNTHETIC_AUDIO)
+
+    seen.clear()
+
+    def accept(command, **kwargs):
+        seen.append(Path(command[2]).name)
+        Path(command[6]).write_text('{"ok": true}')
+
+    with patch.object(build_macos, 'run', side_effect=accept):
+        results = build_macos.validate_frozen_audio(tmp_path / 'helper', env={'PATH': '/usr/bin'})
+    assert list(results) == list(build_macos.SYNTHETIC_AUDIO)
+    assert all(results.values())
+
+
+@pytest.mark.skipif(sys.platform != 'darwin', reason='bsdtar-based macOS packaging')
+def test_corresponding_source_archive_is_byte_reproducible(tmp_path: Path) -> None:
+    work = tmp_path / 'work'
+    for relative, content in {
+        'sources/ffmpeg-7.1.1.tar.xz': b'ffmpeg source fixture',
+        'sources/av-14.2.0.tar.gz': b'pyav source fixture',
+        'configure-flags.txt': b'--disable-everything\n',
+        'ffmpeg-7.1.1/COPYING.LGPLv2.1': b'LGPL fixture',
+        'av-14.2.0/LICENSE.txt': b'PyAV fixture',
+    }.items():
+        path = work / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    archive = tmp_path / 'source.tar.gz'
+    command = [build_macos.ROOT / 'scripts/package_lgpl_sources.sh', work, archive]
+    subprocess.run(['sh', '-c', 'umask 077; exec "$@"', 'sh', *command], check=True, capture_output=True)
+    first = hashlib.sha256(archive.read_bytes()).hexdigest()
+    time.sleep(1.1)  # Cross the tar timestamp boundary; the old archive changed here.
+    subprocess.run(['sh', '-c', 'umask 022; exec "$@"', 'sh', *command], check=True, capture_output=True)
+    assert hashlib.sha256(archive.read_bytes()).hexdigest() == first
+
+
+def test_packaging_lock_never_installs_upstream_av() -> None:
+    original = (build_macos.ROOT / 'packaging/requirements-macos-arm64.txt').read_text()
+    filtered = build_macos.packaging_lock_without_upstream_av(original)
+    assert 'av==14.2.0' not in filtered
+    assert 'faster-whisper==1.2.0' in filtered
+    with pytest.raises(RuntimeError, match='Cannot isolate'):
+        build_macos.packaging_lock_without_upstream_av('faster-whisper==1.2.0\n')
 def test_generated_notices_are_in_app_before_signing(tmp_path: Path) -> None:
     bundle = tmp_path / 'stage/Vostavo.app'
     notices = tmp_path / 'THIRD_PARTY_NOTICES.txt'
     notices.write_bytes(b'generated notice for this build\n')
     destination = bundle / 'Contents/Resources/THIRD_PARTY_NOTICES.txt'
 
-    def check_before_sign(*_args):
+    def check_before_sign(*_args, **_kwargs):
         assert destination.read_bytes() == notices.read_bytes()
 
     with patch.object(build_macos, 'sign', side_effect=check_before_sign) as signed:
@@ -49,6 +126,15 @@ def test_native_audit_preserves_mac_os_14_floor(tmp_path: Path) -> None:
 
     assert build_macos.MINIMUM_MACOS == "14.0"
     assert result["minimum_macos"] == "14.0"
+
+
+def test_native_audit_rejects_x264_link(tmp_path: Path) -> None:
+    binary = tmp_path / 'Vostavo.app' / 'Contents/MacOS/vostavo-desktop'
+    with patch.object(build_macos, 'macho_files', return_value=[binary]), patch.object(
+        build_macos, 'output', side_effect=['arm64', 'binary:\n\t@rpath/libx264.164.dylib']
+    ):
+        with pytest.raises(RuntimeError, match='Forbidden GPL codec library linked'):
+            build_macos.audit(tmp_path / 'Vostavo.app')
 
 
 def test_release_cargo_environment_blocks_ambient_debug_assertions(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -148,6 +234,26 @@ def test_profile_is_embedded_and_its_claims_are_signed(tmp_path: Path) -> None:
     with patch.object(build_macos, 'run', return_value=type('Result', (), {'stdout': plistlib.dumps({})})()):
         with pytest.raises(RuntimeError, match='missing the authorized'):
             build_macos.verify_signed_profile_claims(bundle, claims)
+
+
+def test_signed_helper_keeps_lgpl_dylibs_replaceable(tmp_path: Path) -> None:
+    helper = tmp_path / 'VostavoBackend.app'
+    approved = {'com.apple.security.cs.disable-library-validation': True}
+    with patch.object(build_macos, 'run', return_value=type('Result', (), {'stdout': plistlib.dumps(approved)})()):
+        build_macos.verify_helper_relink_entitlement(helper)
+    with patch.object(build_macos, 'run', return_value=type('Result', (), {'stdout': plistlib.dumps({})})()):
+        with pytest.raises(RuntimeError, match='blocks replacement'):
+            build_macos.verify_helper_relink_entitlement(helper)
+
+
+def test_local_sign_only_never_requests_apple_timestamp(tmp_path: Path) -> None:
+    with patch.object(build_macos, 'macho_files', return_value=[]), patch.object(build_macos, 'run') as signed:
+        build_macos.sign(tmp_path, 'certificate-sha1', True, tmp_path / 'entitlements.plist', local_sign_only=True)
+    for call in signed.call_args_list:
+        args = call.args[0]
+        if args[0] == 'codesign' and '--sign' in args:
+            assert '--timestamp=none' in args
+            assert '--timestamp' not in args
 
 
 def test_notarized_release_refuses_missing_profile(

@@ -25,6 +25,26 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 def _utility_mode() -> None:
+    if "--av-version" in sys.argv:
+        import av.__main__
+        with os.fdopen(os.dup(1), "w") as stream:
+            original = sys.stdout
+            original_argv = sys.argv
+            try:
+                sys.stdout = stream
+                sys.argv = ["av", "--version"]
+                av.__main__.main()
+            finally:
+                sys.argv = original_argv
+                sys.stdout = original
+        raise SystemExit(0)
+    if "--ffmpeg-license-report" in sys.argv:
+        import av
+        import av._core
+        payload = {"pyav_version": av.__version__, "libraries": av._core.library_meta}
+        with os.fdopen(os.dup(1), "w") as stream:
+            stream.write(json.dumps(payload) + "\n")
+        raise SystemExit(0)
     if "--validate-audio" in sys.argv:
         from assessment_runtime.media import validate_duration
         parser = argparse.ArgumentParser()

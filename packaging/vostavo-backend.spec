@@ -1,5 +1,6 @@
 # Built only from the clean production environment, never the development venv.
 import json
+import os
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules, copy_metadata
 
@@ -8,6 +9,10 @@ version = json.loads((root / 'frontend/src-tauri/tauri.conf.json').read_text())[
 datas = [(str(root / 'locales'), 'locales'), (str(root / 'samples/cefr'), 'samples/cefr'),
          (str(root / 'assessment_runtime/data'), 'assessment_runtime/data')]
 binaries = []
+ffmpeg_libdir = Path(os.environ['VOSTAVO_LGPL_FFMPEG_LIBDIR'])
+if not ffmpeg_libdir.is_dir():
+    raise RuntimeError('Pinned LGPL FFmpeg dylibs are missing')
+binaries += [(str(path), 'av/.dylibs') for path in sorted(ffmpeg_libdir.glob('lib*.dylib'))]
 hidden = []
 for package in ('app_backend', 'app_core', 'assess_core', 'assessment_runtime'):
     hidden += collect_submodules(package)
