@@ -121,16 +121,22 @@ test("transcribes Italian audio, gets oMLX feedback, and reloads the saved histo
       expect(report.rubric[field]).toBeGreaterThanOrEqual(1);
       expect(report.rubric[field]).toBeLessThanOrEqual(5);
     }
-    for (const field of ["coach_summary", "next_focus", "next_exercise"]) {
-      expect(typeof report.coaching[field]).toBe("string");
-      expect(report.coaching[field].trim()).not.toBe("");
-    }
-    expect(report.coaching.top_3_priorities).toHaveLength(3);
-    for (const priority of report.coaching.top_3_priorities) {
-      expect(typeof priority).toBe("string");
-      expect(priority.trim()).not.toBe("");
-    }
     expect(report.warnings || []).not.toContain("coaching_unavailable");
+    const coaching = report.coaching as Record<string, any>;
+    expect(coaching.feedback_language).toBe("en");
+    expect(coaching.practice_language).toBe("it");
+    for (const field of ["summary", "next_step"]) {
+      expect(typeof coaching[field]).toBe("string");
+      expect(coaching[field].trim()).not.toBe("");
+    }
+    expect(Array.isArray(coaching.fixes)).toBe(true);
+    expect(coaching.fixes.length).toBeLessThanOrEqual(3);
+    for (const fix of coaching.fixes) {
+      for (const field of ["you_said", "better", "why"]) {
+        expect(typeof fix[field]).toBe("string");
+        expect(fix[field].trim()).not.toBe("");
+      }
+    }
     await expect(page).toHaveURL(/\/review$/, { timeout: 30_000 });
     await expect(page.getByTestId("review-transcript")).toHaveValue(transcript);
     await page.getByTestId("review-action-view-history").click();
