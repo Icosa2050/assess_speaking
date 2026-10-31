@@ -1,6 +1,7 @@
 import ast
 from datetime import datetime, timedelta, timezone
 import hashlib
+import json
 from pathlib import Path
 import plistlib
 from unittest.mock import patch
@@ -23,6 +24,31 @@ def test_lgpl_gate_rejects_gpl_configurations_and_links() -> None:
             **libraries, "libavcodec": {**libraries["libavcodec"], "license": "GPL version 3 or later"}}})
     assert build_macos.FORBIDDEN_CODEC_LIBRARIES.search("@loader_path/libx264.164.dylib")
     assert build_macos.FORBIDDEN_CODEC_LIBRARIES.search("/bundle/libx265.199.dylib")
+
+
+def test_frozen_audio_gate_checks_every_fixture_and_rejects_failed_decode(tmp_path: Path) -> None:
+    seen = []
+
+    def validate(command, **kwargs):
+        filename = Path(command[2]).name
+        seen.append(filename)
+        Path(command[6]).write_text(json.dumps({'ok': filename != 'tone-alac.m4a'}))
+
+    with patch.object(build_macos, 'run', side_effect=validate):
+        with pytest.raises(RuntimeError, match='tone-alac.m4a'):
+            build_macos.validate_frozen_audio(tmp_path / 'helper', env={'PATH': '/usr/bin'})
+    assert seen == list(build_macos.SYNTHETIC_AUDIO)
+
+    seen.clear()
+
+    def accept(command, **kwargs):
+        seen.append(Path(command[2]).name)
+        Path(command[6]).write_text('{"ok": true}')
+
+    with patch.object(build_macos, 'run', side_effect=accept):
+        results = build_macos.validate_frozen_audio(tmp_path / 'helper', env={'PATH': '/usr/bin'})
+    assert list(results) == list(build_macos.SYNTHETIC_AUDIO)
+    assert all(results.values())
 
 
 def test_packaging_lock_never_installs_upstream_av() -> None:

@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +23,11 @@ MINIMUM_MACOS = '14.0'  # The native audit of the built app requires this floor.
 PROFILE_ENV = 'VOSTAVO_PROVISIONING_PROFILE'
 FORBIDDEN_FFMPEG_FLAGS = re.compile(r'--enable-(?:gpl|nonfree|version3|libx264|libx265)(?:\s|$)')
 FORBIDDEN_CODEC_LIBRARIES = re.compile(r'(?i)(?:^|/)lib(?:x264|x265)(?:\.|$)')
+SYNTHETIC_AUDIO = (
+    'tone.wav', 'tone.m4a', 'tone.mp4', 'tone.aac', 'tone.mp3',
+    'tone.webm', 'tone.ogg', 'tone.opus', 'tone.flac', 'tone.aiff',
+    'tone.aif', 'tone-vorbis.ogg', 'tone-vorbis.webm', 'tone-alac.m4a',
+)
 
 
 def run(args, **kwargs):
@@ -84,6 +90,31 @@ def assert_lgpl_ffmpeg(report: dict) -> dict:
 
 def ffmpeg_license_report(command: list) -> dict:
     return assert_lgpl_ffmpeg(json.loads(output(command)))
+
+
+def validate_frozen_audio(helper: Path, *, env: dict[str, str]) -> dict[str, bool]:
+    """Exercise every accepted synthetic container in the actual frozen helper."""
+    fixture_dir = ROOT / 'tests/fixtures/audio_synthetic'
+    results = {}
+    with tempfile.TemporaryDirectory(prefix='vostavo-frozen-audio-') as folder:
+        result_path = Path(folder) / 'result.json'
+        for filename in SYNTHETIC_AUDIO:
+            source = fixture_dir / filename
+            if not source.is_file():
+                raise RuntimeError(f'Missing synthetic audio fixture: {source}')
+            result_path.unlink(missing_ok=True)
+            try:
+                run([helper, '--validate-audio', source, '--max-seconds', '5',
+                     '--validation-result', result_path], cwd='/', env=env,
+                    capture_output=True, text=True, timeout=30)
+                result = json.loads(result_path.read_text())
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError,
+                    json.JSONDecodeError) as exc:
+                raise RuntimeError(f'Frozen helper failed to decode {filename}: {exc}') from exc
+            if result.get('ok') is not True:
+                raise RuntimeError(f'Frozen helper failed to decode {filename}: {result}')
+            results[filename] = True
+    return results
 
 
 def packaging_lock_without_upstream_av(lock: str) -> str:
@@ -318,6 +349,9 @@ def main(argv=None):
     if not helper.is_dir():
         raise RuntimeError('Frozen helper app was not produced')
     frozen_license = ffmpeg_license_report([helper / 'Contents/MacOS/vostavo-backend', '--ffmpeg-license-report'])
+    smoke_env = {key: os.environ[key] for key in ('HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG') if key in os.environ}
+    smoke_env['PATH'] = '/usr/bin:/bin:/usr/sbin:/sbin'
+    frozen_audio = validate_frozen_audio(helper / 'Contents/MacOS/vostavo-backend', env=smoke_env)
     if output([python, '-c', 'import platform; print(platform.python_version(), platform.machine())']) != PYTHON_VERSION + ' arm64':
         raise RuntimeError('Packaging requires pinned CPython 3.12.11 arm64')
     if plistlib.loads((helper / 'Contents/Info.plist').read_bytes())['CFBundleShortVersionString'] != version:
@@ -353,6 +387,7 @@ def main(argv=None):
         (folder / 'InfoPlist.strings').write_text(f'"NSMicrophoneUsageDescription" = {json.dumps(copy, ensure_ascii=False)};\n')
     evidence = audit(bundle)
     evidence['ffmpeg_license'] = frozen_license
+    evidence['frozen_audio_formats'] = {'unsigned': frozen_audio}
     evidence['lgpl_source_sha256'] = hashlib.sha256(source_archive.read_bytes()).hexdigest()
     info = {'CFBundleExecutable': 'vostavo-desktop', 'CFBundleIdentifier': config['identifier'], 'CFBundleName': 'Vostavo', 'CFBundleDisplayName': 'Vostavo', 'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': version, 'CFBundleVersion': version, 'CFBundleIconFile': 'Vostavo.icns', 'LSMinimumSystemVersion': evidence['minimum_macos'], 'NSMicrophoneUsageDescription': microphone['en'], 'NSAppleEventsUsageDescription': 'Vostavo can prepare a support email in Mail with your selected package attached. You review and send the draft.', 'CFBundleLocalizations': list(microphone), 'NSHighResolutionCapable': True}
     (bundle / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
@@ -368,12 +403,12 @@ def main(argv=None):
     verify_helper_relink_entitlement(bundle / 'Contents/Helpers/VostavoBackend.app')
     if profile_claims:
         verify_signed_profile_claims(bundle, profile_claims)
-    smoke_env = {key: os.environ[key] for key in ('HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG') if key in os.environ}
-    smoke_env['PATH'] = '/usr/bin:/bin:/usr/sbin:/sbin'
-    smoke = run([bundle / 'Contents/Helpers/VostavoBackend.app/Contents/MacOS/vostavo-backend', '--self-test'], cwd='/', env=smoke_env, capture_output=True, text=True, timeout=90)
+    signed_helper = bundle / 'Contents/Helpers/VostavoBackend.app/Contents/MacOS/vostavo-backend'
+    smoke = run([signed_helper, '--self-test'], cwd='/', env=smoke_env, capture_output=True, text=True, timeout=90)
     evidence['frozen_self_test'] = json.loads(smoke.stdout)
     if not evidence['frozen_self_test'].get('ok'):
         raise RuntimeError('Signed frozen helper self-test failed')
+    evidence['frozen_audio_formats']['signed'] = validate_frozen_audio(signed_helper, env=smoke_env)
     if release and not args.local_sign_only:
         archive = BUILD / 'Vostavo.zip'
         run(['ditto', '-c', '-k', '--keepParent', bundle, archive])

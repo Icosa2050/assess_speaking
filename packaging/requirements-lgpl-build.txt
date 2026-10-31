@@ -1,0 +1,5 @@
+# Build-only wheels from PyPI, pinned to the published wheel SHA-256 digests.
+# Cython 3.0.12 is a pure Python wheel on macOS arm64.
+Cython==3.0.12 --hash=sha256:0038c9bae46c459669390e53a1ec115f8096b2e4647ae007ff1bf4e6dee92806
+setuptools==75.8.0 --hash=sha256:e3982f444617239225d675215d51f6ba05f845d4eec313da4418fdbb56fb27e3
+wheel==0.45.1 --hash=sha256:708e7481cc80179af0e556bbf0cc00b8444c7321e2700b8d8580231d13017248

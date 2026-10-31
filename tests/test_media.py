@@ -8,9 +8,13 @@ ROOT = Path(__file__).resolve().parents[1]
 SYNTHETIC = ROOT / 'tests/fixtures/audio_synthetic'
 
 
-@pytest.mark.parametrize('extension', ['wav', 'm4a', 'mp4', 'aac', 'mp3', 'webm', 'ogg', 'opus', 'flac', 'aiff', 'aif'])
-def test_synthetic_accepted_audio_decodes_without_external_ffmpeg(tmp_path, extension):
-    source = SYNTHETIC / f'tone.{extension}'
+@pytest.mark.parametrize('filename', [
+    'tone.wav', 'tone.m4a', 'tone.mp4', 'tone.aac', 'tone.mp3', 'tone.webm',
+    'tone.ogg', 'tone.opus', 'tone.flac', 'tone.aiff', 'tone.aif',
+    'tone-vorbis.ogg', 'tone-vorbis.webm', 'tone-alac.m4a',
+])
+def test_synthetic_accepted_audio_decodes_without_external_ffmpeg(tmp_path, filename):
+    source = SYNTHETIC / filename
     output = tmp_path / 'decoded.wav'
     with patch.dict('os.environ', {'PATH': ''}):
         write_wav(source, output)

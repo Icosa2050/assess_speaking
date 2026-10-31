@@ -40,8 +40,8 @@ FLAGS=(
   '--enable-swresample' '--enable-swscale'
   '--enable-protocol=file,pipe'
   '--enable-demuxer=aac,aiff,flac,matroska,mov,mp3,ogg,wav'
-  '--enable-decoder=aac,flac,mp3,mp3float,opus,pcm_alaw,pcm_f32be,pcm_f32le,pcm_f64be,pcm_f64le,pcm_mulaw,pcm_s16be,pcm_s16le,pcm_s24be,pcm_s24le,pcm_s32be,pcm_s32le,pcm_u8'
-  '--enable-parser=aac,flac,mpegaudio,opus'
+  '--enable-decoder=aac,alac,flac,mp3,mp3float,opus,pcm_alaw,pcm_f32be,pcm_f32le,pcm_f64be,pcm_f64le,pcm_mulaw,pcm_s16be,pcm_s16le,pcm_s24be,pcm_s24le,pcm_s32be,pcm_s32le,pcm_u8,vorbis'
+  '--enable-parser=aac,flac,mpegaudio,opus,vorbis'
   '--enable-encoder=flac' '--enable-muxer=flac'
   '--enable-filter=abuffer,abuffersink,aformat,aresample'
 )
@@ -56,7 +56,7 @@ if grep -E -- '--enable-(gpl|nonfree|version3|libx26[45])' ffbuild/config.mak; t
 fi
 
 uv venv --clear --python "$PYTHON" "$WORK/build-venv"
-uv pip install --python "$WORK/build-venv/bin/python" 'Cython==3.0.12' 'setuptools==75.8.0' 'wheel==0.45.1'
+uv pip install --python "$WORK/build-venv/bin/python" --require-hashes --no-deps -r "$ROOT/packaging/requirements-lgpl-build.txt"
 cd "$WORK/av-$PYAV_VERSION"
 MACOSX_DEPLOYMENT_TARGET=14.0 ARCHFLAGS='-arch arm64' \
   "$WORK/build-venv/bin/python" setup.py "--ffmpeg-dir=$PREFIX" bdist_wheel --dist-dir "$WORK/wheels"
