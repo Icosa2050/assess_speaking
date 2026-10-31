@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { RehearsalRoute } from "../RehearsalRoute";
 import { renderWithProviders } from "@/test/renderWithProviders";
@@ -9,6 +9,12 @@ import { apiClient } from "@/lib/api/client";
 
 const assessableChecks = { language_pass: true, topic_pass: true, content_validity_pass: true,
   duration_pass: true, min_words_pass: true };
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((onResolve, onReject) => { resolve = onResolve; reject = onReject; });
+  return { promise, resolve, reject };
+};
 
 vi.mock("@/lib/rehearsal/storage", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/rehearsal/storage")>(),
@@ -64,7 +70,7 @@ it("clears an old rehearsal part and disables Save part when re-recording begins
   await waitFor(() => expect(screen.getByTestId("rehearsal-preview-url")).toBeEmptyDOMElement());
 });
 
-it("shows a saved compact coaching summary and next step for a rehearsal part", async () => {
+it("shows neutral loading text before a saved compact report arrives", async () => {
   const session = createRehearsal("en", "B1", "Alex", {
     provider: "ollama_local", model: "test", baseUrl: "http://localhost:11434", whisper: "small", feedbackLanguage: "en",
   });
@@ -72,7 +78,9 @@ it("shows a saved compact coaching summary and next step for a rehearsal part", 
   session.parts[0] = { ...session.parts[0], recorded: true, reportId: "compact-part" };
   vi.mocked(listRehearsals).mockResolvedValue([session]);
   vi.mocked(getRehearsal).mockResolvedValue(session);
-  vi.mocked(apiClient.getHistoryDetail).mockResolvedValue({ payload: { report: {
+  const detail = deferred<Awaited<ReturnType<typeof apiClient.getHistoryDetail>>>();
+  vi.mocked(apiClient.getHistoryDetail).mockReturnValue(detail.promise);
+  const payload = { payload: { report: {
     session_id: "compact-part", metrics: { duration_sec: 180, wpm: 110 }, scores: { final: 4 },
     checks: assessableChecks, eligibility: { state: "assessable" },
     rubric: {}, warnings: [], coaching: {
@@ -81,11 +89,19 @@ it("shows a saved compact coaching summary and next step for a rehearsal part", 
       next_step: "Record a 180 seconds retry with one clear ending.",
       feedback_language: "en", practice_language: "en",
     },
-  } } } as Awaited<ReturnType<typeof apiClient.getHistoryDetail>>);
+  } } } as Awaited<ReturnType<typeof apiClient.getHistoryDetail>>;
   renderWithProviders(<RehearsalRoute />, { initialEntries: ["/rehearsal"], locale: "it",
     appState: { draft: { speakerId: "Alex" }, microphoneSetupPassed: true } });
   fireEvent.click(await screen.findByRole("button", { name: /EN.*Alex/ }));
   const result = await screen.findByTestId("rehearsal-result-0");
+  const loading = screen.getByTestId("rehearsal-report-loading-0");
+  expect(loading).toHaveTextContent("Caricamento del feedback salvato");
+  expect(loading).not.toHaveAttribute("role");
+  expect(result.querySelector('[role="status"]')).toBeNull();
+  expect(screen.queryAllByRole("status").filter(node => node.textContent?.includes("feedback salvato"))).toHaveLength(0);
+  expect(screen.queryByTestId("rehearsal-report-missing-0")).not.toBeInTheDocument();
+  await act(async () => { detail.resolve(payload); });
+  await waitFor(() => expect(screen.queryByTestId("rehearsal-report-loading-0")).not.toBeInTheDocument());
   expect(result).toHaveTextContent("Your story has a clear sequence.");
   expect(result).toHaveTextContent("Record a 180 seconds retry with one clear ending.");
   expect(screen.getByTestId("rehearsal-coaching-summary-0")).toHaveAttribute("lang", "en");
@@ -131,7 +147,7 @@ it("withholds retained compact corrections when a rehearsal part is ineligible",
   expect(result.querySelectorAll("dd")[2]).toHaveTextContent("—");
 });
 
-it("distinguishes an unloaded part report from an ineligible assessment", async () => {
+it("shows unavailable feedback only after a saved report fetch fails", async () => {
   const session = createRehearsal("en", "B1", "Alex", {
     provider: "ollama_local", model: "test", baseUrl: "http://localhost:11434", whisper: "small", feedbackLanguage: "en",
   });
@@ -139,15 +155,51 @@ it("distinguishes an unloaded part report from an ineligible assessment", async 
   session.parts[0] = { ...session.parts[0], recorded: true, reportId: "missing-part" };
   vi.mocked(listRehearsals).mockResolvedValue([session]);
   vi.mocked(getRehearsal).mockResolvedValue(session);
-  vi.mocked(apiClient.getHistoryDetail).mockRejectedValue(new Error("History detail unavailable"));
+  const detail = deferred<Awaited<ReturnType<typeof apiClient.getHistoryDetail>>>();
+  vi.mocked(apiClient.getHistoryDetail).mockReturnValue(detail.promise);
   renderWithProviders(<RehearsalRoute />, { initialEntries: ["/rehearsal"], locale: "en",
     appState: { draft: { speakerId: "Alex" }, microphoneSetupPassed: true } });
   fireEvent.click(await screen.findByRole("button", { name: /EN.*Alex/ }));
   const result = await screen.findByTestId("rehearsal-result-0");
+  expect(screen.getByTestId("rehearsal-report-loading-0")).toBeVisible();
+  expect(result.querySelector('[role="status"]')).toBeNull();
+  expect(screen.queryAllByRole("status").filter(node => node.textContent?.includes("Saved feedback"))).toHaveLength(0);
+  expect(screen.queryByTestId("rehearsal-report-missing-0")).not.toBeInTheDocument();
+  await act(async () => { detail.reject(new Error("History detail unavailable")); });
+  await waitFor(() => expect(screen.queryByTestId("rehearsal-report-loading-0")).not.toBeInTheDocument());
   expect(screen.getByTestId("rehearsal-report-missing-0")).toBeVisible();
   expect(result).toHaveTextContent("Saved feedback is unavailable");
   expect(screen.queryByTestId("rehearsal-ineligible-0")).not.toBeInTheDocument();
   expect(result).not.toHaveTextContent("could not be verified");
+});
+
+it("settles each saved part independently", async () => {
+  const session = createRehearsal("en", "B1", "Alex", {
+    provider: "ollama_local", model: "test", baseUrl: "http://localhost:11434", whisper: "small", feedbackLanguage: "en",
+  });
+  session.phase = "review";
+  session.parts[0] = { ...session.parts[0], recorded: true, reportId: "first-part" };
+  session.parts[1] = { ...session.parts[1], recorded: true, reportId: "second-part" };
+  vi.mocked(listRehearsals).mockResolvedValue([session]);
+  vi.mocked(getRehearsal).mockResolvedValue(session);
+  const first = deferred<Awaited<ReturnType<typeof apiClient.getHistoryDetail>>>();
+  const second = deferred<Awaited<ReturnType<typeof apiClient.getHistoryDetail>>>();
+  vi.mocked(apiClient.getHistoryDetail).mockImplementation(id => id === "first-part" ? first.promise : second.promise);
+  renderWithProviders(<RehearsalRoute />, { initialEntries: ["/rehearsal"], locale: "en",
+    appState: { draft: { speakerId: "Alex" }, microphoneSetupPassed: true } });
+  fireEvent.click(await screen.findByRole("button", { name: /EN.*Alex/ }));
+  await screen.findByTestId("rehearsal-report-loading-0");
+  expect(screen.getByTestId("rehearsal-report-loading-1")).toBeVisible();
+  await act(async () => { first.resolve({ payload: { report: {
+    session_id: "first-part", metrics: {}, scores: {}, checks: assessableChecks,
+    eligibility: { state: "insufficient_speech" }, rubric: {}, warnings: [], coaching: {},
+  } } } as Awaited<ReturnType<typeof apiClient.getHistoryDetail>>); });
+  expect(screen.queryByTestId("rehearsal-report-loading-0")).not.toBeInTheDocument();
+  expect(screen.getByTestId("rehearsal-ineligible-0")).toBeVisible();
+  expect(screen.getByTestId("rehearsal-report-loading-1")).toBeVisible();
+  expect(screen.queryByTestId("rehearsal-report-missing-1")).not.toBeInTheDocument();
+  await act(async () => { second.reject(new Error("History detail unavailable")); });
+  expect(screen.getByTestId("rehearsal-report-missing-1")).toBeVisible();
 });
 
 it("bounds legacy rehearsal feedback at word boundaries and offers its full text", async () => {
