@@ -92,7 +92,7 @@ def test_wrong_explanation_and_example_languages_are_rejected():
 
 @pytest.mark.parametrize("locale, summary, next_step, why", [
     ("en", "Your answer scores 3.5 on this scale.", "Record a 90 seconds retry with a clear opening.", "Use the base verb with I."),
-    ("de", "Die Antwort hat z. B. eine klare Reihenfolge.", "Sprich 90 Sekunden und beginne mit einem Beispiel.", "Verwende die Grundform nach I."),
+    ("de", "Die Antwort hat z. B. eine klare Reihenfolge.", "Sprich 90 Sekunden und beginne mit einem Beispiel.", "Verwende z. B. die Grundform nach 'I'."),
     ("it", "La risposta del Sig. Rossi è chiara.", "Registra un nuovo tentativo di 90 secondi con un'apertura chiara.", "Usa la forma base dopo I."),
     ("fr", "La réponse est claire et vaut 3.5 points.", "Enregistre un nouvel essai de 90 secondes avec une ouverture claire.", "Utilise la forme de base après I."),
     ("es", "La respuesta conecta ideas, p. es. con ejemplos.", "Graba otro intento de 90 segundos con una frase inicial clara.", "Usa la forma base después de I."),
@@ -133,6 +133,17 @@ def test_second_sentence_is_rejected():
     data = payload()
     data["summary"] = "Your answer has a clear topic. Add detail next."
     with pytest.raises(SchemaValidationError, match="one sentence"):
+        validate(data)
+
+
+def test_fix_explanation_allows_abbreviations_and_quoted_sentence_punctuation():
+    data = payload()
+    data["fixes"][0]["why"] = "Use 'I go.' instead of 'I goes'."
+    validate(data)
+    data["fixes"][0]["why"] = "Use e.g. the base verb after I."
+    validate(data)
+    data["fixes"][0]["why"] = "Use the base verb\nafter I."
+    with pytest.raises(SchemaValidationError, match="must be one line"):
         validate(data)
 
 

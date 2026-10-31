@@ -265,7 +265,7 @@ def validate_compact_generation(report: CompactFeedback, *, transcript: str | No
         _check_language(fix.better, practice_language, f"fixes[{index}].better")
         _check_language(fix.why, feedback_language, f"fixes[{index}].why",
                         quote_sources=(fix.you_said, fix.better))
-        if "\n" in fix.why or re.search(r"[.!?].+\S", fix.why):
+        if "\n" in fix.why:
             raise SchemaValidationError(f"fixes[{index}].why: must be one line")
         validate_claim_text(fix.why, f"fixes[{index}].why", grammar_errors=bool(issues),
                             known_quotes=known_quotes, grammar_examples=grammar_examples)
