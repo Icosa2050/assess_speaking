@@ -74,7 +74,7 @@ describe("Session Setup route", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Continue without resuming" }));
     fireEvent.click(await screen.findByTestId("setup.change_details"));
     fireEvent.click(screen.getByTestId("setup.recommended_start"));
-    fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start speaking" }));
     await waitFor(() => expect(adapter.replaceSetup).toHaveBeenCalledWith(expect.any(Object), saved));
     expect(adapter.discard).not.toHaveBeenCalled();
     expect(adapter.saveSetup).not.toHaveBeenCalled();
@@ -91,7 +91,8 @@ describe("Session Setup route", () => {
       draftAdapter: seedAdapter, appState: { draft: { speakerId: "Alex" },
         preferences: { activeConnectionId: "conn-primary", setupComplete: true } } });
     fireEvent.click(await screen.findByTestId("setup.recommended_start"));
-    fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
+    // Readiness can still be pending after the practice step appears.
+    fireEvent.click(await screen.findByRole("button", { name: "Start speaking" }));
     await waitFor(() => expect(seedAdapter.saveSetup).toHaveBeenCalledOnce());
     const retrySetup = buildSessionDraft({ ...seedAdapter.saveSetup.mock.calls[0][0],
       retryOfSessionId: "parent-attempt", coachingGoal: "Add a clear ending", retryGoalEligible: true });
@@ -129,7 +130,7 @@ describe("Session Setup route", () => {
     fireEvent.click(await screen.findByRole("link", { name: "Session Setup" }));
     fireEvent.click(await screen.findByTestId("setup.change_details"));
     fireEvent.click(screen.getByTestId("setup.recommended_start"));
-    fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start speaking" }));
     await waitFor(() => expect(adapter.replaceSetup).toHaveBeenCalledOnce());
     expect(adapter.replaceSetup.mock.calls[0][0]).toMatchObject({
       retryOfSessionId: "", coachingGoal: "", retryGoalEligible: false,
@@ -245,7 +246,7 @@ describe("Session Setup route", () => {
     await waitFor(() => expect(screen.getByTestId("setup.layout")).toHaveTextContent(
       "Speak about 'My last trip abroad' in a clear sequence",
     ));
-    fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start speaking" }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await waitFor(() => expect(store.getState().draft.learningLanguage).toBe("en"));
     expect(store.getState().draft.themeLabel).toBe("My last trip abroad");
@@ -339,7 +340,7 @@ describe("Session Setup route", () => {
     expect(screen.getByTestId("setup.runtime_callout")).not.toHaveTextContent("Ready to record");
     expect(screen.getAllByText("Continue to the recording step")).toHaveLength(2);
 
-    fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start speaking" }));
 
     await waitFor(() => {
       expect(screen.getByTestId("speak.status_panel")).toBeVisible();
@@ -456,7 +457,7 @@ describe("Session Setup route", () => {
     expect(screen.getByLabelText("Theme")).toHaveValue("My last trip abroad");
     expect(screen.queryByLabelText("My own topic")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start speaking" }));
 
     await waitFor(() => {
       expect(screen.getByTestId("speak.status_panel")).toBeVisible();
@@ -527,7 +528,7 @@ describe("Session Setup route", () => {
     expect(screen.getByLabelText("Learning language")).toHaveValue("en");
     expect(screen.getByLabelText("Level for this practice")).toHaveValue("B1");
     expect(screen.getByLabelText("Theme")).toHaveValue("My last trip abroad");
-    fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start speaking" }));
 
     await waitFor(() => {
       expect(screen.getByTestId("speak.status_panel")).toBeVisible();
@@ -692,7 +693,7 @@ describe("Session Setup route", () => {
       await screen.findByText("Speak in English about 'Climate transitions' with a simple but clear structure."),
     ).toBeVisible();
 
-    fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start speaking" }));
 
     await waitFor(() => {
       expect(screen.getByTestId("speak.status_panel")).toBeVisible();
@@ -756,7 +757,7 @@ describe("Session Setup route", () => {
     expect(screen.queryByLabelText("My own topic")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Theme")).toHaveValue(visibleLibraryTheme);
 
-    fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start speaking" }));
 
     await waitFor(() => {
       expect(screen.getByTestId("speak.status_panel")).toBeVisible();
@@ -788,7 +789,7 @@ describe("Session Setup route", () => {
 
     fireEvent.click(await screen.findByTestId("setup.customize_details"));
     fireEvent.click(screen.getByTestId("setup.advanced_topic"));
-    fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start speaking" }));
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Learner name or nickname is required.");
@@ -833,7 +834,7 @@ describe("Session Setup route", () => {
     fireEvent.change(screen.getByLabelText("Speaking time goal"), {
       target: { value: "999" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Start speaking" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start speaking" }));
 
     await waitFor(() => {
       expect(screen.getByTestId("speak.status_panel")).toBeVisible();
