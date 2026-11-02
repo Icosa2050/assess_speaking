@@ -76,27 +76,45 @@ directly from the Apple Developer portal; the build decodes its CMS container
 and validates claims but does not independently validate the CMS certificate
 chain.
 
-Store notarization credentials in a named Keychain profile. Then:
+Store notarization credentials in a named Keychain profile. First, run a local
+Developer ID signing build to produce the corresponding-source archive without
+notarization or Apple upload:
 
 ```sh
 export VOSTAVO_PROVISIONING_PROFILE='/absolute/path/outside/repo/Vostavo-Developer-ID.provisionprofile'
 .venv/bin/python scripts/build_macos.py --mode release \
   --identity 'Developer ID Application: YOUR TEAM (TEAMID)' \
-  --notary-profile YOUR_PROFILE
+  --local-sign-only
 ```
 
-Release mode fails before building when these prerequisites are absent. Packaged
-release drafts require the data-protection, `ThisDeviceOnly`, non-synchronizable
-Keychain item; a missing entitlement fails closed and the UI reports drafts
-unavailable. Development and internal builds retain a logged login-Keychain
-fallback.
-
-For a local Developer ID signing check without notarization or Apple upload,
-run the same command with `--local-sign-only` instead of `--notary-profile`.
 The profile is still needed for draft storage. Without a profile, explicitly
 add `--allow-drafts-disabled`; the build report records
 `"draft_storage": "unavailable"`, and the signed DMG is only a signing/runtime
 diagnostic. The DMG name includes `signed-unnotarized`.
+
+Host the resulting `.build-macos/LGPL-corresponding-source.tar.gz` and verify
+that recipients can retrieve those exact bytes. Capture the local archive's
+SHA-256 with `shasum -a 256`; the build report also records it as
+`ffmpeg_source_sha256`. The archive includes build flags containing the checkout
+path, so run the notarized build from the same checkout path with unchanged
+build inputs. Then run it with the hosted URL:
+
+```sh
+source_sha256=$(shasum -a 256 .build-macos/LGPL-corresponding-source.tar.gz | awk '{print $1}')
+.venv/bin/python scripts/build_macos.py --mode release \
+  --identity 'Developer ID Application: YOUR TEAM (TEAMID)' \
+  --notary-profile YOUR_PROFILE \
+  --ffmpeg-source-version 7.1.1 \
+  --ffmpeg-source-archive .build-macos/LGPL-corresponding-source.tar.gz \
+  --ffmpeg-source-url 'https://YOUR_HOST/LGPL-corresponding-source.tar.gz' \
+  --ffmpeg-source-sha256 "$source_sha256"
+```
+
+Release mode fails before building when its signing prerequisites are absent.
+Packaged release drafts require the data-protection, `ThisDeviceOnly`,
+non-synchronizable Keychain item; a missing entitlement fails closed and the UI
+reports drafts unavailable. Development and internal builds retain a logged
+login-Keychain fallback.
 
 The notarized release path signs
 nested native code inside-out, notarizes/staples the app, creates/signs/notarizes/
@@ -105,7 +123,7 @@ against that actual release DMG too. The release path requires testing with a re
 certificate; internal acceptance cannot establish release library-validation
 compatibility.
 
-For a replacement LGPL FFmpeg build, pass `--ffmpeg-source-version` with the
+For the pinned LGPL FFmpeg build, pass `--ffmpeg-source-version` with the
 exact FFmpeg release, `--ffmpeg-source-archive` with the local
 `.build-macos/LGPL-corresponding-source.tar.gz`, and `--ffmpeg-source-url` with
 the hosted URL of those exact archive bytes. The generator derives the SHA-256
@@ -114,22 +132,22 @@ match. A release build requires the source version, hosted URL and SHA-256,
 and records the URL and hash in the notices and build report. The archive stays
 outside the DMG. Hosting it is an owner release action; verify recipients can
 retrieve it before publishing the DMG. The notice also records PyAV's reported
-version, license and configure flags. It includes the full LGPL 2.1 text, or
-LGPL 3 plus its incorporated GPL 3
-text, according to PyAV's reported library license. This source reference and
-license text do not replace the owner's review of LGPL relinking obligations.
-Release builds also fail if PyAV reports GPL/nonfree FFmpeg or the helper bundles
-x264/x265. An owner may explicitly pass `--allow-gpl-ffmpeg-distribution` after
-resolving the relevant license and corresponding-source obligations; the build
-report records the opt-in. The opt-in does not establish legal permission to
-distribute a nonfree build.
+version, license and configure flags. For the current pinned build, the notice
+includes the full LGPL 2.1 text. This source reference and license text do not
+replace the owner's review of LGPL relinking obligations.
+The build fails if PyAV reports GPL/nonfree FFmpeg or the helper bundles
+x264/x265. `build_macos.py` accepts `--allow-gpl-ffmpeg-distribution` and passes
+it to the notice generator, but the flag does not bypass the build's LGPL-only
+and native-library checks.
 
 ## Release checklist
 
 Before distribution, the owner must review the license audit attached to the
-AO release-readiness session and the generated notices. The currently pinned PyAV arm64 wheel reports
-GPLv3-or-later FFmpeg libraries; resolve that distribution blocker before
-publishing a DMG. The repository's own source license is also an owner decision.
+AO release-readiness session and the generated notices. The pinned PyAV 14.2.0
+build uses audio-only FFmpeg 7.1.1 under LGPL 2.1 or later, produced by
+`scripts/build_lgpl_pyav.sh`. Release builds reject GPL/nonfree FFmpeg and
+x264/x265. The owner must review LGPL relinking obligations. The repository's
+own source license remains an owner decision.
 
 1. Confirm the Developer ID Application identity, explicit
    `com.vostavo.desktop` App ID and Developer ID provisioning profile. Verify
@@ -139,19 +157,25 @@ publishing a DMG. The repository's own source license is also an owner decision.
    `stapler` and checks that the app archive is submitted and stapled before
    DMG creation, then the signed DMG is submitted and stapled. It contacts no
    Apple service.
-3. Once owner credentials are available, run the release build command above.
+3. Run the `--local-sign-only` build above to produce
+   `.build-macos/LGPL-corresponding-source.tar.gz`. Host that exact archive and
+   verify the hosted bytes have the same SHA-256 as the local archive before the
+   notarized build. Keep the same checkout path and build inputs for both builds.
+4. Once owner credentials and the hosted source URL are available, run the
+   notarized release build command above with `--ffmpeg-source-version`,
+   `--ffmpeg-source-archive` and `--ffmpeg-source-url`.
    It signs the app, submits `Vostavo.zip`, staples and validates `Vostavo.app`,
    then creates/signs/submits/staples and validates the DMG. Record both Apple
    acceptance IDs from `build-report.json`.
-4. Verify `codesign --verify --deep --strict` on the app; run `xcrun stapler
+5. Verify `codesign --verify --deep --strict` on the app; run `xcrun stapler
    validate` on both app and DMG; run `spctl -a -t exec -vvv` on the app and
    `spctl -a -t open --context context:primary-signature -vvv` on the DMG.
    Verify `Info.plist` version `0.1.0`, identifier `com.vostavo.desktop`,
    copyright and minimum macOS `14.0` against the build report.
-5. Verify the adjacent SHA-256 checksum with `(cd .build-macos && shasum -a
+6. Verify the adjacent SHA-256 checksum with `(cd .build-macos && shasum -a
    256 -c Vostavo-0.1.0-arm64.dmg.sha256)`. Archive the DMG, checksum,
    build report, notices and the human acceptance record together.
-6. On a clean Mac or user, download the DMG with quarantine preserved. Launch
+7. On a clean Mac or user, download the DMG with quarantine preserved. Launch
    from Applications, save and reopen a draft in the **real UI**, and confirm
    the microphone permission prompt appears on first recording. After stapling,
    disconnect the network and confirm first launch succeeds offline. Check
