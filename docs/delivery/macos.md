@@ -93,17 +93,21 @@ add `--allow-drafts-disabled`; the build report records
 diagnostic. The DMG name includes `signed-unnotarized`.
 
 Host the resulting `.build-macos/LGPL-corresponding-source.tar.gz` and verify
-that recipients can retrieve those exact bytes. Then run the notarized release
-build with the hosted URL:
+that recipients can retrieve those exact bytes. Capture the local archive's
+SHA-256 with `shasum -a 256`; the build report also records it as
+`ffmpeg_source_sha256`. The archive includes build flags containing the checkout
+path, so run the notarized build from the same checkout path with unchanged
+build inputs. Then run it with the hosted URL:
 
 ```sh
+source_sha256=$(shasum -a 256 .build-macos/LGPL-corresponding-source.tar.gz | awk '{print $1}')
 .venv/bin/python scripts/build_macos.py --mode release \
   --identity 'Developer ID Application: YOUR TEAM (TEAMID)' \
   --notary-profile YOUR_PROFILE \
   --ffmpeg-source-version 7.1.1 \
   --ffmpeg-source-archive .build-macos/LGPL-corresponding-source.tar.gz \
   --ffmpeg-source-url 'https://YOUR_HOST/LGPL-corresponding-source.tar.gz' \
-  --ffmpeg-source-sha256 aa373cb61a122aff25f21cc94da251ff837a68a16ee7133552567b90c0b4e36f
+  --ffmpeg-source-sha256 "$source_sha256"
 ```
 
 Release mode fails before building when its signing prerequisites are absent.
@@ -128,13 +132,13 @@ match. A release build requires the source version, hosted URL and SHA-256,
 and records the URL and hash in the notices and build report. The archive stays
 outside the DMG. Hosting it is an owner release action; verify recipients can
 retrieve it before publishing the DMG. The notice also records PyAV's reported
-version, license and configure flags. It includes the full LGPL 2.1 text, or
-LGPL 3 plus its incorporated GPL 3
-text, according to PyAV's reported library license. This source reference and
-license text do not replace the owner's review of LGPL relinking obligations.
+version, license and configure flags. For the current pinned build, the notice
+includes the full LGPL 2.1 text. This source reference and license text do not
+replace the owner's review of LGPL relinking obligations.
 The build fails if PyAV reports GPL/nonfree FFmpeg or the helper bundles
-x264/x265. The notice generator's `--allow-gpl-ffmpeg-distribution` opt-in does
-not bypass the build's LGPL-only and native-library checks.
+x264/x265. `build_macos.py` accepts `--allow-gpl-ffmpeg-distribution` and passes
+it to the notice generator, but the flag does not bypass the build's LGPL-only
+and native-library checks.
 
 ## Release checklist
 
@@ -155,9 +159,8 @@ own source license remains an owner decision.
    Apple service.
 3. Run the `--local-sign-only` build above to produce
    `.build-macos/LGPL-corresponding-source.tar.gz`. Host that exact archive and
-   verify its hosted bytes have SHA-256
-   `aa373cb61a122aff25f21cc94da251ff837a68a16ee7133552567b90c0b4e36f`
-   before the notarized build.
+   verify the hosted bytes have the same SHA-256 as the local archive before the
+   notarized build. Keep the same checkout path and build inputs for both builds.
 4. Once owner credentials and the hosted source URL are available, run the
    notarized release build command above with `--ffmpeg-source-version`,
    `--ffmpeg-source-archive` and `--ffmpeg-source-url`.
